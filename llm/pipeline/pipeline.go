@@ -67,9 +67,10 @@ func WithMiddlewares(decorators ...Middleware) Option {
 // When enabled, the pipeline pre-reads up to 3 events from the LLM stream to check
 // if the response contains any meaningful content. If the stream ends without content,
 // an ErrEmptyResponse error is returned so the existing retry flow can handle it as a failed attempt.
-func WithEmptyResponseDetection() Option {
+func WithEmptyResponseDetection(emptyResponseTextPatterns ...string) Option {
 	return func(p *pipeline) {
 		p.emptyResponseDetection = true
+		p.emptyResponseTextPatterns = append([]string(nil), emptyResponseTextPatterns...)
 	}
 }
 
@@ -107,14 +108,15 @@ func (f *Factory) Pipeline(
 
 // pipeline implements the main pipeline logic with retry capabilities.
 type pipeline struct {
-	Executor               Executor
-	Inbound                transformer.Inbound
-	Outbound               transformer.Outbound
-	middlewares            []Middleware
-	maxChannelRetries      int
-	maxSameChannelRetries  int
-	retryDelay             time.Duration
-	emptyResponseDetection bool
+	Executor                  Executor
+	Inbound                   transformer.Inbound
+	Outbound                  transformer.Outbound
+	middlewares               []Middleware
+	maxChannelRetries         int
+	maxSameChannelRetries     int
+	retryDelay                time.Duration
+	emptyResponseDetection    bool
+	emptyResponseTextPatterns []string
 }
 
 type Result struct {

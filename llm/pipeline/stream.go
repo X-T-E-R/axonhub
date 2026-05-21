@@ -36,6 +36,7 @@ func (p *pipeline) checkEmptyResponse(
 	const maxPreReadEvents = 3
 
 	var buffered []*llm.Response
+	matcher := newEmptyResponseTextMatcher(p.emptyResponseTextPatterns)
 
 	for range maxPreReadEvents {
 		if !llmStream.Next() {
@@ -45,9 +46,21 @@ func (p *pipeline) checkEmptyResponse(
 		event := llmStream.Current()
 		buffered = append(buffered, event)
 
-		if hasResponseContent(event) {
-			// Has content, not empty — prepend buffered events back
-			return streams.PrependStream(llmStream, buffered...), nil
+		if len(matcher.patterns) == 0 {
+			if hasResponseContent(event) {
+				// Has content, not empty — prepend buffered events back
+				return streams.PrependStream(llmStream, buffered...), nil
+			}
+		} else {
+			bufferedText, textOnly := bufferedResponsesTextContent(buffered)
+			if !textOnly {
+				return streams.PrependStream(llmStream, buffered...), nil
+			}
+
+			if normalized := normalizeEmptyResponseText(bufferedText); normalized != "" &&
+				!matcher.matchesPrefix(bufferedText) {
+				return streams.PrependStream(llmStream, buffered...), nil
+			}
 		}
 
 		if event == llm.DoneResponse || hasFinishReason(event) {

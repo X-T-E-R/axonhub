@@ -1,0 +1,55 @@
+name: Sync upstream unstable
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Private branch to merge official unstable into
+        required: false
+        default: unstable
+  schedule:
+    - cron: "23 18 * * *"
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: ${{ inputs.target_branch || 'unstable' }}
+
+jobs:
+  merge-upstream:
+    name: Merge official unstable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout private branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch official upstream
+        run: |
+          git remote add official https://github.com/looplj/axonhub.git
+          git fetch official unstable
+
+      - name: Merge upstream unstable
+        id: merge
+        run: |
+          if git merge-base --is-ancestor official/unstable HEAD; then
+            echo "already_current=true" >> "$GITHUB_OUTPUT"
+            echo "Private branch already contains official/unstable."
+            exit 0
+          fi
+
+          git merge --no-edit official/unstable
+          echo "already_current=false" >> "$GITHUB_OUTPUT"
+
+      - name: Push merged branch
+        if: steps.merge.outputs.already_current != 'true'
+        run: git push origin HEAD:${{ env.TARGET_BRANCH }}

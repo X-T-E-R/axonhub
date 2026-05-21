@@ -1412,14 +1412,15 @@ type ComplexityRoot struct {
 	}
 
 	RetryPolicy struct {
-		AutoDisableChannel      func(childComplexity int) int
-		EmptyResponseDetection  func(childComplexity int) int
-		Enabled                 func(childComplexity int) int
-		LoadBalancerStrategy    func(childComplexity int) int
-		MaxChannelRetries       func(childComplexity int) int
-		MaxSingleChannelRetries func(childComplexity int) int
-		RetryDelayMs            func(childComplexity int) int
-		UpstreamErrorPolicy     func(childComplexity int) int
+		AutoDisableChannel        func(childComplexity int) int
+		EmptyResponseDetection    func(childComplexity int) int
+		EmptyResponseTextPatterns func(childComplexity int) int
+		Enabled                   func(childComplexity int) int
+		LoadBalancerStrategy      func(childComplexity int) int
+		MaxChannelRetries         func(childComplexity int) int
+		MaxSingleChannelRetries   func(childComplexity int) int
+		RetryDelayMs              func(childComplexity int) int
+		UpstreamErrorPolicy       func(childComplexity int) int
 	}
 
 	Role struct {
@@ -8412,6 +8413,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RetryPolicy.EmptyResponseDetection(childComplexity), true
+	case "RetryPolicy.emptyResponseTextPatterns":
+		if e.complexity.RetryPolicy.EmptyResponseTextPatterns == nil {
+			break
+		}
+
+		return e.complexity.RetryPolicy.EmptyResponseTextPatterns(childComplexity), true
 	case "RetryPolicy.enabled":
 		if e.complexity.RetryPolicy.Enabled == nil {
 			break
@@ -41417,6 +41424,8 @@ func (ec *executionContext) fieldContext_Query_retryPolicy(_ context.Context, fi
 				return ec.fieldContext_RetryPolicy_autoDisableChannel(ctx, field)
 			case "emptyResponseDetection":
 				return ec.fieldContext_RetryPolicy_emptyResponseDetection(ctx, field)
+			case "emptyResponseTextPatterns":
+				return ec.fieldContext_RetryPolicy_emptyResponseTextPatterns(ctx, field)
 			case "upstreamErrorPolicy":
 				return ec.fieldContext_RetryPolicy_upstreamErrorPolicy(ctx, field)
 			}
@@ -45690,6 +45699,35 @@ func (ec *executionContext) fieldContext_RetryPolicy_emptyResponseDetection(_ co
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RetryPolicy_emptyResponseTextPatterns(ctx context.Context, field graphql.CollectedField, obj *biz.RetryPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RetryPolicy_emptyResponseTextPatterns,
+		func(ctx context.Context) (any, error) {
+			return obj.EmptyResponseTextPatterns, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RetryPolicy_emptyResponseTextPatterns(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RetryPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -78455,7 +78493,7 @@ func (ec *executionContext) unmarshalInputUpdateRetryPolicyInput(ctx context.Con
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"maxChannelRetries", "maxSingleChannelRetries", "retryDelayMs", "loadBalancerStrategy", "enabled", "autoDisableChannel", "emptyResponseDetection", "upstreamErrorPolicy"}
+	fieldsInOrder := [...]string{"maxChannelRetries", "maxSingleChannelRetries", "retryDelayMs", "loadBalancerStrategy", "enabled", "autoDisableChannel", "emptyResponseDetection", "emptyResponseTextPatterns", "upstreamErrorPolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -78511,6 +78549,13 @@ func (ec *executionContext) unmarshalInputUpdateRetryPolicyInput(ctx context.Con
 				return it, err
 			}
 			it.EmptyResponseDetection = data
+		case "emptyResponseTextPatterns":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("emptyResponseTextPatterns"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EmptyResponseTextPatterns = data
 		case "upstreamErrorPolicy":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("upstreamErrorPolicy"))
 			data, err := ec.unmarshalOUpstreamErrorPolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐUpstreamErrorPolicy(ctx, v)
@@ -96038,6 +96083,11 @@ func (ec *executionContext) _RetryPolicy(ctx context.Context, sel ast.SelectionS
 			}
 		case "emptyResponseDetection":
 			out.Values[i] = ec._RetryPolicy_emptyResponseDetection(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emptyResponseTextPatterns":
+			out.Values[i] = ec._RetryPolicy_emptyResponseTextPatterns(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

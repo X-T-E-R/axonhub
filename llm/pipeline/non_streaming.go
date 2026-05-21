@@ -51,7 +51,7 @@ func (p *pipeline) notStream(
 		return nil, fmt.Errorf("failed to apply llm response middlewares: %w", err)
 	}
 
-	if p.emptyResponseDetection && !hasResponseContent(llmResp) {
+	if p.emptyResponseDetection && !hasResponseContentWithPatterns(llmResp, p.emptyResponseTextPatterns) {
 		p.applyRawErrorResponseMiddlewares(ctx, ErrEmptyResponse)
 
 		return nil, ErrEmptyResponse
