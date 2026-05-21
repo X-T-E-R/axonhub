@@ -4,25 +4,39 @@ on:
   workflow_dispatch:
     inputs:
       target_branch:
-        description: Private branch to merge official unstable into
+        description: Fork branch to merge official unstable into
         required: false
         default: unstable
+      publish_image:
+        description: Build and publish GHCR image even if already current
+        required: false
+        type: boolean
+        default: true
   schedule:
-    - cron: "23 18 * * *"
+    - cron: "23 * * * *"
 
 permissions:
   contents: write
+  packages: write
 
 env:
+  IMAGE_NAME: ghcr.io/x-t-e-r/axonhub
   TARGET_BRANCH: ${{ inputs.target_branch || 'unstable' }}
 
 jobs:
   merge-upstream:
     name: Merge official unstable
     runs-on: ubuntu-latest
+    outputs:
+      target_branch: ${{ steps.target.outputs.target_branch }}
+      should_publish: ${{ steps.publish.outputs.should_publish }}
 
     steps:
-      - name: Checkout private branch
+      - name: Resolve target branch
+        id: target
+        run: echo "target_branch=${TARGET_BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout fork target branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -43,7 +57,7 @@ jobs:
         run: |
           if git merge-base --is-ancestor official/unstable HEAD; then
             echo "already_current=true" >> "$GITHUB_OUTPUT"
-            echo "Private branch already contains official/unstable."
+            echo "Fork branch already contains official/unstable."
             exit 0
           fi
 
@@ -53,3 +67,78 @@ jobs:
       - name: Push merged branch
         if: steps.merge.outputs.already_current != 'true'
         run: git push origin HEAD:${{ env.TARGET_BRANCH }}
+
+      - name: Decide image publish
+        id: publish
+        shell: bash
+        run: |
+          if [[ "${{ steps.merge.outputs.already_current }}" != "true" ]]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.publish_image }}" == "true" ]]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish-ghcr:
+    name: Publish synced GHCR image
+    needs: merge-upstream
+    if: needs.merge-upstream.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout synced branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ needs.merge-upstream.outputs.target_branch }}
+
+      - name: Resolve build metadata
+        id: build
+        shell: bash
+        run: |
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          VERSION="${{ needs.merge-upstream.outputs.target_branch }}-${SHORT_SHA}"
+          echo "${VERSION}" > internal/build/VERSION
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${VERSION}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.merge-upstream.outputs.target_branch }}
+            type=raw,value=latest,enable=${{ needs.merge-upstream.outputs.target_branch == 'unstable' }}
+            type=raw,value=sha-${{ steps.build.outputs.short_sha }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
