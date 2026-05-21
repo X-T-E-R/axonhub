@@ -25,6 +25,9 @@ var defaultRetryPolicy = RetryPolicy{
 	RetryDelayMs:            1000,
 	LoadBalancerStrategy:    "adaptive",
 	Enabled:                 true,
+	EmptyResponseTextPatterns: []string{
+		"The request was rejected because it was considered high risk",
+	},
 	UpstreamErrorPolicy: UpstreamErrorPolicy{
 		Mode: UpstreamErrorModePassthrough,
 	},

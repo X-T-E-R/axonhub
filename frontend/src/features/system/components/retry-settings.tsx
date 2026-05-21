@@ -27,6 +27,7 @@ export function RetrySettings() {
     nonStreamResponseTimeoutSeconds: 0,
     loadBalancerStrategy: 'adaptive',
     emptyResponseDetection: false,
+    emptyResponseTextPatterns: [],
     upstreamErrorPolicy: {
       mode: 'passthrough',
       customMessage: '',
@@ -48,6 +49,7 @@ export function RetrySettings() {
         nonStreamResponseTimeoutSeconds: retryPolicy.nonStreamResponseTimeoutSeconds,
         loadBalancerStrategy: retryPolicy.loadBalancerStrategy,
         emptyResponseDetection: retryPolicy.emptyResponseDetection,
+        emptyResponseTextPatterns: retryPolicy.emptyResponseTextPatterns || [],
         upstreamErrorPolicy: {
           mode: retryPolicy.upstreamErrorPolicy?.mode || 'passthrough',
           customMessage: retryPolicy.upstreamErrorPolicy?.customMessage || '',
@@ -60,12 +62,22 @@ export function RetrySettings() {
     }
   }, [retryPolicy]);
 
-  const handleInputChange = useCallback((field: keyof RetryPolicyInput, value: string | boolean | number) => {
+  const handleInputChange = useCallback((field: keyof RetryPolicyInput, value: string | boolean | number | string[]) => {
     setFormData((prev) => ({
       ...prev,
       [field]: value,
     }));
   }, []);
+
+  const handleEmptyResponseTextPatternsChange = useCallback(
+    (value: string) => {
+      handleInputChange(
+        'emptyResponseTextPatterns',
+        value.split('\n').map((line) => line.trim())
+      );
+    },
+    [handleInputChange]
+  );
 
   const handleUpstreamErrorPolicyChange = useCallback((field: 'mode' | 'customMessage', value: string) => {
     setFormData((prev) => ({
@@ -320,6 +332,21 @@ export function RetrySettings() {
                   onCheckedChange={(checked) => handleInputChange('emptyResponseDetection', checked)}
                 />
               </div>
+
+              {formData.emptyResponseDetection && (
+                <div className='bg-muted/30 ml-4 space-y-2 rounded-md border p-4'>
+                  <Label htmlFor='empty-response-text-patterns'>{t('system.retry.emptyResponseTextPatterns.label')}</Label>
+                  <div className='text-muted-foreground text-sm'>{t('system.retry.emptyResponseTextPatterns.description')}</div>
+                  <Textarea
+                    id='empty-response-text-patterns'
+                    value={(formData.emptyResponseTextPatterns || []).join('\n')}
+                    onChange={(e) => handleEmptyResponseTextPatternsChange(e.target.value)}
+                    placeholder={t('system.retry.emptyResponseTextPatterns.placeholder')}
+                    className='min-h-24'
+                  />
+                  <div className='text-muted-foreground text-xs'>{t('system.retry.emptyResponseTextPatterns.help')}</div>
+                </div>
+              )}
 
               <Separator />
 

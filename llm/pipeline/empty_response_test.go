@@ -13,6 +13,8 @@ import (
 	"github.com/looplj/axonhub/llm/streams"
 )
 
+const highRiskRejectionText = "The request was rejected because it was considered high risk"
+
 func TestHasResponseContent_ReasoningSignature(t *testing.T) {
 	signature := "gAAAA_reasoning"
 
@@ -102,6 +104,52 @@ func TestHasResponseContent(t *testing.T) {
 				}},
 			},
 		}))
+	})
+
+	t.Run("configured empty-like message text is not meaningful", func(t *testing.T) {
+		resp := &llm.Response{
+			Choices: []llm.Choice{{
+				Message: &llm.Message{
+					Content: llm.MessageContent{Content: lo.ToPtr("  the request was rejected because it was considered high risk.  ")},
+				},
+			}},
+		}
+
+		require.True(t, hasResponseContent(resp))
+		require.False(t, hasResponseContentWithPatterns(resp, []string{highRiskRejectionText}))
+	})
+
+	t.Run("configured empty-like refusal is not meaningful", func(t *testing.T) {
+		resp := &llm.Response{
+			Choices: []llm.Choice{{
+				Message: &llm.Message{
+					Refusal: highRiskRejectionText,
+				},
+			}},
+		}
+
+		require.False(t, hasResponseContentWithPatterns(resp, []string{highRiskRejectionText}))
+	})
+
+	t.Run("normal refusal remains meaningful", func(t *testing.T) {
+		require.True(t, hasResponseContentWithPatterns(&llm.Response{
+			Choices: []llm.Choice{{
+				Message: &llm.Message{
+					Refusal: "I cannot help with that request.",
+				},
+			}},
+		}, []string{highRiskRejectionText}))
+	})
+
+	t.Run("tool call with configured empty-like text remains meaningful", func(t *testing.T) {
+		require.True(t, hasResponseContentWithPatterns(&llm.Response{
+			Choices: []llm.Choice{{
+				Message: &llm.Message{
+					Content:   llm.MessageContent{Content: lo.ToPtr(highRiskRejectionText)},
+					ToolCalls: []llm.ToolCall{{ID: "call_1"}},
+				},
+			}},
+		}, []string{highRiskRejectionText}))
 	})
 }
 
@@ -340,6 +388,137 @@ func TestPipeline_Process_StreamEmptyResponseDetection(t *testing.T) {
 		require.True(t, res.Stream)
 		require.Equal(t, 1, streamCalls)
 	})
+
+	t.Run("retries on configured empty-like stream text response", func(t *testing.T) {
+		streamCalls := 0
+		executor := &mockExecutor{
+			doStream: func(ctx context.Context, req *httpclient.Request) (streams.Stream[*httpclient.StreamEvent], error) {
+				streamCalls++
+				return streams.SliceStream([]*httpclient.StreamEvent{{}}), nil
+			},
+		}
+
+		prepareCalls := 0
+		outbound := &mockOutbound{
+			transformStream: func(ctx context.Context, req *httpclient.Request, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*llm.Response], error) {
+				if streamCalls == 1 {
+					return streams.SliceStream([]*llm.Response{
+						{Choices: []llm.Choice{{
+							Delta: &llm.Message{
+								Content: llm.MessageContent{Content: lo.ToPtr(highRiskRejectionText)},
+							},
+						}}},
+						{Choices: []llm.Choice{{FinishReason: lo.ToPtr("stop"), Message: &llm.Message{}}}},
+					}), nil
+				}
+
+				return streams.SliceStream([]*llm.Response{
+					{Choices: []llm.Choice{{
+						Delta: &llm.Message{
+							Content: llm.MessageContent{Content: lo.ToPtr("ok")},
+						},
+					}}},
+					llm.DoneResponse,
+				}), nil
+			},
+			canRetry: func(err error) bool { return errors.Is(err, ErrEmptyResponse) },
+			prepareForRetry: func(ctx context.Context) error {
+				prepareCalls++
+				return nil
+			},
+		}
+
+		streamFlag := true
+		streamInbound := &mockInbound{
+			transformRequest: func(ctx context.Context, req *httpclient.Request) (*llm.Request, error) {
+				return &llm.Request{Stream: &streamFlag}, nil
+			},
+		}
+
+		p := &pipeline{
+			Executor:                  executor,
+			Inbound:                   streamInbound,
+			Outbound:                  outbound,
+			maxSameChannelRetries:     1,
+			emptyResponseDetection:    true,
+			emptyResponseTextPatterns: []string{highRiskRejectionText},
+		}
+
+		res, err := p.Process(ctx, &httpclient.Request{})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		require.True(t, res.Stream)
+		require.Equal(t, 2, streamCalls)
+		require.Equal(t, 1, prepareCalls)
+	})
+
+	t.Run("retries on configured empty-like stream text split across chunks", func(t *testing.T) {
+		streamCalls := 0
+		executor := &mockExecutor{
+			doStream: func(ctx context.Context, req *httpclient.Request) (streams.Stream[*httpclient.StreamEvent], error) {
+				streamCalls++
+				return streams.SliceStream([]*httpclient.StreamEvent{{}}), nil
+			},
+		}
+
+		prepareCalls := 0
+		outbound := &mockOutbound{
+			transformStream: func(ctx context.Context, req *httpclient.Request, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*llm.Response], error) {
+				if streamCalls == 1 {
+					return streams.SliceStream([]*llm.Response{
+						{Choices: []llm.Choice{{
+							Delta: &llm.Message{
+								Content: llm.MessageContent{Content: lo.ToPtr("The request was rejected because it was ")},
+							},
+						}}},
+						{Choices: []llm.Choice{{
+							Delta: &llm.Message{
+								Content: llm.MessageContent{Content: lo.ToPtr("considered high risk")},
+							},
+						}}},
+						{Choices: []llm.Choice{{FinishReason: lo.ToPtr("stop"), Message: &llm.Message{}}}},
+					}), nil
+				}
+
+				return streams.SliceStream([]*llm.Response{
+					{Choices: []llm.Choice{{
+						Delta: &llm.Message{
+							Content: llm.MessageContent{Content: lo.ToPtr("ok")},
+						},
+					}}},
+					llm.DoneResponse,
+				}), nil
+			},
+			canRetry: func(err error) bool { return errors.Is(err, ErrEmptyResponse) },
+			prepareForRetry: func(ctx context.Context) error {
+				prepareCalls++
+				return nil
+			},
+		}
+
+		streamFlag := true
+		streamInbound := &mockInbound{
+			transformRequest: func(ctx context.Context, req *httpclient.Request) (*llm.Request, error) {
+				return &llm.Request{Stream: &streamFlag}, nil
+			},
+		}
+
+		p := &pipeline{
+			Executor:                  executor,
+			Inbound:                   streamInbound,
+			Outbound:                  outbound,
+			maxSameChannelRetries:     1,
+			emptyResponseDetection:    true,
+			emptyResponseTextPatterns: []string{highRiskRejectionText},
+		}
+
+		res, err := p.Process(ctx, &httpclient.Request{})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		require.True(t, res.Stream)
+		require.Equal(t, 2, streamCalls)
+		require.Equal(t, 1, prepareCalls)
+	})
 }
 
 func TestPipeline_Process_NonStreamEmptyResponseDetection(t *testing.T) {
@@ -462,5 +641,58 @@ func TestPipeline_Process_NonStreamEmptyResponseDetection(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, res)
 		require.Equal(t, 1, execCalls)
+	})
+
+	t.Run("retries on configured empty-like non-stream text response", func(t *testing.T) {
+		execCalls := 0
+		executor := &mockExecutor{
+			do: func(ctx context.Context, req *httpclient.Request) (*httpclient.Response, error) {
+				execCalls++
+				return &httpclient.Response{}, nil
+			},
+		}
+
+		prepareCalls := 0
+		outbound := &mockOutbound{
+			transformResponse: func(ctx context.Context, resp *httpclient.Response) (*llm.Response, error) {
+				if execCalls == 1 {
+					return &llm.Response{
+						Choices: []llm.Choice{{
+							Message: &llm.Message{
+								Content: llm.MessageContent{Content: lo.ToPtr(highRiskRejectionText)},
+							},
+						}},
+					}, nil
+				}
+
+				return &llm.Response{
+					Choices: []llm.Choice{{
+						Message: &llm.Message{
+							Content: llm.MessageContent{Content: lo.ToPtr("ok")},
+						},
+					}},
+				}, nil
+			},
+			canRetry: func(err error) bool { return errors.Is(err, ErrEmptyResponse) },
+			prepareForRetry: func(ctx context.Context) error {
+				prepareCalls++
+				return nil
+			},
+		}
+
+		p := &pipeline{
+			Executor:                  executor,
+			Inbound:                   &mockInbound{},
+			Outbound:                  outbound,
+			maxSameChannelRetries:     1,
+			emptyResponseDetection:    true,
+			emptyResponseTextPatterns: []string{highRiskRejectionText},
+		}
+
+		res, err := p.Process(ctx, &httpclient.Request{})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		require.Equal(t, 2, execCalls)
+		require.Equal(t, 1, prepareCalls)
 	})
 }

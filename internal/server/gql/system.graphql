@@ -128,6 +128,7 @@ type RetryPolicy {
   enabled: Boolean!
   autoDisableChannel: AutoDisableChannel!
   emptyResponseDetection: Boolean!
+  emptyResponseTextPatterns: [String!]!
   upstreamErrorPolicy: UpstreamErrorPolicy!
 }
 
@@ -161,6 +162,7 @@ input UpdateRetryPolicyInput {
   enabled: Boolean
   autoDisableChannel: AutoDisableChannelInput
   emptyResponseDetection: Boolean
+  emptyResponseTextPatterns: [String!]
   upstreamErrorPolicy: UpstreamErrorPolicyInput
 }
 

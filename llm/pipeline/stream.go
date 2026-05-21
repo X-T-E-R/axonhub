@@ -183,6 +183,7 @@ func (p *pipeline) preReadLlmStream(
 	}
 
 	var buffered []*llm.Response
+	matcher := newEmptyResponseTextMatcher(p.emptyResponseTextPatterns)
 
 	for i := 0; ; i++ {
 		hasNext, err := nextLlmStreamEvent(ctx, llmStream, i == 0, firstEventGuard)
@@ -198,9 +199,21 @@ func (p *pipeline) preReadLlmStream(
 		event := llmStream.Current()
 		buffered = append(buffered, event)
 
-		if hasResponseContent(event) {
-			// Has content, not empty - prepend buffered events back
-			return streams.PrependStream(llmStream, buffered...), nil
+		if len(matcher.patterns) == 0 {
+			if hasResponseContent(event) {
+				// Has content, not empty — prepend buffered events back
+				return streams.PrependStream(llmStream, buffered...), nil
+			}
+		} else {
+			bufferedText, textOnly := bufferedResponsesTextContent(buffered)
+			if !textOnly {
+				return streams.PrependStream(llmStream, buffered...), nil
+			}
+
+			if normalized := normalizeEmptyResponseText(bufferedText); normalized != "" &&
+				!matcher.matchesPrefix(bufferedText) {
+				return streams.PrependStream(llmStream, buffered...), nil
+			}
 		}
 
 		if !preReadUntilContent && !p.emptyResponseDetection {

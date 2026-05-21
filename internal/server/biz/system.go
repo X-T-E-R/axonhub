@@ -339,6 +339,10 @@ type RetryPolicy struct {
 	// contains meaningful content, and marks empty responses as failed attempts for retry handling.
 	EmptyResponseDetection bool `json:"empty_response_detection"`
 
+	// EmptyResponseTextPatterns contains text-only response patterns that should
+	// be treated as empty responses when empty response detection is enabled.
+	EmptyResponseTextPatterns []string `json:"empty_response_text_patterns"`
+
 	// UpstreamErrorPolicy controls how provider errors are exposed to API users.
 	UpstreamErrorPolicy UpstreamErrorPolicy `json:"upstream_error_policy"`
 }
@@ -1059,6 +1063,12 @@ func normalizeRetryPolicy(policy *RetryPolicy) {
 		policy.AutoDisableChannel.Statuses = []AutoDisableChannelStatus{}
 	}
 
+	if policy.EmptyResponseTextPatterns == nil {
+		policy.EmptyResponseTextPatterns = append([]string(nil), defaultRetryPolicy.EmptyResponseTextPatterns...)
+	} else {
+		policy.EmptyResponseTextPatterns = normalizeRetryPolicyTextPatterns(policy.EmptyResponseTextPatterns)
+	}
+
 	switch policy.UpstreamErrorPolicy.Mode {
 	case UpstreamErrorModePassthrough, UpstreamErrorModeHidden, UpstreamErrorModeCustom:
 	default:
@@ -1069,6 +1079,32 @@ func normalizeRetryPolicy(policy *RetryPolicy) {
 		strings.TrimSpace(policy.UpstreamErrorPolicy.CustomMessage) == "" {
 		policy.UpstreamErrorPolicy.Mode = UpstreamErrorModeHidden
 	}
+}
+
+func normalizeRetryPolicyTextPatterns(patterns []string) []string {
+	if len(patterns) == 0 {
+		return []string{}
+	}
+
+	normalized := make([]string, 0, len(patterns))
+	seen := make(map[string]struct{}, len(patterns))
+
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+
+		key := strings.Trim(strings.ToLower(strings.Join(strings.Fields(pattern), " ")), " \t\r\n.。!！")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		normalized = append(normalized, pattern)
+	}
+
+	return normalized
 }
 
 func normalizeWebhookNotifierConfig(cfg *WebhookNotifierConfig) {
