@@ -29,12 +29,19 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       target_branch: ${{ steps.target.outputs.target_branch }}
+      image_tag: ${{ steps.target.outputs.image_tag }}
+      short_sha: ${{ steps.revision.outputs.short_sha }}
+      version: ${{ steps.revision.outputs.version }}
       should_publish: ${{ steps.publish.outputs.should_publish }}
 
     steps:
       - name: Resolve target branch
         id: target
-        run: echo "target_branch=${TARGET_BRANCH}" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          IMAGE_TAG="${TARGET_BRANCH//\//-}"
+          echo "target_branch=${TARGET_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout fork target branch
         uses: actions/checkout@v4
@@ -68,6 +75,15 @@ jobs:
         if: steps.merge.outputs.already_current != 'true'
         run: git push origin HEAD:${{ env.TARGET_BRANCH }}
 
+      - name: Resolve synced revision
+        id: revision
+        shell: bash
+        run: |
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          VERSION="${{ steps.target.outputs.image_tag }}-${SHORT_SHA}"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Decide image publish
         id: publish
         shell: bash
@@ -80,11 +96,21 @@ jobs:
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
           fi
 
-  publish-ghcr:
-    name: Publish synced GHCR image
+  build-single-arch:
+    name: Build and push ${{ matrix.arch }} synced image
     needs: merge-upstream
     if: needs.merge-upstream.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -96,19 +122,8 @@ jobs:
           fetch-depth: 1
           ref: ${{ needs.merge-upstream.outputs.target_branch }}
 
-      - name: Resolve build metadata
-        id: build
-        shell: bash
-        run: |
-          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
-          VERSION="${{ needs.merge-upstream.outputs.target_branch }}-${SHORT_SHA}"
-          echo "${VERSION}" > internal/build/VERSION
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Building version: ${VERSION}"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Write build version
+        run: echo "${{ needs.merge-upstream.outputs.version }}" > internal/build/VERSION
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -120,25 +135,68 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ needs.merge-upstream.outputs.target_branch }}
-            type=raw,value=latest,enable=${{ needs.merge-upstream.outputs.target_branch == 'unstable' }}
-            type=raw,value=sha-${{ steps.build.outputs.short_sha }}
+      - name: Resolve arch tags
+        id: tags
+        shell: bash
+        run: |
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE_NAME}:${{ needs.merge-upstream.outputs.image_tag }}-${{ matrix.arch }}"
+            echo "${IMAGE_NAME}:sha-${{ needs.merge-upstream.outputs.short_sha }}-${{ matrix.arch }}"
+            if [[ "${{ needs.merge-upstream.outputs.image_tag }}" == "unstable" ]]; then
+              echo "${IMAGE_NAME}:latest-${{ matrix.arch }}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build and push image
+      - name: Build and push single-arch image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=ghcr-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=ghcr-${{ matrix.arch }}
           provenance: false
           sbom: false
+
+  create-manifests:
+    name: Create synced multi-arch manifests
+    needs: [merge-upstream, build-single-arch]
+    if: needs.merge-upstream.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifests
+        shell: bash
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE_NAME}:${{ needs.merge-upstream.outputs.image_tag }}" \
+            "${IMAGE_NAME}:${{ needs.merge-upstream.outputs.image_tag }}-amd64" \
+            "${IMAGE_NAME}:${{ needs.merge-upstream.outputs.image_tag }}-arm64"
+
+          docker buildx imagetools create \
+            -t "${IMAGE_NAME}:sha-${{ needs.merge-upstream.outputs.short_sha }}" \
+            "${IMAGE_NAME}:sha-${{ needs.merge-upstream.outputs.short_sha }}-amd64" \
+            "${IMAGE_NAME}:sha-${{ needs.merge-upstream.outputs.short_sha }}-arm64"
+
+          if [[ "${{ needs.merge-upstream.outputs.image_tag }}" == "unstable" ]]; then
+            docker buildx imagetools create \
+              -t "${IMAGE_NAME}:latest" \
+              "${IMAGE_NAME}:latest-amd64" \
+              "${IMAGE_NAME}:latest-arm64"
+          fi
