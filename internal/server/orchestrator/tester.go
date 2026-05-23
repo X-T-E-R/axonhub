@@ -420,14 +420,11 @@ func (processor *TestChannelOrchestrator) TestSingleAPIKey(
 		return nil, err
 	}
 
-	// Verify the provided key is actually configured for this channel.
 	channelKeys := ch.Credentials.GetAllAPIKeys()
 	if len(channelKeys) == 0 {
 		return nil, fmt.Errorf("no API keys configured for channel")
 	}
-
-	keyBelongsToChannel := lo.Contains(channelKeys, key)
-	if !keyBelongsToChannel {
+	if !lo.Contains(channelKeys, key) {
 		return nil, fmt.Errorf("the provided API key is not configured for this channel")
 	}
 
@@ -436,21 +433,49 @@ func (processor *TestChannelOrchestrator) TestSingleAPIKey(
 		testModel = ch.DefaultTestModel
 	}
 
-	useStream := ch.Policies.Stream == objects.CapabilityPolicyRequire
-
+	result := processor.testSingleKey(ctx, channelID, key, testModel, ch.Policies.Stream == objects.CapabilityPolicyRequire, proxy)
 	disabledSet := make(map[string]struct{}, len(ch.DisabledAPIKeys))
-	for _, dk := range ch.DisabledAPIKeys {
-		disabledSet[dk.Key] = struct{}{}
+	for _, disabledKey := range ch.DisabledAPIKeys {
+		disabledSet[disabledKey.Key] = struct{}{}
 	}
-
-	result := processor.testSingleKey(ctx, channelID, key, testModel, useStream, proxy)
-	_, isDisabled := disabledSet[key]
-	result.Disabled = isDisabled
+	_, result.Disabled = disabledSet[key]
 
 	return result, nil
 }
 
-// testSingleKey tests a single API key by forcing the use of a specific key via SetAPIKey.
+// TestSingleChannelAPIKey exposes the existing single-key manual test path for
+// scheduled health checks while keeping the aggregate GraphQL flow unchanged.
+func (processor *TestChannelOrchestrator) TestSingleChannelAPIKey(
+	ctx context.Context,
+	channelID objects.GUID,
+	key string,
+	modelID *string,
+	proxy *httpclient.ProxyConfig,
+) biz.ChannelKeyHealthCheckBuiltinResult {
+	ch, err := processor.channelService.GetChannel(ctx, channelID.ID)
+	if err != nil {
+		return biz.ChannelKeyHealthCheckBuiltinResult{Success: false, Reason: err.Error()}
+	}
+
+	testModel := lo.FromPtr(modelID)
+	if testModel == "" {
+		testModel = ch.DefaultTestModel
+	}
+
+	result := processor.testSingleKey(ctx, channelID, key, testModel, ch.Policies.Stream == objects.CapabilityPolicyRequire, proxy)
+	reason := "ok"
+	if result.Error != nil && *result.Error != "" {
+		reason = *result.Error
+	}
+
+	return biz.ChannelKeyHealthCheckBuiltinResult{
+		Success: result.Success,
+		Reason:  reason,
+		Latency: result.Latency,
+	}
+}
+
+// testSingleKey tests a single API key by forcing the use of a specific key via an override middleware.
 func (processor *TestChannelOrchestrator) testSingleKey(
 	ctx context.Context,
 	channelID objects.GUID,

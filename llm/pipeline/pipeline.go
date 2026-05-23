@@ -270,6 +270,9 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 	if err != nil {
 		return nil, err
 	}
+	if llmRequest != nil && llmRequest.ChannelKeyAffinityID != "" {
+		ctx = llm.WithChannelKeyAffinityID(ctx, llmRequest.ChannelKeyAffinityID)
+	}
 
 	originalStream := llmRequest.Stream
 

@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/looplj/axonhub/internal/ent"
+	llmctx "github.com/looplj/axonhub/llm"
 )
 
 // ContextKey defines the context key type.
@@ -14,6 +15,12 @@ const (
 	// containerContextKey is used to store the context container in the context.
 	containerContextKey ContextKey = "context_container"
 )
+
+// EnsureContainer initializes the shared context container when downstream code
+// needs to mutate context-scoped values without replacing the context value.
+func EnsureContainer(ctx context.Context) context.Context {
+	return withContainer(ctx, getContainer(ctx))
+}
 
 // WithAPIKey stores the API key entity in the context.
 func WithAPIKey(ctx context.Context, apiKey *ent.APIKey) context.Context {
@@ -123,6 +130,25 @@ func GetChannelAPIKey(ctx context.Context) (string, bool) {
 	}
 
 	return "", false
+}
+
+// WithChannelKeyAffinityID stores a stable, non-secret affinity identifier used
+// to keep cache-compatible requests on the same upstream channel key.
+func WithChannelKeyAffinityID(ctx context.Context, affinityID string) context.Context {
+	container := getContainer(ctx)
+	container.ChannelKeyAffinityID = &affinityID
+
+	return withContainer(ctx, container)
+}
+
+// GetChannelKeyAffinityID retrieves the channel key affinity identifier.
+func GetChannelKeyAffinityID(ctx context.Context) (string, bool) {
+	container := getContainer(ctx)
+	if container.ChannelKeyAffinityID != nil {
+		return *container.ChannelKeyAffinityID, true
+	}
+
+	return llmctx.GetChannelKeyAffinityID(ctx)
 }
 
 // WithProjectID stores the project ID in the context.

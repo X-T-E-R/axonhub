@@ -20,6 +20,7 @@ import {
   IconCoin,
   IconLoader2,
   IconKeyOff,
+  IconKey,
   IconGauge,
   IconHistory,
   IconPlugConnected,
@@ -205,6 +206,15 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
           >
             <IconGauge size={16} className='mr-2' />
             {t('channels.dialogs.rateLimit.action')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              setCurrentRow(channel);
+              setOpen('keys');
+            }}
+          >
+            <IconKey size={16} className='mr-2' />
+            {t('channels.dialogs.keys.action')}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => {

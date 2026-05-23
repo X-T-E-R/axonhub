@@ -1,6 +1,8 @@
 package objects
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -212,6 +214,14 @@ type ChannelSettings struct {
 	// ProviderQuota stores provider-specific credentials used only for quota
 	// polling. Keep upstream request credentials in ChannelCredentials.
 	ProviderQuota *ChannelProviderQuotaSettings `json:"providerQuota,omitempty"`
+
+	// KeySelection configures how multiple credential API keys are selected.
+	// Defaults to trace_sticky for backward compatibility.
+	KeySelection *ChannelKeySelection `json:"keySelection,omitempty"`
+
+	// KeyHealthCheck configures per-channel credential key health checks and
+	// stores secret-safe key metadata for the channel keys panel.
+	KeyHealthCheck *ChannelKeyHealthCheck `json:"keyHealthCheck,omitempty"`
 }
 
 type RetryableErrorPattern struct {
@@ -226,6 +236,183 @@ type ChannelProviderQuotaSettings struct {
 type OpenCodeGoQuotaSettings struct {
 	WorkspaceID string `json:"workspaceId,omitempty"`
 	AuthCookie  string `json:"authCookie,omitempty"`
+}
+
+type ChannelKeySelectionStrategy string
+
+const (
+	ChannelKeySelectionStrategyTraceSticky   ChannelKeySelectionStrategy = "trace_sticky"
+	ChannelKeySelectionStrategyCacheAffinity ChannelKeySelectionStrategy = "cache_affinity"
+	ChannelKeySelectionStrategyRandom        ChannelKeySelectionStrategy = "random"
+	ChannelKeySelectionStrategyRoundRobin    ChannelKeySelectionStrategy = "round_robin"
+)
+
+type ChannelKeySelection struct {
+	Strategy ChannelKeySelectionStrategy `json:"strategy,omitempty"`
+}
+
+func (s *ChannelKeySelection) StrategyOrDefault() ChannelKeySelectionStrategy {
+	if s == nil || s.Strategy == "" {
+		return ChannelKeySelectionStrategyTraceSticky
+	}
+
+	return s.Strategy
+}
+
+type ChannelKeyHealthCheckFailureAction string
+
+const (
+	ChannelKeyHealthCheckFailureActionReportOnly ChannelKeyHealthCheckFailureAction = "report_only"
+	ChannelKeyHealthCheckFailureActionDisable    ChannelKeyHealthCheckFailureAction = "disable"
+	ChannelKeyHealthCheckFailureActionArchive    ChannelKeyHealthCheckFailureAction = "archive"
+	ChannelKeyHealthCheckFailureActionDelete     ChannelKeyHealthCheckFailureAction = "delete"
+)
+
+type ChannelKeyHealthCheckRuleType string
+
+const (
+	ChannelKeyHealthCheckRuleTypeBuiltinTest ChannelKeyHealthCheckRuleType = "builtin_test"
+	ChannelKeyHealthCheckRuleTypeHTTP        ChannelKeyHealthCheckRuleType = "http"
+)
+
+type ChannelKeyHealthCheckHTTPMethod string
+
+const (
+	ChannelKeyHealthCheckHTTPMethodGet    ChannelKeyHealthCheckHTTPMethod = "GET"
+	ChannelKeyHealthCheckHTTPMethodPost   ChannelKeyHealthCheckHTTPMethod = "POST"
+	ChannelKeyHealthCheckHTTPMethodPut    ChannelKeyHealthCheckHTTPMethod = "PUT"
+	ChannelKeyHealthCheckHTTPMethodPatch  ChannelKeyHealthCheckHTTPMethod = "PATCH"
+	ChannelKeyHealthCheckHTTPMethodDelete ChannelKeyHealthCheckHTTPMethod = "DELETE"
+)
+
+type ChannelKeyHealthCheckHTTPURLMode string
+
+const (
+	ChannelKeyHealthCheckHTTPURLModeProviderBaseURL ChannelKeyHealthCheckHTTPURLMode = "provider_base_url"
+	ChannelKeyHealthCheckHTTPURLModeAbsoluteURL     ChannelKeyHealthCheckHTTPURLMode = "absolute_url"
+)
+
+type ChannelKeyHealthCheckKeyInjectionLocation string
+
+const (
+	ChannelKeyHealthCheckKeyInjectionAuthorizationBearer ChannelKeyHealthCheckKeyInjectionLocation = "authorization_bearer"
+	ChannelKeyHealthCheckKeyInjectionHeader              ChannelKeyHealthCheckKeyInjectionLocation = "header"
+)
+
+type ChannelKeyStatus string
+
+const (
+	ChannelKeyStatusActive   ChannelKeyStatus = "active"
+	ChannelKeyStatusDisabled ChannelKeyStatus = "disabled"
+	ChannelKeyStatusArchived ChannelKeyStatus = "archived"
+)
+
+type ChannelKeyHealthCheck struct {
+	Enabled          bool                               `json:"enabled"`
+	IntervalMinutes  int                                `json:"intervalMinutes,omitempty"`
+	FailureThreshold int                                `json:"failureThreshold,omitempty"`
+	FailureAction    ChannelKeyHealthCheckFailureAction `json:"failureAction,omitempty"`
+	IncludeDisabled  bool                               `json:"includeDisabled,omitempty"`
+	Rules            []ChannelKeyHealthCheckRule        `json:"rules,omitempty"`
+	KeyMetadata      []ChannelKeyMetadata               `json:"keyMetadata,omitempty"`
+	ArchivedKeys     []ChannelArchivedAPIKey            `json:"archivedKeys,omitempty"`
+}
+
+func (h *ChannelKeyHealthCheck) IntervalMinutesOrDefault() int {
+	if h == nil || h.IntervalMinutes <= 0 {
+		return 60
+	}
+
+	return h.IntervalMinutes
+}
+
+func (h *ChannelKeyHealthCheck) FailureThresholdOrDefault() int {
+	if h == nil || h.FailureThreshold <= 0 {
+		return 3
+	}
+
+	return h.FailureThreshold
+}
+
+func (h *ChannelKeyHealthCheck) FailureActionOrDefault() ChannelKeyHealthCheckFailureAction {
+	if h == nil || h.FailureAction == "" {
+		return ChannelKeyHealthCheckFailureActionReportOnly
+	}
+
+	return h.FailureAction
+}
+
+type ChannelKeyHealthCheckRule struct {
+	ID      string                         `json:"id"`
+	Name    string                         `json:"name"`
+	Type    ChannelKeyHealthCheckRuleType  `json:"type"`
+	Enabled *bool                          `json:"enabled,omitempty"`
+	Builtin *ChannelKeyHealthCheckBuiltin  `json:"builtin,omitempty"`
+	HTTP    *ChannelKeyHealthCheckHTTPRule `json:"http,omitempty"`
+}
+
+type ChannelKeyHealthCheckBuiltin struct {
+	Kind string `json:"kind"`
+}
+
+type ChannelKeyHealthCheckHTTPRule struct {
+	Method           ChannelKeyHealthCheckHTTPMethod    `json:"method,omitempty"`
+	URLMode          ChannelKeyHealthCheckHTTPURLMode   `json:"urlMode,omitempty"`
+	Path             string                             `json:"path,omitempty"`
+	URL              string                             `json:"url,omitempty"`
+	TimeoutMs        int                                `json:"timeoutMs,omitempty"`
+	Headers          []HeaderEntry                      `json:"headers,omitempty"`
+	KeyInjection     *ChannelKeyHealthCheckKeyInjection `json:"keyInjection,omitempty"`
+	ExpectedStatuses []int                              `json:"expectedStatuses,omitempty"`
+	PassWhen         string                             `json:"passWhen,omitempty"`
+}
+
+type ChannelKeyHealthCheckKeyInjection struct {
+	Location   ChannelKeyHealthCheckKeyInjectionLocation `json:"location,omitempty"`
+	HeaderName string                                    `json:"headerName,omitempty"`
+}
+
+type ChannelKeyMetadata struct {
+	ID            string           `json:"id,omitempty"`
+	MaskedKey     string           `json:"maskedKey,omitempty"`
+	Status        ChannelKeyStatus `json:"status,omitempty"`
+	LastCheckedAt *time.Time       `json:"lastCheckedAt,omitempty"`
+	Success       *bool            `json:"success,omitempty"`
+	FailureCount  int              `json:"failureCount,omitempty"`
+	Reason        string           `json:"reason,omitempty"`
+	Balance       any              `json:"balance,omitempty"`
+	Currency      string           `json:"currency,omitempty"`
+	Available     *bool            `json:"available,omitempty"`
+}
+
+type ChannelArchivedAPIKey struct {
+	ID            string     `json:"id,omitempty"`
+	MaskedKey     string     `json:"maskedKey,omitempty"`
+	ArchivedAt    *time.Time `json:"archivedAt,omitempty"`
+	Reason        string     `json:"reason,omitempty"`
+	LastCheckedAt *time.Time `json:"lastCheckedAt,omitempty"`
+	FailureCount  int        `json:"failureCount,omitempty"`
+	Balance       any        `json:"balance,omitempty"`
+	Currency      string     `json:"currency,omitempty"`
+	Available     *bool      `json:"available,omitempty"`
+}
+
+func ChannelAPIKeyFingerprint(key string) string {
+	sum := sha256.Sum256([]byte(key))
+
+	return "key_" + hex.EncodeToString(sum[:8])
+}
+
+func MaskChannelAPIKey(key string) string {
+	key = strings.TrimSpace(key)
+	if len(key) == 0 {
+		return "****"
+	}
+	if len(key) <= 8 {
+		return "****" + key[max(0, len(key)-4):]
+	}
+
+	return key[:4] + "****" + key[len(key)-4:]
 }
 
 type ChannelRateLimit struct {
@@ -264,7 +451,8 @@ type ChannelCredentials struct {
 	OAuth *OAuthCredentials `json:"oauth,omitempty"`
 
 	// APIKeys is a list of API keys for the channel.
-	// When multiple keys are provided, they will be used in a round-robin fashion.
+	// Multiple-key routing is controlled by ChannelSettings.KeySelection and
+	// defaults to trace-sticky behavior for backward compatibility.
 	APIKeys []string `json:"apiKeys,omitempty"`
 
 	// Azure configuration for the channel.
@@ -296,8 +484,13 @@ func (c *ChannelCredentials) GetAllAPIKeys() []string {
 
 // GetEnabledAPIKeys returns API keys that are not disabled.
 func (c *ChannelCredentials) GetEnabledAPIKeys(disabledKeys []DisabledAPIKey) []string {
+	return c.GetRoutableAPIKeys(disabledKeys, nil)
+}
+
+// GetRoutableAPIKeys returns API keys that are neither disabled nor archived.
+func (c *ChannelCredentials) GetRoutableAPIKeys(disabledKeys []DisabledAPIKey, archivedKeys []ChannelArchivedAPIKey) []string {
 	allKeys := c.GetAllAPIKeys()
-	if len(disabledKeys) == 0 {
+	if len(disabledKeys) == 0 && len(archivedKeys) == 0 {
 		return allKeys
 	}
 
@@ -310,9 +503,21 @@ func (c *ChannelCredentials) GetEnabledAPIKeys(disabledKeys []DisabledAPIKey) []
 		disabledSet[dk.Key] = struct{}{}
 	}
 
+	archivedSet := make(map[string]struct{}, len(archivedKeys))
+	for _, archived := range archivedKeys {
+		if archived.ID == "" {
+			continue
+		}
+
+		archivedSet[archived.ID] = struct{}{}
+	}
+
 	enabled := make([]string, 0, len(allKeys))
 	for _, key := range allKeys {
 		if _, ok := disabledSet[key]; ok {
+			continue
+		}
+		if _, ok := archivedSet[ChannelAPIKeyFingerprint(key)]; ok {
 			continue
 		}
 

@@ -23,7 +23,8 @@ type contextContainer struct {
 	mu            sync.RWMutex
 
 	// ChannelAPIKey stores the API key used for the channel request (not the user's API key)
-	ChannelAPIKey *string
+	ChannelAPIKey        *string
+	ChannelKeyAffinityID *string
 }
 
 // getContainer retrieves the existing container from context, or creates a new one and stores it in the context if it doesn't exist.

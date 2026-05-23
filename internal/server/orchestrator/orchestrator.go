@@ -171,6 +171,7 @@ type ChatCompletionResult struct {
 func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, request *httpclient.Request) (ChatCompletionResult, error) {
 	// The context is system bypassed to allow the orchestrator to access the system settings.
 	ctx = authz.WithSystemBypass(ctx, "process-chat-completion")
+	ctx = contexts.EnsureContainer(ctx)
 
 	apiKey, _ := contexts.GetAPIKey(ctx)
 
@@ -251,9 +252,10 @@ func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, reques
 		applyAutoReasoningEffort(processor.SystemService),
 		checkApiKeyModelAccess(inbound),
 		applyModelMapping(inbound),
-		selectCandidates(inbound, processor.quotaProvider, processor.SystemService),
 		injectPrompts(inbound),
 		protectPrompts(inbound),
+		applyChannelKeyCacheAffinity(),
+		selectCandidates(inbound, processor.quotaProvider, processor.SystemService),
 		// Response pass-through middlewares run before persistRequest so the raw provider
 		// response is saved when pass-through is enabled.
 		applyPassThroughResponse(outbound, processor.SystemService),

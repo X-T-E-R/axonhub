@@ -262,6 +262,59 @@ func TestFactory_NewFactory(t *testing.T) {
 	require.Equal(t, executor, factory.Executor)
 }
 
+type affinityAwareOutbound struct {
+	affinityID string
+}
+
+func (t *affinityAwareOutbound) APIFormat() llm.APIFormat {
+	return "test/format"
+}
+
+func (t *affinityAwareOutbound) TransformRequest(ctx context.Context, request *llm.Request) (*httpclient.Request, error) {
+	affinityID, ok := llm.GetChannelKeyAffinityID(ctx)
+	if ok {
+		t.affinityID = affinityID
+	}
+
+	return &httpclient.Request{}, nil
+}
+
+func (t *affinityAwareOutbound) TransformResponse(ctx context.Context, response *httpclient.Response) (*llm.Response, error) {
+	return &llm.Response{}, nil
+}
+
+func (t *affinityAwareOutbound) TransformStream(ctx context.Context, req *httpclient.Request, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*llm.Response], error) {
+	return streams.SliceStream([]*llm.Response{}), nil
+}
+
+func (t *affinityAwareOutbound) TransformError(ctx context.Context, err *httpclient.Error) *llm.ResponseError {
+	return &llm.ResponseError{}
+}
+
+func (t *affinityAwareOutbound) AggregateStreamChunks(ctx context.Context, _ *httpclient.Request, chunks []*httpclient.StreamEvent) ([]byte, llm.ResponseMeta, error) {
+	return []byte(`{}`), llm.ResponseMeta{}, nil
+}
+
+func TestPipeline_PassesChannelKeyAffinityToOutboundContext(t *testing.T) {
+	inbound := &testInbound{}
+	outbound := &affinityAwareOutbound{}
+	executor := &testExecutor{}
+
+	factory := NewFactory(executor)
+	p := factory.Pipeline(
+		inbound,
+		outbound,
+		WithMiddlewares(OnLlmRequest("set-affinity", func(ctx context.Context, request *llm.Request) (*llm.Request, error) {
+			request.ChannelKeyAffinityID = "cache:test-affinity"
+			return request, nil
+		})),
+	)
+
+	_, err := p.Process(context.Background(), &httpclient.Request{})
+	require.NoError(t, err)
+	require.Equal(t, "cache:test-affinity", outbound.affinityID)
+}
+
 // testExecutor is a simple test executor.
 type testExecutor struct {
 	callCount int

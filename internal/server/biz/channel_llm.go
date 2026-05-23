@@ -127,7 +127,7 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 		Channel:              c,
 		HTTPClient:           httpClient,
 		cachedDisabledKeySet: disabledKeySet,
-		cachedEnabledAPIKeys: c.Credentials.GetEnabledAPIKeys(c.DisabledAPIKeys),
+		cachedEnabledAPIKeys: c.Credentials.GetRoutableAPIKeys(c.DisabledAPIKeys, channelArchivedAPIKeys(c.Settings)),
 	}
 
 	// Precompute other caches
@@ -148,7 +148,7 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 }
 
 // getAPIKeyProvider returns an APIKeyProvider based on the channel.
-// If multiple enabled API keys are configured, it returns a TraceStickyKeyProvider for consistent hashing.
+// If multiple enabled API keys are configured, it uses the channel key selection strategy.
 // Otherwise, it returns a StaticKeyProvider.
 //
 // NOTE: This function panics when there is no enabled API key. This is intended as an assertion:
@@ -160,7 +160,23 @@ func getAPIKeyProvider(ch *Channel) auth.APIKeyProvider {
 
 	enabled := ch.cachedEnabledAPIKeys
 	if len(enabled) > 1 {
-		return NewTraceStickyKeyProvider(ch)
+		strategy := objects.ChannelKeySelectionStrategyTraceSticky
+		if ch.Settings != nil && ch.Settings.KeySelection != nil {
+			strategy = ch.Settings.KeySelection.StrategyOrDefault()
+		}
+
+		switch strategy {
+		case objects.ChannelKeySelectionStrategyCacheAffinity:
+			return NewCacheAffinityKeyProvider(ch)
+		case objects.ChannelKeySelectionStrategyRandom:
+			return NewRandomChannelKeyProvider(ch)
+		case objects.ChannelKeySelectionStrategyRoundRobin:
+			return NewRoundRobinChannelKeyProvider(ch)
+		case objects.ChannelKeySelectionStrategyTraceSticky:
+			return NewTraceStickyKeyProvider(ch)
+		default:
+			return NewTraceStickyKeyProvider(ch)
+		}
 	}
 
 	if len(enabled) == 1 {
@@ -453,7 +469,7 @@ func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel, apiKeyOve
 	// Validate credentials early so we can fail fast without constructing HTTP clients/transformers.
 	//
 	// NOTE: "enabled" keys excludes keys that were explicitly disabled for this channel.
-	enabledKeys := c.Credentials.GetEnabledAPIKeys(c.DisabledAPIKeys)
+	enabledKeys := c.Credentials.GetRoutableAPIKeys(c.DisabledAPIKeys, channelArchivedAPIKeys(c.Settings))
 
 	//nolint:exhaustive // Checked.
 	switch c.Type {
