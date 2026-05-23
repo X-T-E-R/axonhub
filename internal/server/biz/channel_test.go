@@ -237,6 +237,84 @@ func TestChannelService_CreateChannel_PersistsAutoSyncModelPatternAndManualModel
 	require.Equal(t, true, got.AutoSyncSupportedModels)
 }
 
+func TestChannelService_UpdateChannelPreservesArchivedCredentialKeys(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	archivedID := objects.ChannelAPIKeyFingerprint("archived-key")
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Preserve Archived Key").
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"active-key", "archived-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID:        archivedID,
+					MaskedKey: objects.MaskChannelAPIKey("archived-key"),
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateChannel(ctx, ch.ID, &ent.UpdateChannelInput{
+		Credentials: &objects.ChannelCredentials{APIKeys: []string{"active-key"}},
+	})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"active-key", "archived-key"}, updated.Credentials.APIKeys)
+
+	inventory, err := svc.ChannelAPIKeyInventory(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Contains(t, lo.Map(inventory, func(item *ChannelAPIKeyInventoryItem, _ int) string {
+		return item.ID
+	}), archivedID)
+}
+
+func TestChannelService_UpdateChannelPreservesArchivedCredentialKeysWhenSettingsSubmitted(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	archivedID := objects.ChannelAPIKeyFingerprint("archived-key")
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Preserve Archived Key With Settings").
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"active-key", "archived-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID:        archivedID,
+					MaskedKey: objects.MaskChannelAPIKey("archived-key"),
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateChannel(ctx, ch.ID, &ent.UpdateChannelInput{
+		Credentials: &objects.ChannelCredentials{APIKeys: []string{"active-key"}},
+		Settings: &objects.ChannelSettings{
+			KeySelection: &objects.ChannelKeySelection{Strategy: objects.ChannelKeySelectionStrategyRandom},
+		},
+	})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"active-key", "archived-key"}, updated.Credentials.APIKeys)
+	require.Equal(t, objects.ChannelKeySelectionStrategyRandom, updated.Settings.KeySelection.Strategy)
+}
+
 func setupTestChannelService(t *testing.T) (*ChannelService, *ent.Client) {
 	t.Helper()
 

@@ -13,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/scopes"
 )
 
 func setupTestQueryResolver(t *testing.T) (*queryResolver, context.Context, *ent.Client) {
@@ -26,6 +27,41 @@ func setupTestQueryResolver(t *testing.T) (*queryResolver, context.Context, *ent
 	resolver := &queryResolver{&Resolver{client: client}}
 
 	return resolver, ctx, client
+}
+
+func TestChannelResolver_CredentialsExcludeArchivedKeys(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+	ctx = contexts.WithUser(ctx, &ent.User{
+		Scopes: []string{string(scopes.ScopeWriteChannels)},
+	})
+
+	archivedID := objects.ChannelAPIKeyFingerprint("archived-key")
+	ch := &ent.Channel{
+		Type: channel.TypeOpenai,
+		Credentials: objects.ChannelCredentials{
+			APIKeys: []string{"active-key", "archived-key"},
+		},
+		Settings: &objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID:        archivedID,
+					MaskedKey: objects.MaskChannelAPIKey("archived-key"),
+				}},
+			},
+		},
+	}
+
+	resolver := &channelResolver{&Resolver{}}
+	creds, err := resolver.Credentials(ctx, ch)
+	require.NoError(t, err)
+	require.NotNil(t, creds)
+	require.Equal(t, []string{"active-key"}, creds.APIKeys)
+	require.Empty(t, creds.APIKey)
 }
 
 func TestQueryResolver_AllChannelSummarys_ProjectProfileUsesIntersection(t *testing.T) {

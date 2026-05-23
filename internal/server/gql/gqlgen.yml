@@ -190,6 +190,9 @@ models:
   ChannelKeyStatus:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyStatus
+  ChannelKeyHealthCheckTrigger:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckTrigger
   ChannelKeyHealthCheck:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheck
@@ -226,6 +229,12 @@ models:
   ChannelKeyMetadataInput:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyMetadata
+  ChannelKeyHealthCheckHistoryEntry:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckHistoryEntry
+  ChannelKeyHealthCheckHistoryEntryInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckHistoryEntry
   ChannelArchivedAPIKey:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelArchivedAPIKey

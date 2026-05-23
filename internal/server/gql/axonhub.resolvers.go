@@ -65,7 +65,7 @@ func (r *channelResolver) Credentials(ctx context.Context, obj *ent.Channel) (*o
 	}
 
 	// For non-OAuth channel types, use api keys array.
-	creds.APIKeys = creds.GetAllAPIKeys()
+	creds.APIKeys = creds.GetRoutableAPIKeys(nil, biz.ChannelArchivedAPIKeys(obj.Settings))
 	creds.APIKey = ""
 
 	return &creds, nil
@@ -124,6 +124,11 @@ func (r *channelAPIKeyInventoryItemResolver) Balance(ctx context.Context, obj *b
 
 // Balance is the resolver for the balance field.
 func (r *channelArchivedAPIKeyResolver) Balance(ctx context.Context, obj *objects.ChannelArchivedAPIKey) (objects.JSONRawMessage, error) {
+	return marshalChannelKeyBalance(obj.Balance)
+}
+
+// Balance is the resolver for the balance field.
+func (r *channelKeyHealthCheckHistoryEntryResolver) Balance(ctx context.Context, obj *objects.ChannelKeyHealthCheckHistoryEntry) (objects.JSONRawMessage, error) {
 	return marshalChannelKeyBalance(obj.Balance)
 }
 
@@ -442,6 +447,11 @@ func (r *mutationResolver) RestoreChannelAPIKey(ctx context.Context, channelID o
 	}
 
 	return true, nil
+}
+
+// RunChannelAPIKeyHealthCheck is the resolver for the runChannelAPIKeyHealthCheck field.
+func (r *mutationResolver) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID objects.GUID, keyIDs []string) ([]*biz.ChannelAPIKeyInventoryItem, error) {
+	return r.channelService.RunChannelAPIKeyHealthCheck(ctx, channelID.ID, keyIDs)
 }
 
 // CreateAPIKey is the resolver for the createAPIKey field.
@@ -1009,6 +1019,11 @@ func (r *channelArchivedAPIKeyInputResolver) Balance(ctx context.Context, obj *o
 }
 
 // Balance is the resolver for the balance field.
+func (r *channelKeyHealthCheckHistoryEntryInputResolver) Balance(ctx context.Context, obj *objects.ChannelKeyHealthCheckHistoryEntry, data objects.JSONRawMessage) error {
+	return unmarshalChannelKeyBalance(data, &obj.Balance)
+}
+
+// Balance is the resolver for the balance field.
 func (r *channelKeyMetadataInputResolver) Balance(ctx context.Context, obj *objects.ChannelKeyMetadata, data objects.JSONRawMessage) error {
 	return unmarshalChannelKeyBalance(data, &obj.Balance)
 }
@@ -1021,6 +1036,11 @@ func (r *Resolver) ChannelAPIKeyInventoryItem() ChannelAPIKeyInventoryItemResolv
 // ChannelArchivedAPIKey returns ChannelArchivedAPIKeyResolver implementation.
 func (r *Resolver) ChannelArchivedAPIKey() ChannelArchivedAPIKeyResolver {
 	return &channelArchivedAPIKeyResolver{r}
+}
+
+// ChannelKeyHealthCheckHistoryEntry returns ChannelKeyHealthCheckHistoryEntryResolver implementation.
+func (r *Resolver) ChannelKeyHealthCheckHistoryEntry() ChannelKeyHealthCheckHistoryEntryResolver {
+	return &channelKeyHealthCheckHistoryEntryResolver{r}
 }
 
 // ChannelKeyMetadata returns ChannelKeyMetadataResolver implementation.
@@ -1042,6 +1062,11 @@ func (r *Resolver) ChannelArchivedAPIKeyInput() ChannelArchivedAPIKeyInputResolv
 	return &channelArchivedAPIKeyInputResolver{r}
 }
 
+// ChannelKeyHealthCheckHistoryEntryInput returns ChannelKeyHealthCheckHistoryEntryInputResolver implementation.
+func (r *Resolver) ChannelKeyHealthCheckHistoryEntryInput() ChannelKeyHealthCheckHistoryEntryInputResolver {
+	return &channelKeyHealthCheckHistoryEntryInputResolver{r}
+}
+
 // ChannelKeyMetadataInput returns ChannelKeyMetadataInputResolver implementation.
 func (r *Resolver) ChannelKeyMetadataInput() ChannelKeyMetadataInputResolver {
 	return &channelKeyMetadataInputResolver{r}
@@ -1049,9 +1074,11 @@ func (r *Resolver) ChannelKeyMetadataInput() ChannelKeyMetadataInputResolver {
 
 type channelAPIKeyInventoryItemResolver struct{ *Resolver }
 type channelArchivedAPIKeyResolver struct{ *Resolver }
+type channelKeyHealthCheckHistoryEntryResolver struct{ *Resolver }
 type channelKeyMetadataResolver struct{ *Resolver }
 type channelSettingsResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
 type segmentResolver struct{ *Resolver }
 type channelArchivedAPIKeyInputResolver struct{ *Resolver }
+type channelKeyHealthCheckHistoryEntryInputResolver struct{ *Resolver }
 type channelKeyMetadataInputResolver struct{ *Resolver }

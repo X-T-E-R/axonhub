@@ -768,3 +768,46 @@ func TestChannelService_DeleteDisabledAPIKeys_NoDisabledKeys(t *testing.T) {
 	require.Contains(t, updatedCh.Credentials.APIKeys, "key2")
 	require.NotContains(t, updatedCh.Credentials.APIKeys, "key1")
 }
+
+func TestChannelService_DeleteChannelAPIKey_RemovesArchivedRecordWithoutRawCredential(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	archivedID := objects.ChannelAPIKeyFingerprint("archived-key")
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Archived Only Record").
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"active-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				KeyMetadata: []objects.ChannelKeyMetadata{{
+					ID:           archivedID,
+					MaskedKey:    objects.MaskChannelAPIKey("archived-key"),
+					FailureCount: 2,
+				}},
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID:        archivedID,
+					MaskedKey: objects.MaskChannelAPIKey("archived-key"),
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	result, err := svc.DeleteChannelAPIKey(ctx, ch.ID, archivedID)
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	updated, err := client.Channel.Get(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Len(t, updated.Settings.KeyHealthCheck.ArchivedKeys, 0)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 0)
+	require.Equal(t, []string{"active-key"}, updated.Credentials.APIKeys)
+}

@@ -33,6 +33,7 @@ const (
 	channelKeyHealthCheckMaxChannels     = 4
 	channelKeyHealthCheckMaxKeys         = 8
 	channelKeyHealthCheckFailureCode     = 499
+	channelKeyHealthCheckHistoryLimit    = 20
 )
 
 // ChannelKeyHealthCheckTester is a narrow seam for reusing the manual
@@ -53,6 +54,7 @@ type ChannelKeyHealthCheckResult struct {
 	Balance   any
 	Currency  string
 	Available *bool
+	Rule      string
 }
 
 func (svc *ChannelService) SetChannelKeyHealthCheckTester(tester ChannelKeyHealthCheckTester) {
@@ -259,9 +261,10 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 			failed++
 		}
 
-		metadata := upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, result, now)
+		metadata := upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, result, now, objects.ChannelKeyHealthCheckTriggerScheduled)
 		settings.KeyHealthCheck.KeyMetadata = metadata
 	}
+	mergeChannelKeyOperationalStatus(ch, settings.KeyHealthCheck)
 
 	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(ch.ID).SetSettings(settings).Save(ctx); err != nil {
 		return channelKeyHealthCheckChannelResult{}, fmt.Errorf("failed to save channel key metadata: %w", err)
@@ -281,14 +284,7 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent.Channel, key string) ChannelKeyHealthCheckResult {
 	rules := ch.Settings.KeyHealthCheck.Rules
 	if len(rules) == 0 {
-		rules = []objects.ChannelKeyHealthCheckRule{{
-			ID:   "builtin-key-test",
-			Name: "Built-in key test",
-			Type: objects.ChannelKeyHealthCheckRuleTypeBuiltinTest,
-			Builtin: &objects.ChannelKeyHealthCheckBuiltin{
-				Kind: "channel_api_key_test",
-			},
-		}}
+		rules = defaultChannelKeyHealthCheckRules(ch.Type)
 	}
 
 	var merged ChannelKeyHealthCheckResult
@@ -298,6 +294,7 @@ func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent
 		}
 
 		result := svc.runChannelKeyHealthCheckRule(ctx, ch, key, rule)
+		result.Rule = summarizeChannelKeyHealthCheckRule(rule)
 		merged = mergeChannelKeyHealthCheckResult(merged, result)
 		if !result.Success {
 			return merged
@@ -310,6 +307,32 @@ func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent
 	merged.Success = true
 
 	return merged
+}
+
+func defaultChannelKeyHealthCheckRules(channelType channel.Type) []objects.ChannelKeyHealthCheckRule {
+	if channelType == channel.TypeDeepseek {
+		return []objects.ChannelKeyHealthCheckRule{{
+			ID:   "deepseek-balance",
+			Name: "DeepSeek balance",
+			Type: objects.ChannelKeyHealthCheckRuleTypeHTTP,
+			HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+				Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+				URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+				URL:              "https://api.deepseek.com/user/balance",
+				ExpectedStatuses: []int{http.StatusOK},
+				PassWhen:         "json.is_available == true",
+			},
+		}}
+	}
+
+	return []objects.ChannelKeyHealthCheckRule{{
+		ID:   "builtin-key-test",
+		Name: "Built-in key test",
+		Type: objects.ChannelKeyHealthCheckRuleTypeBuiltinTest,
+		Builtin: &objects.ChannelKeyHealthCheckBuiltin{
+			Kind: "channel_api_key_test",
+		},
+	}}
 }
 
 func (svc *ChannelService) runChannelKeyHealthCheckRule(ctx context.Context, ch *ent.Channel, key string, rule objects.ChannelKeyHealthCheckRule) ChannelKeyHealthCheckResult {
@@ -325,6 +348,21 @@ func (svc *ChannelService) runChannelKeyHealthCheckRule(ctx context.Context, ch 
 	default:
 		return ChannelKeyHealthCheckResult{Success: false, Reason: fmt.Sprintf("unsupported rule type %q", rule.Type)}
 	}
+}
+
+func summarizeChannelKeyHealthCheckRule(rule objects.ChannelKeyHealthCheckRule) string {
+	name := strings.TrimSpace(rule.Name)
+	if name != "" {
+		return name
+	}
+	if rule.ID != "" {
+		return rule.ID
+	}
+	if rule.Type != "" {
+		return string(rule.Type)
+	}
+
+	return "health check"
 }
 
 func (svc *ChannelService) runBuiltinChannelKeyHealthCheck(ctx context.Context, ch *ent.Channel, key string) ChannelKeyHealthCheckResult {
@@ -686,12 +724,15 @@ func mergeChannelKeyHealthCheckResult(current, next ChannelKeyHealthCheckResult)
 	if next.Available != nil {
 		current.Available = next.Available
 	}
+	if next.Rule != "" {
+		current.Rule = next.Rule
+	}
 	current.Success = next.Success
 
 	return current
 }
 
-func upsertChannelKeyHealthCheckMetadata(metadata []objects.ChannelKeyMetadata, key string, result ChannelKeyHealthCheckResult, now time.Time) []objects.ChannelKeyMetadata {
+func upsertChannelKeyHealthCheckMetadata(metadata []objects.ChannelKeyMetadata, key string, result ChannelKeyHealthCheckResult, now time.Time, trigger objects.ChannelKeyHealthCheckTrigger) []objects.ChannelKeyMetadata {
 	id := objects.ChannelAPIKeyFingerprint(key)
 	next := slices.Clone(metadata)
 	for i := range next {
@@ -699,15 +740,15 @@ func upsertChannelKeyHealthCheckMetadata(metadata []objects.ChannelKeyMetadata, 
 			continue
 		}
 
-		next[i] = updateChannelKeyHealthCheckMetadata(next[i], key, result, now)
+		next[i] = updateChannelKeyHealthCheckMetadata(next[i], key, result, now, trigger)
 
 		return next
 	}
 
-	return append(next, updateChannelKeyHealthCheckMetadata(objects.ChannelKeyMetadata{ID: id}, key, result, now))
+	return append(next, updateChannelKeyHealthCheckMetadata(objects.ChannelKeyMetadata{ID: id}, key, result, now, trigger))
 }
 
-func updateChannelKeyHealthCheckMetadata(meta objects.ChannelKeyMetadata, key string, result ChannelKeyHealthCheckResult, now time.Time) objects.ChannelKeyMetadata {
+func updateChannelKeyHealthCheckMetadata(meta objects.ChannelKeyMetadata, key string, result ChannelKeyHealthCheckResult, now time.Time, trigger objects.ChannelKeyHealthCheckTrigger) objects.ChannelKeyMetadata {
 	meta.ID = objects.ChannelAPIKeyFingerprint(key)
 	meta.MaskedKey = objects.MaskChannelAPIKey(key)
 	meta.Status = objects.ChannelKeyStatusActive
@@ -722,8 +763,166 @@ func updateChannelKeyHealthCheckMetadata(meta objects.ChannelKeyMetadata, key st
 	} else {
 		meta.FailureCount++
 	}
+	meta.History = appendChannelKeyHealthCheckHistory(meta.History, meta.ID, result, now, trigger)
 
 	return meta
+}
+
+func appendChannelKeyHealthCheckHistory(history []objects.ChannelKeyHealthCheckHistoryEntry, keyID string, result ChannelKeyHealthCheckResult, now time.Time, trigger objects.ChannelKeyHealthCheckTrigger) []objects.ChannelKeyHealthCheckHistoryEntry {
+	entry := objects.ChannelKeyHealthCheckHistoryEntry{
+		ID:        fmt.Sprintf("%s:%d:%s", keyID, now.UnixNano(), trigger),
+		CheckedAt: now,
+		Success:   result.Success,
+		Reason:    result.Reason,
+		Balance:   result.Balance,
+		Currency:  result.Currency,
+		Available: result.Available,
+		Trigger:   trigger,
+		Rule:      result.Rule,
+	}
+
+	next := append([]objects.ChannelKeyHealthCheckHistoryEntry{entry}, history...)
+	if len(next) > channelKeyHealthCheckHistoryLimit {
+		next = next[:channelKeyHealthCheckHistoryLimit]
+	}
+
+	return next
+}
+
+func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID int, keyIDs []string) ([]*ChannelAPIKeyInventoryItem, error) {
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
+	if ch.Credentials.IsOAuth() {
+		return nil, fmt.Errorf("cannot run API key health checks for OAuth channels")
+	}
+
+	targetKeys := selectedChannelKeyHealthCheckTargets(ch, keyIDs)
+	if len(targetKeys) == 0 {
+		return svc.ChannelAPIKeyInventory(ctx, channelID)
+	}
+
+	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
+	chForCheck := *ch
+	chForCheck.Settings = settings
+
+	results := make([]ChannelKeyHealthCheckResult, len(targetKeys))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(min(channelKeyHealthCheckMaxKeys, len(targetKeys)))
+
+	for i, key := range targetKeys {
+		index := i
+		apiKey := key
+		group.Go(func() error {
+			results[index] = svc.checkChannelAPIKeyHealth(groupCtx, &chForCheck, apiKey)
+
+			return nil
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	failed := 0
+	for i, key := range targetKeys {
+		result := results[i]
+		if !result.Success {
+			failed++
+		}
+
+		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, result, now, objects.ChannelKeyHealthCheckTriggerManual)
+	}
+	mergeChannelKeyOperationalStatus(ch, settings.KeyHealthCheck)
+
+	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+		return nil, fmt.Errorf("failed to save channel key metadata: %w", err)
+	}
+
+	if err := svc.applyChannelKeyHealthCheckFailureActions(ctx, channelID, settings.KeyHealthCheck, targetKeys, results); err != nil {
+		return nil, err
+	}
+	if failed > 0 {
+		svc.asyncReloadChannels()
+	}
+
+	return svc.ChannelAPIKeyInventory(ctx, channelID)
+}
+
+func mergeChannelKeyOperationalStatus(ch *ent.Channel, health *objects.ChannelKeyHealthCheck) {
+	if ch == nil || health == nil || len(health.KeyMetadata) == 0 {
+		return
+	}
+
+	disabledByID := make(map[string]struct{}, len(ch.DisabledAPIKeys))
+	for _, disabled := range ch.DisabledAPIKeys {
+		if disabled.Key == "" {
+			continue
+		}
+
+		disabledByID[objects.ChannelAPIKeyFingerprint(disabled.Key)] = struct{}{}
+	}
+
+	archivedByID := make(map[string]struct{}, len(channelArchivedAPIKeys(ch.Settings)))
+	for _, archived := range channelArchivedAPIKeys(ch.Settings) {
+		if archived.ID == "" {
+			continue
+		}
+
+		archivedByID[archived.ID] = struct{}{}
+	}
+
+	for i := range health.KeyMetadata {
+		id := health.KeyMetadata[i].ID
+		if _, ok := archivedByID[id]; ok {
+			health.KeyMetadata[i].Status = objects.ChannelKeyStatusArchived
+			continue
+		}
+		if _, ok := disabledByID[id]; ok {
+			health.KeyMetadata[i].Status = objects.ChannelKeyStatusDisabled
+		}
+	}
+}
+
+func selectedChannelKeyHealthCheckTargets(ch *ent.Channel, keyIDs []string) []string {
+	if ch == nil {
+		return nil
+	}
+	if len(keyIDs) == 0 {
+		return ch.Credentials.GetRoutableAPIKeys(ch.DisabledAPIKeys, channelArchivedAPIKeys(ch.Settings))
+	}
+
+	archived := channelArchivedAPIKeys(ch.Settings)
+	archivedIDs := make(map[string]struct{}, len(archived))
+	for _, item := range archived {
+		if item.ID != "" {
+			archivedIDs[item.ID] = struct{}{}
+		}
+	}
+
+	targets := make([]string, 0, len(keyIDs))
+	seen := make(map[string]struct{}, len(keyIDs))
+	for _, keyID := range keyIDs {
+		key, ok := resolveChannelAPIKey(ch.Credentials, keyID)
+		if !ok {
+			continue
+		}
+
+		id := objects.ChannelAPIKeyFingerprint(key)
+		if _, ok := archivedIDs[id]; ok {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+
+		seen[id] = struct{}{}
+		targets = append(targets, key)
+	}
+
+	return targets
 }
 
 func (svc *ChannelService) applyChannelKeyHealthCheckFailureActions(
@@ -782,7 +981,12 @@ func (svc *ChannelService) applyChannelKeyHealthCheckFailureAction(
 	case objects.ChannelKeyHealthCheckFailureActionDisable:
 		return svc.DisableAPIKey(ctx, channelID, key, channelKeyHealthCheckFailureCode, reason)
 	case objects.ChannelKeyHealthCheckFailureActionArchive:
-		return svc.ArchiveChannelAPIKey(ctx, channelID, key, reason)
+		err := svc.ArchiveChannelAPIKey(ctx, channelID, key, reason)
+		if errors.Is(err, errCannotArchiveLastUsableChannelAPIKey) {
+			return nil
+		}
+
+		return err
 	case objects.ChannelKeyHealthCheckFailureActionDelete:
 		_, err := svc.DeleteChannelAPIKey(ctx, channelID, key)
 		return err

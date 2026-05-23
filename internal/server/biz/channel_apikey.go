@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,6 +16,8 @@ import (
 	"github.com/looplj/axonhub/internal/pkg/xcontext"
 )
 
+var errCannotArchiveLastUsableChannelAPIKey = errors.New("cannot archive the last usable channel api key")
+
 type ChannelAPIKeyInventoryItem struct {
 	ID            string
 	MaskedKey     string
@@ -26,6 +29,7 @@ type ChannelAPIKeyInventoryItem struct {
 	Balance       any
 	Currency      string
 	Available     *bool
+	History       []objects.ChannelKeyHealthCheckHistoryEntry
 }
 
 func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID int) ([]*ChannelAPIKeyInventoryItem, error) {
@@ -149,6 +153,15 @@ func (svc *ChannelService) DeleteChannelAPIKey(ctx context.Context, channelID in
 
 	key, ok := resolveChannelAPIKey(ch.Credentials, keyID)
 	if !ok {
+		if channelKeySettingsHasKeyID(ch.Settings, normalizeChannelKeyID(keyID)) {
+			settings := removeChannelKeySettingsMetadata(ch.Settings, normalizeChannelKeyID(keyID))
+			if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+				return nil, fmt.Errorf("failed to delete archived channel api key: %w", err)
+			}
+
+			svc.asyncReloadChannels()
+		}
+
 		return &DeleteDisabledAPIKeysResult{Success: true}, nil
 	}
 
@@ -195,16 +208,32 @@ func (svc *ChannelService) ArchiveChannelAPIKey(ctx context.Context, channelID i
 	}
 
 	now := time.Now()
-	nextArchived := append(settings.KeyHealthCheck.ArchivedKeys, objects.ChannelArchivedAPIKey{
+	archivedKey := objects.ChannelArchivedAPIKey{
 		ID:         id,
 		MaskedKey:  objects.MaskChannelAPIKey(key),
 		ArchivedAt: &now,
 		Reason:     reason,
-	})
+	}
+	for _, meta := range settings.KeyHealthCheck.KeyMetadata {
+		if meta.ID != id {
+			continue
+		}
+
+		archivedKey.LastCheckedAt = meta.LastCheckedAt
+		archivedKey.FailureCount = meta.FailureCount
+		archivedKey.Balance = meta.Balance
+		archivedKey.Currency = meta.Currency
+		archivedKey.Available = meta.Available
+		if archivedKey.Reason == "" {
+			archivedKey.Reason = meta.Reason
+		}
+		break
+	}
+	nextArchived := append(settings.KeyHealthCheck.ArchivedKeys, archivedKey)
 	settings.KeyHealthCheck.ArchivedKeys = nextArchived
 
 	if len(ch.Credentials.GetRoutableAPIKeys(ch.DisabledAPIKeys, nextArchived)) == 0 {
-		return fmt.Errorf("cannot archive the last usable channel api key")
+		return errCannotArchiveLastUsableChannelAPIKey
 	}
 
 	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
@@ -562,6 +591,7 @@ func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.Chann
 	item.Balance = meta.Balance
 	item.Currency = meta.Currency
 	item.Available = meta.Available
+	item.History = slices.Clone(meta.History)
 }
 
 func mergeInventoryArchive(item *ChannelAPIKeyInventoryItem, archive objects.ChannelArchivedAPIKey) {
@@ -611,6 +641,54 @@ func removeChannelCredentialKey(credentials objects.ChannelCredentials, key stri
 	return credentials
 }
 
+func mergeArchivedChannelCredentials(current, next objects.ChannelCredentials, archivedKeys []objects.ChannelArchivedAPIKey) objects.ChannelCredentials {
+	if len(archivedKeys) == 0 || next.IsOAuth() {
+		return next
+	}
+
+	archivedSet := make(map[string]struct{}, len(archivedKeys))
+	for _, archived := range archivedKeys {
+		if archived.ID == "" {
+			continue
+		}
+
+		archivedSet[archived.ID] = struct{}{}
+	}
+	if len(archivedSet) == 0 {
+		return next
+	}
+
+	existing := make(map[string]struct{}, len(next.GetAllAPIKeys()))
+	for _, key := range next.GetAllAPIKeys() {
+		existing[key] = struct{}{}
+	}
+
+	restoredArchived := make([]string, 0, len(archivedSet))
+	for _, key := range current.GetAllAPIKeys() {
+		if _, ok := archivedSet[objects.ChannelAPIKeyFingerprint(key)]; !ok {
+			continue
+		}
+		if _, ok := existing[key]; ok {
+			continue
+		}
+
+		existing[key] = struct{}{}
+		restoredArchived = append(restoredArchived, key)
+	}
+	if len(restoredArchived) == 0 {
+		return next
+	}
+
+	if next.APIKey == "" && len(next.APIKeys) == 0 {
+		next.APIKeys = restoredArchived
+		return next
+	}
+
+	next.APIKeys = append(next.APIKeys, restoredArchived...)
+
+	return next
+}
+
 func removeDisabledAPIKey(disabled []objects.DisabledAPIKey, key string) []objects.DisabledAPIKey {
 	return slices.DeleteFunc(slices.Clone(disabled), func(item objects.DisabledAPIKey) bool {
 		return item.Key == key
@@ -631,6 +709,25 @@ func removeChannelKeySettingsMetadata(settings *objects.ChannelSettings, id stri
 	})
 
 	return next
+}
+
+func channelKeySettingsHasKeyID(settings *objects.ChannelSettings, id string) bool {
+	if settings == nil || settings.KeyHealthCheck == nil || id == "" {
+		return false
+	}
+
+	for _, item := range settings.KeyHealthCheck.KeyMetadata {
+		if item.ID == id {
+			return true
+		}
+	}
+	for _, item := range settings.KeyHealthCheck.ArchivedKeys {
+		if item.ID == id {
+			return true
+		}
+	}
+
+	return false
 }
 
 func ensureChannelKeyHealthCheckSettings(settings *objects.ChannelSettings) *objects.ChannelSettings {
@@ -659,6 +756,9 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		health := *settings.KeyHealthCheck
 		health.Rules = slices.Clone(settings.KeyHealthCheck.Rules)
 		health.KeyMetadata = slices.Clone(settings.KeyHealthCheck.KeyMetadata)
+		for i := range health.KeyMetadata {
+			health.KeyMetadata[i].History = slices.Clone(settings.KeyHealthCheck.KeyMetadata[i].History)
+		}
 		health.ArchivedKeys = slices.Clone(settings.KeyHealthCheck.ArchivedKeys)
 		next.KeyHealthCheck = &health
 	}

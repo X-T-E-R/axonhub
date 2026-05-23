@@ -162,3 +162,7 @@ func channelArchivedAPIKeys(settings *objects.ChannelSettings) []objects.Channel
 
 	return settings.KeyHealthCheck.ArchivedKeys
 }
+
+func ChannelArchivedAPIKeys(settings *objects.ChannelSettings) []objects.ChannelArchivedAPIKey {
+	return channelArchivedAPIKeys(settings)
+}

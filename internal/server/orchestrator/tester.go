@@ -329,7 +329,7 @@ func (processor *TestChannelOrchestrator) TestChannelAPIKeys(
 		return nil, err
 	}
 
-	allKeys := ch.Credentials.GetAllAPIKeys()
+	allKeys := ch.Credentials.GetRoutableAPIKeys(nil, biz.ChannelArchivedAPIKeys(ch.Settings))
 	if len(allKeys) == 0 {
 		return nil, fmt.Errorf("no API keys configured for channel")
 	}

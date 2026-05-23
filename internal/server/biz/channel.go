@@ -769,7 +769,12 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 		}
 
 		if input.Credentials != nil {
-			mut.SetCredentials(*input.Credentials)
+			current, err := db.Channel.Get(ctx, id)
+			if err != nil {
+				return fmt.Errorf("failed to get channel for credential merge: %w", err)
+			}
+
+			mut.SetCredentials(mergeArchivedChannelCredentials(current.Credentials, *input.Credentials, channelArchivedAPIKeys(current.Settings)))
 		}
 
 		if input.Remark != nil {
