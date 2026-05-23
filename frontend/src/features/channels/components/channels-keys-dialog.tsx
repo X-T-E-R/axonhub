@@ -1,16 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { format } from 'date-fns';
 import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { format } from 'date-fns';
 import { useForm } from 'react-hook-form';
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { zodResolver } from '@hookform/resolvers/zod';
 import {
   IconArchive,
   IconAlertTriangle,
+  IconCircleCheck,
+  IconCircleX,
   IconDatabase,
+  IconEye,
   IconKey,
   IconKeyOff,
   IconLoader2,
@@ -21,6 +22,8 @@ import {
   IconSettingsAutomation,
   IconTrash,
 } from '@tabler/icons-react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,8 +37,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
   useAddChannelAPIKey,
@@ -45,13 +48,14 @@ import {
   useDisableChannelAPIKey,
   useEnableChannelAPIKey,
   useRestoreChannelAPIKey,
-  useTestChannelAPIKeys,
+  useRunChannelAPIKeyHealthCheck,
   useUpdateChannel,
 } from '../data/channels';
 import {
   Channel,
   ChannelAPIKeyInventoryItem,
   ChannelKeyHealthCheck,
+  ChannelKeyHealthCheckHistoryEntry,
   channelKeyHealthCheckFailureActionSchema,
   channelKeySelectionStrategySchema,
 } from '../data/schema';
@@ -70,12 +74,16 @@ interface KeyInventoryRow {
   maskedKey: string;
   status: KeyInventoryStatus;
   lastCheckedAt?: string | null;
+  success?: boolean | null;
   failureCount?: number | null;
   balance?: unknown;
   currency?: string | null;
   available?: boolean | null;
   reason?: string | null;
+  history?: ChannelKeyHealthCheckHistoryEntry[] | null;
 }
+
+type BatchKeyAction = 'health' | 'disable' | 'enable' | 'archive' | 'restore' | 'delete';
 
 const keysFormSchema = z.object({
   strategy: channelKeySelectionStrategySchema,
@@ -89,6 +97,7 @@ const keysFormSchema = z.object({
     builtinRuleEnabled: z.boolean(),
     deepseekRuleEnabled: z.boolean(),
     deepseekPath: z.string().min(1),
+    deepseekUseAbsoluteURL: z.boolean(),
     deepseekExpectedStatuses: z.string(),
     deepseekPassWhen: z.string(),
   }),
@@ -109,7 +118,8 @@ const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
   includeDisabled: false,
   builtinRuleEnabled: true,
   deepseekRuleEnabled: false,
-  deepseekPath: '/user/balance',
+  deepseekPath: 'https://api.deepseek.com/user/balance',
+  deepseekUseAbsoluteURL: true,
   deepseekExpectedStatuses: '200',
   deepseekPassWhen: 'json.is_available == true',
 };
@@ -125,7 +135,10 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
   const health = currentRow.settings?.keyHealthCheck;
   const rules = health?.rules ?? [];
   const builtinRule = rules.find((rule) => rule.type === 'builtin_test');
-  const deepseekRule = rules.find((rule) => rule.type === 'http' && (rule.name.toLowerCase().includes('deepseek') || rule.http?.path === '/user/balance'));
+  const deepseekRule = rules.find(
+    (rule) => rule.type === 'http' && (rule.name.toLowerCase().includes('deepseek') || rule.http?.path === '/user/balance')
+  );
+  const deepseekUseAbsoluteURL = deepseekRule ? deepseekRule.http?.urlMode === 'absolute_url' : DEFAULT_HEALTH_CHECK.deepseekUseAbsoluteURL;
 
   return {
     strategy: currentRow.settings?.keySelection?.strategy ?? DEFAULT_STRATEGY,
@@ -136,9 +149,12 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
       failureThreshold: health?.failureThreshold ?? DEFAULT_HEALTH_CHECK.failureThreshold,
       failureAction: health?.failureAction ?? DEFAULT_HEALTH_CHECK.failureAction,
       includeDisabled: health?.includeDisabled ?? DEFAULT_HEALTH_CHECK.includeDisabled,
-      builtinRuleEnabled: builtinRule?.enabled ?? !!builtinRule ?? DEFAULT_HEALTH_CHECK.builtinRuleEnabled,
-      deepseekRuleEnabled: deepseekRule?.enabled ?? !!deepseekRule ?? DEFAULT_HEALTH_CHECK.deepseekRuleEnabled,
-      deepseekPath: deepseekRule?.http?.path || DEFAULT_HEALTH_CHECK.deepseekPath,
+      builtinRuleEnabled: builtinRule ? (builtinRule.enabled ?? true) : DEFAULT_HEALTH_CHECK.builtinRuleEnabled,
+      deepseekRuleEnabled: deepseekRule ? (deepseekRule.enabled ?? true) : DEFAULT_HEALTH_CHECK.deepseekRuleEnabled,
+      deepseekPath: deepseekRule
+        ? (deepseekUseAbsoluteURL ? deepseekRule.http?.url : deepseekRule.http?.path) || DEFAULT_HEALTH_CHECK.deepseekPath
+        : DEFAULT_HEALTH_CHECK.deepseekPath,
+      deepseekUseAbsoluteURL,
       deepseekExpectedStatuses: (deepseekRule?.http?.expectedStatuses ?? [200]).join(', '),
       deepseekPassWhen: deepseekRule?.http?.passWhen || DEFAULT_HEALTH_CHECK.deepseekPassWhen,
     },
@@ -168,8 +184,9 @@ function healthCheckFromValues(values: KeysFormValues, existing?: ChannelKeyHeal
       enabled: true,
       http: {
         method: 'GET',
-        urlMode: 'provider_base_url',
-        path: values.healthCheck.deepseekPath,
+        urlMode: values.healthCheck.deepseekUseAbsoluteURL ? 'absolute_url' : 'provider_base_url',
+        path: values.healthCheck.deepseekUseAbsoluteURL ? null : values.healthCheck.deepseekPath,
+        url: values.healthCheck.deepseekUseAbsoluteURL ? values.healthCheck.deepseekPath : null,
         timeoutMs: 10000,
         headers: [],
         keyInjection: {
@@ -210,36 +227,14 @@ function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInve
     maskedKey: item.maskedKey,
     status: item.status,
     lastCheckedAt: item.lastCheckedAt,
+    success: item.success,
     failureCount: item.failureCount,
     balance: item.balance,
     currency: item.currency,
     available: item.available,
     reason: item.reason,
+    history: item.history,
   }));
-}
-
-function mapTestResultsToInventory(
-  results: Array<{ keyPrefix: string; success: boolean; latency: number; error?: string | null }>,
-  inventory: KeyInventoryRow[]
-): Record<string, { success: boolean; latency: number; error?: string | null }> {
-  const buckets = new Map<string, KeyInventoryRow[]>();
-  for (const item of inventory) {
-    const rows = buckets.get(item.maskedKey) ?? [];
-    rows.push(item);
-    buckets.set(item.maskedKey, rows);
-  }
-
-  return results.reduce<Record<string, { success: boolean; latency: number; error?: string | null }>>((acc, result) => {
-    const matched = buckets.get(result.keyPrefix)?.shift();
-    if (matched) {
-      acc[matched.id] = {
-        success: result.success,
-        latency: result.latency,
-        error: result.error,
-      };
-    }
-    return acc;
-  }, {});
 }
 
 function formatBalance(value: unknown, currency?: string | null): string {
@@ -266,11 +261,139 @@ function formatBalance(value: unknown, currency?: string | null): string {
   return JSON.stringify(value);
 }
 
+function healthTone(success?: boolean | null): { textClass: string; badgeVariant: 'default' | 'secondary' | 'destructive' | 'outline' } {
+  if (success === true) {
+    return { textClass: 'text-green-600', badgeVariant: 'default' };
+  }
+  if (success === false) {
+    return { textClass: 'text-destructive', badgeVariant: 'destructive' };
+  }
+  return { textClass: 'text-muted-foreground', badgeVariant: 'outline' };
+}
+
+function KeyDetailsDialog({
+  row,
+  open,
+  onOpenChange,
+}: {
+  row: KeyInventoryRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useTranslation();
+
+  if (!row) {
+    return null;
+  }
+
+  const latestTone = healthTone(row.success);
+  const history = row.history ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='sm:max-w-2xl'>
+        <DialogHeader className='text-left'>
+          <DialogTitle className='flex items-center gap-2'>
+            <IconKey className='h-5 w-5' />
+            {t('channels.dialogs.keys.details.title')}
+          </DialogTitle>
+          <DialogDescription>{t('channels.dialogs.keys.details.description')}</DialogDescription>
+        </DialogHeader>
+
+        <div className='space-y-4'>
+          <div className='grid gap-3 md:grid-cols-2'>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.maskedKey')}</div>
+              <code className='bg-muted mt-1 block w-fit rounded px-2 py-0.5 font-mono text-sm'>{row.maskedKey}</code>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.status')}</div>
+              <Badge className='mt-1' variant={row.status === 'active' ? 'default' : row.status === 'disabled' ? 'secondary' : 'outline'}>
+                {t(`channels.dialogs.keys.status.${row.status}`)}
+              </Badge>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.latestHealth')}</div>
+              <div className={`mt-1 flex items-center gap-2 text-sm font-medium ${latestTone.textClass}`}>
+                {row.success === true ? (
+                  <IconCircleCheck className='h-4 w-4' />
+                ) : row.success === false ? (
+                  <IconCircleX className='h-4 w-4' />
+                ) : null}
+                {row.success == null
+                  ? t('channels.dialogs.keys.healthState.unknown')
+                  : t(`channels.dialogs.keys.healthState.${row.success ? 'success' : 'failed'}`)}
+              </div>
+              <div className='text-muted-foreground mt-1 text-xs'>{formatDateTime(row.lastCheckedAt)}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.balance')}</div>
+              <div className='mt-1 text-sm font-medium'>{formatBalance(row.balance, row.currency)}</div>
+              {row.available != null ? (
+                <Badge variant='outline' className='mt-2'>
+                  {t(`channels.dialogs.keys.availability.${row.available ? 'available' : 'unavailable'}`)}
+                </Badge>
+              ) : null}
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.failureCount')}</div>
+              <div className='mt-1 text-sm font-medium'>{row.failureCount ?? 0}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.reason')}</div>
+              <div className='mt-1 text-sm'>{row.reason || '-'}</div>
+            </div>
+          </div>
+
+          <div className='rounded-lg border'>
+            <div className='border-b px-3 py-2 text-sm font-medium'>{t('channels.dialogs.keys.details.history')}</div>
+            <div className='max-h-72 divide-y overflow-auto'>
+              {history.length === 0 ? (
+                <div className='text-muted-foreground p-4 text-sm'>{t('channels.dialogs.keys.details.historyEmpty')}</div>
+              ) : (
+                history.map((entry) => {
+                  const tone = healthTone(entry.success);
+                  return (
+                    <div key={entry.id} className='flex gap-3 p-3'>
+                      <div className={tone.textClass}>
+                        {entry.success ? <IconCircleCheck className='h-4 w-4' /> : <IconCircleX className='h-4 w-4' />}
+                      </div>
+                      <div className='min-w-0 flex-1 space-y-1'>
+                        <div className='flex flex-wrap items-center gap-2'>
+                          <Badge variant={tone.badgeVariant}>
+                            {t(`channels.dialogs.keys.healthState.${entry.success ? 'success' : 'failed'}`)}
+                          </Badge>
+                          {entry.trigger ? <Badge variant='outline'>{t(`channels.dialogs.keys.trigger.${entry.trigger}`)}</Badge> : null}
+                          {entry.rule ? <span className='text-muted-foreground text-xs'>{entry.rule}</span> : null}
+                        </div>
+                        <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt)}</div>
+                        <div className='text-sm'>{entry.reason || '-'}</div>
+                        <div className='text-muted-foreground text-xs'>
+                          {formatBalance(entry.balance, entry.currency)}
+                          {entry.available != null
+                            ? ` · ${t(`channels.dialogs.keys.availability.${entry.available ? 'available' : 'unavailable'}`)}`
+                            : ''}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const { t } = useTranslation();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; latency: number; error?: string | null }>>({});
+  const [showArchived, setShowArchived] = useState(false);
+  const [detailsKeyID, setDetailsKeyID] = useState<string | null>(null);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
 
   const keyInventory = useChannelAPIKeyInventory(currentRow.id, { enabled: open });
   const addAPIKey = useAddChannelAPIKey();
@@ -278,7 +401,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const archiveAPIKey = useArchiveChannelAPIKey();
   const restoreAPIKey = useRestoreChannelAPIKey();
   const updateChannel = useUpdateChannel();
-  const testAPIKeys = useTestChannelAPIKeys({ silent: true });
+  const runHealthCheck = useRunChannelAPIKeyHealthCheck();
   const disableAPIKey = useDisableChannelAPIKey();
   const enableAPIKey = useEnableChannelAPIKey();
 
@@ -292,8 +415,10 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     if (open) {
       form.reset(valuesFromChannel(currentRow));
       setSelectedKeys(new Set());
-      setTestResults({});
+      setShowArchived(false);
+      setDetailsKeyID(null);
       setConfirmDeleteKey(null);
+      setConfirmBatchDelete(false);
     }
   }, [open, currentRow, form]);
 
@@ -301,9 +426,28 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const activeKeys = useMemo(() => inventory.filter((item) => item.status === 'active'), [inventory]);
   const disabledKeys = useMemo(() => inventory.filter((item) => item.status === 'disabled'), [inventory]);
   const archivedKeys = useMemo(() => inventory.filter((item) => item.status === 'archived'), [inventory]);
-  const selectedActiveKeyIDs = useMemo(() => inventory.filter((item) => item.status === 'active' && selectedKeys.has(item.id)).map((item) => item.id), [inventory, selectedKeys]);
+  const visibleInventory = useMemo(() => inventory.filter((item) => showArchived || item.status !== 'archived'), [inventory, showArchived]);
+  const selectedRows = useMemo(() => visibleInventory.filter((item) => selectedKeys.has(item.id)), [visibleInventory, selectedKeys]);
+  const selectedHealthCheckKeyIDs = useMemo(
+    () => selectedRows.filter((item) => item.status !== 'archived').map((item) => item.id),
+    [selectedRows]
+  );
+  const selectedActiveKeyIDs = useMemo(
+    () => selectedRows.filter((item) => item.status === 'active').map((item) => item.id),
+    [selectedRows]
+  );
+  const selectedDisabledKeyIDs = useMemo(
+    () => selectedRows.filter((item) => item.status === 'disabled').map((item) => item.id),
+    [selectedRows]
+  );
+  const selectedArchivedKeyIDs = useMemo(
+    () => selectedRows.filter((item) => item.status === 'archived').map((item) => item.id),
+    [selectedRows]
+  );
+  const detailsRow = useMemo(() => inventory.find((item) => item.id === detailsKeyID) ?? null, [detailsKeyID, inventory]);
   const selectedStrategy = form.watch('strategy');
   const deepseekRuleEnabled = form.watch('healthCheck.deepseekRuleEnabled');
+  const deepseekUseAbsoluteURL = form.watch('healthCheck.deepseekUseAbsoluteURL');
   const isPending =
     keyInventory.isFetching ||
     addAPIKey.isPending ||
@@ -311,9 +455,17 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     archiveAPIKey.isPending ||
     restoreAPIKey.isPending ||
     updateChannel.isPending ||
-    testAPIKeys.isPending ||
+    runHealthCheck.isPending ||
     disableAPIKey.isPending ||
     enableAPIKey.isPending;
+
+  useEffect(() => {
+    const visibleIDs = new Set(visibleInventory.map((item) => item.id));
+    setSelectedKeys((prev) => {
+      const next = new Set([...prev].filter((id) => visibleIDs.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleInventory]);
 
   const toggleSelected = (id: string, checked: boolean) => {
     setSelectedKeys((prev) => {
@@ -408,498 +560,719 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     }
   };
 
-  const handleRunChecks = async () => {
+  const handleRunChecks = async (keyIDs?: string[]) => {
     try {
-      const data = await testAPIKeys.mutateAsync({
+      await runHealthCheck.mutateAsync({
         channelID: currentRow.id,
-        modelID: currentRow.defaultTestModel || undefined,
+        keyIDs,
       });
-      setTestResults(mapTestResultsToInventory(data.results, inventory));
-      toast[data.failedCount === 0 ? 'success' : 'error'](
-        t('channels.dialogs.testAPIKeys.successSummary', { success: data.successCount, total: data.total })
-      );
     } catch {
-      setTestResults({});
+      // Error handled by hook.
     }
   };
 
-  const handleBatchDisable = async () => {
-    await Promise.all(selectedActiveKeyIDs.map((keyID) => disableAPIKey.mutateAsync({ channelID: currentRow.id, key: keyID })));
+  const handleBatchAction = async (action: BatchKeyAction) => {
+    const actionMap = {
+      health: selectedHealthCheckKeyIDs,
+      disable: selectedActiveKeyIDs,
+      enable: selectedDisabledKeyIDs,
+      archive: [...selectedActiveKeyIDs, ...selectedDisabledKeyIDs],
+      restore: selectedArchivedKeyIDs,
+      delete: selectedRows.map((item) => item.id),
+    };
+    const keyIDs = actionMap[action];
+    if (keyIDs.length === 0) {
+      return;
+    }
+
+    if (action === 'health') {
+      await handleRunChecks(keyIDs);
+    } else if (action === 'disable') {
+      await Promise.all(keyIDs.map((keyID) => disableAPIKey.mutateAsync({ channelID: currentRow.id, key: keyID })));
+    } else if (action === 'enable') {
+      await Promise.all(keyIDs.map((keyID) => enableAPIKey.mutateAsync({ channelID: currentRow.id, key: keyID })));
+    } else if (action === 'archive') {
+      await Promise.all(
+        keyIDs.map((keyID) => archiveAPIKey.mutateAsync({ channelID: currentRow.id, keyID, reason: 'Manually archived by user' }))
+      );
+    } else if (action === 'restore') {
+      await Promise.all(keyIDs.map((keyID) => restoreAPIKey.mutateAsync({ channelID: currentRow.id, keyID })));
+    } else {
+      await Promise.all(keyIDs.map((keyID) => deleteAPIKey.mutateAsync({ channelID: currentRow.id, keyID })));
+    }
+
     setSelectedKeys(new Set());
+    setConfirmBatchDelete(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex max-h-[92vh] flex-col sm:max-w-5xl'>
-        <DialogHeader className='text-left'>
-          <DialogTitle className='flex items-center gap-2'>
-            <IconKey className='h-5 w-5' />
-            {t('channels.dialogs.keys.title')}
-          </DialogTitle>
-          <DialogDescription>{t('channels.dialogs.keys.description', { name: currentRow.name })}</DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className='flex max-h-[92vh] flex-col sm:max-w-5xl'>
+          <DialogHeader className='text-left'>
+            <DialogTitle className='flex items-center gap-2'>
+              <IconKey className='h-5 w-5' />
+              {t('channels.dialogs.keys.title')}
+            </DialogTitle>
+            <DialogDescription>{t('channels.dialogs.keys.description', { name: currentRow.name })}</DialogDescription>
+          </DialogHeader>
 
-        <Form {...form}>
-          <Tabs defaultValue='inventory' className='min-h-0 flex-1'>
-            <TabsList className='grid w-full grid-cols-3'>
-              <TabsTrigger value='inventory'>{t('channels.dialogs.keys.tabs.inventory')}</TabsTrigger>
-              <TabsTrigger value='routing'>{t('channels.dialogs.keys.tabs.routing')}</TabsTrigger>
-              <TabsTrigger value='health'>{t('channels.dialogs.keys.tabs.health')}</TabsTrigger>
-            </TabsList>
+          <Form {...form}>
+            <Tabs defaultValue='inventory' className='min-h-0 flex-1'>
+              <TabsList className='grid w-full grid-cols-3'>
+                <TabsTrigger value='inventory'>{t('channels.dialogs.keys.tabs.inventory')}</TabsTrigger>
+                <TabsTrigger value='routing'>{t('channels.dialogs.keys.tabs.routing')}</TabsTrigger>
+                <TabsTrigger value='health'>{t('channels.dialogs.keys.tabs.health')}</TabsTrigger>
+              </TabsList>
 
-            <ScrollArea className='mt-4 h-[58vh] pr-3'>
-              <TabsContent value='inventory' className='mt-0 space-y-4'>
-                <div className='grid gap-3 md:grid-cols-3'>
+              <ScrollArea className='mt-4 h-[58vh] pr-3'>
+                <TabsContent value='inventory' className='mt-0 space-y-4'>
+                  <div className='grid gap-3 md:grid-cols-3'>
+                    <Card>
+                      <CardHeader className='pb-2'>
+                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.active')}</CardTitle>
+                      </CardHeader>
+                      <CardContent className='text-2xl font-semibold'>{activeKeys.length}</CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className='pb-2'>
+                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.disabled')}</CardTitle>
+                      </CardHeader>
+                      <CardContent className='text-2xl font-semibold'>{disabledKeys.length}</CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className='pb-2'>
+                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.archived')}</CardTitle>
+                      </CardHeader>
+                      <CardContent className='text-2xl font-semibold'>{archivedKeys.length}</CardContent>
+                    </Card>
+                  </div>
+
                   <Card>
-                    <CardHeader className='pb-2'>
-                      <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.active')}</CardTitle>
+                    <CardHeader>
+                      <CardTitle className='flex items-center gap-2'>
+                        <IconKey className='h-5 w-5' />
+                        {t('channels.dialogs.keys.inventory.title')}
+                      </CardTitle>
+                      <CardDescription>{t('channels.dialogs.keys.inventory.description')}</CardDescription>
                     </CardHeader>
-                    <CardContent className='text-2xl font-semibold'>{activeKeys.length}</CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className='pb-2'>
-                      <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.disabled')}</CardTitle>
-                    </CardHeader>
-                    <CardContent className='text-2xl font-semibold'>{disabledKeys.length}</CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className='pb-2'>
-                      <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.archived')}</CardTitle>
-                    </CardHeader>
-                    <CardContent className='text-2xl font-semibold'>{archivedKeys.length}</CardContent>
-                  </Card>
-                </div>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className='flex items-center gap-2'>
-                      <IconKey className='h-5 w-5' />
-                      {t('channels.dialogs.keys.inventory.title')}
-                    </CardTitle>
-                    <CardDescription>{t('channels.dialogs.keys.inventory.description')}</CardDescription>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='flex flex-col gap-2 sm:flex-row'>
-                      <FormField
-                        control={form.control}
-                        name='newKey'
-                        render={({ field }) => (
-                          <FormItem className='flex-1'>
-                            <FormControl>
-                              <Input
-                                type='password'
-                                autoComplete='off'
-                                placeholder={t('channels.dialogs.keys.fields.newKey.placeholder')}
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription>{t('channels.dialogs.keys.fields.newKey.description')}</FormDescription>
-                          </FormItem>
-                        )}
-                      />
-                      <Button type='button' className='sm:mt-0' onClick={handleAddKey} disabled={isPending}>
-                        {t('channels.dialogs.keys.actions.add')}
-                      </Button>
-                    </div>
-
-                    {selectedActiveKeyIDs.length > 0 && (
-                      <div className='flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2'>
-                        <span className='text-sm'>{t('channels.dialogs.keys.selectedCount', { count: selectedActiveKeyIDs.length })}</span>
-                        <Button type='button' variant='outline' size='sm' onClick={handleBatchDisable} disabled={isPending}>
-                          <IconKeyOff className='mr-2 h-4 w-4' />
-                          {t('channels.dialogs.keys.actions.disableSelected')}
+                    <CardContent className='space-y-4'>
+                      <div className='flex flex-col gap-2 sm:flex-row'>
+                        <FormField
+                          control={form.control}
+                          name='newKey'
+                          render={({ field }) => (
+                            <FormItem className='flex-1'>
+                              <FormControl>
+                                <Input
+                                  type='password'
+                                  autoComplete='off'
+                                  placeholder={t('channels.dialogs.keys.fields.newKey.placeholder')}
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormDescription>{t('channels.dialogs.keys.fields.newKey.description')}</FormDescription>
+                            </FormItem>
+                          )}
+                        />
+                        <Button type='button' className='sm:mt-0' onClick={handleAddKey} disabled={isPending}>
+                          {t('channels.dialogs.keys.actions.add')}
                         </Button>
                       </div>
-                    )}
 
-                    <div className='rounded-lg border'>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className='w-12'></TableHead>
-                            <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
-                            <TableHead>{t('channels.dialogs.keys.columns.status')}</TableHead>
-                            <TableHead>{t('channels.dialogs.keys.columns.lastCheck')}</TableHead>
-                            <TableHead>{t('channels.dialogs.keys.columns.balance')}</TableHead>
-                            <TableHead className='text-right'>{t('common.columns.actions')}</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {inventory.length === 0 ? (
+                      <Alert>
+                        <IconAlertTriangle className='h-4 w-4' />
+                        <AlertDescription>{t('channels.dialogs.keys.inventory.statusCopy')}</AlertDescription>
+                      </Alert>
+
+                      <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
+                        <div className='text-muted-foreground text-sm'>
+                          {showArchived
+                            ? t('channels.dialogs.keys.inventory.archivedVisible', { count: archivedKeys.length })
+                            : t('channels.dialogs.keys.inventory.archivedHidden', { count: archivedKeys.length })}
+                        </div>
+                        <div className='flex items-center gap-2'>
+                          <span className='text-sm'>{t('channels.dialogs.keys.inventory.showArchived')}</span>
+                          <Switch checked={showArchived} onCheckedChange={setShowArchived} />
+                        </div>
+                      </div>
+
+                      {selectedRows.length > 0 && (
+                        <div className='bg-muted/40 flex flex-col gap-2 rounded-md border px-3 py-2'>
+                          <span className='text-sm'>{t('channels.dialogs.keys.selectedCount', { count: selectedRows.length })}</span>
+                          <div className='flex flex-wrap gap-2'>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              onClick={() => handleBatchAction('health')}
+                              disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
+                            >
+                              <IconPlayerPlay className='mr-2 h-4 w-4' />
+                              {t('channels.dialogs.keys.actions.healthSelected', { count: selectedHealthCheckKeyIDs.length })}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              onClick={() => handleBatchAction('disable')}
+                              disabled={isPending || selectedActiveKeyIDs.length === 0}
+                            >
+                              <IconKeyOff className='mr-2 h-4 w-4' />
+                              {t('channels.dialogs.keys.actions.disableSelected', { count: selectedActiveKeyIDs.length })}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              onClick={() => handleBatchAction('enable')}
+                              disabled={isPending || selectedDisabledKeyIDs.length === 0}
+                            >
+                              <IconRefresh className='mr-2 h-4 w-4' />
+                              {t('channels.dialogs.keys.actions.enableSelected', { count: selectedDisabledKeyIDs.length })}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              onClick={() => handleBatchAction('archive')}
+                              disabled={isPending || selectedActiveKeyIDs.length + selectedDisabledKeyIDs.length === 0}
+                            >
+                              <IconArchive className='mr-2 h-4 w-4' />
+                              {t('channels.dialogs.keys.actions.archiveSelected', {
+                                count: selectedActiveKeyIDs.length + selectedDisabledKeyIDs.length,
+                              })}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              onClick={() => handleBatchAction('restore')}
+                              disabled={isPending || selectedArchivedKeyIDs.length === 0}
+                            >
+                              <IconRestore className='mr-2 h-4 w-4' />
+                              {t('channels.dialogs.keys.actions.restoreSelected', { count: selectedArchivedKeyIDs.length })}
+                            </Button>
+                            <Popover open={confirmBatchDelete} onOpenChange={setConfirmBatchDelete}>
+                              <PopoverTrigger asChild>
+                                <Button type='button' variant='destructive' size='sm' disabled={isPending}>
+                                  <IconTrash className='mr-2 h-4 w-4' />
+                                  {t('channels.dialogs.keys.actions.deleteSelected', { count: selectedRows.length })}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className='w-80'>
+                                <div className='space-y-3'>
+                                  <p className='text-sm'>
+                                    {t('channels.dialogs.keys.confirmDeleteSelected', { count: selectedRows.length })}
+                                  </p>
+                                  <div className='flex justify-end gap-2'>
+                                    <Button type='button' size='sm' variant='outline' onClick={() => setConfirmBatchDelete(false)}>
+                                      {t('common.buttons.cancel')}
+                                    </Button>
+                                    <Button
+                                      type='button'
+                                      size='sm'
+                                      variant='destructive'
+                                      onClick={() => handleBatchAction('delete')}
+                                      disabled={isPending}
+                                    >
+                                      {t('common.buttons.confirm')}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                            <Button type='button' variant='ghost' size='sm' onClick={() => setSelectedKeys(new Set())} disabled={isPending}>
+                              {t('channels.dialogs.keys.actions.clearSelection')}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className='rounded-lg border'>
+                        <Table>
+                          <TableHeader>
                             <TableRow>
-                              <TableCell colSpan={6} className='h-28 text-center text-sm text-muted-foreground'>
-                                {t('channels.dialogs.keys.inventory.empty')}
-                              </TableCell>
+                              <TableHead className='w-12'></TableHead>
+                              <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.columns.status')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.columns.lastCheck')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.columns.balance')}</TableHead>
+                              <TableHead className='text-right'>{t('common.columns.actions')}</TableHead>
                             </TableRow>
-                          ) : (
-                            inventory.map((item) => {
-                              const result = testResults[item.id];
-                              return (
-                                <TableRow key={item.id}>
-                                  <TableCell>
-                                    {item.status === 'active' ? (
+                          </TableHeader>
+                          <TableBody>
+                            {visibleInventory.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={6} className='text-muted-foreground h-28 text-center text-sm'>
+                                  {inventory.length === 0
+                                    ? t('channels.dialogs.keys.inventory.empty')
+                                    : t('channels.dialogs.keys.inventory.archivedOnlyEmpty')}
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              visibleInventory.map((item) => {
+                                const tone = healthTone(item.success);
+                                return (
+                                  <TableRow key={item.id}>
+                                    <TableCell>
                                       <Checkbox
                                         checked={selectedKeys.has(item.id)}
                                         onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
                                       />
-                                    ) : null}
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className='flex flex-col gap-1'>
-                                      <code className='w-fit rounded bg-muted px-2 py-0.5 font-mono text-sm'>{item.maskedKey}</code>
-                                      <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
-                                        {item.reason ? <span className='max-w-64 truncate'>{item.reason}</span> : null}
-                                        {result ? (
-                                          <span className={result.success ? 'text-green-600' : 'text-destructive'}>
-                                            {result.success
-                                              ? t('channels.dialogs.keys.checkResult.ok', { latency: result.latency.toFixed(2) })
-                                              : result.error || t('channels.dialogs.keys.checkResult.failed')}
-                                          </span>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className='flex flex-col gap-1'>
+                                        <code className='bg-muted w-fit rounded px-2 py-0.5 font-mono text-sm'>{item.maskedKey}</code>
+                                        <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
+                                          {item.success != null ? (
+                                            <span className={`inline-flex items-center gap-1 ${tone.textClass}`}>
+                                              {item.success ? (
+                                                <IconCircleCheck className='h-3.5 w-3.5' />
+                                              ) : (
+                                                <IconCircleX className='h-3.5 w-3.5' />
+                                              )}
+                                              {t(`channels.dialogs.keys.healthState.${item.success ? 'success' : 'failed'}`)}
+                                            </span>
+                                          ) : null}
+                                          {item.failureCount != null && item.failureCount > 0 ? (
+                                            <span>{t('channels.dialogs.keys.failureCount', { count: item.failureCount })}</span>
+                                          ) : null}
+                                          {item.reason ? <span className='max-w-64 truncate'>{item.reason}</span> : null}
+                                        </div>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge
+                                        variant={
+                                          item.status === 'active' ? 'default' : item.status === 'disabled' ? 'secondary' : 'outline'
+                                        }
+                                      >
+                                        {t(`channels.dialogs.keys.status.${item.status}`)}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(item.lastCheckedAt)}</TableCell>
+                                    <TableCell>
+                                      <div className='text-sm'>
+                                        {formatBalance(item.balance, item.currency)}
+                                        {item.available != null ? (
+                                          <Badge variant='outline' className='ml-2'>
+                                            {t(`channels.dialogs.keys.availability.${item.available ? 'available' : 'unavailable'}`)}
+                                          </Badge>
                                         ) : null}
                                       </div>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge
-                                      variant={item.status === 'active' ? 'default' : item.status === 'disabled' ? 'secondary' : 'outline'}
-                                    >
-                                      {t(`channels.dialogs.keys.status.${item.status}`)}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className='text-sm text-muted-foreground'>{formatDateTime(item.lastCheckedAt)}</TableCell>
-                                  <TableCell>
-                                    <div className='text-sm'>
-                                      {formatBalance(item.balance, item.currency)}
-                                      {item.available != null ? (
-                                        <Badge variant='outline' className='ml-2'>
-                                          {t(`channels.dialogs.keys.availability.${item.available ? 'available' : 'unavailable'}`)}
-                                        </Badge>
-                                      ) : null}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className='flex justify-end gap-1'>
-                                      {item.status === 'active' ? (
-                                        <Button type='button' size='sm' variant='ghost' onClick={() => handleDisableKey(item.id)} disabled={isPending}>
-                                          <IconKeyOff className='h-4 w-4' />
-                                        </Button>
-                                      ) : null}
-                                      {item.status === 'disabled' ? (
-                                        <Button type='button' size='sm' variant='ghost' onClick={() => handleEnableKey(item.id)} disabled={isPending}>
-                                          <IconRefresh className='h-4 w-4' />
-                                        </Button>
-                                      ) : null}
-                                      <Popover open={confirmDeleteKey === item.id} onOpenChange={(state) => setConfirmDeleteKey(state ? item.id : null)}>
-                                        <PopoverTrigger asChild>
-                                          <Button type='button' size='sm' variant='ghost' className='text-destructive' disabled={isPending}>
-                                            <IconTrash className='h-4 w-4' />
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className='flex justify-end gap-1'>
+                                        {item.status !== 'archived' ? (
+                                          <Button
+                                            type='button'
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={() => handleRunChecks([item.id])}
+                                            disabled={isPending}
+                                          >
+                                            <IconPlayerPlay className='h-4 w-4' />
                                           </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className='w-72'>
-                                          <div className='space-y-3'>
-                                            <p className='text-sm'>{t('channels.dialogs.keys.confirmDelete')}</p>
-                                            <div className='flex justify-end gap-2'>
-                                              <Button type='button' size='sm' variant='outline' onClick={() => setConfirmDeleteKey(null)}>
-                                                {t('common.buttons.cancel')}
-                                              </Button>
-                                              <Button type='button' size='sm' variant='destructive' onClick={() => handleDeleteKey(item.id)} disabled={isPending}>
-                                                {t('common.buttons.confirm')}
-                                              </Button>
+                                        ) : null}
+                                        <Button
+                                          type='button'
+                                          size='sm'
+                                          variant='ghost'
+                                          onClick={() => setDetailsKeyID(item.id)}
+                                          disabled={isPending}
+                                        >
+                                          <IconEye className='h-4 w-4' />
+                                        </Button>
+                                        {item.status === 'active' ? (
+                                          <Button
+                                            type='button'
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={() => handleDisableKey(item.id)}
+                                            disabled={isPending}
+                                          >
+                                            <IconKeyOff className='h-4 w-4' />
+                                          </Button>
+                                        ) : null}
+                                        {item.status === 'disabled' ? (
+                                          <Button
+                                            type='button'
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={() => handleEnableKey(item.id)}
+                                            disabled={isPending}
+                                          >
+                                            <IconRefresh className='h-4 w-4' />
+                                          </Button>
+                                        ) : null}
+                                        <Popover
+                                          open={confirmDeleteKey === item.id}
+                                          onOpenChange={(state) => setConfirmDeleteKey(state ? item.id : null)}
+                                        >
+                                          <PopoverTrigger asChild>
+                                            <Button
+                                              type='button'
+                                              size='sm'
+                                              variant='ghost'
+                                              className='text-destructive'
+                                              disabled={isPending}
+                                            >
+                                              <IconTrash className='h-4 w-4' />
+                                            </Button>
+                                          </PopoverTrigger>
+                                          <PopoverContent className='w-72'>
+                                            <div className='space-y-3'>
+                                              <p className='text-sm'>{t('channels.dialogs.keys.confirmDelete')}</p>
+                                              <div className='flex justify-end gap-2'>
+                                                <Button type='button' size='sm' variant='outline' onClick={() => setConfirmDeleteKey(null)}>
+                                                  {t('common.buttons.cancel')}
+                                                </Button>
+                                                <Button
+                                                  type='button'
+                                                  size='sm'
+                                                  variant='destructive'
+                                                  onClick={() => handleDeleteKey(item.id)}
+                                                  disabled={isPending}
+                                                >
+                                                  {t('common.buttons.confirm')}
+                                                </Button>
+                                              </div>
                                             </div>
-                                          </div>
-                                        </PopoverContent>
-                                      </Popover>
-                                      {item.status === 'archived' ? (
-                                        <Button type='button' size='sm' variant='ghost' onClick={() => handleRestoreKey(item.id)} disabled={isPending}>
-                                          <IconRestore className='h-4 w-4' />
-                                        </Button>
-                                      ) : (
-                                        <Button type='button' size='sm' variant='ghost' onClick={() => handleArchiveKey(item.id)} disabled={isPending}>
-                                          <IconArchive className='h-4 w-4' />
-                                        </Button>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                                          </PopoverContent>
+                                        </Popover>
+                                        {item.status === 'archived' ? (
+                                          <Button
+                                            type='button'
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={() => handleRestoreKey(item.id)}
+                                            disabled={isPending}
+                                          >
+                                            <IconRestore className='h-4 w-4' />
+                                          </Button>
+                                        ) : (
+                                          <Button
+                                            type='button'
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={() => handleArchiveKey(item.id)}
+                                            disabled={isPending}
+                                          >
+                                            <IconArchive className='h-4 w-4' />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
 
-              <TabsContent value='routing' className='mt-0 space-y-4'>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className='flex items-center gap-2'>
-                      <IconRoute className='h-5 w-5' />
-                      {t('channels.dialogs.keys.routing.title')}
-                    </CardTitle>
-                    <CardDescription>{t('channels.dialogs.keys.routing.description')}</CardDescription>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <FormField
-                      control={form.control}
-                      name='strategy'
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('channels.dialogs.keyRouting.fields.strategy.label')}</FormLabel>
-                          <Select value={field.value} onValueChange={field.onChange}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder={t('channels.dialogs.keyRouting.fields.strategy.placeholder')} />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {STRATEGIES.map((strategy) => (
-                                <SelectItem key={strategy} value={strategy}>
-                                  {t(`channels.dialogs.keyRouting.strategies.${strategy}.label`)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormDescription>{t('channels.dialogs.keyRouting.fields.strategy.description')}</FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <Alert>
-                      <IconDatabase className='h-4 w-4' />
-                      <AlertDescription>
-                        <div className='font-medium'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.label`)}</div>
-                        <div className='mt-1 text-sm'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.description`)}</div>
-                      </AlertDescription>
-                    </Alert>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value='health' className='mt-0 space-y-4'>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className='flex items-center gap-2'>
-                      <IconSettingsAutomation className='h-5 w-5' />
-                      {t('channels.dialogs.keys.health.title')}
-                    </CardTitle>
-                    <CardDescription>{t('channels.dialogs.keys.health.description')}</CardDescription>
-                  </CardHeader>
-                  <CardContent className='space-y-5'>
-                    <div className='grid gap-4 md:grid-cols-2'>
+                <TabsContent value='routing' className='mt-0 space-y-4'>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className='flex items-center gap-2'>
+                        <IconRoute className='h-5 w-5' />
+                        {t('channels.dialogs.keys.routing.title')}
+                      </CardTitle>
+                      <CardDescription>{t('channels.dialogs.keys.routing.description')}</CardDescription>
+                    </CardHeader>
+                    <CardContent className='space-y-4'>
                       <FormField
                         control={form.control}
-                        name='healthCheck.enabled'
-                        render={({ field }) => (
-                          <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                            <div className='space-y-0.5'>
-                              <FormLabel>{t('channels.dialogs.keys.health.enabled.label')}</FormLabel>
-                              <FormDescription>{t('channels.dialogs.keys.health.enabled.description')}</FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch checked={field.value} onCheckedChange={field.onChange} />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name='healthCheck.includeDisabled'
-                        render={({ field }) => (
-                          <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                            <div className='space-y-0.5'>
-                              <FormLabel>{t('channels.dialogs.keys.health.includeDisabled.label')}</FormLabel>
-                              <FormDescription>{t('channels.dialogs.keys.health.includeDisabled.description')}</FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch checked={field.value} onCheckedChange={field.onChange} />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <div className='grid gap-4 md:grid-cols-3'>
-                      <FormField
-                        control={form.control}
-                        name='healthCheck.intervalMinutes'
+                        name='strategy'
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>{t('channels.dialogs.keys.health.interval.label')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                ref={field.ref}
-                                name={field.name}
-                                type='number'
-                                min={5}
-                                max={10080}
-                                value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
-                                onBlur={field.onBlur}
-                                onChange={(event) => field.onChange(event.target.value)}
-                              />
-                            </FormControl>
-                            <FormDescription>{t('channels.dialogs.keys.health.interval.description')}</FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name='healthCheck.failureThreshold'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('channels.dialogs.keys.health.failureThreshold.label')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                ref={field.ref}
-                                name={field.name}
-                                type='number'
-                                min={1}
-                                max={20}
-                                value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
-                                onBlur={field.onBlur}
-                                onChange={(event) => field.onChange(event.target.value)}
-                              />
-                            </FormControl>
-                            <FormDescription>{t('channels.dialogs.keys.health.failureThreshold.description')}</FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name='healthCheck.failureAction'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('channels.dialogs.keys.health.failureAction.label')}</FormLabel>
+                            <FormLabel>{t('channels.dialogs.keyRouting.fields.strategy.label')}</FormLabel>
                             <Select value={field.value} onValueChange={field.onChange}>
                               <FormControl>
                                 <SelectTrigger>
-                                  <SelectValue />
+                                  <SelectValue placeholder={t('channels.dialogs.keyRouting.fields.strategy.placeholder')} />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                {FAILURE_ACTIONS.map((action) => (
-                                  <SelectItem key={action} value={action}>
-                                    {t(`channels.dialogs.keys.health.failureActions.${action}`)}
+                                {STRATEGIES.map((strategy) => (
+                                  <SelectItem key={strategy} value={strategy}>
+                                    {t(`channels.dialogs.keyRouting.strategies.${strategy}.label`)}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
-                            <FormDescription>{t('channels.dialogs.keys.health.failureAction.description')}</FormDescription>
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <Separator />
-
-                    <div className='space-y-4'>
-                      <FormField
-                        control={form.control}
-                        name='healthCheck.builtinRuleEnabled'
-                        render={({ field }) => (
-                          <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                            <div className='space-y-0.5'>
-                              <FormLabel>{t('channels.dialogs.keys.health.rules.builtin.label')}</FormLabel>
-                              <FormDescription>{t('channels.dialogs.keys.health.rules.builtin.description')}</FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch checked={field.value} onCheckedChange={field.onChange} />
-                            </FormControl>
+                            <FormDescription>{t('channels.dialogs.keyRouting.fields.strategy.description')}</FormDescription>
+                            <FormMessage />
                           </FormItem>
                         )}
                       />
 
-                      <FormField
-                        control={form.control}
-                        name='healthCheck.deepseekRuleEnabled'
-                        render={({ field }) => (
-                          <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                            <div className='space-y-0.5'>
-                              <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.label')}</FormLabel>
-                              <FormDescription>{t('channels.dialogs.keys.health.rules.deepseek.description')}</FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch checked={field.value} onCheckedChange={field.onChange} />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
+                      <Alert>
+                        <IconDatabase className='h-4 w-4' />
+                        <AlertDescription>
+                          <div className='font-medium'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.label`)}</div>
+                          <div className='mt-1 text-sm'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.description`)}</div>
+                        </AlertDescription>
+                      </Alert>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
 
-                      {deepseekRuleEnabled ? (
-                        <div className='grid gap-4 rounded-lg border p-3 md:grid-cols-3'>
-                          <FormField
-                            control={form.control}
-                            name='healthCheck.deepseekPath'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.path')}</FormLabel>
-                                <FormControl>
-                                  <Input {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name='healthCheck.deepseekExpectedStatuses'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.statuses')}</FormLabel>
-                                <FormControl>
-                                  <Input {...field} />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name='healthCheck.deepseekPassWhen'
-                            render={({ field }) => (
-                              <FormItem className='md:col-span-3'>
-                                <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.passWhen')}</FormLabel>
-                                <FormControl>
-                                  <Textarea rows={3} {...field} />
-                                </FormControl>
-                                <FormDescription>{t('channels.dialogs.keys.health.rules.deepseek.passWhenDescription')}</FormDescription>
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </ScrollArea>
-          </Tabs>
-        </Form>
+                <TabsContent value='health' className='mt-0 space-y-4'>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className='flex items-center gap-2'>
+                        <IconSettingsAutomation className='h-5 w-5' />
+                        {t('channels.dialogs.keys.health.title')}
+                      </CardTitle>
+                      <CardDescription>{t('channels.dialogs.keys.health.description')}</CardDescription>
+                    </CardHeader>
+                    <CardContent className='space-y-5'>
+                      <div className='grid gap-4 md:grid-cols-2'>
+                        <FormField
+                          control={form.control}
+                          name='healthCheck.enabled'
+                          render={({ field }) => (
+                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>{t('channels.dialogs.keys.health.enabled.label')}</FormLabel>
+                                <FormDescription>{t('channels.dialogs.keys.health.enabled.description')}</FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch checked={field.value} onCheckedChange={field.onChange} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='healthCheck.includeDisabled'
+                          render={({ field }) => (
+                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>{t('channels.dialogs.keys.health.includeDisabled.label')}</FormLabel>
+                                <FormDescription>{t('channels.dialogs.keys.health.includeDisabled.description')}</FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch checked={field.value} onCheckedChange={field.onChange} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
 
-        <DialogFooter className='gap-2 sm:justify-between'>
-          <div className='flex items-center gap-2'>
-            <Button type='button' variant='outline' onClick={handleRunChecks} disabled={isPending || activeKeys.length === 0}>
-              {testAPIKeys.isPending ? <IconLoader2 className='mr-2 h-4 w-4 animate-spin' /> : <IconPlayerPlay className='mr-2 h-4 w-4' />}
-              {t('channels.dialogs.keys.actions.runChecks')}
-            </Button>
-            <div className='hidden items-center gap-1 text-xs text-muted-foreground sm:flex'>
-              <IconAlertTriangle className='h-3.5 w-3.5' />
-              {t('channels.dialogs.keys.rawKeySafety')}
+                      <div className='grid gap-4 md:grid-cols-3'>
+                        <FormField
+                          control={form.control}
+                          name='healthCheck.intervalMinutes'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('channels.dialogs.keys.health.interval.label')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  ref={field.ref}
+                                  name={field.name}
+                                  type='number'
+                                  min={5}
+                                  max={10080}
+                                  value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
+                                  onBlur={field.onBlur}
+                                  onChange={(event) => field.onChange(event.target.value)}
+                                />
+                              </FormControl>
+                              <FormDescription>{t('channels.dialogs.keys.health.interval.description')}</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='healthCheck.failureThreshold'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('channels.dialogs.keys.health.failureThreshold.label')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  ref={field.ref}
+                                  name={field.name}
+                                  type='number'
+                                  min={1}
+                                  max={20}
+                                  value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
+                                  onBlur={field.onBlur}
+                                  onChange={(event) => field.onChange(event.target.value)}
+                                />
+                              </FormControl>
+                              <FormDescription>{t('channels.dialogs.keys.health.failureThreshold.description')}</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='healthCheck.failureAction'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('channels.dialogs.keys.health.failureAction.label')}</FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {FAILURE_ACTIONS.map((action) => (
+                                    <SelectItem key={action} value={action}>
+                                      {t(`channels.dialogs.keys.health.failureActions.${action}`)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>{t('channels.dialogs.keys.health.failureAction.description')}</FormDescription>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <Separator />
+
+                      <div className='space-y-4'>
+                        <FormField
+                          control={form.control}
+                          name='healthCheck.builtinRuleEnabled'
+                          render={({ field }) => (
+                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>{t('channels.dialogs.keys.health.rules.builtin.label')}</FormLabel>
+                                <FormDescription>{t('channels.dialogs.keys.health.rules.builtin.description')}</FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch checked={field.value} onCheckedChange={field.onChange} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='healthCheck.deepseekRuleEnabled'
+                          render={({ field }) => (
+                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.label')}</FormLabel>
+                                <FormDescription>{t('channels.dialogs.keys.health.rules.deepseek.description')}</FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch checked={field.value} onCheckedChange={field.onChange} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        {deepseekRuleEnabled ? (
+                          <div className='grid gap-4 rounded-lg border p-3 md:grid-cols-3'>
+                            <FormField
+                              control={form.control}
+                              name='healthCheck.deepseekUseAbsoluteURL'
+                              render={({ field }) => (
+                                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 md:col-span-3'>
+                                  <div className='space-y-0.5'>
+                                    <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.absoluteUrl.label')}</FormLabel>
+                                    <FormDescription>
+                                      {t('channels.dialogs.keys.health.rules.deepseek.absoluteUrl.description')}
+                                    </FormDescription>
+                                  </div>
+                                  <FormControl>
+                                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name='healthCheck.deepseekPath'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t(
+                                      deepseekUseAbsoluteURL
+                                        ? 'channels.dialogs.keys.health.rules.deepseek.url'
+                                        : 'channels.dialogs.keys.health.rules.deepseek.path'
+                                    )}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name='healthCheck.deepseekExpectedStatuses'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.statuses')}</FormLabel>
+                                  <FormControl>
+                                    <Input {...field} />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name='healthCheck.deepseekPassWhen'
+                              render={({ field }) => (
+                                <FormItem className='md:col-span-3'>
+                                  <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.passWhen')}</FormLabel>
+                                  <FormControl>
+                                    <Textarea rows={3} {...field} />
+                                  </FormControl>
+                                  <FormDescription>{t('channels.dialogs.keys.health.rules.deepseek.passWhenDescription')}</FormDescription>
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </ScrollArea>
+            </Tabs>
+          </Form>
+
+          <DialogFooter className='gap-2 sm:justify-between'>
+            <div className='flex items-center gap-2'>
+              <Button type='button' variant='outline' onClick={() => handleRunChecks()} disabled={isPending || activeKeys.length === 0}>
+                {runHealthCheck.isPending ? (
+                  <IconLoader2 className='mr-2 h-4 w-4 animate-spin' />
+                ) : (
+                  <IconPlayerPlay className='mr-2 h-4 w-4' />
+                )}
+                {t('channels.dialogs.keys.actions.runChecks')}
+              </Button>
+              <div className='text-muted-foreground hidden items-center gap-1 text-xs sm:flex'>
+                <IconAlertTriangle className='h-3.5 w-3.5' />
+                {t('channels.dialogs.keys.rawKeySafety')}
+              </div>
             </div>
-          </div>
-          <div className='flex gap-2'>
-            <Button type='button' variant='outline' onClick={() => onOpenChange(false)}>
-              {t('common.buttons.cancel')}
-            </Button>
-            <Button type='button' onClick={form.handleSubmit(handleSaveSettings)} disabled={isPending || !form.formState.isValid}>
-              {updateChannel.isPending ? t('common.buttons.saving') : t('common.buttons.save')}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <div className='flex gap-2'>
+              <Button type='button' variant='outline' onClick={() => onOpenChange(false)}>
+                {t('common.buttons.cancel')}
+              </Button>
+              <Button type='button' onClick={form.handleSubmit(handleSaveSettings)} disabled={isPending || !form.formState.isValid}>
+                {updateChannel.isPending ? t('common.buttons.saving') : t('common.buttons.save')}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <KeyDetailsDialog row={detailsRow} open={!!detailsRow} onOpenChange={(state) => !state && setDetailsKeyID(null)} />
+    </>
   );
 }

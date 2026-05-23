@@ -76,6 +76,17 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       balance
       currency
       available
+      history {
+        id
+        checkedAt
+        success
+        reason
+        balance
+        currency
+        available
+        trigger
+        rule
+      }
     }
     archivedKeys {
       id
@@ -102,6 +113,17 @@ const CHANNEL_API_KEY_INVENTORY_FIELDS = `
   balance
   currency
   available
+  history {
+    id
+    checkedAt
+    success
+    reason
+    balance
+    currency
+    available
+    trigger
+    rule
+  }
 `;
 
 const QUERY_CHANNEL_NAMES_QUERY = `
@@ -545,6 +567,14 @@ const ARCHIVE_CHANNEL_API_KEY_MUTATION = `
 const RESTORE_CHANNEL_API_KEY_MUTATION = `
   mutation RestoreChannelAPIKey($channelID: ID!, $keyID: String!) {
     restoreChannelAPIKey(channelID: $channelID, keyID: $keyID)
+  }
+`;
+
+const RUN_CHANNEL_API_KEY_HEALTH_CHECK_MUTATION = `
+  mutation RunChannelAPIKeyHealthCheck($channelID: ID!, $keyIDs: [String!]) {
+    runChannelAPIKeyHealthCheck(channelID: $channelID, keyIDs: $keyIDs) {
+      ${CHANNEL_API_KEY_INVENTORY_FIELDS}
+    }
   }
 `;
 
@@ -1898,10 +1928,13 @@ export function useDeleteChannelAPIKey() {
   return useMutation({
     mutationFn: async ({ channelID, keyID }: { channelID: string; keyID: string }) => {
       try {
-        const data = await graphqlRequest<{ deleteChannelAPIKey: { success: boolean; message?: string } }>(DELETE_CHANNEL_API_KEY_MUTATION, {
-          channelID,
-          keyID,
-        });
+        const data = await graphqlRequest<{ deleteChannelAPIKey: { success: boolean; message?: string } }>(
+          DELETE_CHANNEL_API_KEY_MUTATION,
+          {
+            channelID,
+            keyID,
+          }
+        );
         return data.deleteChannelAPIKey;
       } catch (error) {
         handleError(error, { context: 'Delete Channel API Key' });
@@ -1910,7 +1943,11 @@ export function useDeleteChannelAPIKey() {
     },
     onSuccess: (data, variables) => {
       invalidateChannelKeyQueries(queryClient, variables.channelID);
-      toast.success(data.message === 'ONE_KEY_PRESERVED' ? t('channels.messages.deleteDisabledAPIKeysPreserved') : t('channels.dialogs.keys.messages.deleted'));
+      toast.success(
+        data.message === 'ONE_KEY_PRESERVED'
+          ? t('channels.messages.deleteDisabledAPIKeysPreserved')
+          : t('channels.dialogs.keys.messages.deleted')
+      );
     },
   });
 }
@@ -1962,6 +1999,45 @@ export function useRestoreChannelAPIKey() {
     onSuccess: (_data, variables) => {
       invalidateChannelKeyQueries(queryClient, variables.channelID);
       toast.success(t('channels.dialogs.keys.messages.restored'));
+    },
+  });
+}
+
+export function useRunChannelAPIKeyHealthCheck() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const { handleError } = useErrorHandler();
+
+  return useMutation({
+    mutationFn: async ({ channelID, keyIDs }: { channelID: string; keyIDs?: string[] }) => {
+      try {
+        const data = await graphqlRequest<{ runChannelAPIKeyHealthCheck: ChannelAPIKeyInventoryItem[] }>(
+          RUN_CHANNEL_API_KEY_HEALTH_CHECK_MUTATION,
+          {
+            channelID,
+            keyIDs: keyIDs && keyIDs.length > 0 ? keyIDs : undefined,
+          }
+        );
+        return z.array(channelAPIKeyInventoryItemSchema).parse(data.runChannelAPIKeyHealthCheck);
+      } catch (error) {
+        handleError(error, { context: 'Run Channel API Key Health Check' });
+        throw error;
+      }
+    },
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(['channelAPIKeyInventory', variables.channelID], data);
+      invalidateChannelKeyQueries(queryClient, variables.channelID);
+      const checkedIDSet = new Set(variables.keyIDs ?? []);
+      const checkedRows =
+        checkedIDSet.size > 0 ? data.filter((item) => checkedIDSet.has(item.id)) : data.filter((item) => item.status === 'active');
+      const summaryRows = checkedRows.length > 0 ? checkedRows : data;
+      const failedCount = summaryRows.filter((item) => item.success === false).length;
+      toast[failedCount === 0 ? 'success' : 'error'](
+        t('channels.dialogs.keys.messages.healthCheckComplete', {
+          success: summaryRows.length - failedCount,
+          total: summaryRows.length,
+        })
+      );
     },
   });
 }

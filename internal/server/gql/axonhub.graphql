@@ -163,6 +163,11 @@ enum ChannelKeyStatus {
   archived
 }
 
+enum ChannelKeyHealthCheckTrigger {
+  manual
+  scheduled
+}
+
 type ChannelKeyHealthCheck {
   enabled: Boolean
   intervalMinutes: Int
@@ -256,6 +261,7 @@ type ChannelKeyMetadata {
   balance: JSONRawMessage
   currency: String
   available: Boolean
+  history: [ChannelKeyHealthCheckHistoryEntry!]
 }
 
 input ChannelKeyMetadataInput {
@@ -269,6 +275,31 @@ input ChannelKeyMetadataInput {
   balance: JSONRawMessageInput
   currency: String
   available: Boolean
+  history: [ChannelKeyHealthCheckHistoryEntryInput!]
+}
+
+type ChannelKeyHealthCheckHistoryEntry {
+  id: String
+  checkedAt: Time!
+  success: Boolean!
+  reason: String
+  balance: JSONRawMessage
+  currency: String
+  available: Boolean
+  trigger: ChannelKeyHealthCheckTrigger
+  rule: String
+}
+
+input ChannelKeyHealthCheckHistoryEntryInput {
+  id: String
+  checkedAt: Time!
+  success: Boolean!
+  reason: String
+  balance: JSONRawMessageInput
+  currency: String
+  available: Boolean
+  trigger: ChannelKeyHealthCheckTrigger
+  rule: String
 }
 
 type ChannelArchivedAPIKey {
@@ -306,6 +337,7 @@ type ChannelAPIKeyInventoryItem {
   balance: JSONRawMessage
   currency: String
   available: Boolean
+  history: [ChannelKeyHealthCheckHistoryEntry!]
 }
 
 enum CapabilityPolicy {
@@ -984,6 +1016,10 @@ type Mutation {
   deleteChannelAPIKey(channelID: ID!, keyID: String!): DeleteDisabledAPIKeysPayload!
   archiveChannelAPIKey(channelID: ID!, keyID: String!, reason: String): Boolean!
   restoreChannelAPIKey(channelID: ID!, keyID: String!): Boolean!
+  runChannelAPIKeyHealthCheck(
+    channelID: ID!
+    keyIDs: [String!]
+  ): [ChannelAPIKeyInventoryItem!]!
 
   createAPIKey(input: CreateAPIKeyInput!): APIKey!
   updateAPIKey(id: ID!, input: UpdateAPIKeyInput!): APIKey!

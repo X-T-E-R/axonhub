@@ -247,6 +247,19 @@ export const channelKeyHealthCheckRuleSchema = z.object({
 });
 export type ChannelKeyHealthCheckRule = z.infer<typeof channelKeyHealthCheckRuleSchema>;
 
+export const channelKeyHealthCheckHistoryEntrySchema = z.object({
+  id: z.string(),
+  checkedAt: z.string(),
+  success: z.boolean(),
+  reason: z.string().optional().nullable(),
+  balance: z.unknown().optional().nullable(),
+  currency: z.string().optional().nullable(),
+  available: z.boolean().optional().nullable(),
+  trigger: z.enum(['manual', 'scheduled']).optional().nullable(),
+  rule: z.string().optional().nullable(),
+});
+export type ChannelKeyHealthCheckHistoryEntry = z.infer<typeof channelKeyHealthCheckHistoryEntrySchema>;
+
 export const channelKeyMetadataSchema = z.object({
   id: z.string().optional().nullable(),
   maskedKey: z.string().optional().nullable(),
@@ -258,6 +271,7 @@ export const channelKeyMetadataSchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  history: z.array(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
 });
 export type ChannelKeyMetadata = z.infer<typeof channelKeyMetadataSchema>;
 
@@ -285,6 +299,7 @@ export const channelAPIKeyInventoryItemSchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  history: z.array(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
 });
 export type ChannelAPIKeyInventoryItem = z.infer<typeof channelAPIKeyInventoryItemSchema>;
 

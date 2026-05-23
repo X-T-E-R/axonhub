@@ -251,6 +251,13 @@ const (
 	ChannelKeyStatusArchived ChannelKeyStatus = "archived"
 )
 
+type ChannelKeyHealthCheckTrigger string
+
+const (
+	ChannelKeyHealthCheckTriggerManual    ChannelKeyHealthCheckTrigger = "manual"
+	ChannelKeyHealthCheckTriggerScheduled ChannelKeyHealthCheckTrigger = "scheduled"
+)
+
 type ChannelKeyHealthCheck struct {
 	Enabled          bool                               `json:"enabled"`
 	IntervalMinutes  int                                `json:"intervalMinutes,omitempty"`
@@ -300,15 +307,15 @@ type ChannelKeyHealthCheckBuiltin struct {
 }
 
 type ChannelKeyHealthCheckHTTPRule struct {
-	Method           ChannelKeyHealthCheckHTTPMethod       `json:"method,omitempty"`
-	URLMode          ChannelKeyHealthCheckHTTPURLMode      `json:"urlMode,omitempty"`
-	Path             string                                `json:"path,omitempty"`
-	URL              string                                `json:"url,omitempty"`
-	TimeoutMs        int                                   `json:"timeoutMs,omitempty"`
-	Headers          []HeaderEntry                         `json:"headers,omitempty"`
-	KeyInjection     *ChannelKeyHealthCheckKeyInjection    `json:"keyInjection,omitempty"`
-	ExpectedStatuses []int                                 `json:"expectedStatuses,omitempty"`
-	PassWhen         string                                `json:"passWhen,omitempty"`
+	Method           ChannelKeyHealthCheckHTTPMethod    `json:"method,omitempty"`
+	URLMode          ChannelKeyHealthCheckHTTPURLMode   `json:"urlMode,omitempty"`
+	Path             string                             `json:"path,omitempty"`
+	URL              string                             `json:"url,omitempty"`
+	TimeoutMs        int                                `json:"timeoutMs,omitempty"`
+	Headers          []HeaderEntry                      `json:"headers,omitempty"`
+	KeyInjection     *ChannelKeyHealthCheckKeyInjection `json:"keyInjection,omitempty"`
+	ExpectedStatuses []int                              `json:"expectedStatuses,omitempty"`
+	PassWhen         string                             `json:"passWhen,omitempty"`
 }
 
 type ChannelKeyHealthCheckKeyInjection struct {
@@ -317,16 +324,29 @@ type ChannelKeyHealthCheckKeyInjection struct {
 }
 
 type ChannelKeyMetadata struct {
-	ID            string           `json:"id,omitempty"`
-	MaskedKey     string           `json:"maskedKey,omitempty"`
-	Status        ChannelKeyStatus `json:"status,omitempty"`
-	LastCheckedAt *time.Time        `json:"lastCheckedAt,omitempty"`
-	Success       *bool            `json:"success,omitempty"`
-	FailureCount  int              `json:"failureCount,omitempty"`
-	Reason        string           `json:"reason,omitempty"`
-	Balance       any              `json:"balance,omitempty"`
-	Currency      string           `json:"currency,omitempty"`
-	Available     *bool            `json:"available,omitempty"`
+	ID            string                              `json:"id,omitempty"`
+	MaskedKey     string                              `json:"maskedKey,omitempty"`
+	Status        ChannelKeyStatus                    `json:"status,omitempty"`
+	LastCheckedAt *time.Time                          `json:"lastCheckedAt,omitempty"`
+	Success       *bool                               `json:"success,omitempty"`
+	FailureCount  int                                 `json:"failureCount,omitempty"`
+	Reason        string                              `json:"reason,omitempty"`
+	Balance       any                                 `json:"balance,omitempty"`
+	Currency      string                              `json:"currency,omitempty"`
+	Available     *bool                               `json:"available,omitempty"`
+	History       []ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
+}
+
+type ChannelKeyHealthCheckHistoryEntry struct {
+	ID        string                       `json:"id,omitempty"`
+	CheckedAt time.Time                    `json:"checkedAt"`
+	Success   bool                         `json:"success"`
+	Reason    string                       `json:"reason,omitempty"`
+	Balance   any                          `json:"balance,omitempty"`
+	Currency  string                       `json:"currency,omitempty"`
+	Available *bool                        `json:"available,omitempty"`
+	Trigger   ChannelKeyHealthCheckTrigger `json:"trigger,omitempty"`
+	Rule      string                       `json:"rule,omitempty"`
 }
 
 type ChannelArchivedAPIKey struct {
