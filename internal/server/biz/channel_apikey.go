@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -13,6 +14,241 @@ import (
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcontext"
 )
+
+type ChannelAPIKeyInventoryItem struct {
+	ID            string
+	MaskedKey     string
+	Status        objects.ChannelKeyStatus
+	LastCheckedAt *time.Time
+	Success       *bool
+	FailureCount  int
+	Reason        string
+	Balance       any
+	Currency      string
+	Available     *bool
+}
+
+func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID int) ([]*ChannelAPIKeyInventoryItem, error) {
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
+
+	disabled := make(map[string]objects.DisabledAPIKey, len(ch.DisabledAPIKeys))
+	for _, dk := range ch.DisabledAPIKeys {
+		if dk.Key != "" {
+			disabled[dk.Key] = dk
+		}
+	}
+
+	metadata := make(map[string]objects.ChannelKeyMetadata)
+	if ch.Settings != nil && ch.Settings.KeyHealthCheck != nil {
+		for _, item := range ch.Settings.KeyHealthCheck.KeyMetadata {
+			if item.ID != "" {
+				metadata[item.ID] = item
+			}
+		}
+	}
+
+	archived := make(map[string]objects.ChannelArchivedAPIKey)
+	for _, item := range channelArchivedAPIKeys(ch.Settings) {
+		if item.ID != "" {
+			archived[item.ID] = item
+		}
+	}
+
+	allKeys := ch.Credentials.GetAllAPIKeys()
+	items := make([]*ChannelAPIKeyInventoryItem, 0, len(allKeys)+len(archived))
+	for _, key := range allKeys {
+		id := objects.ChannelAPIKeyFingerprint(key)
+		status := objects.ChannelKeyStatusActive
+		if _, ok := disabled[key]; ok {
+			status = objects.ChannelKeyStatusDisabled
+		}
+		if _, ok := archived[id]; ok {
+			status = objects.ChannelKeyStatusArchived
+		}
+
+		item := &ChannelAPIKeyInventoryItem{
+			ID:        id,
+			MaskedKey: objects.MaskChannelAPIKey(key),
+			Status:    status,
+		}
+		if meta, ok := metadata[id]; ok {
+			mergeInventoryMetadata(item, meta)
+		}
+		if dk, ok := disabled[key]; ok && item.Reason == "" {
+			item.LastCheckedAt = &dk.DisabledAt
+			item.Reason = dk.Reason
+		}
+		if archive, ok := archived[id]; ok {
+			mergeInventoryArchive(item, archive)
+		}
+
+		items = append(items, item)
+	}
+
+	known := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		known[item.ID] = struct{}{}
+	}
+	for _, archive := range archived {
+		if _, ok := known[archive.ID]; ok {
+			continue
+		}
+
+		item := &ChannelAPIKeyInventoryItem{
+			ID:        archive.ID,
+			MaskedKey: archive.MaskedKey,
+			Status:    objects.ChannelKeyStatusArchived,
+		}
+		mergeInventoryArchive(item, archive)
+		items = append(items, item)
+	}
+
+	return items, nil
+}
+
+func (svc *ChannelService) AddChannelAPIKey(ctx context.Context, channelID int, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("api key cannot be empty")
+	}
+
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to get channel: %w", err)
+	}
+	if ch.Credentials.IsOAuth() {
+		return fmt.Errorf("cannot add API keys for OAuth channels")
+	}
+	if slices.Contains(ch.Credentials.GetAllAPIKeys(), key) {
+		return nil
+	}
+
+	credentials := ch.Credentials
+	credentials.APIKeys = append(credentials.APIKeys, key)
+
+	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetCredentials(credentials).Save(ctx); err != nil {
+		return fmt.Errorf("failed to add channel api key: %w", err)
+	}
+
+	svc.asyncReloadChannels()
+
+	return nil
+}
+
+func (svc *ChannelService) DeleteChannelAPIKey(ctx context.Context, channelID int, keyID string) (*DeleteDisabledAPIKeysResult, error) {
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
+	if ch.Credentials.IsOAuth() {
+		return nil, fmt.Errorf("cannot delete API keys for OAuth channels")
+	}
+
+	key, ok := resolveChannelAPIKey(ch.Credentials, keyID)
+	if !ok {
+		return &DeleteDisabledAPIKeysResult{Success: true}, nil
+	}
+
+	credentials := removeChannelCredentialKey(ch.Credentials, key)
+	disabled := removeDisabledAPIKey(ch.DisabledAPIKeys, key)
+	settings := removeChannelKeySettingsMetadata(ch.Settings, objects.ChannelAPIKeyFingerprint(key))
+	remaining := credentials.GetRoutableAPIKeys(disabled, channelArchivedAPIKeys(settings))
+	result := &DeleteDisabledAPIKeysResult{Success: true}
+	if len(remaining) == 0 {
+		result.Message = "ONE_KEY_PRESERVED"
+		return result, nil
+	}
+
+	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
+		SetCredentials(credentials).
+		SetDisabledAPIKeys(disabled).
+		SetSettings(settings).
+		Save(ctx); err != nil {
+		return nil, fmt.Errorf("failed to delete channel api key: %w", err)
+	}
+
+	svc.asyncReloadChannels()
+
+	return result, nil
+}
+
+func (svc *ChannelService) ArchiveChannelAPIKey(ctx context.Context, channelID int, keyID string, reason string) error {
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to get channel: %w", err)
+	}
+
+	key, ok := resolveChannelAPIKey(ch.Credentials, keyID)
+	if !ok {
+		return nil
+	}
+
+	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
+	id := objects.ChannelAPIKeyFingerprint(key)
+	for _, archived := range settings.KeyHealthCheck.ArchivedKeys {
+		if archived.ID == id {
+			return nil
+		}
+	}
+
+	now := time.Now()
+	nextArchived := append(settings.KeyHealthCheck.ArchivedKeys, objects.ChannelArchivedAPIKey{
+		ID:         id,
+		MaskedKey:  objects.MaskChannelAPIKey(key),
+		ArchivedAt: &now,
+		Reason:     reason,
+	})
+	settings.KeyHealthCheck.ArchivedKeys = nextArchived
+
+	if len(ch.Credentials.GetRoutableAPIKeys(ch.DisabledAPIKeys, nextArchived)) == 0 {
+		return fmt.Errorf("cannot archive the last usable channel api key")
+	}
+
+	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+		return fmt.Errorf("failed to archive channel api key: %w", err)
+	}
+
+	svc.asyncReloadChannels()
+
+	return nil
+}
+
+func (svc *ChannelService) RestoreChannelAPIKey(ctx context.Context, channelID int, keyID string) error {
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to get channel: %w", err)
+	}
+	if ch.Settings == nil || ch.Settings.KeyHealthCheck == nil || len(ch.Settings.KeyHealthCheck.ArchivedKeys) == 0 {
+		return nil
+	}
+
+	id := normalizeChannelKeyID(keyID)
+	settings := cloneChannelSettings(ch.Settings)
+	next := make([]objects.ChannelArchivedAPIKey, 0, len(settings.KeyHealthCheck.ArchivedKeys))
+	changed := false
+	for _, archived := range settings.KeyHealthCheck.ArchivedKeys {
+		if archived.ID == id {
+			changed = true
+			continue
+		}
+		next = append(next, archived)
+	}
+	if !changed {
+		return nil
+	}
+	settings.KeyHealthCheck.ArchivedKeys = next
+
+	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+		return fmt.Errorf("failed to restore channel api key: %w", err)
+	}
+
+	svc.asyncReloadChannels()
+
+	return nil
+}
 
 // DisableAPIKey 禁用指定 key；若所有 key 都不可用则禁用 channel.
 func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key string, errorCode int, reason string) error {
@@ -26,14 +262,12 @@ func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
 
-	// 检查 key 是否在 credentials 中
-	allKeys := ch.Credentials.GetAllAPIKeys()
-
-	found := slices.Contains(allKeys, key)
+	resolvedKey, found := resolveChannelAPIKey(ch.Credentials, key)
 	if !found {
 		// key 不在 credentials 中，忽略
 		return nil
 	}
+	key = resolvedKey
 
 	disabled := lo.ContainsBy(ch.DisabledAPIKeys, func(dk objects.DisabledAPIKey) bool {
 		return dk.Key == key
@@ -55,7 +289,7 @@ func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key
 	newDisabledKeys := append(ch.DisabledAPIKeys, disabledKey)
 
 	// 计算 enabled keys
-	enabledKeys := ch.Credentials.GetEnabledAPIKeys(newDisabledKeys)
+	enabledKeys := ch.Credentials.GetRoutableAPIKeys(newDisabledKeys, channelArchivedAPIKeys(ch.Settings))
 
 	// 更新 channel
 	update := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
@@ -107,6 +341,9 @@ func (svc *ChannelService) EnableAPIKey(ctx context.Context, channelID int, key 
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
+	}
+	if resolvedKey, ok := resolveChannelAPIKey(ch.Credentials, key); ok {
+		key = resolvedKey
 	}
 
 	if len(ch.DisabledAPIKeys) == 0 {
@@ -279,8 +516,8 @@ func (svc *ChannelService) DeleteDisabledAPIKeys(ctx context.Context, channelID 
 	}
 
 	// Ensure at least one API key remains
-	allKeys := newCredentials.GetAllAPIKeys()
-	if len(allKeys) == 0 {
+	routableKeys := newCredentials.GetRoutableAPIKeys(newDisabledKeys, channelArchivedAPIKeys(ch.Settings))
+	if len(routableKeys) == 0 {
 		// Restore at least one key from the keys being deleted
 		// Prefer the first key that was supposed to be deleted
 		restoredKey := keys[0]
@@ -302,11 +539,129 @@ func (svc *ChannelService) DeleteDisabledAPIKeys(ctx context.Context, channelID 
 
 	// Check if we had to preserve a key
 	result := &DeleteDisabledAPIKeysResult{Success: true}
-	if len(allKeys) == 0 {
+	if len(routableKeys) == 0 {
 		result.Message = "ONE_KEY_PRESERVED"
 	}
 
 	svc.asyncReloadChannels()
 
 	return result, nil
+}
+
+func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.ChannelKeyMetadata) {
+	if meta.MaskedKey != "" {
+		item.MaskedKey = meta.MaskedKey
+	}
+	if meta.Status != "" {
+		item.Status = meta.Status
+	}
+	item.LastCheckedAt = meta.LastCheckedAt
+	item.Success = meta.Success
+	item.FailureCount = meta.FailureCount
+	item.Reason = meta.Reason
+	item.Balance = meta.Balance
+	item.Currency = meta.Currency
+	item.Available = meta.Available
+}
+
+func mergeInventoryArchive(item *ChannelAPIKeyInventoryItem, archive objects.ChannelArchivedAPIKey) {
+	if archive.MaskedKey != "" {
+		item.MaskedKey = archive.MaskedKey
+	}
+	item.Status = objects.ChannelKeyStatusArchived
+	if archive.LastCheckedAt != nil {
+		item.LastCheckedAt = archive.LastCheckedAt
+	} else {
+		item.LastCheckedAt = archive.ArchivedAt
+	}
+	item.FailureCount = archive.FailureCount
+	item.Reason = archive.Reason
+	item.Balance = archive.Balance
+	item.Currency = archive.Currency
+	item.Available = archive.Available
+}
+
+func resolveChannelAPIKey(credentials objects.ChannelCredentials, keyID string) (string, bool) {
+	keyID = strings.TrimSpace(keyID)
+	for _, key := range credentials.GetAllAPIKeys() {
+		if key == keyID || objects.ChannelAPIKeyFingerprint(key) == normalizeChannelKeyID(keyID) {
+			return key, true
+		}
+	}
+
+	return "", false
+}
+
+func normalizeChannelKeyID(keyID string) string {
+	if strings.HasPrefix(keyID, "key_") {
+		return keyID
+	}
+
+	return objects.ChannelAPIKeyFingerprint(keyID)
+}
+
+func removeChannelCredentialKey(credentials objects.ChannelCredentials, key string) objects.ChannelCredentials {
+	if credentials.APIKey == key {
+		credentials.APIKey = ""
+	}
+	credentials.APIKeys = slices.DeleteFunc(credentials.APIKeys, func(item string) bool {
+		return item == key
+	})
+
+	return credentials
+}
+
+func removeDisabledAPIKey(disabled []objects.DisabledAPIKey, key string) []objects.DisabledAPIKey {
+	return slices.DeleteFunc(slices.Clone(disabled), func(item objects.DisabledAPIKey) bool {
+		return item.Key == key
+	})
+}
+
+func removeChannelKeySettingsMetadata(settings *objects.ChannelSettings, id string) *objects.ChannelSettings {
+	if settings == nil || settings.KeyHealthCheck == nil {
+		return settings
+	}
+
+	next := cloneChannelSettings(settings)
+	next.KeyHealthCheck.KeyMetadata = slices.DeleteFunc(next.KeyHealthCheck.KeyMetadata, func(item objects.ChannelKeyMetadata) bool {
+		return item.ID == id
+	})
+	next.KeyHealthCheck.ArchivedKeys = slices.DeleteFunc(next.KeyHealthCheck.ArchivedKeys, func(item objects.ChannelArchivedAPIKey) bool {
+		return item.ID == id
+	})
+
+	return next
+}
+
+func ensureChannelKeyHealthCheckSettings(settings *objects.ChannelSettings) *objects.ChannelSettings {
+	next := cloneChannelSettings(settings)
+	if next == nil {
+		next = &objects.ChannelSettings{}
+	}
+	if next.KeyHealthCheck == nil {
+		next.KeyHealthCheck = &objects.ChannelKeyHealthCheck{}
+	}
+
+	return next
+}
+
+func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSettings {
+	if settings == nil {
+		return nil
+	}
+
+	next := *settings
+	if settings.KeySelection != nil {
+		keySelection := *settings.KeySelection
+		next.KeySelection = &keySelection
+	}
+	if settings.KeyHealthCheck != nil {
+		health := *settings.KeyHealthCheck
+		health.Rules = slices.Clone(settings.KeyHealthCheck.Rules)
+		health.KeyMetadata = slices.Clone(settings.KeyHealthCheck.KeyMetadata)
+		health.ArchivedKeys = slices.Clone(settings.KeyHealthCheck.ArchivedKeys)
+		next.KeyHealthCheck = &health
+	}
+
+	return &next
 }

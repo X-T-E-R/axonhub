@@ -7,6 +7,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/user"
+	llmctx "github.com/looplj/axonhub/llm"
 )
 
 func TestWithAPIKey(t *testing.T) {
@@ -532,5 +533,30 @@ func TestContextContainerWithOtherValues(t *testing.T) {
 	apiKey, ok := GetAPIKey(ctxWithOurs)
 	if !ok || apiKey.ID != 1 {
 		t.Error("Our context values should also be accessible")
+	}
+}
+
+func TestEnsureContainerAllowsMutationWithoutContextReplacement(t *testing.T) {
+	ctx := EnsureContainer(context.Background())
+
+	_ = WithChannelKeyAffinityID(ctx, "cache:test")
+	affinityID, ok := GetChannelKeyAffinityID(ctx)
+	if !ok || affinityID != "cache:test" {
+		t.Error("affinity ID should be stored on the initialized context container")
+	}
+
+	_ = WithChannelAPIKey(ctx, "channel-key")
+	channelKey, ok := GetChannelAPIKey(ctx)
+	if !ok || channelKey != "channel-key" {
+		t.Error("channel API key should be stored on the initialized context container")
+	}
+}
+
+func TestGetChannelKeyAffinityIDFallsBackToLlmContext(t *testing.T) {
+	ctx := llmctx.WithChannelKeyAffinityID(context.Background(), "cache:llm-context")
+
+	affinityID, ok := GetChannelKeyAffinityID(ctx)
+	if !ok || affinityID != "cache:llm-context" {
+		t.Fatal("affinity ID should be readable from the llm context helper")
 	}
 }

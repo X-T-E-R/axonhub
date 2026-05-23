@@ -110,6 +110,8 @@ export function mergeChannelSettingsForUpdate(
     passThroughUserAgent: pick('passThroughUserAgent', existing?.passThroughUserAgent ?? null),
     passThroughBody: pick('passThroughBody', existing?.passThroughBody ?? null),
     rateLimit: pick('rateLimit', existing?.rateLimit ?? null),
+    keySelection: pick('keySelection', existing?.keySelection ?? null),
+    keyHealthCheck: pick('keyHealthCheck', existing?.keyHealthCheck ?? null),
   };
 }
 

@@ -7,11 +7,11 @@ tmp_dir = "tmp"
 
 [build]
 # Just plain old shell command. You could use `make` as well.
-cmd = "go build -o ./tmp/axonhub cmd/axonhub/main.go"
+cmd = "& 'C:\\Program Files\\Go\\bin\\go.exe' build -o ./tmp/axonhub.exe cmd/axonhub/main.go"
 # Binary file yields from `cmd`.
-bin = "./tmp/axonhub"
+bin = "./tmp/axonhub.exe"
 # Customize binary.
-full_bin = "APP_USER=air ./tmp/axonhub"
+full_bin = "./tmp/axonhub.exe"
 # Watch these filename extensions.
 include_ext = ["go","yml"]
 # Ignore these filename extensions or directories.

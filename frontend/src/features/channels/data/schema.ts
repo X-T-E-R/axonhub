@@ -190,6 +190,116 @@ export const channelRateLimitSchema = z.object({
 });
 export type ChannelRateLimit = z.infer<typeof channelRateLimitSchema>;
 
+export const channelKeySelectionStrategySchema = z.enum(['trace_sticky', 'cache_affinity', 'random', 'round_robin']);
+export type ChannelKeySelectionStrategy = z.infer<typeof channelKeySelectionStrategySchema>;
+
+export const channelKeySelectionSchema = z.object({
+  strategy: channelKeySelectionStrategySchema.optional().nullable(),
+});
+export type ChannelKeySelection = z.infer<typeof channelKeySelectionSchema>;
+
+export const channelKeyStatusSchema = z.enum(['active', 'disabled', 'archived']);
+export type ChannelKeyStatus = z.infer<typeof channelKeyStatusSchema>;
+
+export const channelKeyHealthCheckFailureActionSchema = z.enum(['report_only', 'disable', 'archive', 'delete']);
+export type ChannelKeyHealthCheckFailureAction = z.infer<typeof channelKeyHealthCheckFailureActionSchema>;
+
+export const channelKeyHealthCheckRuleTypeSchema = z.enum(['builtin_test', 'http']);
+export type ChannelKeyHealthCheckRuleType = z.infer<typeof channelKeyHealthCheckRuleTypeSchema>;
+
+export const channelKeyHealthCheckHeaderSchema = z.object({
+  key: z.string().min(1),
+  value: z.string(),
+});
+export type ChannelKeyHealthCheckHeader = z.infer<typeof channelKeyHealthCheckHeaderSchema>;
+
+export const channelKeyHealthCheckKeyInjectionSchema = z.object({
+  location: z.enum(['authorization_bearer', 'header']).default('authorization_bearer'),
+  headerName: z.string().optional().nullable(),
+});
+export type ChannelKeyHealthCheckKeyInjection = z.infer<typeof channelKeyHealthCheckKeyInjectionSchema>;
+
+export const channelKeyHealthCheckHTTPRuleSchema = z.object({
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
+  urlMode: z.enum(['provider_base_url', 'absolute_url']).default('provider_base_url'),
+  path: z.string().optional().nullable(),
+  url: z.string().optional().nullable(),
+  timeoutMs: z.number().int().positive().max(30000).optional().nullable(),
+  headers: z.array(channelKeyHealthCheckHeaderSchema).optional().nullable(),
+  keyInjection: channelKeyHealthCheckKeyInjectionSchema.optional().nullable(),
+  expectedStatuses: z.array(z.number().int()).optional().nullable(),
+  passWhen: z.string().optional().nullable(),
+});
+export type ChannelKeyHealthCheckHTTPRule = z.infer<typeof channelKeyHealthCheckHTTPRuleSchema>;
+
+export const channelKeyHealthCheckRuleSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  type: channelKeyHealthCheckRuleTypeSchema,
+  enabled: z.boolean().optional().nullable(),
+  builtin: z
+    .object({
+      kind: z.enum(['channel_api_key_test']),
+    })
+    .optional()
+    .nullable(),
+  http: channelKeyHealthCheckHTTPRuleSchema.optional().nullable(),
+});
+export type ChannelKeyHealthCheckRule = z.infer<typeof channelKeyHealthCheckRuleSchema>;
+
+export const channelKeyMetadataSchema = z.object({
+  id: z.string().optional().nullable(),
+  maskedKey: z.string().optional().nullable(),
+  status: channelKeyStatusSchema.optional().nullable(),
+  lastCheckedAt: z.string().optional().nullable(),
+  success: z.boolean().optional().nullable(),
+  failureCount: z.number().int().nonnegative().optional().nullable(),
+  reason: z.string().optional().nullable(),
+  balance: z.unknown().optional().nullable(),
+  currency: z.string().optional().nullable(),
+  available: z.boolean().optional().nullable(),
+});
+export type ChannelKeyMetadata = z.infer<typeof channelKeyMetadataSchema>;
+
+export const channelArchivedAPIKeySchema = z.object({
+  id: z.string().optional().nullable(),
+  maskedKey: z.string().optional().nullable(),
+  archivedAt: z.string().optional().nullable(),
+  reason: z.string().optional().nullable(),
+  lastCheckedAt: z.string().optional().nullable(),
+  failureCount: z.number().int().nonnegative().optional().nullable(),
+  balance: z.unknown().optional().nullable(),
+  currency: z.string().optional().nullable(),
+  available: z.boolean().optional().nullable(),
+});
+export type ChannelArchivedAPIKey = z.infer<typeof channelArchivedAPIKeySchema>;
+
+export const channelAPIKeyInventoryItemSchema = z.object({
+  id: z.string(),
+  maskedKey: z.string(),
+  status: channelKeyStatusSchema,
+  lastCheckedAt: z.string().optional().nullable(),
+  success: z.boolean().optional().nullable(),
+  failureCount: z.number().int().nonnegative().optional().nullable(),
+  reason: z.string().optional().nullable(),
+  balance: z.unknown().optional().nullable(),
+  currency: z.string().optional().nullable(),
+  available: z.boolean().optional().nullable(),
+});
+export type ChannelAPIKeyInventoryItem = z.infer<typeof channelAPIKeyInventoryItemSchema>;
+
+export const channelKeyHealthCheckSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  intervalMinutes: z.number().int().min(5).max(10080).optional().default(60),
+  failureThreshold: z.number().int().min(1).max(20).optional().default(3),
+  failureAction: channelKeyHealthCheckFailureActionSchema.optional().default('report_only'),
+  includeDisabled: z.boolean().optional().default(false),
+  rules: z.array(channelKeyHealthCheckRuleSchema).optional().default([]),
+  keyMetadata: z.array(channelKeyMetadataSchema).optional().nullable(),
+  archivedKeys: z.array(channelArchivedAPIKeySchema).optional().nullable(),
+});
+export type ChannelKeyHealthCheck = z.infer<typeof channelKeyHealthCheckSchema>;
+
 // Live snapshot of the per-channel concurrency limiter.
 // Returned from the backend only when MaxConcurrent is configured.
 export const channelLimiterStatsSchema = z.object({
@@ -215,6 +325,8 @@ export const channelSettingsSchema = z.object({
   passThroughUserAgent: z.boolean().optional().nullable(),
   passThroughBody: z.boolean().optional().nullable(),
   rateLimit: channelRateLimitSchema.optional().nullable(),
+  keySelection: channelKeySelectionSchema.optional().nullable(),
+  keyHealthCheck: channelKeyHealthCheckSchema.optional().nullable(),
 });
 
 export type ChannelSettings = z.infer<typeof channelSettingsSchema>;
@@ -545,47 +657,21 @@ export const updateChannelInputSchema = z
   })
   .superRefine((data, ctx) => {
     const effectiveType = data.type;
-    const hasApiKey = data.credentials?.apiKey && data.credentials.apiKey.trim().length > 0;
+    const apiKey = data.credentials?.apiKey;
+    const hasApiKey = typeof apiKey === 'string' && apiKey.trim().length > 0;
 
     // For OAuth validation on updates: validate if type is OAuth, or if credentials.apiKey is provided
     // (which indicates OAuth credentials are being set)
     const isOAuthType =
       effectiveType === 'codex' || effectiveType === 'claudecode' || effectiveType === 'antigravity' || effectiveType === 'github_copilot';
 
-    // Derive type from parent context if not available
-    let derivedType = effectiveType;
-    if (!derivedType && hasApiKey) {
-      // Try to get type from parent context
-      const parent = ctx.parent;
-      if (parent && typeof parent === 'object' && 'type' in parent) {
-        derivedType = (parent as { type?: string }).type;
-      }
-    }
-
     // If we have an OAuth key but no type, check if it looks like Copilot credentials
-    const isCopilotKey = hasApiKey && data.credentials?.apiKey?.trim().startsWith('{');
+    const isCopilotKey = hasApiKey && apiKey.trim().startsWith('{');
 
-    if (isOAuthType || derivedType === 'github_copilot' || isCopilotKey) {
-      if (isCopilotKey && !derivedType) {
-        try {
-          const parsed = JSON.parse(data.credentials.apiKey);
-          if (!parsed.access_token) {
-            ctx.addIssue({
-              code: 'custom',
-              message: 'channels.dialogs.oauth.errors.copilotCredentialsInvalid',
-              path: ['credentials', 'apiKey'],
-            });
-          }
-        } catch {
-          ctx.addIssue({
-            code: 'custom',
-            message: 'channels.dialogs.oauth.errors.copilotCredentialsInvalid',
-            path: ['credentials', 'apiKey'],
-          });
-        }
-        return;
-      }
-      validateOAuthCredentials(derivedType, data.credentials?.apiKey, ctx);
+    if (isOAuthType && effectiveType && hasApiKey) {
+      validateOAuthCredentials(effectiveType, apiKey, ctx);
+    } else if (isCopilotKey) {
+      validateOAuthCredentials('github_copilot', apiKey, ctx);
     }
 
     // 如果是 anthropic_gcp 类型且提供了 credentials，GCP 字段必填（字段级报错）

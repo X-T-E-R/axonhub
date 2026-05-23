@@ -138,6 +138,78 @@ models:
   ChannelRateLimitInput:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelRateLimit
+  ChannelKeySelectionStrategy:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeySelectionStrategy
+  ChannelKeySelection:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeySelection
+  ChannelKeySelectionInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeySelection
+  ChannelKeyHealthCheckFailureAction:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckFailureAction
+  ChannelKeyHealthCheckRuleType:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckRuleType
+  ChannelKeyHealthCheckHTTPMethod:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckHTTPMethod
+  ChannelKeyHealthCheckHTTPURLMode:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckHTTPURLMode
+  ChannelKeyHealthCheckKeyInjectionLocation:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckKeyInjectionLocation
+  ChannelKeyStatus:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyStatus
+  ChannelKeyHealthCheck:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheck
+  ChannelKeyHealthCheckInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheck
+  ChannelKeyHealthCheckRule:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckRule
+  ChannelKeyHealthCheckRuleInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckRule
+  ChannelKeyHealthCheckBuiltin:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckBuiltin
+  ChannelKeyHealthCheckBuiltinInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckBuiltin
+  ChannelKeyHealthCheckHTTPRule:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckHTTPRule
+  ChannelKeyHealthCheckHTTPRuleInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckHTTPRule
+  ChannelKeyHealthCheckKeyInjection:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckKeyInjection
+  ChannelKeyHealthCheckKeyInjectionInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckKeyInjection
+  ChannelKeyMetadata:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyMetadata
+  ChannelKeyMetadataInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyMetadata
+  ChannelArchivedAPIKey:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelArchivedAPIKey
+  ChannelArchivedAPIKeyInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelArchivedAPIKey
+  ChannelAPIKeyInventoryItem:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelAPIKeyInventoryItem
   ChannelCredentials:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelCredentials

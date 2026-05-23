@@ -60,7 +60,7 @@ func NewTestChannelOrchestrator(
 		modelCircuitBreaker:         biz.NewModelCircuitBreaker(),
 		modelMapper:                 NewModelMapper(),
 		loadBalancer:                NewLoadBalancer(systemService, channelService, NewWeightStrategy()),
-		channelLimiterManager:      NewChannelLimiterManager(),
+		channelLimiterManager:       NewChannelLimiterManager(),
 	}
 }
 
@@ -404,6 +404,41 @@ func (processor *TestChannelOrchestrator) TestChannelAPIKeys(
 		FailedCount:  int(failedCount),
 		Results:      results,
 	}, nil
+}
+
+// TestSingleChannelAPIKey exposes the existing single-key manual test path for
+// scheduled health checks while keeping the aggregate GraphQL flow unchanged.
+func (processor *TestChannelOrchestrator) TestSingleChannelAPIKey(
+	ctx context.Context,
+	channelID objects.GUID,
+	key string,
+	modelID *string,
+	proxy *httpclient.ProxyConfig,
+) biz.ChannelKeyHealthCheckBuiltinResult {
+	ch, err := processor.channelService.GetChannel(ctx, channelID.ID)
+	if err != nil {
+		return biz.ChannelKeyHealthCheckBuiltinResult{
+			Success: false,
+			Reason:  err.Error(),
+		}
+	}
+
+	testModel := lo.FromPtr(modelID)
+	if testModel == "" {
+		testModel = ch.DefaultTestModel
+	}
+
+	result := processor.testSingleKey(ctx, channelID, key, testModel, ch.Policies.Stream == objects.CapabilityPolicyRequire, proxy)
+	reason := "ok"
+	if result.Error != nil && *result.Error != "" {
+		reason = *result.Error
+	}
+
+	return biz.ChannelKeyHealthCheckBuiltinResult{
+		Success: result.Success,
+		Reason:  reason,
+		Latency: result.Latency,
+	}
 }
 
 // testSingleKey tests a single API key by forcing the use of a specific key via an override middleware.

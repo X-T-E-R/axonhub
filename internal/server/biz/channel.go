@@ -151,6 +151,8 @@ type ChannelService struct {
 
 	httpClient *httpclient.HttpClient
 
+	keyHealthCheckTester ChannelKeyHealthCheckTester
+
 	enabledChannelsCache *live.Cache[[]*Channel]
 	channelNotifier      watcher.Notifier[live.CacheEvent[struct{}]]
 
@@ -191,12 +193,20 @@ type ChannelService struct {
 }
 
 func (svc *ChannelService) RegisterScheduledTasks(ctx context.Context, s *scheduler.Scheduler) error {
-	return s.Register(ctx, scheduler.TaskSpec{
+	if err := s.Register(ctx, scheduler.TaskSpec{
 		Name:        "channel-model-sync",
 		Description: "Sync channel models every hour",
 		CronExpr:    "11 * * * *",
 		Timezone:    "UTC",
-	}, svc.runSyncChannelModelsPeriodically)
+	}, svc.runSyncChannelModelsPeriodically); err != nil {
+		return err
+	}
+
+	return s.Register(ctx, scheduler.TaskSpec{
+		Name:        "channel-key-health-check",
+		Description: "Check channel credential API key health",
+		FixRate:     time.Minute,
+	}, svc.runChannelKeyHealthChecksScheduled)
 }
 
 func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []*Channel, lastUpdate time.Time) ([]*Channel, time.Time, bool, error) {
@@ -458,6 +468,10 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 		if err := ValidateRateLimit(input.Settings.RateLimit); err != nil {
 			return nil, fmt.Errorf("invalid rate limit: %w", err)
 		}
+
+		if err := ValidateChannelKeySettings(input.Settings); err != nil {
+			return nil, fmt.Errorf("invalid channel key settings: %w", err)
+		}
 	}
 
 	if input.Endpoints != nil {
@@ -580,6 +594,10 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 
 		if err := ValidateRateLimit(input.Settings.RateLimit); err != nil {
 			return nil, fmt.Errorf("invalid rate limit: %w", err)
+		}
+
+		if err := ValidateChannelKeySettings(input.Settings); err != nil {
+			return nil, fmt.Errorf("invalid channel key settings: %w", err)
 		}
 
 		mut.SetSettings(input.Settings)

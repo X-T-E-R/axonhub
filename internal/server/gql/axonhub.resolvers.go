@@ -116,6 +116,21 @@ func (r *channelResolver) LiveLimiterStats(ctx context.Context, obj *ent.Channel
 	}, nil
 }
 
+// Balance is the resolver for the balance field.
+func (r *channelAPIKeyInventoryItemResolver) Balance(ctx context.Context, obj *biz.ChannelAPIKeyInventoryItem) (objects.JSONRawMessage, error) {
+	return marshalChannelKeyBalance(obj.Balance)
+}
+
+// Balance is the resolver for the balance field.
+func (r *channelArchivedAPIKeyResolver) Balance(ctx context.Context, obj *objects.ChannelArchivedAPIKey) (objects.JSONRawMessage, error) {
+	return marshalChannelKeyBalance(obj.Balance)
+}
+
+// Balance is the resolver for the balance field.
+func (r *channelKeyMetadataResolver) Balance(ctx context.Context, obj *objects.ChannelKeyMetadata) (objects.JSONRawMessage, error) {
+	return marshalChannelKeyBalance(obj.Balance)
+}
+
 // HeaderOverrideOperations is the resolver for the headerOverrideOperations field.
 func (r *channelSettingsResolver) HeaderOverrideOperations(ctx context.Context, obj *objects.ChannelSettings) ([]*objects.OverrideOperation, error) {
 	if obj == nil {
@@ -366,6 +381,43 @@ func (r *mutationResolver) DeleteDisabledChannelAPIKeys(ctx context.Context, cha
 	}
 
 	return result, nil
+}
+
+// AddChannelAPIKey is the resolver for the addChannelAPIKey field.
+func (r *mutationResolver) AddChannelAPIKey(ctx context.Context, channelID objects.GUID, key string) (bool, error) {
+	if err := r.channelService.AddChannelAPIKey(ctx, channelID.ID, key); err != nil {
+		return false, fmt.Errorf("failed to add channel API key: %w", err)
+	}
+
+	return true, nil
+}
+
+// DeleteChannelAPIKey is the resolver for the deleteChannelAPIKey field.
+func (r *mutationResolver) DeleteChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string) (*biz.DeleteDisabledAPIKeysResult, error) {
+	result, err := r.channelService.DeleteChannelAPIKey(ctx, channelID.ID, keyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete channel API key: %w", err)
+	}
+
+	return result, nil
+}
+
+// ArchiveChannelAPIKey is the resolver for the archiveChannelAPIKey field.
+func (r *mutationResolver) ArchiveChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string, reason *string) (bool, error) {
+	if err := r.channelService.ArchiveChannelAPIKey(ctx, channelID.ID, keyID, lo.FromPtr(reason)); err != nil {
+		return false, fmt.Errorf("failed to archive channel API key: %w", err)
+	}
+
+	return true, nil
+}
+
+// RestoreChannelAPIKey is the resolver for the restoreChannelAPIKey field.
+func (r *mutationResolver) RestoreChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string) (bool, error) {
+	if err := r.channelService.RestoreChannelAPIKey(ctx, channelID.ID, keyID); err != nil {
+		return false, fmt.Errorf("failed to restore channel API key: %w", err)
+	}
+
+	return true, nil
 }
 
 // CreateAPIKey is the resolver for the createAPIKey field.
@@ -647,6 +699,11 @@ func (r *mutationResolver) LoadAPIKeyProfileTemplate(ctx context.Context, input 
 	return r.apiKeyProfileTemplateService.LoadTemplate(ctx, input.TemplateID.ID, input.APIKeyID.ID)
 }
 
+// ChannelAPIKeyInventory is the resolver for the channelAPIKeyInventory field.
+func (r *queryResolver) ChannelAPIKeyInventory(ctx context.Context, channelID objects.GUID) ([]*biz.ChannelAPIKeyInventoryItem, error) {
+	return r.channelService.ChannelAPIKeyInventory(ctx, channelID.ID)
+}
+
 // AllChannelSummarys is the resolver for the allChannelSummarys field.
 func (r *queryResolver) AllChannelSummarys(ctx context.Context, includeArchived *bool) ([]*ent.Channel, error) {
 	statusFilter := []channel.Status{channel.StatusEnabled, channel.StatusDisabled}
@@ -847,6 +904,31 @@ func (r *traceResolver) UsageMetadata(ctx context.Context, obj *ent.Trace) (*biz
 	return r.traceService.UsageMetadata(ctx, obj.ID)
 }
 
+// Balance is the resolver for the balance field.
+func (r *channelArchivedAPIKeyInputResolver) Balance(ctx context.Context, obj *objects.ChannelArchivedAPIKey, data objects.JSONRawMessage) error {
+	return unmarshalChannelKeyBalance(data, &obj.Balance)
+}
+
+// Balance is the resolver for the balance field.
+func (r *channelKeyMetadataInputResolver) Balance(ctx context.Context, obj *objects.ChannelKeyMetadata, data objects.JSONRawMessage) error {
+	return unmarshalChannelKeyBalance(data, &obj.Balance)
+}
+
+// ChannelAPIKeyInventoryItem returns ChannelAPIKeyInventoryItemResolver implementation.
+func (r *Resolver) ChannelAPIKeyInventoryItem() ChannelAPIKeyInventoryItemResolver {
+	return &channelAPIKeyInventoryItemResolver{r}
+}
+
+// ChannelArchivedAPIKey returns ChannelArchivedAPIKeyResolver implementation.
+func (r *Resolver) ChannelArchivedAPIKey() ChannelArchivedAPIKeyResolver {
+	return &channelArchivedAPIKeyResolver{r}
+}
+
+// ChannelKeyMetadata returns ChannelKeyMetadataResolver implementation.
+func (r *Resolver) ChannelKeyMetadata() ChannelKeyMetadataResolver {
+	return &channelKeyMetadataResolver{r}
+}
+
 // ChannelSettings returns ChannelSettingsResolver implementation.
 func (r *Resolver) ChannelSettings() ChannelSettingsResolver { return &channelSettingsResolver{r} }
 
@@ -856,6 +938,21 @@ func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 // Segment returns SegmentResolver implementation.
 func (r *Resolver) Segment() SegmentResolver { return &segmentResolver{r} }
 
+// ChannelArchivedAPIKeyInput returns ChannelArchivedAPIKeyInputResolver implementation.
+func (r *Resolver) ChannelArchivedAPIKeyInput() ChannelArchivedAPIKeyInputResolver {
+	return &channelArchivedAPIKeyInputResolver{r}
+}
+
+// ChannelKeyMetadataInput returns ChannelKeyMetadataInputResolver implementation.
+func (r *Resolver) ChannelKeyMetadataInput() ChannelKeyMetadataInputResolver {
+	return &channelKeyMetadataInputResolver{r}
+}
+
+type channelAPIKeyInventoryItemResolver struct{ *Resolver }
+type channelArchivedAPIKeyResolver struct{ *Resolver }
+type channelKeyMetadataResolver struct{ *Resolver }
 type channelSettingsResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
 type segmentResolver struct{ *Resolver }
+type channelArchivedAPIKeyInputResolver struct{ *Resolver }
+type channelKeyMetadataInputResolver struct{ *Resolver }

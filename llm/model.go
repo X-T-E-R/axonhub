@@ -249,6 +249,9 @@ type Request struct {
 	// RawRequest is the raw request from the client.
 	RawRequest *httpclient.Request `json:"raw_request,omitempty"`
 
+	// ChannelKeyAffinityID is an internal, non-secret routing hint for channel key selection.
+	ChannelKeyAffinityID string `json:"-"`
+
 	// RequestType is the original inbound request type from the client.
 	// e.g. the request from the chat/completions endpoint is in the chat type.
 	// if it is embedding request, it will be embedding.
