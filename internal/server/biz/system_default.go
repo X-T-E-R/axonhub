@@ -75,6 +75,10 @@ var defaultVideoStorageSettings = VideoStorageSettings{
 	ScanLimit:           50,
 }
 
+var defaultRequestObservabilitySettings = RequestObservabilitySettings{
+	ExposeSelectedChannelAPIKey: false,
+}
+
 var defaultQuotaEnforcementSettings = QuotaEnforcementSettings{
 	Enabled: false,
 	Mode:    QuotaEnforcementModeExhaustedOnly,

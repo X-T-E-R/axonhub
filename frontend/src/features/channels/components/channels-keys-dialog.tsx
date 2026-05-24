@@ -26,6 +26,7 @@ import {
   IconSettingsAutomation,
   IconTrash,
 } from '@tabler/icons-react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from 'recharts';
 import { toast } from 'sonner';
@@ -106,6 +107,14 @@ type KeyHistoryTooltipProps = TooltipProps<number, string> & {
     value?: number | string;
   }>;
 };
+type BalanceCandidate = {
+  amount: number;
+  currency?: string | null;
+};
+type BalanceSummary = {
+  display: string;
+  keyCount: number;
+};
 
 const keysFormSchema = z.object({
   strategy: channelKeySelectionStrategySchema,
@@ -156,6 +165,16 @@ const DEFAULT_STRATEGY: KeysFormValues['strategy'] = 'trace_sticky';
 const STRATEGIES: KeysFormValues['strategy'][] = ['trace_sticky', 'cache_affinity', 'random', 'round_robin'];
 const FAILURE_ACTIONS: KeysFormValues['healthCheck']['failureAction'][] = ['report_only', 'disable', 'archive', 'delete'];
 const POLICY_ACTIONS: PolicyActionType[] = ['report_only', 'disable_key', 'archive_key', 'delete_key', 'disable_channel', 'backoff'];
+const BALANCE_VALUE_KEYS = [
+  'total_balance',
+  'totalBalance',
+  'balance',
+  'available_balance',
+  'availableBalance',
+  'granted_balance',
+  'topped_up_balance',
+];
+const BALANCE_COLLECTION_KEYS = ['balance_infos', 'balanceInfos', 'balances'];
 
 const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
   enabled: false,
@@ -371,7 +390,7 @@ function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInve
   }));
 }
 
-function numericBalance(value: unknown): number | null {
+function numericBalanceValue(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
@@ -379,41 +398,163 @@ function numericBalance(value: unknown): number | null {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const record = value as Record<string, unknown>;
-    const candidates = ['total_balance', 'totalBalance', 'balance', 'available_balance', 'availableBalance'];
-    for (const key of candidates) {
-      const parsed = numericBalance(record[key]);
-      if (parsed != null) {
-        return parsed;
-      }
-    }
-  }
   return null;
 }
 
-function formatBalance(value: unknown, currency?: string | null): string {
+function normalizeBalanceCurrency(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim().toUpperCase() : null;
+}
+
+function isCnyBalanceCurrency(currency?: string | null): boolean {
+  const normalized = normalizeBalanceCurrency(currency);
+  return normalized === 'CNY' || normalized === 'RMB';
+}
+
+function getBalanceCandidates(value: unknown, inheritedCurrency?: string | null): BalanceCandidate[] {
+  const directAmount = numericBalanceValue(value);
+  if (directAmount != null) {
+    return [{ amount: directAmount, currency: normalizeBalanceCurrency(inheritedCurrency) }];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => getBalanceCandidates(item, inheritedCurrency));
+  }
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const currency =
+      normalizeBalanceCurrency(record.currency) ??
+      normalizeBalanceCurrency(record.currency_code) ??
+      normalizeBalanceCurrency(record.currencyCode) ??
+      normalizeBalanceCurrency(inheritedCurrency);
+    const candidates: BalanceCandidate[] = [];
+
+    for (const key of BALANCE_VALUE_KEYS) {
+      const candidate = record[key];
+      const parsed = numericBalanceValue(candidate);
+      if (parsed != null) {
+        candidates.push({ amount: parsed, currency });
+        continue;
+      }
+      candidates.push(...getBalanceCandidates(candidate, currency));
+    }
+
+    for (const key of BALANCE_COLLECTION_KEYS) {
+      candidates.push(...getBalanceCandidates(record[key], currency));
+    }
+
+    return candidates;
+  }
+
+  return [];
+}
+
+function preferredBalance(value: unknown, currency?: string | null): BalanceCandidate | null {
+  const candidates = getBalanceCandidates(value, currency);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return (
+    candidates.find((candidate) => isCnyBalanceCurrency(candidate.currency)) ??
+    candidates.reduce((best, candidate) => (candidate.amount > best.amount ? candidate : best))
+  );
+}
+
+function numericBalance(value: unknown): number | null {
+  return preferredBalance(value)?.amount ?? null;
+}
+
+function currencyForIntl(currency?: string | null): string | null {
+  const normalized = normalizeBalanceCurrency(currency);
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === 'RMB') {
+    return 'CNY';
+  }
+  return /^[A-Z]{3}$/.test(normalized) ? normalized : null;
+}
+
+function localeForLanguage(language: string): string {
+  return language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
+}
+
+function formatNumber(value: number, language: string): string {
+  return new Intl.NumberFormat(localeForLanguage(language), {
+    maximumFractionDigits: 6,
+  }).format(value);
+}
+
+function formatBalanceAmount(amount: number, currency: string | null | undefined, t: TFunction, language: string): string {
+  const intlCurrency = currencyForIntl(currency);
+  if (intlCurrency) {
+    return t('currencies.format', {
+      val: amount,
+      currency: intlCurrency,
+      locale: localeForLanguage(language),
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    });
+  }
+
+  const normalizedCurrency = normalizeBalanceCurrency(currency);
+  return `${formatNumber(amount, language)} ${normalizedCurrency ?? ''}`.trim();
+}
+
+function formatBalance(value: unknown, currency: string | null | undefined, t: TFunction, language: string): string {
+  const selected = preferredBalance(value, currency);
+  if (selected) {
+    return formatBalanceAmount(selected.amount, selected.currency, t, language);
+  }
+
   if (value == null) {
     return '-';
   }
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+  if (typeof value === 'string' || typeof value === 'boolean') {
     return `${value} ${currency ?? ''}`.trim();
   }
   if (Array.isArray(value)) {
     return `${value.length} items`;
   }
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const candidates = ['total_balance', 'totalBalance', 'balance', 'available_balance', 'availableBalance'];
-    for (const key of candidates) {
-      const candidate = record[key];
-      if (typeof candidate === 'string' || typeof candidate === 'number') {
-        return `${candidate} ${currency ?? ''}`.trim();
-      }
-    }
-  }
 
   return JSON.stringify(value);
+}
+
+function summarizeActiveBalances(rows: KeyInventoryRow[], t: TFunction, language: string): BalanceSummary | null {
+  const balances = rows
+    .map((row) => preferredBalance(row.balance, row.currency))
+    .filter((balance): balance is BalanceCandidate => balance != null);
+
+  if (balances.length === 0) {
+    return null;
+  }
+
+  const cnyBalances = balances.filter((balance) => isCnyBalanceCurrency(balance.currency));
+  const balancesToSummarize = cnyBalances.length > 0 ? cnyBalances : balances;
+  const totalsByCurrency = new Map<string, number>();
+
+  for (const balance of balancesToSummarize) {
+    const currency = normalizeBalanceCurrency(balance.currency) ?? '';
+    totalsByCurrency.set(currency, (totalsByCurrency.get(currency) ?? 0) + balance.amount);
+  }
+
+  const parts = [...totalsByCurrency.entries()]
+    .sort(([leftCurrency], [rightCurrency]) => {
+      if (isCnyBalanceCurrency(leftCurrency)) {
+        return -1;
+      }
+      if (isCnyBalanceCurrency(rightCurrency)) {
+        return 1;
+      }
+      return leftCurrency.localeCompare(rightCurrency);
+    })
+    .map(([currency, amount]) => formatBalanceAmount(amount, currency || null, t, language));
+
+  return {
+    display: parts.join(' · '),
+    keyCount: balancesToSummarize.length,
+  };
 }
 
 function healthTone(success?: boolean | null): { textClass: string; badgeVariant: 'default' | 'secondary' | 'destructive' | 'outline' } {
@@ -934,7 +1075,7 @@ function KeyDetailsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   if (!row) {
     return null;
@@ -982,7 +1123,7 @@ function KeyDetailsDialog({
             </div>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.balance')}</div>
-              <div className='mt-1 text-sm font-medium'>{formatBalance(row.balance, row.currency)}</div>
+              <div className='mt-1 text-sm font-medium'>{formatBalance(row.balance, row.currency, t, i18n.language)}</div>
               {row.available != null ? (
                 <Badge variant='outline' className='mt-2'>
                   {t(`channels.dialogs.keys.availability.${row.available ? 'available' : 'unavailable'}`)}
@@ -1052,7 +1193,7 @@ function KeyDetailsDialog({
                         <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt)}</div>
                         <div className='text-sm'>{entry.reason || '-'}</div>
                         <div className='text-muted-foreground text-xs'>
-                          {formatBalance(entry.balance, entry.currency)}
+                          {formatBalance(entry.balance, entry.currency, t, i18n.language)}
                           {entry.available != null
                             ? ` · ${t(`channels.dialogs.keys.availability.${entry.available ? 'available' : 'unavailable'}`)}`
                             : ''}
@@ -1075,7 +1216,7 @@ function KeyDetailsDialog({
 }
 
 export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
   const [detailsKeyID, setDetailsKeyID] = useState<string | null>(null);
@@ -1113,6 +1254,11 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const activeKeys = useMemo(() => inventory.filter((item) => item.status === 'active'), [inventory]);
   const disabledKeys = useMemo(() => inventory.filter((item) => item.status === 'disabled'), [inventory]);
   const archivedKeys = useMemo(() => inventory.filter((item) => item.status === 'archived'), [inventory]);
+  const isDeepSeekChannel = currentRow.type === 'deepseek' || currentRow.type === 'deepseek_anthropic';
+  const deepSeekActiveBalanceSummary = useMemo(
+    () => (isDeepSeekChannel ? summarizeActiveBalances(activeKeys, t, i18n.language) : null),
+    [activeKeys, i18n.language, isDeepSeekChannel, t]
+  );
   const visibleInventory = useMemo(() => inventory.filter((item) => showArchived || item.status !== 'archived'), [inventory, showArchived]);
   const selectedRows = useMemo(() => visibleInventory.filter((item) => selectedKeys.has(item.id)), [visibleInventory, selectedKeys]);
   const selectedHealthCheckKeyIDs = useMemo(
@@ -1315,7 +1461,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
               <ScrollArea className='mt-4 h-[58vh] pr-3'>
                 <TabsContent value='inventory' className='mt-0 space-y-4'>
-                  <div className='grid gap-3 md:grid-cols-3'>
+                  <div className={`grid gap-3 ${isDeepSeekChannel ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
                     <Card>
                       <CardHeader className='pb-2'>
                         <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.active')}</CardTitle>
@@ -1334,6 +1480,23 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                       </CardHeader>
                       <CardContent className='text-2xl font-semibold'>{archivedKeys.length}</CardContent>
                     </Card>
+                    {isDeepSeekChannel ? (
+                      <Card>
+                        <CardHeader className='pb-2'>
+                          <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.activeBalance')}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className='text-2xl font-semibold'>{deepSeekActiveBalanceSummary?.display ?? '-'}</div>
+                          <div className='text-muted-foreground mt-1 text-xs'>
+                            {deepSeekActiveBalanceSummary
+                              ? t('channels.dialogs.keys.summary.activeBalanceKeys', {
+                                  count: deepSeekActiveBalanceSummary.keyCount,
+                                })
+                              : t('channels.dialogs.keys.summary.activeBalanceEmpty')}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : null}
                   </div>
 
                   <Card>
@@ -1353,8 +1516,14 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                             <FormItem className='flex-1'>
                               <FormControl>
                                 <Input
-                                  type='password'
+                                  type='text'
                                   autoComplete='off'
+                                  autoCorrect='off'
+                                  autoCapitalize='none'
+                                  spellCheck={false}
+                                  data-lpignore='true'
+                                  data-1p-ignore='true'
+                                  data-form-type='other'
                                   placeholder={t('channels.dialogs.keys.fields.newKey.placeholder')}
                                   {...field}
                                 />
@@ -1569,7 +1738,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                     <TableCell className='text-muted-foreground text-sm'>{formatDateTime(item.lastCheckedAt)}</TableCell>
                                     <TableCell>
                                       <div className='text-sm'>
-                                        {formatBalance(item.balance, item.currency)}
+                                        {formatBalance(item.balance, item.currency, t, i18n.language)}
                                         {item.available != null ? (
                                           <Badge variant='outline' className='ml-2'>
                                             {t(`channels.dialogs.keys.availability.${item.available ? 'available' : 'unavailable'}`)}

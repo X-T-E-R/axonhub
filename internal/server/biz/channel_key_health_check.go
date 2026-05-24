@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math"
 	"net"
@@ -42,9 +43,16 @@ const (
 	channelKeyHealthCheckMaxHistoryLimit = 100
 	channelKeyHealthCheckMinBackoffMin   = 1
 	channelKeyHealthCheckMaxBackoffMin   = 10080
+	channelKeyHealthCheckKeySpacing      = time.Second
+	channelKeyHealthCheckMaxKeyJitter    = 250 * time.Millisecond
 )
 
 var errChannelKeyHealthCheckResponseTooLarge = errors.New("response body too large")
+
+var (
+	channelKeyHealthCheckDelayForKey = defaultChannelKeyHealthCheckDelayForKey
+	channelKeyHealthCheckWait        = waitChannelKeyHealthCheckDelay
+)
 
 // ChannelKeyHealthCheckTester is a narrow seam for reusing the manual
 // channel-key test path without making biz import the orchestrator package.
@@ -342,6 +350,13 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 	for i, key := range targetKeys {
 		index := i
 		apiKey := key
+		if err := waitBeforeChannelKeyHealthCheck(groupCtx, index, apiKey); err != nil {
+			if waitErr := group.Wait(); waitErr != nil {
+				return channelKeyHealthCheckChannelResult{}, waitErr
+			}
+
+			return channelKeyHealthCheckChannelResult{}, err
+		}
 		group.Go(func() error {
 			results[index] = svc.checkChannelAPIKeyHealth(groupCtx, ch, apiKey)
 
@@ -868,8 +883,12 @@ func extractDeepSeekBalanceMetadata(body []byte) (any, string, *bool) {
 	}
 
 	available := boolFromAny(payload["is_available"])
-	var balance any
-	var currency string
+	var firstBalance any
+	var firstCurrency string
+	var fallbackBalance any
+	var fallbackCurrency string
+	var fallbackNumeric float64
+	var hasFallback bool
 
 	infos, _ := payload["balance_infos"].([]any)
 	for _, item := range infos {
@@ -878,18 +897,78 @@ func extractDeepSeekBalanceMetadata(body []byte) (any, string, *bool) {
 			continue
 		}
 
-		if currency == "" {
-			currency, _ = info["currency"].(string)
-		}
+		currency, _ := info["currency"].(string)
+		balance := firstNonNil(info["total_balance"], info["granted_balance"], info["topped_up_balance"])
 		if balance == nil {
-			balance = firstNonNil(info["total_balance"], info["granted_balance"], info["topped_up_balance"])
+			continue
 		}
-		if balance != nil {
-			break
+		if firstBalance == nil {
+			firstBalance = balance
+			firstCurrency = currency
+		}
+		if isDeepSeekCNYCurrency(currency) {
+			return balance, currency, available
+		}
+		if numeric, ok := channelKeyHealthCheckNumericBalance(balance); ok {
+			if !hasFallback || numeric > fallbackNumeric {
+				fallbackBalance = balance
+				fallbackCurrency = currency
+				fallbackNumeric = numeric
+				hasFallback = true
+			}
 		}
 	}
+	if hasFallback {
+		return fallbackBalance, fallbackCurrency, available
+	}
 
-	return balance, currency, available
+	return firstBalance, firstCurrency, available
+}
+
+func isDeepSeekCNYCurrency(currency string) bool {
+	currency = strings.TrimSpace(currency)
+
+	return strings.EqualFold(currency, "CNY") || strings.EqualFold(currency, "RMB")
+}
+
+func waitBeforeChannelKeyHealthCheck(ctx context.Context, index int, key string) error {
+	delay := channelKeyHealthCheckDelayForKey(index, key)
+	if delay <= 0 {
+		return nil
+	}
+
+	return channelKeyHealthCheckWait(ctx, delay)
+}
+
+func defaultChannelKeyHealthCheckDelayForKey(index int, key string) time.Duration {
+	if index <= 0 {
+		return 0
+	}
+
+	return channelKeyHealthCheckKeySpacing + deterministicChannelKeyHealthCheckJitter(key)
+}
+
+func deterministicChannelKeyHealthCheckJitter(key string) time.Duration {
+	if channelKeyHealthCheckMaxKeyJitter <= 0 {
+		return 0
+	}
+
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(key))
+
+	return time.Duration(hash.Sum32() % uint32(channelKeyHealthCheckMaxKeyJitter))
+}
+
+func waitChannelKeyHealthCheckDelay(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func firstNonNil(values ...any) any {
@@ -1383,6 +1462,13 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	for i, key := range targetKeys {
 		index := i
 		apiKey := key
+		if err := waitBeforeChannelKeyHealthCheck(groupCtx, index, apiKey); err != nil {
+			if waitErr := group.Wait(); waitErr != nil {
+				return nil, waitErr
+			}
+
+			return nil, err
+		}
 		group.Go(func() error {
 			results[index] = svc.checkChannelAPIKeyHealth(groupCtx, &chForCheck, apiKey)
 

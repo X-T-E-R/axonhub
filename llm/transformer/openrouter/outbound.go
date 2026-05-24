@@ -88,7 +88,7 @@ func (t *OutboundTransformer) TransformRequest(
 	case llm.RequestTypeChat, "":
 		// continue
 	case llm.RequestTypeImage:
-		return t.buildImageGenerationRequest(llmReq)
+		return t.buildImageGenerationRequest(ctx, llmReq)
 	case llm.RequestTypeEmbedding:
 		return t.Outbound.TransformRequest(ctx, llmReq)
 	case llm.RequestTypeCompact:
@@ -135,7 +135,7 @@ func (t *OutboundTransformer) TransformRequest(
 // buildImageGenerationRequest builds the request for OpenRouter image generation.
 // OpenRouter uses the chat completions endpoint with modalities: ["image", "text"].
 // Supports image editing when llmReq.Image.Images is provided.
-func (t *OutboundTransformer) buildImageGenerationRequest(llmReq *llm.Request) (*httpclient.Request, error) {
+func (t *OutboundTransformer) buildImageGenerationRequest(ctx context.Context, llmReq *llm.Request) (*httpclient.Request, error) {
 	if llmReq.Model == "" {
 		return nil, fmt.Errorf("%w: model is required", transformer.ErrInvalidRequest)
 	}
@@ -198,7 +198,7 @@ func (t *OutboundTransformer) buildImageGenerationRequest(llmReq *llm.Request) (
 	headers.Set("Accept", "application/json")
 
 	// Get API key from provider
-	apiKey := t.APIKeyProvider.Get(context.Background())
+	apiKey := t.APIKeyProvider.Get(ctx)
 
 	auth := &httpclient.AuthConfig{
 		Type:   httpclient.AuthTypeBearer,

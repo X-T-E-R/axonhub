@@ -366,12 +366,12 @@ export const channelAPIKeyInventoryItemSchema = z.object({
 export type ChannelAPIKeyInventoryItem = z.infer<typeof channelAPIKeyInventoryItemSchema>;
 
 export const channelKeyHealthCheckSchema = z.object({
-  enabled: z.boolean().optional().default(false),
-  intervalMinutes: z.number().int().min(5).max(10080).optional().default(60),
+  enabled: z.preprocess((value) => value ?? false, z.boolean()),
+  intervalMinutes: z.preprocess((value) => value ?? 60, z.number().int().min(5).max(10080)),
   historyLimit: z.number().int().min(0).max(100).optional().nullable(),
-  failureThreshold: z.number().int().min(1).max(20).optional().default(3),
-  failureAction: channelKeyHealthCheckFailureActionSchema.optional().default('report_only'),
-  includeDisabled: z.boolean().optional().default(false),
+  failureThreshold: z.preprocess((value) => value ?? 3, z.number().int().min(1).max(20)),
+  failureAction: z.preprocess((value) => value ?? 'report_only', channelKeyHealthCheckFailureActionSchema),
+  includeDisabled: z.preprocess((value) => value ?? false, z.boolean()),
   rules: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckRuleSchema)),
   policies: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckPolicySchema)),
   keyMetadata: z.array(channelKeyMetadataSchema).optional().nullable(),

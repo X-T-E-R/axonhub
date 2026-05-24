@@ -643,6 +643,15 @@ func (r *requestResolver) ChannelID(ctx context.Context, obj *ent.Request) (*obj
 	}, nil
 }
 
+// SelectedChannelAPIKeyMasked is the resolver for the selectedChannelAPIKeyMasked field.
+func (r *requestResolver) SelectedChannelAPIKeyMasked(ctx context.Context, obj *ent.Request) (*string, error) {
+	if !r.systemService.RequestObservabilitySettingsOrDefault(ctx).ExposeSelectedChannelAPIKey {
+		return nil, nil
+	}
+
+	return obj.SelectedChannelAPIKeyMasked, nil
+}
+
 // Channel is the resolver for the channel field.
 func (r *requestResolver) Channel(ctx context.Context, obj *ent.Request) (*ent.Channel, error) {
 	return getNilableChannel(ctx, r.client, obj.ChannelID)
@@ -720,6 +729,15 @@ func (r *requestExecutionResolver) ResponseChunks(ctx context.Context, obj *ent.
 	}
 
 	return value, nil
+}
+
+// SelectedChannelAPIKeyMasked is the resolver for the selectedChannelAPIKeyMasked field.
+func (r *requestExecutionResolver) SelectedChannelAPIKeyMasked(ctx context.Context, obj *ent.RequestExecution) (*string, error) {
+	if !r.systemService.RequestObservabilitySettingsOrDefault(ctx).ExposeSelectedChannelAPIKey {
+		return nil, nil
+	}
+
+	return obj.SelectedChannelAPIKeyMasked, nil
 }
 
 // Channel is the resolver for the channel field.

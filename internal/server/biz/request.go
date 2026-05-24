@@ -321,6 +321,11 @@ func (s *RequestService) CreateRequestExecution(
 		mut = mut.SetDataStorageID(request.DataStorageID)
 	}
 
+	selectedKeyMasked := selectedChannelAPIKeyMasked(ctx, channel)
+	if selectedKeyMasked != "" {
+		mut = mut.SetSelectedChannelAPIKeyMasked(selectedKeyMasked)
+	}
+
 	execution, err := mut.Save(ctx)
 	if err != nil {
 		if useExternalStorage {
@@ -349,7 +354,30 @@ func (s *RequestService) CreateRequestExecution(
 		}
 	}
 
+	if selectedKeyMasked != "" {
+		if _, err := client.Request.UpdateOneID(request.ID).SetSelectedChannelAPIKeyMasked(selectedKeyMasked).Save(ctx); err != nil {
+			log.Warn(ctx, "Failed to save selected channel API key mask on request", log.Cause(err), log.Int("request_id", request.ID))
+		}
+	}
+
 	return execution, nil
+}
+
+func selectedChannelAPIKeyMasked(ctx context.Context, channel *Channel) string {
+	if key, ok := contexts.GetChannelAPIKey(ctx); ok && key != "" {
+		return objects.MaskChannelAPIKey(key)
+	}
+
+	if channel == nil {
+		return ""
+	}
+
+	enabled := channel.GetEnabledAPIKeys()
+	if len(enabled) == 1 {
+		return objects.MaskChannelAPIKey(enabled[0])
+	}
+
+	return ""
 }
 
 // LatencyMetrics holds latency metrics for a request.

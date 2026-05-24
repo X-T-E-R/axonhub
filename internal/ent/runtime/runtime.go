@@ -623,7 +623,7 @@ func init() {
 	// request.DefaultClientIP holds the default value on creation for the client_ip field.
 	request.DefaultClientIP = requestDescClientIP.Default.(string)
 	// requestDescContentSaved is the schema descriptor for content_saved field.
-	requestDescContentSaved := requestFields[20].Descriptor()
+	requestDescContentSaved := requestFields[21].Descriptor()
 	// request.DefaultContentSaved holds the default value on creation for the content_saved field.
 	request.DefaultContentSaved = requestDescContentSaved.Default.(bool)
 	requestexecutionMixin := schema.RequestExecution{}.Mixin()

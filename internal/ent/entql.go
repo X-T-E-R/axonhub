@@ -370,32 +370,33 @@ var schemaGraph = func() *sqlgraph.Schema {
 		},
 		Type: "Request",
 		Fields: map[string]*sqlgraph.FieldSpec{
-			request.FieldCreatedAt:                  {Type: field.TypeTime, Column: request.FieldCreatedAt},
-			request.FieldUpdatedAt:                  {Type: field.TypeTime, Column: request.FieldUpdatedAt},
-			request.FieldAPIKeyID:                   {Type: field.TypeInt, Column: request.FieldAPIKeyID},
-			request.FieldProjectID:                  {Type: field.TypeInt, Column: request.FieldProjectID},
-			request.FieldTraceID:                    {Type: field.TypeInt, Column: request.FieldTraceID},
-			request.FieldDataStorageID:              {Type: field.TypeInt, Column: request.FieldDataStorageID},
-			request.FieldSource:                     {Type: field.TypeEnum, Column: request.FieldSource},
-			request.FieldModelID:                    {Type: field.TypeString, Column: request.FieldModelID},
-			request.FieldReasoningEffort:            {Type: field.TypeString, Column: request.FieldReasoningEffort},
-			request.FieldFormat:                     {Type: field.TypeString, Column: request.FieldFormat},
-			request.FieldRequestHeaders:             {Type: field.TypeJSON, Column: request.FieldRequestHeaders},
-			request.FieldRequestBody:                {Type: field.TypeJSON, Column: request.FieldRequestBody},
-			request.FieldResponseBody:               {Type: field.TypeJSON, Column: request.FieldResponseBody},
-			request.FieldResponseChunks:             {Type: field.TypeJSON, Column: request.FieldResponseChunks},
-			request.FieldChannelID:                  {Type: field.TypeInt, Column: request.FieldChannelID},
-			request.FieldExternalID:                 {Type: field.TypeString, Column: request.FieldExternalID},
-			request.FieldStatus:                     {Type: field.TypeEnum, Column: request.FieldStatus},
-			request.FieldStream:                     {Type: field.TypeBool, Column: request.FieldStream},
-			request.FieldClientIP:                   {Type: field.TypeString, Column: request.FieldClientIP},
-			request.FieldMetricsLatencyMs:           {Type: field.TypeInt64, Column: request.FieldMetricsLatencyMs},
-			request.FieldMetricsFirstTokenLatencyMs: {Type: field.TypeInt64, Column: request.FieldMetricsFirstTokenLatencyMs},
-			request.FieldMetricsReasoningDurationMs: {Type: field.TypeInt64, Column: request.FieldMetricsReasoningDurationMs},
-			request.FieldContentSaved:               {Type: field.TypeBool, Column: request.FieldContentSaved},
-			request.FieldContentStorageID:           {Type: field.TypeInt, Column: request.FieldContentStorageID},
-			request.FieldContentStorageKey:          {Type: field.TypeString, Column: request.FieldContentStorageKey},
-			request.FieldContentSavedAt:             {Type: field.TypeTime, Column: request.FieldContentSavedAt},
+			request.FieldCreatedAt:                   {Type: field.TypeTime, Column: request.FieldCreatedAt},
+			request.FieldUpdatedAt:                   {Type: field.TypeTime, Column: request.FieldUpdatedAt},
+			request.FieldAPIKeyID:                    {Type: field.TypeInt, Column: request.FieldAPIKeyID},
+			request.FieldProjectID:                   {Type: field.TypeInt, Column: request.FieldProjectID},
+			request.FieldTraceID:                     {Type: field.TypeInt, Column: request.FieldTraceID},
+			request.FieldDataStorageID:               {Type: field.TypeInt, Column: request.FieldDataStorageID},
+			request.FieldSource:                      {Type: field.TypeEnum, Column: request.FieldSource},
+			request.FieldModelID:                     {Type: field.TypeString, Column: request.FieldModelID},
+			request.FieldReasoningEffort:             {Type: field.TypeString, Column: request.FieldReasoningEffort},
+			request.FieldFormat:                      {Type: field.TypeString, Column: request.FieldFormat},
+			request.FieldRequestHeaders:              {Type: field.TypeJSON, Column: request.FieldRequestHeaders},
+			request.FieldRequestBody:                 {Type: field.TypeJSON, Column: request.FieldRequestBody},
+			request.FieldResponseBody:                {Type: field.TypeJSON, Column: request.FieldResponseBody},
+			request.FieldResponseChunks:              {Type: field.TypeJSON, Column: request.FieldResponseChunks},
+			request.FieldChannelID:                   {Type: field.TypeInt, Column: request.FieldChannelID},
+			request.FieldExternalID:                  {Type: field.TypeString, Column: request.FieldExternalID},
+			request.FieldStatus:                      {Type: field.TypeEnum, Column: request.FieldStatus},
+			request.FieldStream:                      {Type: field.TypeBool, Column: request.FieldStream},
+			request.FieldClientIP:                    {Type: field.TypeString, Column: request.FieldClientIP},
+			request.FieldMetricsLatencyMs:            {Type: field.TypeInt64, Column: request.FieldMetricsLatencyMs},
+			request.FieldMetricsFirstTokenLatencyMs:  {Type: field.TypeInt64, Column: request.FieldMetricsFirstTokenLatencyMs},
+			request.FieldMetricsReasoningDurationMs:  {Type: field.TypeInt64, Column: request.FieldMetricsReasoningDurationMs},
+			request.FieldSelectedChannelAPIKeyMasked: {Type: field.TypeString, Column: request.FieldSelectedChannelAPIKeyMasked},
+			request.FieldContentSaved:                {Type: field.TypeBool, Column: request.FieldContentSaved},
+			request.FieldContentStorageID:            {Type: field.TypeInt, Column: request.FieldContentStorageID},
+			request.FieldContentStorageKey:           {Type: field.TypeString, Column: request.FieldContentStorageKey},
+			request.FieldContentSavedAt:              {Type: field.TypeTime, Column: request.FieldContentSavedAt},
 		},
 	}
 	graph.Nodes[15] = &sqlgraph.Node{
@@ -409,26 +410,27 @@ var schemaGraph = func() *sqlgraph.Schema {
 		},
 		Type: "RequestExecution",
 		Fields: map[string]*sqlgraph.FieldSpec{
-			requestexecution.FieldCreatedAt:                  {Type: field.TypeTime, Column: requestexecution.FieldCreatedAt},
-			requestexecution.FieldUpdatedAt:                  {Type: field.TypeTime, Column: requestexecution.FieldUpdatedAt},
-			requestexecution.FieldProjectID:                  {Type: field.TypeInt, Column: requestexecution.FieldProjectID},
-			requestexecution.FieldRequestID:                  {Type: field.TypeInt, Column: requestexecution.FieldRequestID},
-			requestexecution.FieldChannelID:                  {Type: field.TypeInt, Column: requestexecution.FieldChannelID},
-			requestexecution.FieldDataStorageID:              {Type: field.TypeInt, Column: requestexecution.FieldDataStorageID},
-			requestexecution.FieldExternalID:                 {Type: field.TypeString, Column: requestexecution.FieldExternalID},
-			requestexecution.FieldModelID:                    {Type: field.TypeString, Column: requestexecution.FieldModelID},
-			requestexecution.FieldFormat:                     {Type: field.TypeString, Column: requestexecution.FieldFormat},
-			requestexecution.FieldRequestBody:                {Type: field.TypeJSON, Column: requestexecution.FieldRequestBody},
-			requestexecution.FieldResponseBody:               {Type: field.TypeJSON, Column: requestexecution.FieldResponseBody},
-			requestexecution.FieldResponseChunks:             {Type: field.TypeJSON, Column: requestexecution.FieldResponseChunks},
-			requestexecution.FieldErrorMessage:               {Type: field.TypeString, Column: requestexecution.FieldErrorMessage},
-			requestexecution.FieldResponseStatusCode:         {Type: field.TypeInt, Column: requestexecution.FieldResponseStatusCode},
-			requestexecution.FieldStatus:                     {Type: field.TypeEnum, Column: requestexecution.FieldStatus},
-			requestexecution.FieldStream:                     {Type: field.TypeBool, Column: requestexecution.FieldStream},
-			requestexecution.FieldMetricsLatencyMs:           {Type: field.TypeInt64, Column: requestexecution.FieldMetricsLatencyMs},
-			requestexecution.FieldMetricsFirstTokenLatencyMs: {Type: field.TypeInt64, Column: requestexecution.FieldMetricsFirstTokenLatencyMs},
-			requestexecution.FieldMetricsReasoningDurationMs: {Type: field.TypeInt64, Column: requestexecution.FieldMetricsReasoningDurationMs},
-			requestexecution.FieldRequestHeaders:             {Type: field.TypeJSON, Column: requestexecution.FieldRequestHeaders},
+			requestexecution.FieldCreatedAt:                   {Type: field.TypeTime, Column: requestexecution.FieldCreatedAt},
+			requestexecution.FieldUpdatedAt:                   {Type: field.TypeTime, Column: requestexecution.FieldUpdatedAt},
+			requestexecution.FieldProjectID:                   {Type: field.TypeInt, Column: requestexecution.FieldProjectID},
+			requestexecution.FieldRequestID:                   {Type: field.TypeInt, Column: requestexecution.FieldRequestID},
+			requestexecution.FieldChannelID:                   {Type: field.TypeInt, Column: requestexecution.FieldChannelID},
+			requestexecution.FieldDataStorageID:               {Type: field.TypeInt, Column: requestexecution.FieldDataStorageID},
+			requestexecution.FieldExternalID:                  {Type: field.TypeString, Column: requestexecution.FieldExternalID},
+			requestexecution.FieldModelID:                     {Type: field.TypeString, Column: requestexecution.FieldModelID},
+			requestexecution.FieldFormat:                      {Type: field.TypeString, Column: requestexecution.FieldFormat},
+			requestexecution.FieldRequestBody:                 {Type: field.TypeJSON, Column: requestexecution.FieldRequestBody},
+			requestexecution.FieldResponseBody:                {Type: field.TypeJSON, Column: requestexecution.FieldResponseBody},
+			requestexecution.FieldResponseChunks:              {Type: field.TypeJSON, Column: requestexecution.FieldResponseChunks},
+			requestexecution.FieldErrorMessage:                {Type: field.TypeString, Column: requestexecution.FieldErrorMessage},
+			requestexecution.FieldResponseStatusCode:          {Type: field.TypeInt, Column: requestexecution.FieldResponseStatusCode},
+			requestexecution.FieldStatus:                      {Type: field.TypeEnum, Column: requestexecution.FieldStatus},
+			requestexecution.FieldStream:                      {Type: field.TypeBool, Column: requestexecution.FieldStream},
+			requestexecution.FieldMetricsLatencyMs:            {Type: field.TypeInt64, Column: requestexecution.FieldMetricsLatencyMs},
+			requestexecution.FieldMetricsFirstTokenLatencyMs:  {Type: field.TypeInt64, Column: requestexecution.FieldMetricsFirstTokenLatencyMs},
+			requestexecution.FieldMetricsReasoningDurationMs:  {Type: field.TypeInt64, Column: requestexecution.FieldMetricsReasoningDurationMs},
+			requestexecution.FieldSelectedChannelAPIKeyMasked: {Type: field.TypeString, Column: requestexecution.FieldSelectedChannelAPIKeyMasked},
+			requestexecution.FieldRequestHeaders:              {Type: field.TypeJSON, Column: requestexecution.FieldRequestHeaders},
 		},
 	}
 	graph.Nodes[16] = &sqlgraph.Node{
@@ -3180,6 +3182,11 @@ func (f *RequestFilter) WhereMetricsReasoningDurationMs(p entql.Int64P) {
 	f.Where(p.Field(request.FieldMetricsReasoningDurationMs))
 }
 
+// WhereSelectedChannelAPIKeyMasked applies the entql string predicate on the selected_channel_api_key_masked field.
+func (f *RequestFilter) WhereSelectedChannelAPIKeyMasked(p entql.StringP) {
+	f.Where(p.Field(request.FieldSelectedChannelAPIKeyMasked))
+}
+
 // WhereContentSaved applies the entql bool predicate on the content_saved field.
 func (f *RequestFilter) WhereContentSaved(p entql.BoolP) {
 	f.Where(p.Field(request.FieldContentSaved))
@@ -3431,6 +3438,11 @@ func (f *RequestExecutionFilter) WhereMetricsFirstTokenLatencyMs(p entql.Int64P)
 // WhereMetricsReasoningDurationMs applies the entql int64 predicate on the metrics_reasoning_duration_ms field.
 func (f *RequestExecutionFilter) WhereMetricsReasoningDurationMs(p entql.Int64P) {
 	f.Where(p.Field(requestexecution.FieldMetricsReasoningDurationMs))
+}
+
+// WhereSelectedChannelAPIKeyMasked applies the entql string predicate on the selected_channel_api_key_masked field.
+func (f *RequestExecutionFilter) WhereSelectedChannelAPIKeyMasked(p entql.StringP) {
+	f.Where(p.Field(requestexecution.FieldSelectedChannelAPIKeyMasked))
 }
 
 // WhereRequestHeaders applies the entql json.RawMessage predicate on the request_headers field.

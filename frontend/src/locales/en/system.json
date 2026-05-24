@@ -374,6 +374,8 @@
   "system.userAgentPassThrough.helpText": "When enabled, the original User-Agent header from the client request is forwarded to upstream providers. When disabled, AxonHub uses its own User-Agent.",
   "system.passThrough.label": "Pass-Through",
   "system.passThrough.helpText": "When enabled, both the request body and the upstream response are passed through only when the client request format matches the channel format. Prompt injection and prompt protection will not take effect.",
+  "system.requestObservability.selectedChannelAPIKey.label": "Show selected upstream key in requests",
+  "system.requestObservability.selectedChannelAPIKey.helpText": "When enabled, request list/detail responses include the masked upstream channel API key selected for each request. Raw provider keys are never exposed.",
   "system.quota.title": "Quota Enforcement",
   "system.quota.description": "Configure how AxonHub handles channels that have exhausted their provider quota.",
   "system.quota.enabled.label": "Enable Quota Enforcement",

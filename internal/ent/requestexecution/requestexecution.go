@@ -55,6 +55,8 @@ const (
 	FieldMetricsFirstTokenLatencyMs = "metrics_first_token_latency_ms"
 	// FieldMetricsReasoningDurationMs holds the string denoting the metrics_reasoning_duration_ms field in the database.
 	FieldMetricsReasoningDurationMs = "metrics_reasoning_duration_ms"
+	// FieldSelectedChannelAPIKeyMasked holds the string denoting the selected_channel_api_key_masked field in the database.
+	FieldSelectedChannelAPIKeyMasked = "selected_channel_api_key_masked"
 	// FieldRequestHeaders holds the string denoting the request_headers field in the database.
 	FieldRequestHeaders = "request_headers"
 	// EdgeRequest holds the string denoting the request edge name in mutations.
@@ -110,6 +112,7 @@ var Columns = []string{
 	FieldMetricsLatencyMs,
 	FieldMetricsFirstTokenLatencyMs,
 	FieldMetricsReasoningDurationMs,
+	FieldSelectedChannelAPIKeyMasked,
 	FieldRequestHeaders,
 }
 
@@ -252,6 +255,11 @@ func ByMetricsFirstTokenLatencyMs(opts ...sql.OrderTermOption) OrderOption {
 // ByMetricsReasoningDurationMs orders the results by the metrics_reasoning_duration_ms field.
 func ByMetricsReasoningDurationMs(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMetricsReasoningDurationMs, opts...).ToFunc()
+}
+
+// BySelectedChannelAPIKeyMasked orders the results by the selected_channel_api_key_masked field.
+func BySelectedChannelAPIKeyMasked(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSelectedChannelAPIKeyMasked, opts...).ToFunc()
 }
 
 // ByRequestField orders the results by request field.

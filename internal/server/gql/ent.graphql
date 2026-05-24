@@ -4444,6 +4444,10 @@ type Request implements Node {
   """
   metricsReasoningDurationMs: Int
   """
+  Masked upstream channel API key selected for this request. Raw provider keys are never stored here.
+  """
+  selectedChannelAPIKeyMasked: String @goField(forceResolver: true)
+  """
   whether the generated content has been saved to external storage
   """
   contentSaved: Boolean!
@@ -4587,6 +4591,10 @@ type RequestExecution implements Node {
   Reasoning/thinking duration in milliseconds
   """
   metricsReasoningDurationMs: Int
+  """
+  Masked upstream channel API key selected for this execution. Raw provider keys are never stored here.
+  """
+  selectedChannelAPIKeyMasked: String @goField(forceResolver: true)
   """
   Request headers
   """

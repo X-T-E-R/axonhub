@@ -290,6 +290,20 @@ func (_c *RequestCreate) SetNillableMetricsReasoningDurationMs(v *int64) *Reques
 	return _c
 }
 
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (_c *RequestCreate) SetSelectedChannelAPIKeyMasked(v string) *RequestCreate {
+	_c.mutation.SetSelectedChannelAPIKeyMasked(v)
+	return _c
+}
+
+// SetNillableSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field if the given value is not nil.
+func (_c *RequestCreate) SetNillableSelectedChannelAPIKeyMasked(v *string) *RequestCreate {
+	if v != nil {
+		_c.SetSelectedChannelAPIKeyMasked(*v)
+	}
+	return _c
+}
+
 // SetContentSaved sets the "content_saved" field.
 func (_c *RequestCreate) SetContentSaved(v bool) *RequestCreate {
 	_c.mutation.SetContentSaved(v)
@@ -620,6 +634,10 @@ func (_c *RequestCreate) createSpec() (*Request, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.MetricsReasoningDurationMs(); ok {
 		_spec.SetField(request.FieldMetricsReasoningDurationMs, field.TypeInt64, value)
 		_node.MetricsReasoningDurationMs = &value
+	}
+	if value, ok := _c.mutation.SelectedChannelAPIKeyMasked(); ok {
+		_spec.SetField(request.FieldSelectedChannelAPIKeyMasked, field.TypeString, value)
+		_node.SelectedChannelAPIKeyMasked = &value
 	}
 	if value, ok := _c.mutation.ContentSaved(); ok {
 		_spec.SetField(request.FieldContentSaved, field.TypeBool, value)
@@ -992,6 +1010,24 @@ func (u *RequestUpsert) ClearMetricsReasoningDurationMs() *RequestUpsert {
 	return u
 }
 
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (u *RequestUpsert) SetSelectedChannelAPIKeyMasked(v string) *RequestUpsert {
+	u.Set(request.FieldSelectedChannelAPIKeyMasked, v)
+	return u
+}
+
+// UpdateSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field to the value that was provided on create.
+func (u *RequestUpsert) UpdateSelectedChannelAPIKeyMasked() *RequestUpsert {
+	u.SetExcluded(request.FieldSelectedChannelAPIKeyMasked)
+	return u
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (u *RequestUpsert) ClearSelectedChannelAPIKeyMasked() *RequestUpsert {
+	u.SetNull(request.FieldSelectedChannelAPIKeyMasked)
+	return u
+}
+
 // SetContentSaved sets the "content_saved" field.
 func (u *RequestUpsert) SetContentSaved(v bool) *RequestUpsert {
 	u.Set(request.FieldContentSaved, v)
@@ -1356,6 +1392,27 @@ func (u *RequestUpsertOne) UpdateMetricsReasoningDurationMs() *RequestUpsertOne 
 func (u *RequestUpsertOne) ClearMetricsReasoningDurationMs() *RequestUpsertOne {
 	return u.Update(func(s *RequestUpsert) {
 		s.ClearMetricsReasoningDurationMs()
+	})
+}
+
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (u *RequestUpsertOne) SetSelectedChannelAPIKeyMasked(v string) *RequestUpsertOne {
+	return u.Update(func(s *RequestUpsert) {
+		s.SetSelectedChannelAPIKeyMasked(v)
+	})
+}
+
+// UpdateSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field to the value that was provided on create.
+func (u *RequestUpsertOne) UpdateSelectedChannelAPIKeyMasked() *RequestUpsertOne {
+	return u.Update(func(s *RequestUpsert) {
+		s.UpdateSelectedChannelAPIKeyMasked()
+	})
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (u *RequestUpsertOne) ClearSelectedChannelAPIKeyMasked() *RequestUpsertOne {
+	return u.Update(func(s *RequestUpsert) {
+		s.ClearSelectedChannelAPIKeyMasked()
 	})
 }
 
@@ -1901,6 +1958,27 @@ func (u *RequestUpsertBulk) UpdateMetricsReasoningDurationMs() *RequestUpsertBul
 func (u *RequestUpsertBulk) ClearMetricsReasoningDurationMs() *RequestUpsertBulk {
 	return u.Update(func(s *RequestUpsert) {
 		s.ClearMetricsReasoningDurationMs()
+	})
+}
+
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (u *RequestUpsertBulk) SetSelectedChannelAPIKeyMasked(v string) *RequestUpsertBulk {
+	return u.Update(func(s *RequestUpsert) {
+		s.SetSelectedChannelAPIKeyMasked(v)
+	})
+}
+
+// UpdateSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field to the value that was provided on create.
+func (u *RequestUpsertBulk) UpdateSelectedChannelAPIKeyMasked() *RequestUpsertBulk {
+	return u.Update(func(s *RequestUpsert) {
+		s.UpdateSelectedChannelAPIKeyMasked()
+	})
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (u *RequestUpsertBulk) ClearSelectedChannelAPIKeyMasked() *RequestUpsertBulk {
+	return u.Update(func(s *RequestUpsert) {
+		s.ClearSelectedChannelAPIKeyMasked()
 	})
 }
 

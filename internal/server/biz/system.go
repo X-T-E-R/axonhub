@@ -103,6 +103,10 @@ const (
 	//nolint:gosec // Not a secret.
 	SystemKeyPassThrough = "system_pass_through"
 
+	// SystemKeyRequestObservabilitySettings stores request-log observability settings.
+	// The value is JSON-encoded RequestObservabilitySettings.
+	SystemKeyRequestObservabilitySettings = "request_observability_settings"
+
 	// SystemKeyQuotaEnforcementSettings is the key used to store the quota enforcement settings.
 	// The value is JSON-encoded QuotaEnforcementSettings struct.
 	SystemKeyQuotaEnforcementSettings = "quota_enforcement_settings"
@@ -195,6 +199,13 @@ type QuotaEnforcementSettings struct {
 	Enabled bool `json:"enabled"`
 	// Mode defines how quota is enforced.
 	Mode QuotaEnforcementMode `json:"mode"`
+}
+
+// RequestObservabilitySettings controls optional request-log fields.
+type RequestObservabilitySettings struct {
+	// ExposeSelectedChannelAPIKey controls whether GraphQL request responses return
+	// the masked upstream channel API key selected for a request/execution.
+	ExposeSelectedChannelAPIKey bool `json:"expose_selected_channel_api_key"`
 }
 
 // BackupFrequency represents how often automatic backups should run.
@@ -1492,6 +1503,47 @@ func (s *SystemService) SetPassThrough(ctx context.Context, enabled bool) error 
 	}
 
 	return s.setSystemValue(ctx, SystemKeyPassThrough, strValue)
+}
+
+// RequestObservabilitySettings retrieves request observability settings.
+func (s *SystemService) RequestObservabilitySettings(ctx context.Context) (*RequestObservabilitySettings, error) {
+	value, err := s.getSystemValue(ctx, SystemKeyRequestObservabilitySettings)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return lo.ToPtr(defaultRequestObservabilitySettings), nil
+		}
+
+		return nil, fmt.Errorf("failed to get request observability settings: %w", err)
+	}
+
+	var settings RequestObservabilitySettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request observability settings: %w", err)
+	}
+
+	return &settings, nil
+}
+
+// RequestObservabilitySettingsOrDefault returns request observability settings or a safe default.
+func (s *SystemService) RequestObservabilitySettingsOrDefault(ctx context.Context) *RequestObservabilitySettings {
+	settings, err := s.RequestObservabilitySettings(ctx)
+	if err != nil {
+		log.Warn(ctx, "failed to get request observability settings", log.Cause(err))
+
+		return lo.ToPtr(defaultRequestObservabilitySettings)
+	}
+
+	return settings
+}
+
+// SetRequestObservabilitySettings sets request observability settings.
+func (s *SystemService) SetRequestObservabilitySettings(ctx context.Context, settings RequestObservabilitySettings) error {
+	jsonBytes, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request observability settings: %w", err)
+	}
+
+	return s.setSystemValue(ctx, SystemKeyRequestObservabilitySettings, string(jsonBytes))
 }
 
 // QuotaEnforcementSettings retrieves the quota enforcement settings.

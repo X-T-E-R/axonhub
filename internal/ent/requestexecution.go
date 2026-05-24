@@ -60,6 +60,8 @@ type RequestExecution struct {
 	MetricsFirstTokenLatencyMs *int64 `json:"metrics_first_token_latency_ms,omitempty"`
 	// Reasoning/thinking duration in milliseconds
 	MetricsReasoningDurationMs *int64 `json:"metrics_reasoning_duration_ms,omitempty"`
+	// Masked upstream channel API key selected for this execution. Raw provider keys are never stored here.
+	SelectedChannelAPIKeyMasked *string `json:"selected_channel_api_key_masked,omitempty"`
 	// Request headers
 	RequestHeaders objects.JSONRawMessage `json:"request_headers,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -127,7 +129,7 @@ func (*RequestExecution) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case requestexecution.FieldID, requestexecution.FieldProjectID, requestexecution.FieldRequestID, requestexecution.FieldChannelID, requestexecution.FieldDataStorageID, requestexecution.FieldResponseStatusCode, requestexecution.FieldMetricsLatencyMs, requestexecution.FieldMetricsFirstTokenLatencyMs, requestexecution.FieldMetricsReasoningDurationMs:
 			values[i] = new(sql.NullInt64)
-		case requestexecution.FieldExternalID, requestexecution.FieldModelID, requestexecution.FieldFormat, requestexecution.FieldErrorMessage, requestexecution.FieldStatus:
+		case requestexecution.FieldExternalID, requestexecution.FieldModelID, requestexecution.FieldFormat, requestexecution.FieldErrorMessage, requestexecution.FieldStatus, requestexecution.FieldSelectedChannelAPIKeyMasked:
 			values[i] = new(sql.NullString)
 		case requestexecution.FieldCreatedAt, requestexecution.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -276,6 +278,13 @@ func (_m *RequestExecution) assignValues(columns []string, values []any) error {
 				_m.MetricsReasoningDurationMs = new(int64)
 				*_m.MetricsReasoningDurationMs = value.Int64
 			}
+		case requestexecution.FieldSelectedChannelAPIKeyMasked:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field selected_channel_api_key_masked", values[i])
+			} else if value.Valid {
+				_m.SelectedChannelAPIKeyMasked = new(string)
+				*_m.SelectedChannelAPIKeyMasked = value.String
+			}
 		case requestexecution.FieldRequestHeaders:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field request_headers", values[i])
@@ -398,6 +407,11 @@ func (_m *RequestExecution) String() string {
 	if v := _m.MetricsReasoningDurationMs; v != nil {
 		builder.WriteString("metrics_reasoning_duration_ms=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.SelectedChannelAPIKeyMasked; v != nil {
+		builder.WriteString("selected_channel_api_key_masked=")
+		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")
 	builder.WriteString("request_headers=")

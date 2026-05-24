@@ -272,6 +272,16 @@ func (r *mutationResolver) UpdatePassThroughSettings(ctx context.Context, input 
 	return true, nil
 }
 
+// UpdateRequestObservabilitySettings is the resolver for the updateRequestObservabilitySettings field.
+func (r *mutationResolver) UpdateRequestObservabilitySettings(ctx context.Context, input biz.RequestObservabilitySettings) (bool, error) {
+	err := r.systemService.SetRequestObservabilitySettings(ctx, input)
+	if err != nil {
+		return false, fmt.Errorf("failed to update request observability settings: %w", err)
+	}
+
+	return true, nil
+}
+
 // ClearCache is the resolver for the clearCache field.
 func (r *mutationResolver) ClearCache(ctx context.Context, input ClearCacheInput) (*ClearCachePayload, error) {
 	user, ok := contexts.GetUser(ctx)
@@ -499,6 +509,16 @@ func (r *queryResolver) PassThroughSettings(ctx context.Context) (*PassThroughSe
 	return &PassThroughSettings{
 		Enabled: enabled,
 	}, nil
+}
+
+// RequestObservabilitySettings is the resolver for the requestObservabilitySettings field.
+func (r *queryResolver) RequestObservabilitySettings(ctx context.Context) (*biz.RequestObservabilitySettings, error) {
+	settings, err := r.systemService.RequestObservabilitySettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get request observability settings: %w", err)
+	}
+
+	return settings, nil
 }
 
 // GetCacheDiagnostics is the resolver for the getCacheDiagnostics field.

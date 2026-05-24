@@ -68,6 +68,8 @@ type Request struct {
 	MetricsFirstTokenLatencyMs *int64 `json:"metrics_first_token_latency_ms,omitempty"`
 	// Reasoning/thinking duration in milliseconds
 	MetricsReasoningDurationMs *int64 `json:"metrics_reasoning_duration_ms,omitempty"`
+	// Masked upstream channel API key selected for this request. Raw provider keys are never stored here.
+	SelectedChannelAPIKeyMasked *string `json:"selected_channel_api_key_masked,omitempty"`
 	// whether the generated content has been saved to external storage
 	ContentSaved bool `json:"content_saved,omitempty"`
 	// data storage id used to save the content file
@@ -192,7 +194,7 @@ func (*Request) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case request.FieldID, request.FieldAPIKeyID, request.FieldProjectID, request.FieldTraceID, request.FieldDataStorageID, request.FieldChannelID, request.FieldMetricsLatencyMs, request.FieldMetricsFirstTokenLatencyMs, request.FieldMetricsReasoningDurationMs, request.FieldContentStorageID:
 			values[i] = new(sql.NullInt64)
-		case request.FieldSource, request.FieldModelID, request.FieldReasoningEffort, request.FieldFormat, request.FieldExternalID, request.FieldStatus, request.FieldClientIP, request.FieldContentStorageKey:
+		case request.FieldSource, request.FieldModelID, request.FieldReasoningEffort, request.FieldFormat, request.FieldExternalID, request.FieldStatus, request.FieldClientIP, request.FieldSelectedChannelAPIKeyMasked, request.FieldContentStorageKey:
 			values[i] = new(sql.NullString)
 		case request.FieldCreatedAt, request.FieldUpdatedAt, request.FieldContentSavedAt:
 			values[i] = new(sql.NullTime)
@@ -359,6 +361,13 @@ func (_m *Request) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.MetricsReasoningDurationMs = new(int64)
 				*_m.MetricsReasoningDurationMs = value.Int64
+			}
+		case request.FieldSelectedChannelAPIKeyMasked:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field selected_channel_api_key_masked", values[i])
+			} else if value.Valid {
+				_m.SelectedChannelAPIKeyMasked = new(string)
+				*_m.SelectedChannelAPIKeyMasked = value.String
 			}
 		case request.FieldContentSaved:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -528,6 +537,11 @@ func (_m *Request) String() string {
 	if v := _m.MetricsReasoningDurationMs; v != nil {
 		builder.WriteString("metrics_reasoning_duration_ms=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.SelectedChannelAPIKeyMasked; v != nil {
+		builder.WriteString("selected_channel_api_key_masked=")
+		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")
 	builder.WriteString("content_saved=")

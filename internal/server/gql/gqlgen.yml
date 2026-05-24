@@ -699,6 +699,12 @@ models:
   UpdateSystemGeneralSettingsInput:
     model:
       - github.com/looplj/axonhub/internal/server/biz.SystemGeneralSettings
+  RequestObservabilitySettings:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.RequestObservabilitySettings
+  UpdateRequestObservabilitySettingsInput:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.RequestObservabilitySettings
   VideoStorageSettings:
     model:
       - github.com/looplj/axonhub/internal/server/biz.VideoStorageSettings

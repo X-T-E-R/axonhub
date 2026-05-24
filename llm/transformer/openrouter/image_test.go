@@ -14,6 +14,18 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/openrouter"
 )
 
+type contextAPIKeyProvider struct{}
+
+type testAPIKeyContextKey struct{}
+
+func (contextAPIKeyProvider) Get(ctx context.Context) string {
+	if apiKey, ok := ctx.Value(testAPIKeyContextKey{}).(string); ok {
+		return apiKey
+	}
+
+	return "missing-context-api-key"
+}
+
 func TestOutboundTransformer_ImageGenerationRequest(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -112,6 +124,27 @@ func TestOutboundTransformer_ImageGenerationRequest(t *testing.T) {
 			require.Equal(t, tt.request.Model, req.TransformerMetadata["model"])
 		})
 	}
+}
+
+func TestOutboundTransformer_ImageGenerationRequestUsesContextAPIKey(t *testing.T) {
+	transformer, err := openrouter.NewOutboundTransformerWithConfig(&openrouter.Config{
+		BaseURL:        "https://openrouter.ai/api/v1",
+		APIKeyProvider: contextAPIKeyProvider{},
+	})
+	require.NoError(t, err)
+
+	ctx := context.WithValue(context.Background(), testAPIKeyContextKey{}, "ctx-selected-key")
+	req, err := transformer.TransformRequest(ctx, &llm.Request{
+		Model:       "google/gemini-2.5-flash-image-preview",
+		RequestType: llm.RequestTypeImage,
+		Image: &llm.ImageRequest{
+			Prompt: "Generate a cat",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, req)
+	require.NotNil(t, req.Auth)
+	require.Equal(t, "ctx-selected-key", req.Auth.APIKey)
 }
 
 func TestOutboundTransformer_ImageGenerationResponse(t *testing.T) {

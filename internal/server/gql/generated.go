@@ -1113,6 +1113,7 @@ type ComplexityRoot struct {
 		UpdatePromptProtectionRuleStatus     func(childComplexity int, id objects.GUID, status promptprotectionrule.Status) int
 		UpdatePromptStatus                   func(childComplexity int, id objects.GUID, status prompt.Status) int
 		UpdateQuotaEnforcementSettings       func(childComplexity int, input UpdateQuotaEnforcementSettingsInput) int
+		UpdateRequestObservabilitySettings   func(childComplexity int, input biz.RequestObservabilitySettings) int
 		UpdateRetryPolicy                    func(childComplexity int, input biz.RetryPolicy) int
 		UpdateRole                           func(childComplexity int, id objects.GUID, input ent.UpdateRoleInput) int
 		UpdateStoragePolicy                  func(childComplexity int, input biz.StoragePolicy) int
@@ -1411,6 +1412,7 @@ type ComplexityRoot struct {
 		QueryModels                  func(childComplexity int, input QueryModelsInput) int
 		QueryUnassociatedChannels    func(childComplexity int) int
 		QuotaEnforcementSettings     func(childComplexity int) int
+		RequestObservabilitySettings func(childComplexity int) int
 		RequestStats                 func(childComplexity int) int
 		RequestStatsByAPIKey         func(childComplexity int, timeWindow *string) int
 		RequestStatsByChannel        func(childComplexity int, timeWindow *string) int
@@ -1450,40 +1452,41 @@ type ComplexityRoot struct {
 	}
 
 	Request struct {
-		APIKey                     func(childComplexity int) int
-		APIKeyID                   func(childComplexity int) int
-		Channel                    func(childComplexity int) int
-		ChannelID                  func(childComplexity int) int
-		ClientIP                   func(childComplexity int) int
-		ContentSaved               func(childComplexity int) int
-		ContentSavedAt             func(childComplexity int) int
-		ContentStorageID           func(childComplexity int) int
-		ContentStorageKey          func(childComplexity int) int
-		CreatedAt                  func(childComplexity int) int
-		DataStorage                func(childComplexity int) int
-		DataStorageID              func(childComplexity int) int
-		Executions                 func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestExecutionOrder, where *ent.RequestExecutionWhereInput) int
-		ExternalID                 func(childComplexity int) int
-		Format                     func(childComplexity int) int
-		ID                         func(childComplexity int) int
-		MetricsFirstTokenLatencyMs func(childComplexity int) int
-		MetricsLatencyMs           func(childComplexity int) int
-		MetricsReasoningDurationMs func(childComplexity int) int
-		ModelID                    func(childComplexity int) int
-		Project                    func(childComplexity int) int
-		ProjectID                  func(childComplexity int) int
-		ReasoningEffort            func(childComplexity int) int
-		RequestBody                func(childComplexity int) int
-		RequestHeaders             func(childComplexity int) int
-		ResponseBody               func(childComplexity int) int
-		ResponseChunks             func(childComplexity int) int
-		Source                     func(childComplexity int) int
-		Status                     func(childComplexity int) int
-		Stream                     func(childComplexity int) int
-		Trace                      func(childComplexity int) int
-		TraceID                    func(childComplexity int) int
-		UpdatedAt                  func(childComplexity int) int
-		UsageLogs                  func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.UsageLogOrder, where *ent.UsageLogWhereInput) int
+		APIKey                      func(childComplexity int) int
+		APIKeyID                    func(childComplexity int) int
+		Channel                     func(childComplexity int) int
+		ChannelID                   func(childComplexity int) int
+		ClientIP                    func(childComplexity int) int
+		ContentSaved                func(childComplexity int) int
+		ContentSavedAt              func(childComplexity int) int
+		ContentStorageID            func(childComplexity int) int
+		ContentStorageKey           func(childComplexity int) int
+		CreatedAt                   func(childComplexity int) int
+		DataStorage                 func(childComplexity int) int
+		DataStorageID               func(childComplexity int) int
+		Executions                  func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestExecutionOrder, where *ent.RequestExecutionWhereInput) int
+		ExternalID                  func(childComplexity int) int
+		Format                      func(childComplexity int) int
+		ID                          func(childComplexity int) int
+		MetricsFirstTokenLatencyMs  func(childComplexity int) int
+		MetricsLatencyMs            func(childComplexity int) int
+		MetricsReasoningDurationMs  func(childComplexity int) int
+		ModelID                     func(childComplexity int) int
+		Project                     func(childComplexity int) int
+		ProjectID                   func(childComplexity int) int
+		ReasoningEffort             func(childComplexity int) int
+		RequestBody                 func(childComplexity int) int
+		RequestHeaders              func(childComplexity int) int
+		ResponseBody                func(childComplexity int) int
+		ResponseChunks              func(childComplexity int) int
+		SelectedChannelAPIKeyMasked func(childComplexity int) int
+		Source                      func(childComplexity int) int
+		Status                      func(childComplexity int) int
+		Stream                      func(childComplexity int) int
+		Trace                       func(childComplexity int) int
+		TraceID                     func(childComplexity int) int
+		UpdatedAt                   func(childComplexity int) int
+		UsageLogs                   func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.UsageLogOrder, where *ent.UsageLogWhereInput) int
 	}
 
 	RequestConnection struct {
@@ -1498,30 +1501,31 @@ type ComplexityRoot struct {
 	}
 
 	RequestExecution struct {
-		Channel                    func(childComplexity int) int
-		ChannelID                  func(childComplexity int) int
-		CreatedAt                  func(childComplexity int) int
-		DataStorage                func(childComplexity int) int
-		DataStorageID              func(childComplexity int) int
-		ErrorMessage               func(childComplexity int) int
-		ExternalID                 func(childComplexity int) int
-		Format                     func(childComplexity int) int
-		ID                         func(childComplexity int) int
-		MetricsFirstTokenLatencyMs func(childComplexity int) int
-		MetricsLatencyMs           func(childComplexity int) int
-		MetricsReasoningDurationMs func(childComplexity int) int
-		ModelID                    func(childComplexity int) int
-		ProjectID                  func(childComplexity int) int
-		Request                    func(childComplexity int) int
-		RequestBody                func(childComplexity int) int
-		RequestHeaders             func(childComplexity int) int
-		RequestID                  func(childComplexity int) int
-		ResponseBody               func(childComplexity int) int
-		ResponseChunks             func(childComplexity int) int
-		ResponseStatusCode         func(childComplexity int) int
-		Status                     func(childComplexity int) int
-		Stream                     func(childComplexity int) int
-		UpdatedAt                  func(childComplexity int) int
+		Channel                     func(childComplexity int) int
+		ChannelID                   func(childComplexity int) int
+		CreatedAt                   func(childComplexity int) int
+		DataStorage                 func(childComplexity int) int
+		DataStorageID               func(childComplexity int) int
+		ErrorMessage                func(childComplexity int) int
+		ExternalID                  func(childComplexity int) int
+		Format                      func(childComplexity int) int
+		ID                          func(childComplexity int) int
+		MetricsFirstTokenLatencyMs  func(childComplexity int) int
+		MetricsLatencyMs            func(childComplexity int) int
+		MetricsReasoningDurationMs  func(childComplexity int) int
+		ModelID                     func(childComplexity int) int
+		ProjectID                   func(childComplexity int) int
+		Request                     func(childComplexity int) int
+		RequestBody                 func(childComplexity int) int
+		RequestHeaders              func(childComplexity int) int
+		RequestID                   func(childComplexity int) int
+		ResponseBody                func(childComplexity int) int
+		ResponseChunks              func(childComplexity int) int
+		ResponseStatusCode          func(childComplexity int) int
+		SelectedChannelAPIKeyMasked func(childComplexity int) int
+		Status                      func(childComplexity int) int
+		Stream                      func(childComplexity int) int
+		UpdatedAt                   func(childComplexity int) int
 	}
 
 	RequestExecutionConnection struct {
@@ -1541,6 +1545,10 @@ type ComplexityRoot struct {
 		ItemCount    func(childComplexity int) int
 		OutputTokens func(childComplexity int) int
 		TotalTokens  func(childComplexity int) int
+	}
+
+	RequestObservabilitySettings struct {
+		ExposeSelectedChannelAPIKey func(childComplexity int) int
 	}
 
 	RequestStats struct {
@@ -2256,6 +2264,7 @@ type MutationResolver interface {
 	DeleteProxyPreset(ctx context.Context, url string) (bool, error)
 	UpdateUserAgentPassThroughSettings(ctx context.Context, input UpdateUserAgentPassThroughSettingsInput) (bool, error)
 	UpdatePassThroughSettings(ctx context.Context, input UpdatePassThroughSettingsInput) (bool, error)
+	UpdateRequestObservabilitySettings(ctx context.Context, input biz.RequestObservabilitySettings) (bool, error)
 	ClearCache(ctx context.Context, input ClearCacheInput) (*ClearCachePayload, error)
 	CreateModel(ctx context.Context, input ent.CreateModelInput) (*ent.Model, error)
 	BulkCreateModels(ctx context.Context, inputs []*ent.CreateModelInput) ([]*ent.Model, error)
@@ -2375,6 +2384,7 @@ type QueryResolver interface {
 	ProxyPresets(ctx context.Context) ([]*biz.ProxyPreset, error)
 	UserAgentPassThroughSettings(ctx context.Context) (*UserAgentPassThroughSettings, error)
 	PassThroughSettings(ctx context.Context) (*PassThroughSettings, error)
+	RequestObservabilitySettings(ctx context.Context) (*biz.RequestObservabilitySettings, error)
 	GetCacheDiagnostics(ctx context.Context, input *GetCacheDiagnosticsInput) (*GetCacheDiagnosticsPayload, error)
 	FetchModels(ctx context.Context, input biz.FetchModelsInput) (*FetchModelsPayload, error)
 	QueryModels(ctx context.Context, input QueryModelsInput) ([]*biz.ModelIdentityWithStatus, error)
@@ -2396,6 +2406,8 @@ type RequestResolver interface {
 	ResponseChunks(ctx context.Context, obj *ent.Request) ([]objects.JSONRawMessage, error)
 	ChannelID(ctx context.Context, obj *ent.Request) (*objects.GUID, error)
 
+	SelectedChannelAPIKeyMasked(ctx context.Context, obj *ent.Request) (*string, error)
+
 	Channel(ctx context.Context, obj *ent.Request) (*ent.Channel, error)
 }
 type RequestExecutionResolver interface {
@@ -2408,6 +2420,8 @@ type RequestExecutionResolver interface {
 	RequestBody(ctx context.Context, obj *ent.RequestExecution) (objects.JSONRawMessage, error)
 	ResponseBody(ctx context.Context, obj *ent.RequestExecution) (objects.JSONRawMessage, error)
 	ResponseChunks(ctx context.Context, obj *ent.RequestExecution) ([]objects.JSONRawMessage, error)
+
+	SelectedChannelAPIKeyMasked(ctx context.Context, obj *ent.RequestExecution) (*string, error)
 
 	Channel(ctx context.Context, obj *ent.RequestExecution) (*ent.Channel, error)
 }
@@ -7032,6 +7046,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdateQuotaEnforcementSettings(childComplexity, args["input"].(UpdateQuotaEnforcementSettingsInput)), true
+	case "Mutation.updateRequestObservabilitySettings":
+		if e.complexity.Mutation.UpdateRequestObservabilitySettings == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateRequestObservabilitySettings_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpdateRequestObservabilitySettings(childComplexity, args["input"].(biz.RequestObservabilitySettings)), true
 	case "Mutation.updateRetryPolicy":
 		if e.complexity.Mutation.UpdateRetryPolicy == nil {
 			break
@@ -8519,6 +8544,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.QuotaEnforcementSettings(childComplexity), true
+	case "Query.requestObservabilitySettings":
+		if e.complexity.Query.RequestObservabilitySettings == nil {
+			break
+		}
+
+		return e.complexity.Query.RequestObservabilitySettings(childComplexity), true
 	case "Query.requestStats":
 		if e.complexity.Query.RequestStats == nil {
 			break
@@ -8934,6 +8965,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Request.ResponseChunks(childComplexity), true
+	case "Request.selectedChannelAPIKeyMasked":
+		if e.complexity.Request.SelectedChannelAPIKeyMasked == nil {
+			break
+		}
+
+		return e.complexity.Request.SelectedChannelAPIKeyMasked(childComplexity), true
 	case "Request.source":
 		if e.complexity.Request.Source == nil {
 			break
@@ -9140,6 +9177,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RequestExecution.ResponseStatusCode(childComplexity), true
+	case "RequestExecution.selectedChannelAPIKeyMasked":
+		if e.complexity.RequestExecution.SelectedChannelAPIKeyMasked == nil {
+			break
+		}
+
+		return e.complexity.RequestExecution.SelectedChannelAPIKeyMasked(childComplexity), true
 	case "RequestExecution.status":
 		if e.complexity.RequestExecution.Status == nil {
 			break
@@ -9221,6 +9264,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RequestMetadata.TotalTokens(childComplexity), true
+
+	case "RequestObservabilitySettings.exposeSelectedChannelAPIKey":
+		if e.complexity.RequestObservabilitySettings.ExposeSelectedChannelAPIKey == nil {
+			break
+		}
+
+		return e.complexity.RequestObservabilitySettings.ExposeSelectedChannelAPIKey(childComplexity), true
 
 	case "RequestStats.requestsLastWeek":
 		if e.complexity.RequestStats.RequestsLastWeek == nil {
@@ -11526,6 +11576,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputUpdatePromptProtectionRuleInput,
 		ec.unmarshalInputUpdateQuotaEnforcementSettingsInput,
 		ec.unmarshalInputUpdateRequestInput,
+		ec.unmarshalInputUpdateRequestObservabilitySettingsInput,
 		ec.unmarshalInputUpdateRetryPolicyInput,
 		ec.unmarshalInputUpdateRoleInput,
 		ec.unmarshalInputUpdateStoragePolicyInput,
@@ -13155,6 +13206,17 @@ func (ec *executionContext) field_Mutation_updateQuotaEnforcementSettings_args(c
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNUpdateQuotaEnforcementSettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐUpdateQuotaEnforcementSettingsInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_updateRequestObservabilitySettings_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNUpdateRequestObservabilitySettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRequestObservabilitySettings)
 	if err != nil {
 		return nil, err
 	}
@@ -37376,6 +37438,47 @@ func (ec *executionContext) fieldContext_Mutation_updatePassThroughSettings(ctx 
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_updateRequestObservabilitySettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_updateRequestObservabilitySettings,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().UpdateRequestObservabilitySettings(ctx, fc.Args["input"].(biz.RequestObservabilitySettings))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateRequestObservabilitySettings(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateRequestObservabilitySettings_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_clearCache(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -46581,6 +46684,39 @@ func (ec *executionContext) fieldContext_Query_passThroughSettings(_ context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_requestObservabilitySettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_requestObservabilitySettings,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().RequestObservabilitySettings(ctx)
+		},
+		nil,
+		ec.marshalNRequestObservabilitySettings2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRequestObservabilitySettings,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_requestObservabilitySettings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "exposeSelectedChannelAPIKey":
+				return ec.fieldContext_RequestObservabilitySettings_exposeSelectedChannelAPIKey(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RequestObservabilitySettings", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_getCacheDiagnostics(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -47807,6 +47943,35 @@ func (ec *executionContext) fieldContext_Request_metricsReasoningDurationMs(_ co
 	return fc, nil
 }
 
+func (ec *executionContext) _Request_selectedChannelAPIKeyMasked(ctx context.Context, field graphql.CollectedField, obj *ent.Request) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Request_selectedChannelAPIKeyMasked,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Request().SelectedChannelAPIKeyMasked(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Request_selectedChannelAPIKeyMasked(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Request",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Request_contentSaved(ctx context.Context, field graphql.CollectedField, obj *ent.Request) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -48521,6 +48686,8 @@ func (ec *executionContext) fieldContext_RequestEdge_node(_ context.Context, fie
 				return ec.fieldContext_Request_metricsFirstTokenLatencyMs(ctx, field)
 			case "metricsReasoningDurationMs":
 				return ec.fieldContext_Request_metricsReasoningDurationMs(ctx, field)
+			case "selectedChannelAPIKeyMasked":
+				return ec.fieldContext_Request_selectedChannelAPIKeyMasked(ctx, field)
 			case "contentSaved":
 				return ec.fieldContext_Request_contentSaved(ctx, field)
 			case "contentStorageID":
@@ -49159,6 +49326,35 @@ func (ec *executionContext) fieldContext_RequestExecution_metricsReasoningDurati
 	return fc, nil
 }
 
+func (ec *executionContext) _RequestExecution_selectedChannelAPIKeyMasked(ctx context.Context, field graphql.CollectedField, obj *ent.RequestExecution) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RequestExecution_selectedChannelAPIKeyMasked,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.RequestExecution().SelectedChannelAPIKeyMasked(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_RequestExecution_selectedChannelAPIKeyMasked(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RequestExecution",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _RequestExecution_requestHeaders(ctx context.Context, field graphql.CollectedField, obj *ent.RequestExecution) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -49258,6 +49454,8 @@ func (ec *executionContext) fieldContext_RequestExecution_request(_ context.Cont
 				return ec.fieldContext_Request_metricsFirstTokenLatencyMs(ctx, field)
 			case "metricsReasoningDurationMs":
 				return ec.fieldContext_Request_metricsReasoningDurationMs(ctx, field)
+			case "selectedChannelAPIKeyMasked":
+				return ec.fieldContext_Request_selectedChannelAPIKeyMasked(ctx, field)
 			case "contentSaved":
 				return ec.fieldContext_Request_contentSaved(ctx, field)
 			case "contentStorageID":
@@ -49598,6 +49796,8 @@ func (ec *executionContext) fieldContext_RequestExecutionEdge_node(_ context.Con
 				return ec.fieldContext_RequestExecution_metricsFirstTokenLatencyMs(ctx, field)
 			case "metricsReasoningDurationMs":
 				return ec.fieldContext_RequestExecution_metricsReasoningDurationMs(ctx, field)
+			case "selectedChannelAPIKeyMasked":
+				return ec.fieldContext_RequestExecution_selectedChannelAPIKeyMasked(ctx, field)
 			case "requestHeaders":
 				return ec.fieldContext_RequestExecution_requestHeaders(ctx, field)
 			case "request":
@@ -49782,6 +49982,35 @@ func (ec *executionContext) fieldContext_RequestMetadata_cachedTokens(_ context.
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RequestObservabilitySettings_exposeSelectedChannelAPIKey(ctx context.Context, field graphql.CollectedField, obj *biz.RequestObservabilitySettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RequestObservabilitySettings_exposeSelectedChannelAPIKey,
+		func(ctx context.Context) (any, error) {
+			return obj.ExposeSelectedChannelAPIKey, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RequestObservabilitySettings_exposeSelectedChannelAPIKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RequestObservabilitySettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -57499,6 +57728,8 @@ func (ec *executionContext) fieldContext_UsageLog_request(_ context.Context, fie
 				return ec.fieldContext_Request_metricsFirstTokenLatencyMs(ctx, field)
 			case "metricsReasoningDurationMs":
 				return ec.fieldContext_Request_metricsReasoningDurationMs(ctx, field)
+			case "selectedChannelAPIKeyMasked":
+				return ec.fieldContext_Request_selectedChannelAPIKeyMasked(ctx, field)
 			case "contentSaved":
 				return ec.fieldContext_Request_contentSaved(ctx, field)
 			case "contentStorageID":
@@ -84037,6 +84268,33 @@ func (ec *executionContext) unmarshalInputUpdateRequestInput(ctx context.Context
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputUpdateRequestObservabilitySettingsInput(ctx context.Context, obj any) (biz.RequestObservabilitySettings, error) {
+	var it biz.RequestObservabilitySettings
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"exposeSelectedChannelAPIKey"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "exposeSelectedChannelAPIKey":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exposeSelectedChannelAPIKey"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExposeSelectedChannelAPIKey = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputUpdateRetryPolicyInput(ctx context.Context, obj any) (biz.RetryPolicy, error) {
 	var it biz.RetryPolicy
 	asMap := map[string]any{}
@@ -96759,6 +97017,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "updateRequestObservabilitySettings":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateRequestObservabilitySettings(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "clearCache":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_clearCache(ctx, field)
@@ -100711,6 +100976,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "requestObservabilitySettings":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_requestObservabilitySettings(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "getCacheDiagnostics":
 			field := field
 
@@ -101350,6 +101637,39 @@ func (ec *executionContext) _Request(ctx context.Context, sel ast.SelectionSet, 
 			out.Values[i] = ec._Request_metricsFirstTokenLatencyMs(ctx, field, obj)
 		case "metricsReasoningDurationMs":
 			out.Values[i] = ec._Request_metricsReasoningDurationMs(ctx, field, obj)
+		case "selectedChannelAPIKeyMasked":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Request_selectedChannelAPIKeyMasked(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "contentSaved":
 			out.Values[i] = ec._Request_contentSaved(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -102009,6 +102329,39 @@ func (ec *executionContext) _RequestExecution(ctx context.Context, sel ast.Selec
 			out.Values[i] = ec._RequestExecution_metricsFirstTokenLatencyMs(ctx, field, obj)
 		case "metricsReasoningDurationMs":
 			out.Values[i] = ec._RequestExecution_metricsReasoningDurationMs(ctx, field, obj)
+		case "selectedChannelAPIKeyMasked":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._RequestExecution_selectedChannelAPIKeyMasked(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "requestHeaders":
 			out.Values[i] = ec._RequestExecution_requestHeaders(ctx, field, obj)
 		case "request":
@@ -102244,6 +102597,45 @@ func (ec *executionContext) _RequestMetadata(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._RequestMetadata_totalTokens(ctx, field, obj)
 		case "cachedTokens":
 			out.Values[i] = ec._RequestMetadata_cachedTokens(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var requestObservabilitySettingsImplementors = []string{"RequestObservabilitySettings"}
+
+func (ec *executionContext) _RequestObservabilitySettings(ctx context.Context, sel ast.SelectionSet, obj *biz.RequestObservabilitySettings) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, requestObservabilitySettingsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RequestObservabilitySettings")
+		case "exposeSelectedChannelAPIKey":
+			out.Values[i] = ec._RequestObservabilitySettings_exposeSelectedChannelAPIKey(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -112390,6 +112782,20 @@ func (ec *executionContext) unmarshalNRequestExecutionWhereInput2ᚖgithubᚗcom
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNRequestObservabilitySettings2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRequestObservabilitySettings(ctx context.Context, sel ast.SelectionSet, v biz.RequestObservabilitySettings) graphql.Marshaler {
+	return ec._RequestObservabilitySettings(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNRequestObservabilitySettings2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRequestObservabilitySettings(ctx context.Context, sel ast.SelectionSet, v *biz.RequestObservabilitySettings) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RequestObservabilitySettings(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNRequestOrderField2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐRequestOrderField(ctx context.Context, v any) (*ent.RequestOrderField, error) {
 	var res = new(ent.RequestOrderField)
 	err := res.UnmarshalGQL(v)
@@ -113601,6 +114007,11 @@ func (ec *executionContext) unmarshalNUpdatePromptProtectionRuleInput2githubᚗc
 
 func (ec *executionContext) unmarshalNUpdateQuotaEnforcementSettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐUpdateQuotaEnforcementSettingsInput(ctx context.Context, v any) (UpdateQuotaEnforcementSettingsInput, error) {
 	res, err := ec.unmarshalInputUpdateQuotaEnforcementSettingsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNUpdateRequestObservabilitySettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRequestObservabilitySettings(ctx context.Context, v any) (biz.RequestObservabilitySettings, error) {
+	res, err := ec.unmarshalInputUpdateRequestObservabilitySettingsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

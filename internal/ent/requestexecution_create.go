@@ -244,6 +244,20 @@ func (_c *RequestExecutionCreate) SetNillableMetricsReasoningDurationMs(v *int64
 	return _c
 }
 
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (_c *RequestExecutionCreate) SetSelectedChannelAPIKeyMasked(v string) *RequestExecutionCreate {
+	_c.mutation.SetSelectedChannelAPIKeyMasked(v)
+	return _c
+}
+
+// SetNillableSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field if the given value is not nil.
+func (_c *RequestExecutionCreate) SetNillableSelectedChannelAPIKeyMasked(v *string) *RequestExecutionCreate {
+	if v != nil {
+		_c.SetSelectedChannelAPIKeyMasked(*v)
+	}
+	return _c
+}
+
 // SetRequestHeaders sets the "request_headers" field.
 func (_c *RequestExecutionCreate) SetRequestHeaders(v objects.JSONRawMessage) *RequestExecutionCreate {
 	_c.mutation.SetRequestHeaders(v)
@@ -448,6 +462,10 @@ func (_c *RequestExecutionCreate) createSpec() (*RequestExecution, *sqlgraph.Cre
 	if value, ok := _c.mutation.MetricsReasoningDurationMs(); ok {
 		_spec.SetField(requestexecution.FieldMetricsReasoningDurationMs, field.TypeInt64, value)
 		_node.MetricsReasoningDurationMs = &value
+	}
+	if value, ok := _c.mutation.SelectedChannelAPIKeyMasked(); ok {
+		_spec.SetField(requestexecution.FieldSelectedChannelAPIKeyMasked, field.TypeString, value)
+		_node.SelectedChannelAPIKeyMasked = &value
 	}
 	if value, ok := _c.mutation.RequestHeaders(); ok {
 		_spec.SetField(requestexecution.FieldRequestHeaders, field.TypeJSON, value)
@@ -745,6 +763,24 @@ func (u *RequestExecutionUpsert) AddMetricsReasoningDurationMs(v int64) *Request
 // ClearMetricsReasoningDurationMs clears the value of the "metrics_reasoning_duration_ms" field.
 func (u *RequestExecutionUpsert) ClearMetricsReasoningDurationMs() *RequestExecutionUpsert {
 	u.SetNull(requestexecution.FieldMetricsReasoningDurationMs)
+	return u
+}
+
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (u *RequestExecutionUpsert) SetSelectedChannelAPIKeyMasked(v string) *RequestExecutionUpsert {
+	u.Set(requestexecution.FieldSelectedChannelAPIKeyMasked, v)
+	return u
+}
+
+// UpdateSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field to the value that was provided on create.
+func (u *RequestExecutionUpsert) UpdateSelectedChannelAPIKeyMasked() *RequestExecutionUpsert {
+	u.SetExcluded(requestexecution.FieldSelectedChannelAPIKeyMasked)
+	return u
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (u *RequestExecutionUpsert) ClearSelectedChannelAPIKeyMasked() *RequestExecutionUpsert {
+	u.SetNull(requestexecution.FieldSelectedChannelAPIKeyMasked)
 	return u
 }
 
@@ -1056,6 +1092,27 @@ func (u *RequestExecutionUpsertOne) UpdateMetricsReasoningDurationMs() *RequestE
 func (u *RequestExecutionUpsertOne) ClearMetricsReasoningDurationMs() *RequestExecutionUpsertOne {
 	return u.Update(func(s *RequestExecutionUpsert) {
 		s.ClearMetricsReasoningDurationMs()
+	})
+}
+
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (u *RequestExecutionUpsertOne) SetSelectedChannelAPIKeyMasked(v string) *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetSelectedChannelAPIKeyMasked(v)
+	})
+}
+
+// UpdateSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field to the value that was provided on create.
+func (u *RequestExecutionUpsertOne) UpdateSelectedChannelAPIKeyMasked() *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateSelectedChannelAPIKeyMasked()
+	})
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (u *RequestExecutionUpsertOne) ClearSelectedChannelAPIKeyMasked() *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.ClearSelectedChannelAPIKeyMasked()
 	})
 }
 
@@ -1536,6 +1593,27 @@ func (u *RequestExecutionUpsertBulk) UpdateMetricsReasoningDurationMs() *Request
 func (u *RequestExecutionUpsertBulk) ClearMetricsReasoningDurationMs() *RequestExecutionUpsertBulk {
 	return u.Update(func(s *RequestExecutionUpsert) {
 		s.ClearMetricsReasoningDurationMs()
+	})
+}
+
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (u *RequestExecutionUpsertBulk) SetSelectedChannelAPIKeyMasked(v string) *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetSelectedChannelAPIKeyMasked(v)
+	})
+}
+
+// UpdateSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field to the value that was provided on create.
+func (u *RequestExecutionUpsertBulk) UpdateSelectedChannelAPIKeyMasked() *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateSelectedChannelAPIKeyMasked()
+	})
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (u *RequestExecutionUpsertBulk) ClearSelectedChannelAPIKeyMasked() *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.ClearSelectedChannelAPIKeyMasked()
 	})
 }
 

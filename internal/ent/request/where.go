@@ -135,6 +135,11 @@ func MetricsReasoningDurationMs(v int64) predicate.Request {
 	return predicate.Request(sql.FieldEQ(FieldMetricsReasoningDurationMs, v))
 }
 
+// SelectedChannelAPIKeyMasked applies equality check predicate on the "selected_channel_api_key_masked" field. It's identical to SelectedChannelAPIKeyMaskedEQ.
+func SelectedChannelAPIKeyMasked(v string) predicate.Request {
+	return predicate.Request(sql.FieldEQ(FieldSelectedChannelAPIKeyMasked, v))
+}
+
 // ContentSaved applies equality check predicate on the "content_saved" field. It's identical to ContentSavedEQ.
 func ContentSaved(v bool) predicate.Request {
 	return predicate.Request(sql.FieldEQ(FieldContentSaved, v))
@@ -948,6 +953,81 @@ func MetricsReasoningDurationMsIsNil() predicate.Request {
 // MetricsReasoningDurationMsNotNil applies the NotNil predicate on the "metrics_reasoning_duration_ms" field.
 func MetricsReasoningDurationMsNotNil() predicate.Request {
 	return predicate.Request(sql.FieldNotNull(FieldMetricsReasoningDurationMs))
+}
+
+// SelectedChannelAPIKeyMaskedEQ applies the EQ predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedEQ(v string) predicate.Request {
+	return predicate.Request(sql.FieldEQ(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedNEQ applies the NEQ predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedNEQ(v string) predicate.Request {
+	return predicate.Request(sql.FieldNEQ(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedIn applies the In predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedIn(vs ...string) predicate.Request {
+	return predicate.Request(sql.FieldIn(FieldSelectedChannelAPIKeyMasked, vs...))
+}
+
+// SelectedChannelAPIKeyMaskedNotIn applies the NotIn predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedNotIn(vs ...string) predicate.Request {
+	return predicate.Request(sql.FieldNotIn(FieldSelectedChannelAPIKeyMasked, vs...))
+}
+
+// SelectedChannelAPIKeyMaskedGT applies the GT predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedGT(v string) predicate.Request {
+	return predicate.Request(sql.FieldGT(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedGTE applies the GTE predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedGTE(v string) predicate.Request {
+	return predicate.Request(sql.FieldGTE(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedLT applies the LT predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedLT(v string) predicate.Request {
+	return predicate.Request(sql.FieldLT(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedLTE applies the LTE predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedLTE(v string) predicate.Request {
+	return predicate.Request(sql.FieldLTE(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedContains applies the Contains predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedContains(v string) predicate.Request {
+	return predicate.Request(sql.FieldContains(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedHasPrefix applies the HasPrefix predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedHasPrefix(v string) predicate.Request {
+	return predicate.Request(sql.FieldHasPrefix(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedHasSuffix applies the HasSuffix predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedHasSuffix(v string) predicate.Request {
+	return predicate.Request(sql.FieldHasSuffix(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedIsNil applies the IsNil predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedIsNil() predicate.Request {
+	return predicate.Request(sql.FieldIsNull(FieldSelectedChannelAPIKeyMasked))
+}
+
+// SelectedChannelAPIKeyMaskedNotNil applies the NotNil predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedNotNil() predicate.Request {
+	return predicate.Request(sql.FieldNotNull(FieldSelectedChannelAPIKeyMasked))
+}
+
+// SelectedChannelAPIKeyMaskedEqualFold applies the EqualFold predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedEqualFold(v string) predicate.Request {
+	return predicate.Request(sql.FieldEqualFold(FieldSelectedChannelAPIKeyMasked, v))
+}
+
+// SelectedChannelAPIKeyMaskedContainsFold applies the ContainsFold predicate on the "selected_channel_api_key_masked" field.
+func SelectedChannelAPIKeyMaskedContainsFold(v string) predicate.Request {
+	return predicate.Request(sql.FieldContainsFold(FieldSelectedChannelAPIKeyMasked, v))
 }
 
 // ContentSavedEQ applies the EQ predicate on the "content_saved" field.
