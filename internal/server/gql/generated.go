@@ -489,7 +489,9 @@ type ComplexityRoot struct {
 	}
 
 	ChannelKeySelection struct {
-		Strategy func(childComplexity int) int
+		ExactAffinityTTLMinutes  func(childComplexity int) int
+		LikelyAffinityTTLMinutes func(childComplexity int) int
+		Strategy                 func(childComplexity int) int
 	}
 
 	ChannelLimiterStats struct {
@@ -4067,6 +4069,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelKeyMetadata.Success(childComplexity), true
 
+	case "ChannelKeySelection.exactAffinityTTLMinutes":
+		if e.complexity.ChannelKeySelection.ExactAffinityTTLMinutes == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeySelection.ExactAffinityTTLMinutes(childComplexity), true
+	case "ChannelKeySelection.likelyAffinityTTLMinutes":
+		if e.complexity.ChannelKeySelection.LikelyAffinityTTLMinutes == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeySelection.LikelyAffinityTTLMinutes(childComplexity), true
 	case "ChannelKeySelection.strategy":
 		if e.complexity.ChannelKeySelection.Strategy == nil {
 			break
@@ -23289,6 +23303,64 @@ func (ec *executionContext) fieldContext_ChannelKeySelection_strategy(_ context.
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeySelection_likelyAffinityTTLMinutes(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeySelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeySelection_likelyAffinityTTLMinutes,
+		func(ctx context.Context) (any, error) {
+			return obj.LikelyAffinityTTLMinutes, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeySelection_likelyAffinityTTLMinutes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeySelection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeySelection_exactAffinityTTLMinutes(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeySelection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeySelection_exactAffinityTTLMinutes,
+		func(ctx context.Context) (any, error) {
+			return obj.ExactAffinityTTLMinutes, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeySelection_exactAffinityTTLMinutes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeySelection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelLimiterStats_inFlight(ctx context.Context, field graphql.CollectedField, obj *ChannelLimiterStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -26704,6 +26776,10 @@ func (ec *executionContext) fieldContext_ChannelSettings_keySelection(_ context.
 			switch field.Name {
 			case "strategy":
 				return ec.fieldContext_ChannelKeySelection_strategy(ctx, field)
+			case "likelyAffinityTTLMinutes":
+				return ec.fieldContext_ChannelKeySelection_likelyAffinityTTLMinutes(ctx, field)
+			case "exactAffinityTTLMinutes":
+				return ec.fieldContext_ChannelKeySelection_exactAffinityTTLMinutes(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeySelection", field.Name)
 		},
@@ -65296,7 +65372,7 @@ func (ec *executionContext) unmarshalInputChannelKeySelectionInput(ctx context.C
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"strategy"}
+	fieldsInOrder := [...]string{"strategy", "likelyAffinityTTLMinutes", "exactAffinityTTLMinutes"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -65310,6 +65386,20 @@ func (ec *executionContext) unmarshalInputChannelKeySelectionInput(ctx context.C
 				return it, err
 			}
 			it.Strategy = data
+		case "likelyAffinityTTLMinutes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("likelyAffinityTTLMinutes"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LikelyAffinityTTLMinutes = data
+		case "exactAffinityTTLMinutes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exactAffinityTTLMinutes"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExactAffinityTTLMinutes = data
 		}
 	}
 
@@ -91922,6 +92012,10 @@ func (ec *executionContext) _ChannelKeySelection(ctx context.Context, sel ast.Se
 			out.Values[i] = graphql.MarshalString("ChannelKeySelection")
 		case "strategy":
 			out.Values[i] = ec._ChannelKeySelection_strategy(ctx, field, obj)
+		case "likelyAffinityTTLMinutes":
+			out.Values[i] = ec._ChannelKeySelection_likelyAffinityTTLMinutes(ctx, field, obj)
+		case "exactAffinityTTLMinutes":
+			out.Values[i] = ec._ChannelKeySelection_exactAffinityTTLMinutes(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

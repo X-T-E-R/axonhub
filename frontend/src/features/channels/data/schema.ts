@@ -195,6 +195,8 @@ export type ChannelKeySelectionStrategy = z.infer<typeof channelKeySelectionStra
 
 export const channelKeySelectionSchema = z.object({
   strategy: channelKeySelectionStrategySchema.optional().nullable(),
+  likelyAffinityTTLMinutes: z.number().int().min(1).max(1440).optional().nullable(),
+  exactAffinityTTLMinutes: z.number().int().min(1).max(10080).optional().nullable(),
 });
 export type ChannelKeySelection = z.infer<typeof channelKeySelectionSchema>;
 

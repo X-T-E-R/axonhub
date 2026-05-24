@@ -25,18 +25,42 @@ func ValidateChannelKeySettings(settings *objects.ChannelSettings) error {
 		return nil
 	}
 
-	if settings.KeySelection != nil {
-		switch settings.KeySelection.StrategyOrDefault() {
-		case objects.ChannelKeySelectionStrategyTraceSticky,
-			objects.ChannelKeySelectionStrategyCacheAffinity,
-			objects.ChannelKeySelectionStrategyRandom,
-			objects.ChannelKeySelectionStrategyRoundRobin:
-		default:
-			return fmt.Errorf("unsupported key selection strategy %q", settings.KeySelection.Strategy)
-		}
+	if err := ValidateChannelKeySelection(settings.KeySelection); err != nil {
+		return err
 	}
 
 	return ValidateChannelKeyHealthCheck(settings.KeyHealthCheck)
+}
+
+func ValidateChannelKeySelection(selection *objects.ChannelKeySelection) error {
+	if selection == nil {
+		return nil
+	}
+
+	switch selection.StrategyOrDefault() {
+	case objects.ChannelKeySelectionStrategyTraceSticky,
+		objects.ChannelKeySelectionStrategyCacheAffinity,
+		objects.ChannelKeySelectionStrategyRandom,
+		objects.ChannelKeySelectionStrategyRoundRobin:
+	default:
+		return fmt.Errorf("unsupported key selection strategy %q", selection.Strategy)
+	}
+
+	if selection.LikelyAffinityTTLMinutes != nil {
+		ttl := *selection.LikelyAffinityTTLMinutes
+		if ttl < objects.MinChannelKeyAffinityTTLMinutes || ttl > objects.MaxChannelKeyLikelyAffinityTTLMinutes {
+			return fmt.Errorf("likely affinity TTL minutes must be between %d and %d", objects.MinChannelKeyAffinityTTLMinutes, objects.MaxChannelKeyLikelyAffinityTTLMinutes)
+		}
+	}
+
+	if selection.ExactAffinityTTLMinutes != nil {
+		ttl := *selection.ExactAffinityTTLMinutes
+		if ttl < objects.MinChannelKeyAffinityTTLMinutes || ttl > objects.MaxChannelKeyExactAffinityTTLMinutes {
+			return fmt.Errorf("exact affinity TTL minutes must be between %d and %d", objects.MinChannelKeyAffinityTTLMinutes, objects.MaxChannelKeyExactAffinityTTLMinutes)
+		}
+	}
+
+	return nil
 }
 
 func ValidateChannelKeyHealthCheck(health *objects.ChannelKeyHealthCheck) error {

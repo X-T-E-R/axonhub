@@ -121,10 +121,14 @@ enum ChannelKeySelectionStrategy {
 
 type ChannelKeySelection {
   strategy: ChannelKeySelectionStrategy
+  likelyAffinityTTLMinutes: Int
+  exactAffinityTTLMinutes: Int
 }
 
 input ChannelKeySelectionInput {
   strategy: ChannelKeySelectionStrategy
+  likelyAffinityTTLMinutes: Int
+  exactAffinityTTLMinutes: Int
 }
 
 enum ChannelKeyHealthCheckFailureAction {

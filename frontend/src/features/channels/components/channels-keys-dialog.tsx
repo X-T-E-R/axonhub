@@ -118,6 +118,8 @@ type BalanceSummary = {
 
 const keysFormSchema = z.object({
   strategy: channelKeySelectionStrategySchema,
+  likelyAffinityTTLMinutes: z.coerce.number().int().min(1).max(1440),
+  exactAffinityTTLMinutes: z.coerce.number().int().min(1).max(10080),
   newKey: z.string().optional(),
   healthCheck: z.object({
     enabled: z.boolean(),
@@ -162,6 +164,8 @@ type KeysFormValues = z.output<typeof keysFormSchema>;
 const keysFormResolver = zodResolver(keysFormSchema) as unknown as Resolver<KeysFormValues, unknown, KeysFormValues>;
 
 const DEFAULT_STRATEGY: KeysFormValues['strategy'] = 'trace_sticky';
+const DEFAULT_LIKELY_AFFINITY_TTL_MINUTES = 30;
+const DEFAULT_EXACT_AFFINITY_TTL_MINUTES = 1440;
 const STRATEGIES: KeysFormValues['strategy'][] = ['trace_sticky', 'cache_affinity', 'random', 'round_robin'];
 const FAILURE_ACTIONS: KeysFormValues['healthCheck']['failureAction'][] = ['report_only', 'disable', 'archive', 'delete'];
 const POLICY_ACTIONS: PolicyActionType[] = ['report_only', 'disable_key', 'archive_key', 'delete_key', 'disable_channel', 'backoff'];
@@ -263,6 +267,8 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
 
   return {
     strategy: currentRow.settings?.keySelection?.strategy ?? DEFAULT_STRATEGY,
+    likelyAffinityTTLMinutes: currentRow.settings?.keySelection?.likelyAffinityTTLMinutes ?? DEFAULT_LIKELY_AFFINITY_TTL_MINUTES,
+    exactAffinityTTLMinutes: currentRow.settings?.keySelection?.exactAffinityTTLMinutes ?? DEFAULT_EXACT_AFFINITY_TTL_MINUTES,
     newKey: '',
     healthCheck: {
       enabled: health?.enabled ?? DEFAULT_HEALTH_CHECK.enabled,
@@ -1317,6 +1323,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     const nextSettings = mergeChannelSettingsForUpdate(currentRow.settings, {
       keySelection: {
         strategy: values.strategy,
+        likelyAffinityTTLMinutes: values.likelyAffinityTTLMinutes,
+        exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
       },
       keyHealthCheck: healthCheckFromValues(values),
     });
@@ -1894,6 +1902,55 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                           </FormItem>
                         )}
                       />
+
+                      {selectedStrategy === 'cache_affinity' ? (
+                        <div className='grid gap-4 md:grid-cols-2'>
+                          <FormField
+                            control={form.control}
+                            name='likelyAffinityTTLMinutes'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.label')}</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type='number'
+                                    min={1}
+                                    max={1440}
+                                    placeholder={String(DEFAULT_LIKELY_AFFINITY_TTL_MINUTES)}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.description')}
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name='exactAffinityTTLMinutes'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.label')}</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type='number'
+                                    min={1}
+                                    max={10080}
+                                    placeholder={String(DEFAULT_EXACT_AFFINITY_TTL_MINUTES)}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.description')}
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      ) : null}
 
                       <Alert>
                         <IconDatabase className='h-4 w-4' />

@@ -13,11 +13,11 @@ import (
 
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/objects"
 )
 
 // traceStickyLRUSize is the default LRU cache size for trace-to-key mappings.
 const traceStickyLRUSize = 1024
-const cacheAffinityTTL = 30 * time.Minute
 
 type stickyCacheEntry struct {
 	Key       string
@@ -91,14 +91,21 @@ type CacheAffinityKeyProvider struct {
 	channel      *Channel
 	cache        *lru.Cache[string, stickyCacheEntry]
 	fallbackNext atomic.Uint64
+	likelyTTL    time.Duration
+	exactTTL     time.Duration
 }
 
 func NewCacheAffinityKeyProvider(channel *Channel) *CacheAffinityKeyProvider {
 	cache, _ := lru.New[string, stickyCacheEntry](traceStickyLRUSize)
+	keySelection := channelKeySelectionForProvider(channel)
 
 	return &CacheAffinityKeyProvider{
 		channel: channel,
 		cache:   cache,
+		likelyTTL: time.Duration(keySelection.LikelyAffinityTTLMinutesOrDefault()) *
+			time.Minute,
+		exactTTL: time.Duration(keySelection.ExactAffinityTTLMinutesOrDefault()) *
+			time.Minute,
 	}
 }
 
@@ -113,7 +120,7 @@ func (p *CacheAffinityKeyProvider) Get(ctx context.Context) string {
 	}
 
 	if affinityID, ok := contexts.GetChannelKeyAffinityID(ctx); ok && affinityID != "" {
-		selectedKey := selectTTLStickyKey(p.cache, enabled, affinityID, cacheAffinityTTL)
+		selectedKey := selectTTLStickyKey(p.cache, enabled, affinityID, p.ttlForAffinityID(affinityID))
 
 		if log.DebugEnabled(ctx) {
 			log.Debug(ctx, "Cache affinity key selected",
@@ -136,6 +143,22 @@ func (p *CacheAffinityKeyProvider) Get(ctx context.Context) string {
 	}
 
 	return recordSelectedChannelAPIKey(ctx, selectedKey)
+}
+
+func channelKeySelectionForProvider(channel *Channel) *objects.ChannelKeySelection {
+	if channel == nil || channel.Settings == nil || channel.Settings.KeySelection == nil {
+		return nil
+	}
+
+	return channel.Settings.KeySelection
+}
+
+func (p *CacheAffinityKeyProvider) ttlForAffinityID(affinityID string) time.Duration {
+	if cacheAffinityTierFromID(affinityID) == "exact" {
+		return p.exactTTL
+	}
+
+	return p.likelyTTL
 }
 
 // RandomChannelKeyProvider explicitly selects a random enabled key while still
@@ -200,8 +223,14 @@ func selectStickyKey(cache *lru.Cache[string, string], enabled []string, seed st
 }
 
 func selectTTLStickyKey(cache *lru.Cache[string, stickyCacheEntry], enabled []string, seed string, ttl time.Duration) string {
-	now := time.Now()
+	return selectTTLStickyKeyAt(cache, enabled, seed, ttl, time.Now())
+}
+
+func selectTTLStickyKeyAt(cache *lru.Cache[string, stickyCacheEntry], enabled []string, seed string, ttl time.Duration, now time.Time) string {
 	if cached, ok := cache.Get(seed); ok && cached.ExpiresAt.After(now) && slices.Contains(enabled, cached.Key) {
+		cached.ExpiresAt = now.Add(ttl)
+		cache.Add(seed, cached)
+
 		return cached.Key
 	}
 

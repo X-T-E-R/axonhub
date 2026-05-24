@@ -247,6 +247,8 @@ const CREATE_CHANNEL_MUTATION = `
           passThroughBody
           keySelection {
             strategy
+            likelyAffinityTTLMinutes
+            exactAffinityTTLMinutes
           }
           ${CHANNEL_KEY_HEALTH_CHECK_FIELDS}
         }
@@ -310,6 +312,8 @@ const BULK_CREATE_CHANNELS_MUTATION = `
           passThroughBody
           keySelection {
             strategy
+            likelyAffinityTTLMinutes
+            exactAffinityTTLMinutes
           }
           ${CHANNEL_KEY_HEALTH_CHECK_FIELDS}
         }
@@ -373,6 +377,8 @@ const UPDATE_CHANNEL_MUTATION = `
           passThroughBody
           keySelection {
             strategy
+            likelyAffinityTTLMinutes
+            exactAffinityTTLMinutes
           }
           ${CHANNEL_KEY_HEALTH_CHECK_FIELDS}
         }
@@ -537,6 +543,8 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
           passThroughBody
           keySelection {
             strategy
+            likelyAffinityTTLMinutes
+            exactAffinityTTLMinutes
           }
           ${CHANNEL_KEY_HEALTH_CHECK_FIELDS}
         }
@@ -768,6 +776,8 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
           passThroughBody
           keySelection {
             strategy
+            likelyAffinityTTLMinutes
+            exactAffinityTTLMinutes
           }
           ${CHANNEL_KEY_HEALTH_CHECK_FIELDS}
         }
@@ -908,6 +918,8 @@ const QUERY_CHANNELS_QUERY = `
             }
             keySelection {
               strategy
+              likelyAffinityTTLMinutes
+              exactAffinityTTLMinutes
             }
             ${CHANNEL_KEY_HEALTH_CHECK_FIELDS}
           }
