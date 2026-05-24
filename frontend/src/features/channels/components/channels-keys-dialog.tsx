@@ -947,8 +947,8 @@ function KeyDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-2xl'>
-        <DialogHeader className='text-left'>
+      <DialogContent className='flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-2xl'>
+        <DialogHeader className='shrink-0 text-left'>
           <DialogTitle className='flex items-center gap-2'>
             <IconKey className='h-5 w-5' />
             {t('channels.dialogs.keys.details.title')}
@@ -956,7 +956,7 @@ function KeyDetailsDialog({
           <DialogDescription>{t('channels.dialogs.keys.details.description')}</DialogDescription>
         </DialogHeader>
 
-        <div className='space-y-4'>
+        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto pr-1'>
           <div className='grid gap-3 md:grid-cols-2'>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.maskedKey')}</div>
