@@ -29,6 +29,24 @@ func (f channelKeyHealthCheckRoundTripper) RoundTrip(req *http.Request) (*http.R
 	return f(req)
 }
 
+type channelKeyHealthCheckTesterFunc func(ctx context.Context, channelID objects.GUID, key string, modelID *string, proxy *httpclient.ProxyConfig) ChannelKeyHealthCheckBuiltinResult
+
+func (f channelKeyHealthCheckTesterFunc) TestSingleChannelAPIKey(ctx context.Context, channelID objects.GUID, key string, modelID *string, proxy *httpclient.ProxyConfig) ChannelKeyHealthCheckBuiltinResult {
+	return f(ctx, channelID, key, modelID, proxy)
+}
+
+func disableChannelKeyHealthCheckDelays(t *testing.T) {
+	t.Helper()
+
+	originalDelayForKey := channelKeyHealthCheckDelayForKey
+	channelKeyHealthCheckDelayForKey = func(int, string) time.Duration {
+		return 0
+	}
+	t.Cleanup(func() {
+		channelKeyHealthCheckDelayForKey = originalDelayForKey
+	})
+}
+
 func TestChannelKeyHealthCheckDue(t *testing.T) {
 	now := time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC)
 	oldCheck := now.Add(-2 * time.Hour)
@@ -97,6 +115,48 @@ func TestRunHTTPChannelKeyHealthCheck_StatusBalanceAndSecretInjection(t *testing
 	require.NotNil(t, result.Available)
 	require.True(t, *result.Available)
 	require.NotContains(t, result.Reason, testKey)
+}
+
+func TestExtractDeepSeekBalanceMetadata_MultiCurrencySelection(t *testing.T) {
+	t.Run("prefers CNY over higher non-CNY balance", func(t *testing.T) {
+		balance, currency, available := extractDeepSeekBalanceMetadata([]byte(`{
+			"is_available": true,
+			"balance_infos": [
+				{"currency":"USD","total_balance":"99.00"},
+				{"currency":"CNY","total_balance":"10.50"}
+			]
+		}`))
+
+		require.Equal(t, "10.50", balance)
+		require.Equal(t, "CNY", currency)
+		require.NotNil(t, available)
+		require.True(t, *available)
+	})
+
+	t.Run("prefers RMB over higher non-RMB balance", func(t *testing.T) {
+		balance, currency, _ := extractDeepSeekBalanceMetadata([]byte(`{
+			"balance_infos": [
+				{"currency":"EUR","total_balance":"88.00"},
+				{"currency":"RMB","total_balance":"12.00"}
+			]
+		}`))
+
+		require.Equal(t, "12.00", balance)
+		require.Equal(t, "RMB", currency)
+	})
+
+	t.Run("falls back to highest numeric balance", func(t *testing.T) {
+		balance, currency, _ := extractDeepSeekBalanceMetadata([]byte(`{
+			"balance_infos": [
+				{"currency":"USD","total_balance":"7.25"},
+				{"currency":"EUR","total_balance":"42.50"},
+				{"currency":"JPY","total_balance":"31.00"}
+			]
+		}`))
+
+		require.Equal(t, "42.50", balance)
+		require.Equal(t, "EUR", currency)
+	})
 }
 
 func TestRunHTTPChannelKeyHealthCheck_DeepSeekDefaultRuleUsesBalanceEndpoint(t *testing.T) {
@@ -581,9 +641,13 @@ func TestValidateChannelKeyHealthCheckHTTPRuleEgressAndHeaders(t *testing.T) {
 		}},
 	}
 	require.NoError(t, ValidateChannelKeyHealthCheck(valid))
-	require.NoError(t, validateChannelKeyHealthCheckURLsForBaseURL("https://93.184.216.34/v1", valid))
+	require.NoError(t, validateChannelKeyHealthCheckURLsForBaseURL("https://93.184.216.34/v1", &objects.ChannelSettings{
+		KeyHealthCheck: valid,
+	}))
 
-	require.ErrorContains(t, validateChannelKeyHealthCheckURLsForBaseURL("https://api.deepseek.com/v1", valid), "must match provider base origin")
+	require.ErrorContains(t, validateChannelKeyHealthCheckURLsForBaseURL("https://api.deepseek.com/v1", &objects.ChannelSettings{
+		KeyHealthCheck: valid,
+	}), "must match provider base origin")
 
 	loopback := *valid
 	loopback.Rules = []objects.ChannelKeyHealthCheckRule{{
@@ -1017,6 +1081,8 @@ func TestChannelService_RunManualHealthCheckSuccessResetsBackoff(t *testing.T) {
 }
 
 func TestChannelService_RunDueHealthCheckUpdatesMetadataAndDisablesFailedKey(t *testing.T) {
+	disableChannelKeyHealthCheckDelays(t)
+
 	svc, client := setupTestChannelService(t)
 	defer client.Close()
 
@@ -1074,7 +1140,69 @@ func TestChannelService_RunDueHealthCheckUpdatesMetadataAndDisablesFailedKey(t *
 	require.Equal(t, "unexpected status 401", updated.DisabledAPIKeys[0].Reason)
 }
 
+func TestChannelService_RunDueHealthCheckSpacesKeyChecks(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	delays := make(chan time.Duration, 3)
+	originalDelayForKey := channelKeyHealthCheckDelayForKey
+	originalWait := channelKeyHealthCheckWait
+	channelKeyHealthCheckDelayForKey = func(index int, key string) time.Duration {
+		if index <= 0 {
+			return 0
+		}
+
+		return time.Second
+	}
+	channelKeyHealthCheckWait = func(ctx context.Context, delay time.Duration) error {
+		delays <- delay
+		return nil
+	}
+	t.Cleanup(func() {
+		channelKeyHealthCheckDelayForKey = originalDelayForKey
+		channelKeyHealthCheckWait = originalWait
+	})
+
+	svc.SetChannelKeyHealthCheckTester(channelKeyHealthCheckTesterFunc(func(ctx context.Context, channelID objects.GUID, key string, modelID *string, proxy *httpclient.ProxyConfig) ChannelKeyHealthCheckBuiltinResult {
+		return ChannelKeyHealthCheckBuiltinResult{Success: true, Reason: "ok"}
+	}))
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Health Check Spacing").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"first-key", "second-key", "third-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled:         true,
+				IntervalMinutes: 60,
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	err = svc.RunDueChannelKeyHealthChecks(ctx, time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+
+	close(delays)
+	var got []time.Duration
+	for delay := range delays {
+		got = append(got, delay)
+	}
+	require.Equal(t, []time.Duration{time.Second, time.Second}, got)
+
+	updated, err := client.Channel.Get(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 3)
+}
+
 func TestChannelService_RunDueHealthCheckKeepsDisabledMetadataStatus(t *testing.T) {
+	disableChannelKeyHealthCheckDelays(t)
+
 	svc, client := setupTestChannelService(t)
 	defer client.Close()
 

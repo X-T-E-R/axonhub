@@ -11,6 +11,7 @@
   "requests.columns.clientIP": "Client IP",
   "requests.columns.user": "User",
   "requests.columns.apiKey": "API Key",
+  "requests.columns.selectedChannelAPIKey": "Upstream Key",
   "requests.columns.roles": "Roles",
   "requests.columns.noRoles": "No roles",
   "requests.columns.details": "Details",

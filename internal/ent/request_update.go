@@ -229,6 +229,26 @@ func (_u *RequestUpdate) ClearMetricsReasoningDurationMs() *RequestUpdate {
 	return _u
 }
 
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (_u *RequestUpdate) SetSelectedChannelAPIKeyMasked(v string) *RequestUpdate {
+	_u.mutation.SetSelectedChannelAPIKeyMasked(v)
+	return _u
+}
+
+// SetNillableSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field if the given value is not nil.
+func (_u *RequestUpdate) SetNillableSelectedChannelAPIKeyMasked(v *string) *RequestUpdate {
+	if v != nil {
+		_u.SetSelectedChannelAPIKeyMasked(*v)
+	}
+	return _u
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (_u *RequestUpdate) ClearSelectedChannelAPIKeyMasked() *RequestUpdate {
+	_u.mutation.ClearSelectedChannelAPIKeyMasked()
+	return _u
+}
+
 // SetContentSaved sets the "content_saved" field.
 func (_u *RequestUpdate) SetContentSaved(v bool) *RequestUpdate {
 	_u.mutation.SetContentSaved(v)
@@ -550,6 +570,12 @@ func (_u *RequestUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.MetricsReasoningDurationMsCleared() {
 		_spec.ClearField(request.FieldMetricsReasoningDurationMs, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.SelectedChannelAPIKeyMasked(); ok {
+		_spec.SetField(request.FieldSelectedChannelAPIKeyMasked, field.TypeString, value)
+	}
+	if _u.mutation.SelectedChannelAPIKeyMaskedCleared() {
+		_spec.ClearField(request.FieldSelectedChannelAPIKeyMasked, field.TypeString)
 	}
 	if value, ok := _u.mutation.ContentSaved(); ok {
 		_spec.SetField(request.FieldContentSaved, field.TypeBool, value)
@@ -911,6 +937,26 @@ func (_u *RequestUpdateOne) ClearMetricsReasoningDurationMs() *RequestUpdateOne 
 	return _u
 }
 
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (_u *RequestUpdateOne) SetSelectedChannelAPIKeyMasked(v string) *RequestUpdateOne {
+	_u.mutation.SetSelectedChannelAPIKeyMasked(v)
+	return _u
+}
+
+// SetNillableSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field if the given value is not nil.
+func (_u *RequestUpdateOne) SetNillableSelectedChannelAPIKeyMasked(v *string) *RequestUpdateOne {
+	if v != nil {
+		_u.SetSelectedChannelAPIKeyMasked(*v)
+	}
+	return _u
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (_u *RequestUpdateOne) ClearSelectedChannelAPIKeyMasked() *RequestUpdateOne {
+	_u.mutation.ClearSelectedChannelAPIKeyMasked()
+	return _u
+}
+
 // SetContentSaved sets the "content_saved" field.
 func (_u *RequestUpdateOne) SetContentSaved(v bool) *RequestUpdateOne {
 	_u.mutation.SetContentSaved(v)
@@ -1262,6 +1308,12 @@ func (_u *RequestUpdateOne) sqlSave(ctx context.Context) (_node *Request, err er
 	}
 	if _u.mutation.MetricsReasoningDurationMsCleared() {
 		_spec.ClearField(request.FieldMetricsReasoningDurationMs, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.SelectedChannelAPIKeyMasked(); ok {
+		_spec.SetField(request.FieldSelectedChannelAPIKeyMasked, field.TypeString, value)
+	}
+	if _u.mutation.SelectedChannelAPIKeyMaskedCleared() {
+		_spec.ClearField(request.FieldSelectedChannelAPIKeyMasked, field.TypeString)
 	}
 	if value, ok := _u.mutation.ContentSaved(); ok {
 		_spec.SetField(request.FieldContentSaved, field.TypeBool, value)

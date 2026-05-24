@@ -100,6 +100,14 @@ func (Request) Fields() []ent.Field {
 		field.Int64("metrics_first_token_latency_ms").Optional().Nillable(),
 		// Reasoning/thinking duration in milliseconds
 		field.Int64("metrics_reasoning_duration_ms").Optional().Nillable().Comment("Reasoning/thinking duration in milliseconds"),
+		field.String("selected_channel_api_key_masked").
+			Optional().
+			Nillable().
+			Comment("Masked upstream channel API key selected for this request. Raw provider keys are never stored here.").
+			Annotations(
+				entgql.Directives(forceResolver()),
+				entgql.Skip(entgql.SkipWhereInput, entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput),
+			),
 
 		// ContentSaved indicates whether the generated content (e.g. video, audio) has been downloaded and saved to external storage.
 		field.Bool("content_saved").

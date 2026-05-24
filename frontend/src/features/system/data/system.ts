@@ -1644,6 +1644,71 @@ export function useUpdatePassThroughSettings() {
   });
 }
 
+// Request Observability Settings
+const REQUEST_OBSERVABILITY_SETTINGS_QUERY = `
+  query RequestObservabilitySettings {
+    requestObservabilitySettings {
+      exposeSelectedChannelAPIKey
+    }
+  }
+`;
+
+const UPDATE_REQUEST_OBSERVABILITY_SETTINGS_MUTATION = `
+  mutation UpdateRequestObservabilitySettings($input: UpdateRequestObservabilitySettingsInput!) {
+    updateRequestObservabilitySettings(input: $input)
+  }
+`;
+
+export interface RequestObservabilitySettings {
+  exposeSelectedChannelAPIKey: boolean;
+}
+
+export interface UpdateRequestObservabilitySettingsInput {
+  exposeSelectedChannelAPIKey: boolean;
+}
+
+export function useRequestObservabilitySettings() {
+  const { handleError } = useErrorHandler();
+
+  return useQuery({
+    queryKey: ['requestObservabilitySettings'],
+    queryFn: async () => {
+      try {
+        const data = await graphqlRequest<{ requestObservabilitySettings: RequestObservabilitySettings }>(
+          REQUEST_OBSERVABILITY_SETTINGS_QUERY
+        );
+        return data.requestObservabilitySettings;
+      } catch (error) {
+        handleError(error, i18n.t('common.errors.internalServerError'));
+        throw error;
+      }
+    },
+  });
+}
+
+export function useUpdateRequestObservabilitySettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: UpdateRequestObservabilitySettingsInput) => {
+      const data = await graphqlRequest<{ updateRequestObservabilitySettings: boolean }>(UPDATE_REQUEST_OBSERVABILITY_SETTINGS_MUTATION, {
+        input,
+      });
+      return data.updateRequestObservabilitySettings;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['requestObservabilitySettings'] });
+      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      queryClient.invalidateQueries({ queryKey: ['request'] });
+      queryClient.invalidateQueries({ queryKey: ['request-executions'] });
+      toast.success(i18n.t('common.success.systemUpdated'));
+    },
+    onError: () => {
+      toast.error(i18n.t('common.errors.systemUpdateFailed'));
+    },
+  });
+}
+
 const QUOTA_ENFORCEMENT_SETTINGS_QUERY = `
   query QuotaEnforcementSettings {
     quotaEnforcementSettings {

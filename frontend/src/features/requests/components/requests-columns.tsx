@@ -408,6 +408,16 @@ export function useRequestsColumns(options?: UseRequestsColumnsOptions): ColumnD
           },
         ] as ColumnDef<Request>[])
       : []),
+    {
+      accessorKey: 'selectedChannelAPIKeyMasked',
+      header: ({ column }) => <DataTableColumnHeader column={column} title={t('requests.columns.selectedChannelAPIKey')} />,
+      enableSorting: false,
+      enableHiding: true,
+      cell: ({ row }) => {
+        const maskedKey = row.original.selectedChannelAPIKeyMasked;
+        return <div className='font-mono text-xs'>{maskedKey || '-'}</div>;
+      },
+    },
 
     {
       accessorKey: 'status',

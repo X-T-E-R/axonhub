@@ -3909,6 +3909,11 @@ func (_q *RequestQuery) collectField(ctx context.Context, oneNode bool, opCtx *g
 				selectedFields = append(selectedFields, request.FieldMetricsReasoningDurationMs)
 				fieldSeen[request.FieldMetricsReasoningDurationMs] = struct{}{}
 			}
+		case "selectedChannelAPIKeyMasked":
+			if _, ok := fieldSeen[request.FieldSelectedChannelAPIKeyMasked]; !ok {
+				selectedFields = append(selectedFields, request.FieldSelectedChannelAPIKeyMasked)
+				fieldSeen[request.FieldSelectedChannelAPIKeyMasked] = struct{}{}
+			}
 		case "contentSaved":
 			if _, ok := fieldSeen[request.FieldContentSaved]; !ok {
 				selectedFields = append(selectedFields, request.FieldContentSaved)
@@ -4152,6 +4157,11 @@ func (_q *RequestExecutionQuery) collectField(ctx context.Context, oneNode bool,
 			if _, ok := fieldSeen[requestexecution.FieldMetricsReasoningDurationMs]; !ok {
 				selectedFields = append(selectedFields, requestexecution.FieldMetricsReasoningDurationMs)
 				fieldSeen[requestexecution.FieldMetricsReasoningDurationMs] = struct{}{}
+			}
+		case "selectedChannelAPIKeyMasked":
+			if _, ok := fieldSeen[requestexecution.FieldSelectedChannelAPIKeyMasked]; !ok {
+				selectedFields = append(selectedFields, requestexecution.FieldSelectedChannelAPIKeyMasked)
+				fieldSeen[requestexecution.FieldSelectedChannelAPIKeyMasked] = struct{}{}
 			}
 		case "requestHeaders":
 			if _, ok := fieldSeen[requestexecution.FieldRequestHeaders]; !ok {

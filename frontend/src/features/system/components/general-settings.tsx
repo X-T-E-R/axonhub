@@ -17,6 +17,8 @@ import {
   useUpdateUserAgentPassThroughSettings,
   usePassThroughSettings,
   useUpdatePassThroughSettings,
+  useRequestObservabilitySettings,
+  useUpdateRequestObservabilitySettings,
 } from '../data/system';
 import { GMTTimeZoneOptions } from '../data/timezones';
 
@@ -35,6 +37,11 @@ export function GeneralSettings() {
   const { data: ptSettings, isLoading: isLoadingPTSettings } = usePassThroughSettings();
   const updatePTSettings = useUpdatePassThroughSettings();
   const [passThroughEnabled, setPassThroughEnabled] = useState(false);
+
+  // Request observability settings
+  const { data: requestObservabilitySettings, isLoading: isLoadingRequestObservabilitySettings } = useRequestObservabilitySettings();
+  const updateRequestObservabilitySettings = useUpdateRequestObservabilitySettings();
+  const [exposeSelectedChannelAPIKey, setExposeSelectedChannelAPIKey] = useState(false);
 
   const [currencyCode, setCurrencyCode] = useState('USD');
   const [timezone, setTimezone] = useState('UTC');
@@ -72,6 +79,13 @@ export function GeneralSettings() {
     }
   }, [ptSettings]);
 
+  // Update request observability state when loaded
+  useEffect(() => {
+    if (requestObservabilitySettings) {
+      setExposeSelectedChannelAPIKey(requestObservabilitySettings.exposeSelectedChannelAPIKey);
+    }
+  }, [requestObservabilitySettings]);
+
   const handleSave = async () => {
     setIsLoading(true);
     try {
@@ -106,9 +120,18 @@ export function GeneralSettings() {
     }
   };
 
-  const hasChanges = settings
-    ? settings.currencyCode !== currencyCode || settings.timezone !== timezone
-    : false;
+  const handleExposeSelectedChannelAPIKeyChange = async (enabled: boolean) => {
+    const previousValue = exposeSelectedChannelAPIKey;
+    setExposeSelectedChannelAPIKey(enabled);
+    try {
+      await updateRequestObservabilitySettings.mutateAsync({ exposeSelectedChannelAPIKey: enabled });
+    } catch {
+      // Revert state on error
+      setExposeSelectedChannelAPIKey(previousValue);
+    }
+  };
+
+  const hasChanges = settings ? settings.currencyCode !== currencyCode || settings.timezone !== timezone : false;
 
   if (isLoadingSettings) {
     return (
@@ -185,6 +208,18 @@ export function GeneralSettings() {
               checked={passThroughEnabled}
               onCheckedChange={handlePassThroughChange}
               disabled={isLoadingPTSettings || updatePTSettings.isPending}
+            />
+          </div>
+          <div className='flex items-center justify-between'>
+            <div className='space-y-0.5'>
+              <Label htmlFor='request-selected-channel-key'>{t('system.requestObservability.selectedChannelAPIKey.label')}</Label>
+              <div className='text-muted-foreground text-sm'>{t('system.requestObservability.selectedChannelAPIKey.helpText')}</div>
+            </div>
+            <Switch
+              id='request-selected-channel-key'
+              checked={exposeSelectedChannelAPIKey}
+              onCheckedChange={handleExposeSelectedChannelAPIKeyChange}
+              disabled={isLoadingRequestObservabilitySettings || updateRequestObservabilitySettings.isPending}
             />
           </div>
         </CardContent>

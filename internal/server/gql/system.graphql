@@ -332,6 +332,14 @@ input UpdatePassThroughSettingsInput {
   enabled: Boolean!
 }
 
+type RequestObservabilitySettings {
+  exposeSelectedChannelAPIKey: Boolean!
+}
+
+input UpdateRequestObservabilitySettingsInput {
+  exposeSelectedChannelAPIKey: Boolean!
+}
+
 
 type ProxyPreset {
   name: String
@@ -381,6 +389,7 @@ extend type Mutation {
   deleteProxyPreset(url: String!): Boolean!
   updateUserAgentPassThroughSettings(input: UpdateUserAgentPassThroughSettingsInput!): Boolean!
   updatePassThroughSettings(input: UpdatePassThroughSettingsInput!): Boolean!
+  updateRequestObservabilitySettings(input: UpdateRequestObservabilitySettingsInput!): Boolean!
 }
 
 extend type Query {
@@ -446,6 +455,7 @@ extend type Query {
   proxyPresets: [ProxyPreset!]!
   userAgentPassThroughSettings: UserAgentPassThroughSettings!
   passThroughSettings: PassThroughSettings!
+  requestObservabilitySettings: RequestObservabilitySettings!
   getCacheDiagnostics(input: GetCacheDiagnosticsInput): GetCacheDiagnosticsPayload!
 }
 

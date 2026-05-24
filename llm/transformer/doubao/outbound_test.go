@@ -15,6 +15,18 @@ import (
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
+type contextAPIKeyProvider struct{}
+
+type testAPIKeyContextKey struct{}
+
+func (contextAPIKeyProvider) Get(ctx context.Context) string {
+	if apiKey, ok := ctx.Value(testAPIKeyContextKey{}).(string); ok {
+		return apiKey
+	}
+
+	return "missing-context-api-key"
+}
+
 func TestNewOutboundTransformer(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -396,6 +408,28 @@ func TestOutboundTransformer_TransformRequest(t *testing.T) {
 	}
 }
 
+func TestOutboundTransformer_ImageGenerationRequestUsesContextAPIKey(t *testing.T) {
+	transformerInterface, err := NewOutboundTransformerWithConfig(&Config{
+		BaseURL:        "https://ark.cn-beijing.volces.com/api/v3",
+		APIKeyProvider: contextAPIKeyProvider{},
+	})
+	assert.NoError(t, err)
+
+	ctx := context.WithValue(context.Background(), testAPIKeyContextKey{}, "ctx-selected-key")
+	req, err := transformerInterface.TransformRequest(ctx, &llm.Request{
+		Model:       "doubao-image-pro",
+		RequestType: llm.RequestTypeImage,
+		APIFormat:   llm.APIFormatOpenAIImageGeneration,
+		Image: &llm.ImageRequest{
+			Prompt: "Generate an image of a cat",
+		},
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, req)
+	assert.NotNil(t, req.Auth)
+	assert.Equal(t, "ctx-selected-key", req.Auth.APIKey)
+}
+
 func TestOutboundTransformer_buildImageGenerationAPIRequest(t *testing.T) {
 	transformerInterface, err := NewOutboundTransformer("https://ark.cn-beijing.volces.com/api/v3", "test-api-key")
 	if err != nil {
@@ -543,7 +577,7 @@ func TestOutboundTransformer_buildImageGenerationAPIRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := transformer.buildImageGenerationAPIRequest(tt.request)
+			result, err := transformer.buildImageGenerationAPIRequest(t.Context(), tt.request)
 
 			if tt.wantErr {
 				if err == nil {

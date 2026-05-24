@@ -62,6 +62,8 @@ const (
 	FieldMetricsFirstTokenLatencyMs = "metrics_first_token_latency_ms"
 	// FieldMetricsReasoningDurationMs holds the string denoting the metrics_reasoning_duration_ms field in the database.
 	FieldMetricsReasoningDurationMs = "metrics_reasoning_duration_ms"
+	// FieldSelectedChannelAPIKeyMasked holds the string denoting the selected_channel_api_key_masked field in the database.
+	FieldSelectedChannelAPIKeyMasked = "selected_channel_api_key_masked"
 	// FieldContentSaved holds the string denoting the content_saved field in the database.
 	FieldContentSaved = "content_saved"
 	// FieldContentStorageID holds the string denoting the content_storage_id field in the database.
@@ -162,6 +164,7 @@ var Columns = []string{
 	FieldMetricsLatencyMs,
 	FieldMetricsFirstTokenLatencyMs,
 	FieldMetricsReasoningDurationMs,
+	FieldSelectedChannelAPIKeyMasked,
 	FieldContentSaved,
 	FieldContentStorageID,
 	FieldContentStorageKey,
@@ -355,6 +358,11 @@ func ByMetricsFirstTokenLatencyMs(opts ...sql.OrderTermOption) OrderOption {
 // ByMetricsReasoningDurationMs orders the results by the metrics_reasoning_duration_ms field.
 func ByMetricsReasoningDurationMs(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMetricsReasoningDurationMs, opts...).ToFunc()
+}
+
+// BySelectedChannelAPIKeyMasked orders the results by the selected_channel_api_key_masked field.
+func BySelectedChannelAPIKeyMasked(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSelectedChannelAPIKeyMasked, opts...).ToFunc()
 }
 
 // ByContentSaved orders the results by the content_saved field.

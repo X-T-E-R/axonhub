@@ -119,7 +119,7 @@ func (t *OutboundTransformer) TransformRequest(
 	case llm.RequestTypeEmbedding:
 		return t.transformEmbeddingRequest(ctx, llmReq)
 	case llm.RequestTypeImage:
-		return t.buildImageGenerationAPIRequest(llmReq)
+		return t.buildImageGenerationAPIRequest(ctx, llmReq)
 	case llm.RequestTypeVideo:
 		return t.buildVideoGenerationAPIRequest(ctx, llmReq)
 	case llm.RequestTypeCompact:
@@ -188,7 +188,7 @@ func (t *OutboundTransformer) TransformRequest(
 
 // buildImageGenerationAPIRequest builds the HTTP request to call the Doubao Image Generation API.
 // Doubao uses only /images/generations API for both generation and editing.
-func (t *OutboundTransformer) buildImageGenerationAPIRequest(llmReq *llm.Request) (*httpclient.Request, error) {
+func (t *OutboundTransformer) buildImageGenerationAPIRequest(ctx context.Context, llmReq *llm.Request) (*httpclient.Request, error) {
 	if llmReq.Image == nil {
 		return nil, fmt.Errorf("image request is required")
 	}
@@ -260,7 +260,7 @@ func (t *OutboundTransformer) buildImageGenerationAPIRequest(llmReq *llm.Request
 	url := t.BaseURL + "/images/generations"
 
 	// Get API key from provider
-	apiKey := t.APIKeyProvider.Get(context.Background())
+	apiKey := t.APIKeyProvider.Get(ctx)
 
 	auth := &httpclient.AuthConfig{
 		Type:   "bearer",

@@ -78,6 +78,14 @@ func (RequestExecution) Fields() []ent.Field {
 		field.Int64("metrics_first_token_latency_ms").Optional().Nillable(),
 		// Reasoning/thinking duration in milliseconds
 		field.Int64("metrics_reasoning_duration_ms").Optional().Nillable().Comment("Reasoning/thinking duration in milliseconds"),
+		field.String("selected_channel_api_key_masked").
+			Optional().
+			Nillable().
+			Comment("Masked upstream channel API key selected for this execution. Raw provider keys are never stored here.").
+			Annotations(
+				entgql.Directives(forceResolver()),
+				entgql.Skip(entgql.SkipWhereInput, entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput),
+			),
 		// Request headers
 		field.JSON("request_headers", objects.JSONRawMessage{}).
 			Optional().

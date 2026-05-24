@@ -61,6 +61,7 @@ function buildRequestsQuery(permissions: { canViewApiKeys: boolean; canViewChann
             stream
             status
             clientIP
+            selectedChannelAPIKeyMasked
             metricsLatencyMs
             metricsFirstTokenLatencyMs
             metricsReasoningDurationMs
@@ -69,7 +70,9 @@ function buildRequestsQuery(permissions: { canViewApiKeys: boolean; canViewChann
                 node {
                   modelID
                   status
-                  passThroughApplied${executionChannelFields}
+                  passThroughApplied
+                  selectedChannelAPIKeyMasked
+                  ${executionChannelFields}
                 }
                 cursor
               }
@@ -140,6 +143,7 @@ function buildRequestDetailQuery(permissions: { canViewApiKeys: boolean; canView
           clientIP
           projectID
           dataStorageID
+          selectedChannelAPIKeyMasked
           contentSaved
           contentStorageKey
           requestHeaders
@@ -199,6 +203,7 @@ function buildRequestDetailPollingQuery(permissions: { canViewApiKeys: boolean; 
           clientIP
           projectID
           dataStorageID
+          selectedChannelAPIKeyMasked
           contentSaved
           contentStorageKey
           status
@@ -248,6 +253,7 @@ function buildRequestExecutionsQuery(permissions: { canViewChannels: boolean }) 
                 errorMessage
                 responseStatusCode
                 status
+                selectedChannelAPIKeyMasked
                 format
                 stream
                 requestURL
@@ -272,23 +278,26 @@ function buildRequestExecutionsQuery(permissions: { canViewChannels: boolean }) 
 }
 
 // Query hooks
-export function useRequests(variables?: {
-  first?: number;
-  after?: string;
-  last?: number;
-  before?: string;
-  orderBy?: { field: 'CREATED_AT'; direction: 'ASC' | 'DESC' };
-  where?: {
-    status?: string;
-    source?: string;
-    channelID?: string;
-    channelIDIn?: string[];
-    statusIn?: string[];
-    sourceIn?: string[];
-    projectID?: string;
-    [key: string]: any;
-  };
-}, options?: { projectId?: string | null; scopeToSelectedProject?: boolean; enabled?: boolean }) {
+export function useRequests(
+  variables?: {
+    first?: number;
+    after?: string;
+    last?: number;
+    before?: string;
+    orderBy?: { field: 'CREATED_AT'; direction: 'ASC' | 'DESC' };
+    where?: {
+      status?: string;
+      source?: string;
+      channelID?: string;
+      channelIDIn?: string[];
+      statusIn?: string[];
+      sourceIn?: string[];
+      projectID?: string;
+      [key: string]: any;
+    };
+  },
+  options?: { projectId?: string | null; scopeToSelectedProject?: boolean; enabled?: boolean }
+) {
   const { handleError } = useErrorHandler();
   const { t } = useTranslation();
   const permissions = useRequestPermissions();
@@ -351,9 +360,7 @@ export function useRequest(
         const previousRequest = queryClient.getQueryData<Request>(queryKey);
         const shouldUseLightweightPolling = previousRequest?.status === 'processing';
 
-        const query = shouldUseLightweightPolling
-          ? buildRequestDetailPollingQuery(permissions)
-          : buildRequestDetailQuery(permissions);
+        const query = shouldUseLightweightPolling ? buildRequestDetailPollingQuery(permissions) : buildRequestDetailQuery(permissions);
 
         const data = await graphqlRequest<{ node: Request }>(query, { id }, headers);
         if (!data.node) {
@@ -414,9 +421,7 @@ export async function fetchAdjacentRequestPage(params: {
 }): Promise<{ requests: Request[]; pageInfo: RequestConnection['pageInfo'] }> {
   const query = buildRequestsQuery(params.permissions);
   const variables =
-    params.direction === 'older'
-      ? { first: params.pageSize, after: params.cursor }
-      : { last: params.pageSize, before: params.cursor };
+    params.direction === 'older' ? { first: params.pageSize, after: params.cursor } : { last: params.pageSize, before: params.cursor };
 
   const where: Record<string, any> = { ...params.where };
   if (params.projectId) where.projectID = params.projectId;
