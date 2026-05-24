@@ -4,7 +4,10 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/contexts"
@@ -117,6 +120,91 @@ func TestCacheAffinityKeyProvider_StableForAffinityID(t *testing.T) {
 	for range 20 {
 		require.Equal(t, first, provider.Get(ctx))
 	}
+}
+
+func TestCacheAffinityKeyProvider_UsesDefaultAffinityTTLs(t *testing.T) {
+	provider := NewCacheAffinityKeyProvider(testChannelWithKeySelection(
+		[]string{"key-1", "key-2"},
+		&objects.ChannelKeySelection{Strategy: objects.ChannelKeySelectionStrategyCacheAffinity},
+	))
+
+	require.Equal(t, time.Duration(objects.DefaultChannelKeyLikelyAffinityTTLMinutes)*time.Minute, provider.likelyTTL)
+	require.Equal(t, time.Duration(objects.DefaultChannelKeyExactAffinityTTLMinutes)*time.Minute, provider.exactTTL)
+}
+
+func TestValidateChannelKeySelection_AffinityTTLs(t *testing.T) {
+	require.NoError(t, ValidateChannelKeySelection(&objects.ChannelKeySelection{
+		Strategy: objects.ChannelKeySelectionStrategyCacheAffinity,
+	}))
+	require.NoError(t, ValidateChannelKeySelection(&objects.ChannelKeySelection{
+		Strategy:                 objects.ChannelKeySelectionStrategyCacheAffinity,
+		LikelyAffinityTTLMinutes: lo.ToPtr(1),
+		ExactAffinityTTLMinutes:  lo.ToPtr(10080),
+	}))
+
+	err := ValidateChannelKeySelection(&objects.ChannelKeySelection{
+		Strategy:                 objects.ChannelKeySelectionStrategyCacheAffinity,
+		LikelyAffinityTTLMinutes: lo.ToPtr(0),
+	})
+	require.ErrorContains(t, err, "likely affinity TTL minutes")
+
+	err = ValidateChannelKeySelection(&objects.ChannelKeySelection{
+		Strategy:                objects.ChannelKeySelectionStrategyCacheAffinity,
+		ExactAffinityTTLMinutes: lo.ToPtr(10081),
+	})
+	require.ErrorContains(t, err, "exact affinity TTL minutes")
+}
+
+func TestCacheAffinityKeyProvider_UsesCustomAffinityTTLsByTier(t *testing.T) {
+	keys := []string{"key-1", "key-2", "key-3"}
+	provider := NewCacheAffinityKeyProvider(testChannelWithKeySelection(keys, &objects.ChannelKeySelection{
+		Strategy:                 objects.ChannelKeySelectionStrategyCacheAffinity,
+		LikelyAffinityTTLMinutes: lo.ToPtr(7),
+		ExactAffinityTTLMinutes:  lo.ToPtr(90),
+	}))
+	now := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
+
+	likelyCtx := contexts.WithChannelKeyAffinityID(context.Background(), "cache:likely:shared-prefix")
+	exactCtx := contexts.WithChannelKeyAffinityID(context.Background(), "cache:exact:prompt-cache-key")
+
+	require.Contains(t, keys, provider.Get(likelyCtx))
+	require.Contains(t, keys, provider.Get(exactCtx))
+
+	likelyEntry, ok := provider.cache.Get("cache:likely:shared-prefix")
+	require.True(t, ok)
+	exactEntry, ok := provider.cache.Get("cache:exact:prompt-cache-key")
+	require.True(t, ok)
+	require.WithinDuration(t, time.Now().Add(7*time.Minute), likelyEntry.ExpiresAt, time.Second)
+	require.WithinDuration(t, time.Now().Add(90*time.Minute), exactEntry.ExpiresAt, time.Second)
+
+	cache, _ := lru.New[string, stickyCacheEntry](traceStickyLRUSize)
+	first := selectTTLStickyKeyAt(cache, keys, "cache:exact:sliding", 90*time.Minute, now)
+	require.Contains(t, keys, first)
+	entry, ok := cache.Get("cache:exact:sliding")
+	require.True(t, ok)
+	require.Equal(t, now.Add(90*time.Minute), entry.ExpiresAt)
+}
+
+func TestSelectTTLStickyKeyAt_RefreshesExpirationOnHit(t *testing.T) {
+	keys := []string{"key-1", "key-2", "key-3"}
+	cache, _ := lru.New[string, stickyCacheEntry](traceStickyLRUSize)
+	ttl := 30 * time.Minute
+	start := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
+	seed := "cache:likely:sliding-window"
+
+	first := selectTTLStickyKeyAt(cache, keys, seed, ttl, start)
+	firstEntry, ok := cache.Get(seed)
+	require.True(t, ok)
+	require.Equal(t, start.Add(ttl), firstEntry.ExpiresAt)
+
+	second := selectTTLStickyKeyAt(cache, keys, seed, ttl, start.Add(20*time.Minute))
+	secondEntry, ok := cache.Get(seed)
+	require.True(t, ok)
+	require.Equal(t, first, second)
+	require.Equal(t, start.Add(50*time.Minute), secondEntry.ExpiresAt)
+
+	third := selectTTLStickyKeyAt(cache, keys, seed, ttl, start.Add(35*time.Minute))
+	require.Equal(t, first, third, "second hit should extend mapping past the original expiry")
 }
 
 func TestCacheAffinityKeyProvider_NoAffinityUsesRoundRobin(t *testing.T) {

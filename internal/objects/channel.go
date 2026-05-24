@@ -248,7 +248,9 @@ const (
 )
 
 type ChannelKeySelection struct {
-	Strategy ChannelKeySelectionStrategy `json:"strategy,omitempty"`
+	Strategy                 ChannelKeySelectionStrategy `json:"strategy,omitempty"`
+	LikelyAffinityTTLMinutes *int                        `json:"likelyAffinityTTLMinutes,omitempty"`
+	ExactAffinityTTLMinutes  *int                        `json:"exactAffinityTTLMinutes,omitempty"`
 }
 
 func (s *ChannelKeySelection) StrategyOrDefault() ChannelKeySelectionStrategy {
@@ -257,6 +259,30 @@ func (s *ChannelKeySelection) StrategyOrDefault() ChannelKeySelectionStrategy {
 	}
 
 	return s.Strategy
+}
+
+const (
+	DefaultChannelKeyLikelyAffinityTTLMinutes = 30
+	DefaultChannelKeyExactAffinityTTLMinutes  = 1440
+	MinChannelKeyAffinityTTLMinutes          = 1
+	MaxChannelKeyLikelyAffinityTTLMinutes    = 1440
+	MaxChannelKeyExactAffinityTTLMinutes     = 10080
+)
+
+func (s *ChannelKeySelection) LikelyAffinityTTLMinutesOrDefault() int {
+	if s == nil || s.LikelyAffinityTTLMinutes == nil {
+		return DefaultChannelKeyLikelyAffinityTTLMinutes
+	}
+
+	return *s.LikelyAffinityTTLMinutes
+}
+
+func (s *ChannelKeySelection) ExactAffinityTTLMinutesOrDefault() int {
+	if s == nil || s.ExactAffinityTTLMinutes == nil {
+		return DefaultChannelKeyExactAffinityTTLMinutes
+	}
+
+	return *s.ExactAffinityTTLMinutes
 }
 
 type ChannelKeyHealthCheckFailureAction string
