@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -81,13 +82,15 @@ func (p *TraceStickyKeyProvider) Get(ctx context.Context) string {
 }
 
 // CacheAffinityKeyProvider selects an API key by a request-content-derived,
-// non-secret affinity ID. It falls back to trace-sticky/random behavior when no
-// affinity has been derived for the current request.
+// non-secret affinity ID. It falls back to round-robin behavior when no affinity
+// has been derived for the current request so low-confidence prompts distribute
+// evenly instead of becoming trace-sticky.
 //
 //nolint:revive // exported for use in tests and provider factory.
 type CacheAffinityKeyProvider struct {
-	channel *Channel
-	cache   *lru.Cache[string, stickyCacheEntry]
+	channel      *Channel
+	cache        *lru.Cache[string, stickyCacheEntry]
+	fallbackNext atomic.Uint64
 }
 
 func NewCacheAffinityKeyProvider(channel *Channel) *CacheAffinityKeyProvider {
@@ -114,6 +117,7 @@ func (p *CacheAffinityKeyProvider) Get(ctx context.Context) string {
 
 		if log.DebugEnabled(ctx) {
 			log.Debug(ctx, "Cache affinity key selected",
+				log.String("affinity_tier", cacheAffinityTierFromID(affinityID)),
 				log.String("affinity_id_prefix", safeAffinityIDPrefix(affinityID)),
 				log.String("key_prefix", safeAPIKeyPrefix(selectedKey)),
 			)
@@ -122,23 +126,11 @@ func (p *CacheAffinityKeyProvider) Get(ctx context.Context) string {
 		return recordSelectedChannelAPIKey(ctx, selectedKey)
 	}
 
-	if trace, ok := contexts.GetTrace(ctx); ok && trace != nil {
-		selectedKey := selectTTLStickyKey(p.cache, enabled, "trace:"+trace.TraceID, cacheAffinityTTL)
-
-		if log.DebugEnabled(ctx) {
-			log.Debug(ctx, "Cache affinity key selected by trace fallback",
-				log.String("trace_id", trace.TraceID),
-				log.String("key_prefix", safeAPIKeyPrefix(selectedKey)),
-			)
-		}
-
-		return recordSelectedChannelAPIKey(ctx, selectedKey)
-	}
-
-	//nolint:gosec // not a security issue, just a random selection.
-	selectedKey := enabled[rand.IntN(len(enabled))]
+	idx := p.fallbackNext.Add(1) - 1
+	selectedKey := enabled[int(idx%uint64(len(enabled)))]
 	if log.DebugEnabled(ctx) {
-		log.Debug(ctx, "Cache affinity random fallback key selected",
+		log.Debug(ctx, "Cache affinity round-robin fallback key selected",
+			log.String("affinity_tier", "none"),
 			log.String("key_prefix", safeAPIKeyPrefix(selectedKey)),
 		)
 	}
@@ -256,10 +248,10 @@ func hashAPIKey(s string) uint64 {
 
 func safeAPIKeyPrefix(key string) string {
 	if len(key) >= 2 {
-		return key[:2]
+		return key[:2] + "..."
 	}
 
-	return key
+	return strings.Repeat("*", len(key))
 }
 
 func safeAffinityIDPrefix(id string) string {
@@ -268,4 +260,19 @@ func safeAffinityIDPrefix(id string) string {
 	}
 
 	return id
+}
+
+func cacheAffinityTierFromID(id string) string {
+	const prefix = "cache:"
+	if !strings.HasPrefix(id, prefix) {
+		return "unknown"
+	}
+
+	rest := strings.TrimPrefix(id, prefix)
+	idx := strings.IndexByte(rest, ':')
+	if idx <= 0 {
+		return "unknown"
+	}
+
+	return rest[:idx]
 }

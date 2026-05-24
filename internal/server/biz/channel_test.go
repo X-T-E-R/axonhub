@@ -3,6 +3,7 @@ package biz
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -313,6 +314,204 @@ func TestChannelService_UpdateChannelPreservesArchivedCredentialKeysWhenSettings
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"active-key", "archived-key"}, updated.Credentials.APIKeys)
 	require.Equal(t, objects.ChannelKeySelectionStrategyRandom, updated.Settings.KeySelection.Strategy)
+}
+
+func TestChannelService_UpdateChannelPreservesKeyHealthRuntimeState(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	activeID := objects.ChannelAPIKeyFingerprint("active-key")
+	archivedID := objects.ChannelAPIKeyFingerprint("archived-key")
+	lastCheckedAt := time.Date(2026, 5, 24, 10, 30, 0, 0, time.UTC)
+	nextCheckAt := lastCheckedAt.Add(15 * time.Minute)
+	archivedAt := lastCheckedAt.Add(-time.Hour)
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Preserve Key Runtime State").
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"active-key", "archived-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled:         true,
+				IntervalMinutes: 60,
+				KeyMetadata: []objects.ChannelKeyMetadata{{
+					ID:             activeID,
+					MaskedKey:      objects.MaskChannelAPIKey("active-key"),
+					Status:         objects.ChannelKeyStatusDisabled,
+					LastCheckedAt:  &lastCheckedAt,
+					Success:        lo.ToPtr(false),
+					FailureCount:   4,
+					Reason:         "quota exceeded",
+					StatusCode:     429,
+					MatchedPolicy:  "policy-1",
+					Action:         "backoff",
+					NextCheckAt:    &nextCheckAt,
+					BackoffAttempt: 2,
+					History: []objects.ChannelKeyHealthCheckHistoryEntry{{
+						ID:             "history-1",
+						CheckedAt:      lastCheckedAt,
+						Success:        false,
+						Reason:         "quota exceeded",
+						Trigger:        objects.ChannelKeyHealthCheckTriggerScheduled,
+						StatusCode:     429,
+						MatchedPolicy:  "policy-1",
+						Action:         "backoff",
+						NextCheckAt:    &nextCheckAt,
+						BackoffAttempt: 2,
+					}},
+				}},
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID:            archivedID,
+					MaskedKey:     objects.MaskChannelAPIKey("archived-key"),
+					ArchivedAt:    &archivedAt,
+					Reason:        "rotated",
+					LastCheckedAt: &lastCheckedAt,
+					FailureCount:  3,
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateChannel(ctx, ch.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			ExtraModelPrefix: "updated",
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled:         false,
+				IntervalMinutes: 15,
+				KeyMetadata: []objects.ChannelKeyMetadata{{
+					ID:           "stale-client-id",
+					FailureCount: 99,
+				}},
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID:     "stale-archive-id",
+					Reason: "stale",
+				}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Settings)
+	require.NotNil(t, updated.Settings.KeyHealthCheck)
+	require.Equal(t, "updated", updated.Settings.ExtraModelPrefix)
+	require.False(t, updated.Settings.KeyHealthCheck.Enabled)
+	require.Equal(t, 15, updated.Settings.KeyHealthCheck.IntervalMinutes)
+
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 1)
+	metadata := updated.Settings.KeyHealthCheck.KeyMetadata[0]
+	require.Equal(t, activeID, metadata.ID)
+	require.Equal(t, objects.MaskChannelAPIKey("active-key"), metadata.MaskedKey)
+	require.Equal(t, objects.ChannelKeyStatusDisabled, metadata.Status)
+	require.Equal(t, lastCheckedAt, *metadata.LastCheckedAt)
+	require.Equal(t, false, *metadata.Success)
+	require.Equal(t, 4, metadata.FailureCount)
+	require.Equal(t, "quota exceeded", metadata.Reason)
+	require.Equal(t, 429, metadata.StatusCode)
+	require.Equal(t, "policy-1", metadata.MatchedPolicy)
+	require.Equal(t, "backoff", metadata.Action)
+	require.Equal(t, nextCheckAt, *metadata.NextCheckAt)
+	require.Equal(t, 2, metadata.BackoffAttempt)
+	require.Len(t, metadata.History, 1)
+	require.Equal(t, "history-1", metadata.History[0].ID)
+
+	require.Len(t, updated.Settings.KeyHealthCheck.ArchivedKeys, 1)
+	archived := updated.Settings.KeyHealthCheck.ArchivedKeys[0]
+	require.Equal(t, archivedID, archived.ID)
+	require.Equal(t, objects.MaskChannelAPIKey("archived-key"), archived.MaskedKey)
+	require.Equal(t, "rotated", archived.Reason)
+	require.Equal(t, 3, archived.FailureCount)
+}
+
+func TestChannelService_UpdateChannelPreservesRuntimeStateWhenClientOmitsHealthSettings(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	keyID := objects.ChannelAPIKeyFingerprint("active-key")
+	checkedAt := time.Date(2026, 5, 24, 11, 0, 0, 0, time.UTC)
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Preserve Runtime On Null Health").
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"active-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled: true,
+				KeyMetadata: []objects.ChannelKeyMetadata{{
+					ID:            keyID,
+					LastCheckedAt: &checkedAt,
+					FailureCount:  2,
+				}},
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID:        objects.ChannelAPIKeyFingerprint("archived-key"),
+					MaskedKey: objects.MaskChannelAPIKey("archived-key"),
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateChannel(ctx, ch.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			ExtraModelPrefix: "prefix-only",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "prefix-only", updated.Settings.ExtraModelPrefix)
+	require.NotNil(t, updated.Settings.KeyHealthCheck)
+	require.False(t, updated.Settings.KeyHealthCheck.Enabled)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 1)
+	require.Equal(t, keyID, updated.Settings.KeyHealthCheck.KeyMetadata[0].ID)
+	require.Equal(t, 2, updated.Settings.KeyHealthCheck.KeyMetadata[0].FailureCount)
+	require.Len(t, updated.Settings.KeyHealthCheck.ArchivedKeys, 1)
+}
+
+func TestChannelService_UpdateChannelLegacySingleAPIKeyWithoutHealthSettings(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Legacy Single API Key").
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKey: "legacy-key"}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		Save(ctx)
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateChannel(ctx, ch.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled:         true,
+				IntervalMinutes: 10,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "legacy-key", updated.Credentials.APIKey)
+	require.Equal(t, []string{"legacy-key"}, updated.Credentials.GetAllAPIKeys())
+	require.NotNil(t, updated.Settings.KeyHealthCheck)
+	require.True(t, updated.Settings.KeyHealthCheck.Enabled)
+	require.Equal(t, 10, updated.Settings.KeyHealthCheck.IntervalMinutes)
+	require.Empty(t, updated.Settings.KeyHealthCheck.KeyMetadata)
+	require.Empty(t, updated.Settings.KeyHealthCheck.ArchivedKeys)
 }
 
 func setupTestChannelService(t *testing.T) (*ChannelService, *ent.Client) {

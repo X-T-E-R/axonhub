@@ -779,3 +779,31 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 
 	return &next
 }
+
+func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *objects.ChannelSettings {
+	next := cloneChannelSettings(input)
+	if next == nil {
+		return nil
+	}
+
+	currentRuntime := cloneChannelSettings(current)
+	var keyMetadata []objects.ChannelKeyMetadata
+	var archivedKeys []objects.ChannelArchivedAPIKey
+	if currentRuntime != nil && currentRuntime.KeyHealthCheck != nil {
+		keyMetadata = currentRuntime.KeyHealthCheck.KeyMetadata
+		archivedKeys = currentRuntime.KeyHealthCheck.ArchivedKeys
+	}
+
+	if next.KeyHealthCheck == nil {
+		if len(keyMetadata) == 0 && len(archivedKeys) == 0 {
+			return next
+		}
+
+		next.KeyHealthCheck = &objects.ChannelKeyHealthCheck{}
+	}
+
+	next.KeyHealthCheck.KeyMetadata = keyMetadata
+	next.KeyHealthCheck.ArchivedKeys = archivedKeys
+
+	return next
+}

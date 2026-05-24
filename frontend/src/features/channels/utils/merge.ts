@@ -111,8 +111,34 @@ export function mergeChannelSettingsForUpdate(
     passThroughBody: pick('passThroughBody', existing?.passThroughBody ?? null),
     rateLimit: pick('rateLimit', existing?.rateLimit ?? null),
     keySelection: pick('keySelection', existing?.keySelection ?? null),
-    keyHealthCheck: pick('keyHealthCheck', existing?.keyHealthCheck ?? null),
+    keyHealthCheck: stripKeyHealthCheckRuntimeFields(pick('keyHealthCheck', existing?.keyHealthCheck ?? null)),
   };
+}
+
+type ChannelKeyHealthCheckWithRuntime = NonNullable<ChannelSettings['keyHealthCheck']> & {
+  history?: unknown;
+};
+
+/**
+ * Update payloads must carry only user-editable health-check configuration.
+ * Runtime state is server-managed and should continue to be read/displayed
+ * from queries, not echoed back through ordinary channel settings saves.
+ */
+export function stripKeyHealthCheckRuntimeFields(
+  healthCheck: ChannelSettings['keyHealthCheck'] | null | undefined
+): ChannelSettings['keyHealthCheck'] | null {
+  if (!healthCheck) {
+    return null;
+  }
+
+  const {
+    keyMetadata: _keyMetadata,
+    archivedKeys: _archivedKeys,
+    history: _history,
+    ...editableHealthCheck
+  } = healthCheck as ChannelKeyHealthCheckWithRuntime;
+
+  return editableHealthCheck;
 }
 
 /**

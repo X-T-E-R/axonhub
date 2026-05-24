@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -257,6 +258,99 @@ func TestReadHTTPRequest_EmptyBodyWithContentEncoding(t *testing.T) {
 	got, err := ReadHTTPRequest(req)
 	require.NoError(t, err)
 	assert.Empty(t, got.Body)
+}
+
+func TestReadHTTPRequest_RawBodyLimit(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(bytes.Repeat([]byte("x"), httpRequestBodyReadLimit+1)))
+	req.Header.Set("Content-Type", "application/json")
+
+	_, err := ReadHTTPRequest(req)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrHTTPRequestBodyTooLarge), err)
+}
+
+func TestReadHTTPRequest_CompressedInputLimit(t *testing.T) {
+	for _, encoding := range []string{"gzip", "deflate", "zstd"} {
+		t.Run(encoding, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(bytes.Repeat([]byte("x"), httpRequestBodyReadLimit+1)))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Encoding", encoding)
+
+			_, err := ReadHTTPRequest(req)
+			require.Error(t, err)
+			require.True(t, errors.Is(err, ErrHTTPRequestBodyTooLarge), err)
+		})
+	}
+}
+
+func TestReadHTTPRequest_DecodedBodyLimit(t *testing.T) {
+	tests := []struct {
+		name     string
+		encoding string
+		compress func(t *testing.T, body []byte) []byte
+	}{
+		{
+			name:     "gzip",
+			encoding: "gzip",
+			compress: func(t *testing.T, body []byte) []byte {
+				var buf bytes.Buffer
+				writer := gzip.NewWriter(&buf)
+				_, err := writer.Write(body)
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				return buf.Bytes()
+			},
+		},
+		{
+			name:     "deflate zlib",
+			encoding: "deflate",
+			compress: func(t *testing.T, body []byte) []byte {
+				var buf bytes.Buffer
+				writer := zlib.NewWriter(&buf)
+				_, err := writer.Write(body)
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				return buf.Bytes()
+			},
+		},
+		{
+			name:     "deflate raw",
+			encoding: "deflate",
+			compress: func(t *testing.T, body []byte) []byte {
+				var buf bytes.Buffer
+				writer, err := flate.NewWriter(&buf, flate.BestCompression)
+				require.NoError(t, err)
+				_, err = writer.Write(body)
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				return buf.Bytes()
+			},
+		},
+		{
+			name:     "zstd",
+			encoding: "zstd",
+			compress: func(t *testing.T, body []byte) []byte {
+				encoder, err := zstd.NewWriter(nil)
+				require.NoError(t, err)
+				compressed := encoder.EncodeAll(body, nil)
+				encoder.Close()
+				return compressed
+			},
+		},
+	}
+
+	largeBody := bytes.Repeat([]byte("x"), httpRequestBodyReadLimit+1)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(tt.compress(t, largeBody)))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Encoding", tt.encoding)
+
+			_, err := ReadHTTPRequest(req)
+			require.Error(t, err)
+			require.True(t, errors.Is(err, ErrHTTPRequestBodyTooLarge), err)
+		})
+	}
 }
 
 func TestDecodeRequestBody_NoEncoding(t *testing.T) {
