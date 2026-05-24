@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"unicode"
 
@@ -18,7 +19,21 @@ const (
 	channelKeyCacheAffinityMaxMessages       = 32
 	channelKeyCacheAffinityMaxInspectedBytes = 16 * 1024
 	channelKeyCacheAffinityMaxFieldBytes     = 4096
+	channelKeyCacheAffinityMinLikelyBytes    = 4096
 )
+
+type channelKeyCacheAffinityTier string
+
+const (
+	channelKeyCacheAffinityTierNone   channelKeyCacheAffinityTier = ""
+	channelKeyCacheAffinityTierExact  channelKeyCacheAffinityTier = "exact"
+	channelKeyCacheAffinityTierLikely channelKeyCacheAffinityTier = "likely"
+)
+
+type channelKeyCacheAffinityResult struct {
+	ID   string
+	Tier channelKeyCacheAffinityTier
+}
 
 type channelKeyCacheAffinitySource struct {
 	Version                   int                    `json:"v"`
@@ -48,21 +63,22 @@ type cacheAffinityMessage struct {
 
 func applyChannelKeyCacheAffinity() pipeline.Middleware {
 	return pipeline.OnLlmRequest("derive-channel-key-cache-affinity", func(ctx context.Context, req *llm.Request) (*llm.Request, error) {
-		affinityID, err := deriveChannelKeyCacheAffinityID(req)
+		affinity, err := deriveChannelKeyCacheAffinity(req)
 		if err != nil {
 			log.Warn(ctx, "failed to derive channel key cache affinity", log.Cause(err))
 
 			return req, nil
 		}
-		if affinityID == "" {
+		if affinity.ID == "" {
 			return req, nil
 		}
 
-		req.ChannelKeyAffinityID = affinityID
+		req.ChannelKeyAffinityID = affinity.ID
 
 		if log.DebugEnabled(ctx) {
 			log.Debug(ctx, "derived channel key cache affinity",
-				log.String("affinity_id_prefix", safeAffinityIDPrefix(affinityID)),
+				log.String("affinity_tier", string(affinity.Tier)),
+				log.String("affinity_id_prefix", safeAffinityIDPrefix(affinity.ID)),
 				log.String("model", req.Model),
 			)
 		}
@@ -72,18 +88,27 @@ func applyChannelKeyCacheAffinity() pipeline.Middleware {
 }
 
 func deriveChannelKeyCacheAffinityID(req *llm.Request) (string, error) {
-	if req == nil {
-		return "", nil
+	affinity, err := deriveChannelKeyCacheAffinity(req)
+	if err != nil {
+		return "", err
 	}
 
-	source := buildChannelKeyCacheAffinitySource(req)
-	if isEmptyChannelKeyCacheAffinitySource(source) {
-		return "", nil
+	return affinity.ID, nil
+}
+
+func deriveChannelKeyCacheAffinity(req *llm.Request) (channelKeyCacheAffinityResult, error) {
+	if req == nil {
+		return channelKeyCacheAffinityResult{}, nil
+	}
+
+	source, tier := buildChannelKeyCacheAffinitySource(req)
+	if tier == channelKeyCacheAffinityTierNone || isEmptyChannelKeyCacheAffinitySource(source) {
+		return channelKeyCacheAffinityResult{}, nil
 	}
 
 	payload, err := json.Marshal(source)
 	if err != nil {
-		return "", err
+		return channelKeyCacheAffinityResult{}, err
 	}
 
 	sum := xxhash.Sum64(payload)
@@ -94,63 +119,80 @@ func deriveChannelKeyCacheAffinityID(req *llm.Request) (string, error) {
 		sum >>= 8
 	}
 
-	return "cache:" + hex.EncodeToString(buf[:]), nil
+	return channelKeyCacheAffinityResult{
+		ID:   "cache:" + string(tier) + ":" + hex.EncodeToString(buf[:]),
+		Tier: tier,
+	}, nil
 }
 
-func buildChannelKeyCacheAffinitySource(req *llm.Request) channelKeyCacheAffinitySource {
+func buildChannelKeyCacheAffinitySource(req *llm.Request) (channelKeyCacheAffinitySource, channelKeyCacheAffinityTier) {
 	source := channelKeyCacheAffinitySource{
-		Version:          channelKeyCacheAffinityVersion,
-		Model:            req.Model,
-		RequestType:      req.RequestType,
-		APIFormat:        req.APIFormat,
-		PreviousResponse: strings.TrimSpace(loFromPtr(req.PreviousResponseID)),
+		Version:     channelKeyCacheAffinityVersion,
+		Model:       req.Model,
+		RequestType: req.RequestType,
+		APIFormat:   req.APIFormat,
 	}
 
 	if req.PromptCacheKey != nil && strings.TrimSpace(*req.PromptCacheKey) != "" {
 		source.PromptCacheKey = normalizeCacheAffinityText(*req.PromptCacheKey, channelKeyCacheAffinityMaxFieldBytes)
-		return source
+		return source, channelKeyCacheAffinityTierExact
 	}
 
-	source.Messages = boundedCacheRelevantMessagePrefix(req.Messages)
-	source.ToolsFingerprint = fingerprintBoundedJSON(req.Tools)
-	source.ToolChoiceFingerprint = fingerprintBoundedJSON(req.ToolChoice)
-	source.ResponseFormatFingerprint = fingerprintBoundedJSON(req.ResponseFormat)
-
-	if req.Compact != nil {
+	if req.Compact != nil && strings.TrimSpace(req.Compact.PromptCacheKey) != "" {
 		source.Compact = &compactAffinity{
 			PromptCacheKey: normalizeCacheAffinityText(req.Compact.PromptCacheKey, channelKeyCacheAffinityMaxFieldBytes),
-			Instructions:   normalizeCacheAffinityText(req.Compact.Instructions, channelKeyCacheAffinityMaxFieldBytes),
-			Input:          boundedCacheRelevantMessagePrefix(req.Compact.Input),
+		}
+
+		return source, channelKeyCacheAffinityTierExact
+	}
+
+	if previousResponse := strings.TrimSpace(loFromPtr(req.PreviousResponseID)); previousResponse != "" {
+		source.PreviousResponse = normalizeCacheAffinityText(previousResponse, channelKeyCacheAffinityMaxFieldBytes)
+		return source, channelKeyCacheAffinityTierExact
+	}
+
+	var stableBytes int
+
+	source.Messages, stableBytes = boundedCacheRelevantMessagePrefix(req.Messages)
+	source.ToolsFingerprint, stableBytes = fingerprintBoundedJSONWithStableBytes(req.Tools, stableBytes)
+	source.ToolChoiceFingerprint, stableBytes = fingerprintBoundedJSONWithStableBytes(req.ToolChoice, stableBytes)
+	source.ResponseFormatFingerprint, stableBytes = fingerprintBoundedJSONWithStableBytes(req.ResponseFormat, stableBytes)
+
+	if req.Compact != nil {
+		compactInput, inputBytes := boundedCacheRelevantMessagePrefix(req.Compact.Input)
+		instructions := normalizeCacheAffinityText(req.Compact.Instructions, channelKeyCacheAffinityMaxFieldBytes)
+		stableBytes += len(instructions) + inputBytes
+		source.Compact = &compactAffinity{
+			Instructions: instructions,
+			Input:        compactInput,
 		}
 	}
 
-	if source.Compact != nil && strings.TrimSpace(source.Compact.PromptCacheKey) != "" {
-		source.Messages = nil
-		source.ToolsFingerprint = ""
-		source.ToolChoiceFingerprint = ""
-		source.ResponseFormatFingerprint = ""
-		source.Compact.Instructions = ""
-		source.Compact.Input = nil
+	if stableBytes < channelKeyCacheAffinityMinLikelyBytes {
+		return channelKeyCacheAffinitySource{}, channelKeyCacheAffinityTierNone
 	}
 
-	return source
+	return source, channelKeyCacheAffinityTierLikely
 }
 
 func cacheRelevantMessagePrefix(messages []llm.Message) []llm.Message {
-	if len(messages) <= 1 {
-		return messages
+	if len(messages) == 0 {
+		return nil
 	}
 
 	lastRole := strings.ToLower(strings.TrimSpace(messages[len(messages)-1].Role))
 	switch lastRole {
 	case "user", "tool":
+		if len(messages) == 1 {
+			return nil
+		}
 		return messages[:len(messages)-1]
 	default:
 		return messages
 	}
 }
 
-func boundedCacheRelevantMessagePrefix(messages []llm.Message) []cacheAffinityMessage {
+func boundedCacheRelevantMessagePrefix(messages []llm.Message) ([]cacheAffinityMessage, int) {
 	prefix := cacheRelevantMessagePrefix(messages)
 	if len(prefix) > channelKeyCacheAffinityMaxMessages {
 		prefix = prefix[:channelKeyCacheAffinityMaxMessages]
@@ -158,6 +200,7 @@ func boundedCacheRelevantMessagePrefix(messages []llm.Message) []cacheAffinityMe
 
 	result := make([]cacheAffinityMessage, 0, len(prefix))
 	remaining := channelKeyCacheAffinityMaxInspectedBytes
+	stableBytes := 0
 	for _, msg := range prefix {
 		if remaining <= 0 {
 			break
@@ -165,6 +208,7 @@ func boundedCacheRelevantMessagePrefix(messages []llm.Message) []cacheAffinityMe
 
 		content := normalizeCacheAffinityText(messageTextForAffinity(msg), min(channelKeyCacheAffinityMaxFieldBytes, remaining))
 		remaining -= len(content)
+		stableBytes += len(content)
 		name := ""
 		if msg.Name != nil {
 			name = normalizeCacheAffinityText(*msg.Name, 256)
@@ -176,7 +220,7 @@ func boundedCacheRelevantMessagePrefix(messages []llm.Message) []cacheAffinityMe
 		})
 	}
 
-	return result
+	return result, stableBytes
 }
 
 func messageTextForAffinity(msg llm.Message) string {
@@ -216,19 +260,44 @@ func normalizeCacheAffinityText(value string, maxBytes int) string {
 }
 
 func fingerprintBoundedJSON(value any) string {
+	fingerprint, _ := fingerprintBoundedJSONWithStableBytes(value, 0)
+
+	return fingerprint
+}
+
+func fingerprintBoundedJSONWithStableBytes(value any, stableBytes int) (string, int) {
 	if value == nil {
-		return ""
+		return "", stableBytes
+	}
+	if isEmptyCacheAffinityValue(value) {
+		return "", stableBytes
 	}
 
 	data, err := json.Marshal(value)
 	if err != nil {
-		return ""
+		return "", stableBytes
 	}
 	if len(data) > channelKeyCacheAffinityMaxFieldBytes {
 		data = data[:channelKeyCacheAffinityMaxFieldBytes]
 	}
 
-	return fingerprintBytes(data)
+	return fingerprintBytes(data), stableBytes + len(data)
+}
+
+func isEmptyCacheAffinityValue(value any) bool {
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if v.IsNil() {
+			return true
+		}
+	}
+	switch v.Kind() {
+	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
+		return v.Len() == 0
+	default:
+		return false
+	}
 }
 
 func fingerprintString(value string) string {

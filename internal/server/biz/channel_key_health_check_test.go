@@ -1,10 +1,13 @@
 package biz
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,11 +15,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
+
+type channelKeyHealthCheckRoundTripper func(req *http.Request) (*http.Response, error)
+
+func (f channelKeyHealthCheckRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestChannelKeyHealthCheckDue(t *testing.T) {
 	now := time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC)
@@ -93,19 +104,23 @@ func TestRunHTTPChannelKeyHealthCheck_DeepSeekDefaultRuleUsesBalanceEndpoint(t *
 
 	var gotPath string
 	var gotAuthorization string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	transport := channelKeyHealthCheckRoundTripper(func(r *http.Request) (*http.Response, error) {
 		gotPath = r.URL.Path
 		gotAuthorization = r.Header.Get("Authorization")
 
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"23.40"}]}`))
-	}))
-	defer server.Close()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(bytes.NewReader([]byte(`{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"23.40"}]}`))),
+			Request:    r,
+		}, nil
+	})
 
-	svc := &ChannelService{httpClient: httpclient.NewHttpClientWithClient(server.Client())}
+	svc := &ChannelService{httpClient: httpclient.NewHttpClientWithClient(&http.Client{Transport: transport})}
 	ch := &ent.Channel{
 		Type:    channel.TypeDeepseek,
-		BaseURL: server.URL + "/v1",
+		BaseURL: "https://api.deepseek.com/v1",
 		Settings: &objects.ChannelSettings{
 			KeyHealthCheck: &objects.ChannelKeyHealthCheck{},
 		},
@@ -115,7 +130,7 @@ func TestRunHTTPChannelKeyHealthCheck_DeepSeekDefaultRuleUsesBalanceEndpoint(t *
 	require.Len(t, rules, 1)
 	require.Equal(t, objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL, rules[0].HTTP.URLMode)
 
-	rules[0].HTTP.URL = server.URL + "/user/balance"
+	rules[0].HTTP.URL = "https://api.deepseek.com/user/balance"
 	result := svc.runChannelKeyHealthCheckRule(context.Background(), ch, testKey, rules[0])
 
 	require.True(t, result.Success, result.Reason)
@@ -123,6 +138,87 @@ func TestRunHTTPChannelKeyHealthCheck_DeepSeekDefaultRuleUsesBalanceEndpoint(t *
 	require.Equal(t, "Bearer "+testKey, gotAuthorization)
 	require.Equal(t, "23.40", result.Balance)
 	require.Equal(t, "CNY", result.Currency)
+}
+
+func TestBuildChannelKeyHealthCheckHTTPURL_EgressValidation(t *testing.T) {
+	t.Run("provider base relative path allowed", func(t *testing.T) {
+		got, err := buildChannelKeyHealthCheckHTTPURL(context.Background(), "http://127.0.0.1:8080/v1", objects.ChannelKeyHealthCheckHTTPRule{
+			URLMode: objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+			Path:    "/user/balance",
+		})
+		require.NoError(t, err)
+		require.Equal(t, "http://127.0.0.1:8080/v1/user/balance", got)
+	})
+
+	t.Run("public absolute address allowed", func(t *testing.T) {
+		got, err := buildChannelKeyHealthCheckHTTPURL(context.Background(), "https://93.184.216.34/v1", objects.ChannelKeyHealthCheckHTTPRule{
+			URLMode: objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+			URL:     "https://93.184.216.34/user/balance",
+		})
+		require.NoError(t, err)
+		require.Equal(t, "https://93.184.216.34/user/balance", got)
+	})
+
+	t.Run("cross origin absolute address blocked", func(t *testing.T) {
+		_, err := buildChannelKeyHealthCheckHTTPURL(context.Background(), "https://api.deepseek.com/v1", objects.ChannelKeyHealthCheckHTTPRule{
+			URLMode: objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+			URL:     "https://93.184.216.34/user/balance",
+		})
+		require.ErrorContains(t, err, "must match provider base origin")
+	})
+
+	blocked := []string{
+		"http://127.0.0.1/user/balance",
+		"http://10.0.0.1/user/balance",
+		"http://169.254.169.254/latest/meta-data",
+		"http://metadata.google.internal/computeMetadata/v1",
+	}
+	for _, rawURL := range blocked {
+		t.Run(rawURL, func(t *testing.T) {
+			baseURL := rawURL
+			if idx := strings.Index(rawURL, "/latest/"); idx > 0 {
+				baseURL = rawURL[:idx]
+			} else if idx := strings.Index(rawURL, "/computeMetadata/"); idx > 0 {
+				baseURL = rawURL[:idx]
+			} else if idx := strings.LastIndex(rawURL, "/"); idx > len("http://") {
+				baseURL = rawURL[:idx]
+			}
+			_, err := buildChannelKeyHealthCheckHTTPURL(context.Background(), baseURL, objects.ChannelKeyHealthCheckHTTPRule{
+				URLMode: objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+				URL:     rawURL,
+			})
+			require.ErrorContains(t, err, "not allowed")
+		})
+	}
+}
+
+func TestRunHTTPChannelKeyHealthCheck_BlocksRedirects(t *testing.T) {
+	var finalHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/final" {
+			finalHits.Add(1)
+			_, _ = w.Write([]byte(`{"is_available":true}`))
+			return
+		}
+
+		http.Redirect(w, r, "/final", http.StatusFound)
+	}))
+	defer server.Close()
+
+	svc := &ChannelService{httpClient: httpclient.NewHttpClientWithClient(server.Client())}
+	ch := &ent.Channel{BaseURL: server.URL, Settings: &objects.ChannelSettings{}}
+
+	result := svc.runHTTPChannelKeyHealthCheck(context.Background(), ch, "sk-redirect", objects.ChannelKeyHealthCheckHTTPRule{
+		Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+		URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+		Path:             "/redirect",
+		ExpectedStatuses: []int{http.StatusOK},
+	})
+
+	require.False(t, result.Success)
+	require.Equal(t, http.StatusFound, result.StatusCode)
+	require.Equal(t, int32(0), finalHits.Load())
+	require.NotContains(t, result.Reason, "sk-redirect")
 }
 
 func TestRunHTTPChannelKeyHealthCheck_StatusFailure(t *testing.T) {
@@ -466,6 +562,58 @@ func TestValidateChannelKeyHealthCheckPolicy(t *testing.T) {
 	require.ErrorContains(t, ValidateChannelKeyHealthCheck(&invalidStatus), "outside HTTP status range")
 }
 
+func TestValidateChannelKeyHealthCheckHTTPRuleEgressAndHeaders(t *testing.T) {
+	valid := &objects.ChannelKeyHealthCheck{
+		Rules: []objects.ChannelKeyHealthCheckRule{{
+			ID:   "public-absolute",
+			Name: "Public absolute",
+			Type: objects.ChannelKeyHealthCheckRuleTypeHTTP,
+			HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+				Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+				URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+				URL:              "https://93.184.216.34/user/balance",
+				ExpectedStatuses: []int{http.StatusOK},
+				KeyInjection: &objects.ChannelKeyHealthCheckKeyInjection{
+					Location:   objects.ChannelKeyHealthCheckKeyInjectionHeader,
+					HeaderName: "X-API-Key",
+				},
+			},
+		}},
+	}
+	require.NoError(t, ValidateChannelKeyHealthCheck(valid))
+	require.NoError(t, validateChannelKeyHealthCheckURLsForBaseURL("https://93.184.216.34/v1", valid))
+
+	require.ErrorContains(t, validateChannelKeyHealthCheckURLsForBaseURL("https://api.deepseek.com/v1", valid), "must match provider base origin")
+
+	loopback := *valid
+	loopback.Rules = []objects.ChannelKeyHealthCheckRule{{
+		ID:   "loopback",
+		Name: "Loopback",
+		Type: objects.ChannelKeyHealthCheckRuleTypeHTTP,
+		HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+			URLMode: objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+			URL:     "http://127.0.0.1/user/balance",
+		},
+	}}
+	require.ErrorContains(t, ValidateChannelKeyHealthCheck(&loopback), "not allowed")
+
+	invalidHeader := *valid
+	invalidHeader.Rules = []objects.ChannelKeyHealthCheckRule{{
+		ID:   "bad-header",
+		Name: "Bad Header",
+		Type: objects.ChannelKeyHealthCheckRuleTypeHTTP,
+		HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+			URLMode: objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+			Path:    "/user/balance",
+			KeyInjection: &objects.ChannelKeyHealthCheckKeyInjection{
+				Location:   objects.ChannelKeyHealthCheckKeyInjectionHeader,
+				HeaderName: "Bad Header",
+			},
+		},
+	}}
+	require.ErrorContains(t, ValidateChannelKeyHealthCheck(&invalidHeader), "header name is invalid")
+}
+
 func TestChannelKeyHealthCheckBackoffDueScheduling(t *testing.T) {
 	now := time.Date(2026, 5, 24, 6, 0, 0, 0, time.UTC)
 	nextCheck := now.Add(15 * time.Minute)
@@ -590,6 +738,58 @@ func TestChannelService_RunManualHealthCheckPersistsBalanceAndHistory(t *testing
 	require.Equal(t, manualID, updated.Settings.KeyHealthCheck.KeyMetadata[0].ID)
 	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata[0].History, 1)
 	require.Equal(t, objects.ChannelKeyHealthCheckTriggerManual, updated.Settings.KeyHealthCheck.KeyMetadata[0].History[0].Trigger)
+}
+
+func TestChannelService_RunManualHealthCheckRequiresWriteBeforeOutbound(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	setupCtx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"is_available":true}`))
+	}))
+	defer server.Close()
+	svc.httpClient = httpclient.NewHttpClientWithClient(server.Client())
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Manual Health Check Unauthorized").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL(server.URL).
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"manual-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Rules: []objects.ChannelKeyHealthCheckRule{{
+					ID:   "balance",
+					Name: "Balance",
+					Type: objects.ChannelKeyHealthCheckRuleTypeHTTP,
+					HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+						Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+						URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+						Path:             "/user/balance",
+						ExpectedStatuses: []int{http.StatusOK},
+					},
+				}},
+			},
+		}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	readOnlyUser := &ent.User{
+		ID:     12345,
+		Scopes: []string{string(scopes.ScopeReadChannels)},
+	}
+	runCtx := ent.NewContext(context.Background(), client)
+	runCtx = contexts.WithUser(runCtx, readOnlyUser)
+	runCtx = authz.NewUserContext(runCtx, readOnlyUser.ID)
+
+	_, err = svc.RunChannelAPIKeyHealthCheck(runCtx, ch.ID, nil)
+	require.ErrorContains(t, err, string(scopes.ScopeWriteChannels))
+	require.Equal(t, int32(0), hits.Load())
 }
 
 func TestChannelService_HealthCheckFailureActionPreservesLastKeyOnDelete(t *testing.T) {

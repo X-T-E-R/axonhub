@@ -110,7 +110,7 @@ func TestCacheAffinityKeyProvider_StableForAffinityID(t *testing.T) {
 	keys := []string{"key-1", "key-2", "key-3"}
 	provider := NewCacheAffinityKeyProvider(testChannelWithKeySelection(keys, nil))
 
-	ctx := contexts.WithChannelKeyAffinityID(context.Background(), "cache:stable-affinity")
+	ctx := contexts.WithChannelKeyAffinityID(context.Background(), "cache:exact:stable-affinity")
 
 	first := provider.Get(ctx)
 	require.Contains(t, keys, first)
@@ -119,12 +119,32 @@ func TestCacheAffinityKeyProvider_StableForAffinityID(t *testing.T) {
 	}
 }
 
+func TestCacheAffinityKeyProvider_NoAffinityUsesRoundRobin(t *testing.T) {
+	keys := []string{"key-1", "key-2", "key-3"}
+	provider := NewCacheAffinityKeyProvider(testChannelWithKeySelection(keys, nil))
+
+	require.Equal(t, "key-1", provider.Get(context.Background()))
+	require.Equal(t, "key-2", provider.Get(context.Background()))
+	require.Equal(t, "key-3", provider.Get(context.Background()))
+	require.Equal(t, "key-1", provider.Get(context.Background()))
+}
+
+func TestCacheAffinityKeyProvider_NoAffinityDoesNotUseTraceStickyFallback(t *testing.T) {
+	keys := []string{"key-1", "key-2", "key-3"}
+	provider := NewCacheAffinityKeyProvider(testChannelWithKeySelection(keys, nil))
+	ctx := contexts.WithTrace(context.Background(), &ent.Trace{TraceID: "same-trace"})
+
+	require.Equal(t, "key-1", provider.Get(ctx))
+	require.Equal(t, "key-2", provider.Get(ctx))
+	require.Equal(t, "key-3", provider.Get(ctx))
+}
+
 func TestCacheAffinityKeyProvider_UsesEnabledKeySet(t *testing.T) {
 	keys := []string{"key-1", "key-2", "key-3"}
 	ch := testChannelWithKeySelection(keys, nil)
 	provider := NewCacheAffinityKeyProvider(ch)
 
-	ctx := contexts.WithChannelKeyAffinityID(context.Background(), "cache:enabled-filter")
+	ctx := contexts.WithChannelKeyAffinityID(context.Background(), "cache:likely:enabled-filter")
 	first := provider.Get(ctx)
 	require.Contains(t, keys, first)
 

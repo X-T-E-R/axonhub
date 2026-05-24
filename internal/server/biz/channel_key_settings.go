@@ -2,6 +2,7 @@ package biz
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -193,12 +194,8 @@ func validateChannelKeyHealthCheckHTTPRule(rule objects.ChannelKeyHealthCheckHTT
 			return fmt.Errorf("path must not be an absolute URL")
 		}
 	case objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL:
-		u, err := url.Parse(strings.TrimSpace(rule.URL))
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return fmt.Errorf("valid absolute url is required")
-		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return fmt.Errorf("absolute url scheme must be http or https")
+		if _, err := validateChannelKeyHealthCheckAbsoluteURLStatic(rule.URL); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("unsupported url mode %q", rule.URLMode)
@@ -212,11 +209,25 @@ func validateChannelKeyHealthCheckHTTPRule(rule objects.ChannelKeyHealthCheckHTT
 		switch rule.KeyInjection.Location {
 		case "", objects.ChannelKeyHealthCheckKeyInjectionAuthorizationBearer:
 		case objects.ChannelKeyHealthCheckKeyInjectionHeader:
-			if strings.TrimSpace(rule.KeyInjection.HeaderName) == "" {
+			headerName := strings.TrimSpace(rule.KeyInjection.HeaderName)
+			if headerName == "" {
 				return fmt.Errorf("header name is required for header key injection")
+			}
+			if !isValidHTTPHeaderName(headerName) {
+				return fmt.Errorf("header name is invalid")
 			}
 		default:
 			return fmt.Errorf("unsupported key injection location %q", rule.KeyInjection.Location)
+		}
+	}
+
+	for _, header := range rule.Headers {
+		name := strings.TrimSpace(header.Key)
+		if name == "" {
+			continue
+		}
+		if !isValidHTTPHeaderName(name) {
+			return fmt.Errorf("header name %q is invalid", name)
 		}
 	}
 
@@ -231,6 +242,139 @@ func validateChannelKeyHealthCheckHTTPRule(rule objects.ChannelKeyHealthCheckHTT
 	}
 
 	return nil
+}
+
+func validateChannelKeyHealthCheckURLsForBaseURL(baseURL string, settings *objects.ChannelSettings) error {
+	if settings == nil || settings.KeyHealthCheck == nil {
+		return nil
+	}
+
+	for _, rule := range settings.KeyHealthCheck.Rules {
+		if rule.Type != objects.ChannelKeyHealthCheckRuleTypeHTTP || rule.HTTP == nil {
+			continue
+		}
+		if rule.HTTP.URLMode != objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL {
+			continue
+		}
+
+		if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, rule.HTTP.URL); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateChannelKeyHealthCheckAbsoluteURLStatic(rawURL string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("valid absolute url is required")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("absolute url scheme must be http or https")
+	}
+	if u.User != nil {
+		return nil, fmt.Errorf("absolute url must not contain user info")
+	}
+
+	host := strings.TrimSpace(u.Hostname())
+	if host == "" {
+		return nil, fmt.Errorf("absolute url host is required")
+	}
+	if isBlockedChannelKeyHealthCheckHostname(host) {
+		return nil, fmt.Errorf("absolute url host is not allowed")
+	}
+	if ip := net.ParseIP(host); ip != nil && isBlockedChannelKeyHealthCheckIP(ip) {
+		return nil, fmt.Errorf("absolute url host is not allowed")
+	}
+
+	return u, nil
+}
+
+func validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL string, rawURL string) error {
+	base, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return fmt.Errorf("invalid provider base url")
+	}
+
+	target, err := validateChannelKeyHealthCheckAbsoluteURLStatic(rawURL)
+	if err != nil {
+		return err
+	}
+
+	if !strings.EqualFold(base.Scheme, target.Scheme) ||
+		!strings.EqualFold(base.Hostname(), target.Hostname()) ||
+		normalizedURLPort(base) != normalizedURLPort(target) {
+		return fmt.Errorf("absolute url must match provider base origin")
+	}
+
+	return nil
+}
+
+func normalizedURLPort(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(strings.TrimSpace(u.Scheme)) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
+}
+
+func isBlockedChannelKeyHealthCheckHostname(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	switch host {
+	case "", "localhost", "localhost.localdomain",
+		"metadata", "metadata.google.internal", "metadata.google.internal.", "instance-data", "169.254.169.254":
+		return true
+	default:
+		return strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local")
+	}
+}
+
+func isBlockedChannelKeyHealthCheckIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified()
+}
+
+func isValidHTTPHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		if !isHTTPTokenChar(name[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isHTTPTokenChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z':
+		return true
+	case c >= 'A' && c <= 'Z':
+		return true
+	case c >= '0' && c <= '9':
+		return true
+	default:
+		return strings.ContainsRune("!#$%&'*+-.^_`|~", rune(c))
+	}
 }
 
 func channelArchivedAPIKeys(settings *objects.ChannelSettings) []objects.ChannelArchivedAPIKey {

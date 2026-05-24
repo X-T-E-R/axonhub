@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/samber/lo"
 	"go.uber.org/fx"
 
 	"github.com/looplj/axonhub/internal/ent"
@@ -513,32 +514,36 @@ func (svc *ChannelService) ListModels(ctx context.Context, input ListModelsInput
 // createChannel creates a new channel without triggering a reload.
 // This is useful for batch operations where reload should happen once at the end.
 func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateChannelInput) (*ent.Channel, error) {
+	settings := mergeChannelSettingsForUpdate(nil, input.Settings)
 	if input.Settings != nil {
-		if input.Settings.BodyOverrideOperations != nil {
-			if err := ValidateBodyOverrideOperations(input.Settings.BodyOverrideOperations); err != nil {
+		if settings.BodyOverrideOperations != nil {
+			if err := ValidateBodyOverrideOperations(settings.BodyOverrideOperations); err != nil {
 				return nil, fmt.Errorf("invalid body override operations: %w", err)
 			}
 		}
 
-		if input.Settings.HeaderOverrideOperations != nil {
-			if err := ValidateOverrideHeaders(input.Settings.HeaderOverrideOperations); err != nil {
+		if settings.HeaderOverrideOperations != nil {
+			if err := ValidateOverrideHeaders(settings.HeaderOverrideOperations); err != nil {
 				return nil, fmt.Errorf("invalid header override operations: %w", err)
 			}
 		}
 
-		if err := ValidateRateLimit(input.Settings.RateLimit); err != nil {
+		if err := ValidateRateLimit(settings.RateLimit); err != nil {
 			return nil, fmt.Errorf("invalid rate limit: %w", err)
 		}
 
-		if err := NormalizeRetryableStatusCodes(input.Settings); err != nil {
+		if err := NormalizeRetryableStatusCodes(settings); err != nil {
 			return nil, err
 		}
 
-		if err := NormalizeRetryableErrorPatterns(input.Settings); err != nil {
+		if err := NormalizeRetryableErrorPatterns(settings); err != nil {
 			return nil, err
 		}
 
-		if err := ValidateChannelKeySettings(input.Settings); err != nil {
+		if err := ValidateChannelKeySettings(settings); err != nil {
+			return nil, fmt.Errorf("invalid channel key settings: %w", err)
+		}
+		if err := validateChannelKeyHealthCheckURLsForBaseURL(lo.FromPtr(input.BaseURL), settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
 		}
 	}
@@ -560,7 +565,7 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 		SetDefaultTestModel(input.DefaultTestModel).
 		SetNillableAutoSyncSupportedModels(input.AutoSyncSupportedModels).
 		SetNillableAutoSyncModelPattern(input.AutoSyncModelPattern).
-		SetSettings(input.Settings)
+		SetSettings(settings)
 
 	if input.Endpoints != nil {
 		createBuilder.SetEndpoints(input.Endpoints)
@@ -700,33 +705,52 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 		}
 	}
 
-	if input.Settings != nil {
+	var current *ent.Channel
+	if input.Settings != nil || input.Credentials != nil {
+		var err error
+		current, err = svc.entFromContext(ctx).Channel.Get(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get channel for update merge: %w", err)
+		}
+	}
+
+	settings := input.Settings
+	if settings != nil {
+		settings = mergeChannelSettingsForUpdate(current.Settings, settings)
+		baseURL := lo.FromPtr(input.BaseURL)
+		if baseURL == "" && current != nil {
+			baseURL = current.BaseURL
+		}
+
 		// Always normalize and validate override settings.
-		if input.Settings.BodyOverrideOperations != nil {
-			if err := ValidateBodyOverrideOperations(input.Settings.BodyOverrideOperations); err != nil {
+		if settings.BodyOverrideOperations != nil {
+			if err := ValidateBodyOverrideOperations(settings.BodyOverrideOperations); err != nil {
 				return nil, fmt.Errorf("invalid body override operations: %w", err)
 			}
 		}
 
-		if input.Settings.HeaderOverrideOperations != nil {
-			if err := ValidateOverrideHeaders(input.Settings.HeaderOverrideOperations); err != nil {
+		if settings.HeaderOverrideOperations != nil {
+			if err := ValidateOverrideHeaders(settings.HeaderOverrideOperations); err != nil {
 				return nil, fmt.Errorf("invalid header override operations: %w", err)
 			}
 		}
 
-		if err := ValidateRateLimit(input.Settings.RateLimit); err != nil {
+		if err := ValidateRateLimit(settings.RateLimit); err != nil {
 			return nil, fmt.Errorf("invalid rate limit: %w", err)
 		}
 
-		if err := NormalizeRetryableStatusCodes(input.Settings); err != nil {
+		if err := NormalizeRetryableStatusCodes(settings); err != nil {
 			return nil, err
 		}
 
-		if err := NormalizeRetryableErrorPatterns(input.Settings); err != nil {
+		if err := NormalizeRetryableErrorPatterns(settings); err != nil {
 			return nil, err
 		}
 
-		if err := ValidateChannelKeySettings(input.Settings); err != nil {
+		if err := ValidateChannelKeySettings(settings); err != nil {
+			return nil, fmt.Errorf("invalid channel key settings: %w", err)
+		}
+		if err := validateChannelKeyHealthCheckURLsForBaseURL(baseURL, settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
 		}
 	}
@@ -760,8 +784,8 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 			mut.SetTags(input.Tags)
 		}
 
-		if input.Settings != nil {
-			mut.SetSettings(input.Settings)
+		if settings != nil {
+			mut.SetSettings(settings)
 		}
 
 		if input.Policies != nil {
@@ -769,11 +793,6 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 		}
 
 		if input.Credentials != nil {
-			current, err := db.Channel.Get(ctx, id)
-			if err != nil {
-				return fmt.Errorf("failed to get channel for credential merge: %w", err)
-			}
-
 			mut.SetCredentials(mergeArchivedChannelCredentials(current.Credentials, *input.Credentials, channelArchivedAPIKeys(current.Settings)))
 		}
 

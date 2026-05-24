@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -18,10 +20,12 @@ import (
 	"github.com/expr-lang/expr"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -39,6 +43,8 @@ const (
 	channelKeyHealthCheckMinBackoffMin   = 1
 	channelKeyHealthCheckMaxBackoffMin   = 10080
 )
+
+var errChannelKeyHealthCheckResponseTooLarge = errors.New("response body too large")
 
 // ChannelKeyHealthCheckTester is a narrow seam for reusing the manual
 // channel-key test path without making biz import the orchestrator package.
@@ -477,7 +483,7 @@ func (svc *ChannelService) runBuiltinChannelKeyHealthCheck(ctx context.Context, 
 }
 
 func (svc *ChannelService) runHTTPChannelKeyHealthCheck(ctx context.Context, ch *ent.Channel, key string, rule objects.ChannelKeyHealthCheckHTTPRule) ChannelKeyHealthCheckResult {
-	targetURL, err := buildChannelKeyHealthCheckHTTPURL(ch.BaseURL, rule)
+	targetURL, err := buildChannelKeyHealthCheckHTTPURL(ctx, ch.BaseURL, rule)
 	if err != nil {
 		return ChannelKeyHealthCheckResult{Success: false, Reason: err.Error()}
 	}
@@ -502,6 +508,9 @@ func (svc *ChannelService) runHTTPChannelKeyHealthCheck(ctx context.Context, ch 
 		if strings.EqualFold(name, "Authorization") {
 			continue
 		}
+		if !isValidHTTPHeaderName(name) {
+			return ChannelKeyHealthCheckResult{Success: false, Reason: "header name is invalid"}
+		}
 
 		headers.Set(name, header.Value)
 	}
@@ -510,7 +519,11 @@ func (svc *ChannelService) runHTTPChannelKeyHealthCheck(ctx context.Context, ch 
 	if injection == nil || injection.Location == "" || injection.Location == objects.ChannelKeyHealthCheckKeyInjectionAuthorizationBearer {
 		headers.Set("Authorization", "Bearer "+key)
 	} else if injection.Location == objects.ChannelKeyHealthCheckKeyInjectionHeader {
-		headers.Set(strings.TrimSpace(injection.HeaderName), key)
+		headerName := strings.TrimSpace(injection.HeaderName)
+		if !isValidHTTPHeaderName(headerName) {
+			return ChannelKeyHealthCheckResult{Success: false, Reason: "header name is invalid"}
+		}
+		headers.Set(headerName, key)
 	}
 
 	method := string(rule.Method)
@@ -528,16 +541,13 @@ func (svc *ChannelService) runHTTPChannelKeyHealthCheck(ctx context.Context, ch 
 	if ch.Settings != nil && ch.Settings.Proxy != nil {
 		hc = svc.httpClient.WithProxy(ch.Settings.Proxy)
 	}
+	hc = channelKeyHealthCheckNoRedirectClient(hc)
 
-	resp, err := hc.Do(requestCtx, httpReq)
-	var httpErr *httpclient.Error
-	if err != nil && errors.As(err, &httpErr) {
-		resp = &httpclient.Response{
-			StatusCode: httpErr.StatusCode,
-			Headers:    httpErr.Headers,
-			Body:       httpErr.Body,
-		}
-	} else if err != nil {
+	resp, err := doChannelKeyHealthCheckHTTPRequest(requestCtx, hc, httpReq)
+	if errors.Is(err, errChannelKeyHealthCheckResponseTooLarge) {
+		return ChannelKeyHealthCheckResult{Success: false, Reason: "response body too large"}
+	}
+	if err != nil {
 		return ChannelKeyHealthCheckResult{Success: false, Reason: "http request failed: " + err.Error()}
 	}
 
@@ -574,14 +584,14 @@ func (svc *ChannelService) runHTTPChannelKeyHealthCheck(ctx context.Context, ch 
 	return result
 }
 
-func buildChannelKeyHealthCheckHTTPURL(baseURL string, rule objects.ChannelKeyHealthCheckHTTPRule) (string, error) {
+func buildChannelKeyHealthCheckHTTPURL(ctx context.Context, baseURL string, rule objects.ChannelKeyHealthCheckHTTPRule) (string, error) {
 	if rule.URLMode == objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL {
-		u, err := url.Parse(strings.TrimSpace(rule.URL))
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return "", fmt.Errorf("invalid absolute url")
+		if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, rule.URL); err != nil {
+			return "", err
 		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return "", fmt.Errorf("absolute url scheme must be http or https")
+		u, err := validateChannelKeyHealthCheckAbsoluteURL(ctx, rule.URL)
+		if err != nil {
+			return "", err
 		}
 
 		return u.String(), nil
@@ -603,6 +613,107 @@ func buildChannelKeyHealthCheckHTTPURL(baseURL string, rule objects.ChannelKeyHe
 	base.Path = strings.TrimRight(base.Path, "/") + "/" + strings.TrimLeft(path, "/")
 
 	return base.String(), nil
+}
+
+func validateChannelKeyHealthCheckAbsoluteURL(ctx context.Context, rawURL string) (*url.URL, error) {
+	u, err := validateChannelKeyHealthCheckAbsoluteURLStatic(rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	host := strings.TrimSpace(u.Hostname())
+	if ip := net.ParseIP(host); ip != nil {
+		return u, nil
+	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	addrs, err := net.DefaultResolver.LookupIPAddr(resolveCtx, host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate absolute url host")
+	}
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("failed to validate absolute url host")
+	}
+	for _, addr := range addrs {
+		if isBlockedChannelKeyHealthCheckIP(addr.IP) {
+			return nil, fmt.Errorf("absolute url host is not allowed")
+		}
+	}
+
+	return u, nil
+}
+
+func channelKeyHealthCheckNoRedirectClient(hc *httpclient.HttpClient) *httpclient.HttpClient {
+	if hc == nil || hc.GetNativeClient() == nil {
+		return hc
+	}
+
+	native := *hc.GetNativeClient()
+	native.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	return httpclient.NewHttpClientWithClient(&native)
+}
+
+func doChannelKeyHealthCheckHTTPRequest(ctx context.Context, hc *httpclient.HttpClient, request *httpclient.Request) (*httpclient.Response, error) {
+	if hc == nil || hc.GetNativeClient() == nil {
+		return nil, fmt.Errorf("http client is not configured")
+	}
+
+	var body io.Reader
+	if len(request.Body) > 0 {
+		body = bytes.NewReader(request.Body)
+	}
+	rawReq, err := http.NewRequestWithContext(ctx, request.Method, request.URL, body)
+	if err != nil {
+		return nil, err
+	}
+	rawReq.Header = request.Headers.Clone()
+	if rawReq.Header == nil {
+		rawReq.Header = make(http.Header)
+	}
+	if rawReq.Header.Get("User-Agent") == "" {
+		rawReq.Header.Set("User-Agent", "axonhub/1.0")
+	}
+	rawReq.Header.Set("Accept", "application/json")
+
+	rawResp, err := hc.GetNativeClient().Do(rawReq)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rawResp.Body.Close()
+	}()
+
+	respBody, err := readChannelKeyHealthCheckResponseBody(rawResp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return &httpclient.Response{
+		StatusCode:  rawResp.StatusCode,
+		Headers:     rawResp.Header,
+		Body:        respBody,
+		Request:     request,
+		RawRequest:  rawReq,
+		RawResponse: rawResp,
+	}, nil
+}
+
+func readChannelKeyHealthCheckResponseBody(reader io.Reader) ([]byte, error) {
+	var buf bytes.Buffer
+	n, err := buf.ReadFrom(io.LimitReader(reader, channelKeyHealthCheckHTTPMaxBodySize+1))
+	if err != nil {
+		return nil, err
+	}
+	if n > channelKeyHealthCheckHTTPMaxBodySize {
+		return nil, errChannelKeyHealthCheckResponseTooLarge
+	}
+
+	return buf.Bytes(), nil
 }
 
 func evaluateChannelKeyHealthCheckHTTPResponse(resp *httpclient.Response, expectedStatuses []int) ChannelKeyHealthCheckResult {
@@ -1244,6 +1355,10 @@ func clampInt(value, minValue, maxValue int) int {
 }
 
 func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID int, keyIDs []string) ([]*ChannelAPIKeyInventoryItem, error) {
+	if err := authz.RequireScope(ctx, scopes.ScopeWriteChannels); err != nil {
+		return nil, err
+	}
+
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)

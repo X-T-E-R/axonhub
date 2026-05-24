@@ -265,7 +265,7 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
   };
 }
 
-function healthCheckFromValues(values: KeysFormValues, existing?: ChannelKeyHealthCheck | null): ChannelKeyHealthCheck {
+function healthCheckFromValues(values: KeysFormValues): ChannelKeyHealthCheck {
   const rules: ChannelKeyHealthCheck['rules'] = [];
 
   if (values.healthCheck.builtinRuleEnabled) {
@@ -336,8 +336,6 @@ function healthCheckFromValues(values: KeysFormValues, existing?: ChannelKeyHeal
             : null,
       })),
     })),
-    keyMetadata: existing?.keyMetadata ?? null,
-    archivedKeys: existing?.archivedKeys ?? null,
   };
 }
 
@@ -1174,7 +1172,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
       keySelection: {
         strategy: values.strategy,
       },
-      keyHealthCheck: healthCheckFromValues(values, currentRow.settings?.keyHealthCheck),
+      keyHealthCheck: healthCheckFromValues(values),
     });
 
     await updateChannel.mutateAsync({
@@ -1951,6 +1949,12 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                 </FormItem>
                               )}
                             />
+                            {deepseekUseAbsoluteURL ? (
+                              <Alert className='md:col-span-3'>
+                                <IconAlertTriangle className='h-4 w-4' />
+                                <AlertDescription>{t('channels.dialogs.keys.health.rules.deepseek.absoluteUrl.warning')}</AlertDescription>
+                              </Alert>
+                            ) : null}
                             <FormField
                               control={form.control}
                               name='healthCheck.deepseekPath'
