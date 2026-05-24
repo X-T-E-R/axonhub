@@ -398,8 +398,8 @@ export const channelKeyHealthCheckSchema = z.object({
   failureThreshold: z.number().int().min(1).max(20).optional().default(3),
   failureAction: channelKeyHealthCheckFailureActionSchema.optional().default('report_only'),
   includeDisabled: z.boolean().optional().default(false),
-  rules: z.array(channelKeyHealthCheckRuleSchema).optional().default([]),
-  policies: z.array(channelKeyHealthCheckPolicySchema).optional().default([]),
+  rules: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckRuleSchema)),
+  policies: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckPolicySchema)),
   keyMetadata: z.array(channelKeyMetadataSchema).optional().nullable(),
   archivedKeys: z.array(channelArchivedAPIKeySchema).optional().nullable(),
 });
