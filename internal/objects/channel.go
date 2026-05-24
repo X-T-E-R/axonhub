@@ -212,6 +212,24 @@ const (
 	ChannelKeyHealthCheckFailureActionDelete     ChannelKeyHealthCheckFailureAction = "delete"
 )
 
+type ChannelKeyHealthCheckPolicyActionType string
+
+const (
+	ChannelKeyHealthCheckPolicyActionReportOnly     ChannelKeyHealthCheckPolicyActionType = "report_only"
+	ChannelKeyHealthCheckPolicyActionDisableKey     ChannelKeyHealthCheckPolicyActionType = "disable_key"
+	ChannelKeyHealthCheckPolicyActionArchiveKey     ChannelKeyHealthCheckPolicyActionType = "archive_key"
+	ChannelKeyHealthCheckPolicyActionDeleteKey      ChannelKeyHealthCheckPolicyActionType = "delete_key"
+	ChannelKeyHealthCheckPolicyActionDisableChannel ChannelKeyHealthCheckPolicyActionType = "disable_channel"
+	ChannelKeyHealthCheckPolicyActionBackoff        ChannelKeyHealthCheckPolicyActionType = "backoff"
+)
+
+type ChannelKeyHealthCheckBackoffMode string
+
+const (
+	ChannelKeyHealthCheckBackoffModeFixed       ChannelKeyHealthCheckBackoffMode = "fixed"
+	ChannelKeyHealthCheckBackoffModeExponential ChannelKeyHealthCheckBackoffMode = "exponential"
+)
+
 type ChannelKeyHealthCheckRuleType string
 
 const (
@@ -261,10 +279,12 @@ const (
 type ChannelKeyHealthCheck struct {
 	Enabled          bool                               `json:"enabled"`
 	IntervalMinutes  int                                `json:"intervalMinutes,omitempty"`
+	HistoryLimit     int                                `json:"historyLimit,omitempty"`
 	FailureThreshold int                                `json:"failureThreshold,omitempty"`
 	FailureAction    ChannelKeyHealthCheckFailureAction `json:"failureAction,omitempty"`
 	IncludeDisabled  bool                               `json:"includeDisabled,omitempty"`
 	Rules            []ChannelKeyHealthCheckRule        `json:"rules,omitempty"`
+	Policies         []ChannelKeyHealthCheckPolicy      `json:"policies,omitempty"`
 	KeyMetadata      []ChannelKeyMetadata               `json:"keyMetadata,omitempty"`
 	ArchivedKeys     []ChannelArchivedAPIKey            `json:"archivedKeys,omitempty"`
 }
@@ -275,6 +295,17 @@ func (h *ChannelKeyHealthCheck) IntervalMinutesOrDefault() int {
 	}
 
 	return h.IntervalMinutes
+}
+
+func (h *ChannelKeyHealthCheck) HistoryLimitOrDefault() int {
+	if h == nil || h.HistoryLimit <= 0 {
+		return 20
+	}
+	if h.HistoryLimit > 100 {
+		return 100
+	}
+
+	return h.HistoryLimit
 }
 
 func (h *ChannelKeyHealthCheck) FailureThresholdOrDefault() int {
@@ -291,6 +322,36 @@ func (h *ChannelKeyHealthCheck) FailureActionOrDefault() ChannelKeyHealthCheckFa
 	}
 
 	return h.FailureAction
+}
+
+type ChannelKeyHealthCheckPolicy struct {
+	ID         string                               `json:"id"`
+	Name       string                               `json:"name"`
+	Enabled    *bool                                `json:"enabled,omitempty"`
+	Conditions ChannelKeyHealthCheckPolicyCondition `json:"conditions,omitempty"`
+	Actions    []ChannelKeyHealthCheckPolicyAction  `json:"actions,omitempty"`
+}
+
+type ChannelKeyHealthCheckPolicyCondition struct {
+	MinFailureCount      *int     `json:"minFailureCount,omitempty"`
+	StatusCodes          []int    `json:"statusCodes,omitempty"`
+	Available            *bool    `json:"available,omitempty"`
+	BalanceLTE           *float64 `json:"balanceLTE,omitempty"`
+	ReasonContains       string   `json:"reasonContains,omitempty"`
+	AllCheckedKeysFailed *bool    `json:"allCheckedKeysFailed,omitempty"`
+	Expr                 string   `json:"expr,omitempty"`
+}
+
+type ChannelKeyHealthCheckPolicyAction struct {
+	Type    ChannelKeyHealthCheckPolicyActionType `json:"type"`
+	Backoff *ChannelKeyHealthCheckBackoff         `json:"backoff,omitempty"`
+}
+
+type ChannelKeyHealthCheckBackoff struct {
+	Mode               ChannelKeyHealthCheckBackoffMode `json:"mode,omitempty"`
+	IntervalMinutes    int                              `json:"intervalMinutes,omitempty"`
+	MaxIntervalMinutes int                              `json:"maxIntervalMinutes,omitempty"`
+	Multiplier         float64                          `json:"multiplier,omitempty"`
 }
 
 type ChannelKeyHealthCheckRule struct {
@@ -324,29 +385,39 @@ type ChannelKeyHealthCheckKeyInjection struct {
 }
 
 type ChannelKeyMetadata struct {
-	ID            string                              `json:"id,omitempty"`
-	MaskedKey     string                              `json:"maskedKey,omitempty"`
-	Status        ChannelKeyStatus                    `json:"status,omitempty"`
-	LastCheckedAt *time.Time                          `json:"lastCheckedAt,omitempty"`
-	Success       *bool                               `json:"success,omitempty"`
-	FailureCount  int                                 `json:"failureCount,omitempty"`
-	Reason        string                              `json:"reason,omitempty"`
-	Balance       any                                 `json:"balance,omitempty"`
-	Currency      string                              `json:"currency,omitempty"`
-	Available     *bool                               `json:"available,omitempty"`
-	History       []ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
+	ID             string                              `json:"id,omitempty"`
+	MaskedKey      string                              `json:"maskedKey,omitempty"`
+	Status         ChannelKeyStatus                    `json:"status,omitempty"`
+	LastCheckedAt  *time.Time                          `json:"lastCheckedAt,omitempty"`
+	Success        *bool                               `json:"success,omitempty"`
+	FailureCount   int                                 `json:"failureCount,omitempty"`
+	Reason         string                              `json:"reason,omitempty"`
+	Balance        any                                 `json:"balance,omitempty"`
+	Currency       string                              `json:"currency,omitempty"`
+	Available      *bool                               `json:"available,omitempty"`
+	StatusCode     int                                 `json:"statusCode,omitempty"`
+	MatchedPolicy  string                              `json:"matchedPolicy,omitempty"`
+	Action         string                              `json:"action,omitempty"`
+	NextCheckAt    *time.Time                          `json:"nextCheckAt,omitempty"`
+	BackoffAttempt int                                 `json:"backoffAttempt,omitempty"`
+	History        []ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
 }
 
 type ChannelKeyHealthCheckHistoryEntry struct {
-	ID        string                       `json:"id,omitempty"`
-	CheckedAt time.Time                    `json:"checkedAt"`
-	Success   bool                         `json:"success"`
-	Reason    string                       `json:"reason,omitempty"`
-	Balance   any                          `json:"balance,omitempty"`
-	Currency  string                       `json:"currency,omitempty"`
-	Available *bool                        `json:"available,omitempty"`
-	Trigger   ChannelKeyHealthCheckTrigger `json:"trigger,omitempty"`
-	Rule      string                       `json:"rule,omitempty"`
+	ID             string                       `json:"id,omitempty"`
+	CheckedAt      time.Time                    `json:"checkedAt"`
+	Success        bool                         `json:"success"`
+	Reason         string                       `json:"reason,omitempty"`
+	Balance        any                          `json:"balance,omitempty"`
+	Currency       string                       `json:"currency,omitempty"`
+	Available      *bool                        `json:"available,omitempty"`
+	Trigger        ChannelKeyHealthCheckTrigger `json:"trigger,omitempty"`
+	Rule           string                       `json:"rule,omitempty"`
+	StatusCode     int                          `json:"statusCode,omitempty"`
+	MatchedPolicy  string                       `json:"matchedPolicy,omitempty"`
+	Action         string                       `json:"action,omitempty"`
+	NextCheckAt    *time.Time                   `json:"nextCheckAt,omitempty"`
+	BackoffAttempt int                          `json:"backoffAttempt,omitempty"`
 }
 
 type ChannelArchivedAPIKey struct {

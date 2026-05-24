@@ -204,6 +204,19 @@ export type ChannelKeyStatus = z.infer<typeof channelKeyStatusSchema>;
 export const channelKeyHealthCheckFailureActionSchema = z.enum(['report_only', 'disable', 'archive', 'delete']);
 export type ChannelKeyHealthCheckFailureAction = z.infer<typeof channelKeyHealthCheckFailureActionSchema>;
 
+export const channelKeyHealthCheckPolicyActionTypeSchema = z.enum([
+  'report_only',
+  'disable_key',
+  'archive_key',
+  'delete_key',
+  'disable_channel',
+  'backoff',
+]);
+export type ChannelKeyHealthCheckPolicyActionType = z.infer<typeof channelKeyHealthCheckPolicyActionTypeSchema>;
+
+export const channelKeyHealthCheckBackoffModeSchema = z.enum(['fixed', 'exponential']);
+export type ChannelKeyHealthCheckBackoffMode = z.infer<typeof channelKeyHealthCheckBackoffModeSchema>;
+
 export const channelKeyHealthCheckRuleTypeSchema = z.enum(['builtin_test', 'http']);
 export type ChannelKeyHealthCheckRuleType = z.infer<typeof channelKeyHealthCheckRuleTypeSchema>;
 
@@ -247,6 +260,40 @@ export const channelKeyHealthCheckRuleSchema = z.object({
 });
 export type ChannelKeyHealthCheckRule = z.infer<typeof channelKeyHealthCheckRuleSchema>;
 
+export const channelKeyHealthCheckBackoffSchema = z.object({
+  mode: channelKeyHealthCheckBackoffModeSchema.optional().nullable(),
+  intervalMinutes: z.number().int().min(0).max(10080).optional().nullable(),
+  maxIntervalMinutes: z.number().int().min(0).max(10080).optional().nullable(),
+  multiplier: z.number().min(0).max(20).optional().nullable(),
+});
+export type ChannelKeyHealthCheckBackoff = z.infer<typeof channelKeyHealthCheckBackoffSchema>;
+
+export const channelKeyHealthCheckPolicyConditionSchema = z.object({
+  minFailureCount: z.number().int().positive().optional().nullable(),
+  statusCodes: z.array(z.number().int()).optional().nullable(),
+  available: z.boolean().optional().nullable(),
+  balanceLTE: z.number().optional().nullable(),
+  reasonContains: z.string().optional().nullable(),
+  allCheckedKeysFailed: z.boolean().optional().nullable(),
+  expr: z.string().optional().nullable(),
+});
+export type ChannelKeyHealthCheckPolicyCondition = z.infer<typeof channelKeyHealthCheckPolicyConditionSchema>;
+
+export const channelKeyHealthCheckPolicyActionSchema = z.object({
+  type: channelKeyHealthCheckPolicyActionTypeSchema,
+  backoff: channelKeyHealthCheckBackoffSchema.optional().nullable(),
+});
+export type ChannelKeyHealthCheckPolicyAction = z.infer<typeof channelKeyHealthCheckPolicyActionSchema>;
+
+export const channelKeyHealthCheckPolicySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean().optional().nullable(),
+  conditions: channelKeyHealthCheckPolicyConditionSchema.optional().nullable(),
+  actions: z.array(channelKeyHealthCheckPolicyActionSchema).optional().nullable(),
+});
+export type ChannelKeyHealthCheckPolicy = z.infer<typeof channelKeyHealthCheckPolicySchema>;
+
 export const channelKeyHealthCheckHistoryEntrySchema = z.object({
   id: z.string(),
   checkedAt: z.string(),
@@ -257,6 +304,11 @@ export const channelKeyHealthCheckHistoryEntrySchema = z.object({
   available: z.boolean().optional().nullable(),
   trigger: z.enum(['manual', 'scheduled']).optional().nullable(),
   rule: z.string().optional().nullable(),
+  statusCode: z.number().int().optional().nullable(),
+  matchedPolicy: z.string().optional().nullable(),
+  action: z.string().optional().nullable(),
+  nextCheckAt: z.string().optional().nullable(),
+  backoffAttempt: z.number().int().nonnegative().optional().nullable(),
 });
 export type ChannelKeyHealthCheckHistoryEntry = z.infer<typeof channelKeyHealthCheckHistoryEntrySchema>;
 
@@ -271,6 +323,11 @@ export const channelKeyMetadataSchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  statusCode: z.number().int().optional().nullable(),
+  matchedPolicy: z.string().optional().nullable(),
+  action: z.string().optional().nullable(),
+  nextCheckAt: z.string().optional().nullable(),
+  backoffAttempt: z.number().int().nonnegative().optional().nullable(),
   history: z.array(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
 });
 export type ChannelKeyMetadata = z.infer<typeof channelKeyMetadataSchema>;
@@ -299,6 +356,11 @@ export const channelAPIKeyInventoryItemSchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  statusCode: z.number().int().optional().nullable(),
+  matchedPolicy: z.string().optional().nullable(),
+  action: z.string().optional().nullable(),
+  nextCheckAt: z.string().optional().nullable(),
+  backoffAttempt: z.number().int().nonnegative().optional().nullable(),
   history: z.array(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
 });
 export type ChannelAPIKeyInventoryItem = z.infer<typeof channelAPIKeyInventoryItemSchema>;
@@ -306,10 +368,12 @@ export type ChannelAPIKeyInventoryItem = z.infer<typeof channelAPIKeyInventoryIt
 export const channelKeyHealthCheckSchema = z.object({
   enabled: z.boolean().optional().default(false),
   intervalMinutes: z.number().int().min(5).max(10080).optional().default(60),
+  historyLimit: z.number().int().min(0).max(100).optional().nullable(),
   failureThreshold: z.number().int().min(1).max(20).optional().default(3),
   failureAction: channelKeyHealthCheckFailureActionSchema.optional().default('report_only'),
   includeDisabled: z.boolean().optional().default(false),
   rules: z.array(channelKeyHealthCheckRuleSchema).optional().default([]),
+  policies: z.array(channelKeyHealthCheckPolicySchema).optional().default([]),
   keyMetadata: z.array(channelKeyMetadataSchema).optional().nullable(),
   archivedKeys: z.array(channelArchivedAPIKeySchema).optional().nullable(),
 });

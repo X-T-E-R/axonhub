@@ -134,6 +134,20 @@ enum ChannelKeyHealthCheckFailureAction {
   delete
 }
 
+enum ChannelKeyHealthCheckPolicyActionType {
+  report_only
+  disable_key
+  archive_key
+  delete_key
+  disable_channel
+  backoff
+}
+
+enum ChannelKeyHealthCheckBackoffMode {
+  fixed
+  exponential
+}
+
 enum ChannelKeyHealthCheckRuleType {
   builtin_test
   http
@@ -171,10 +185,12 @@ enum ChannelKeyHealthCheckTrigger {
 type ChannelKeyHealthCheck {
   enabled: Boolean
   intervalMinutes: Int
+  historyLimit: Int
   failureThreshold: Int
   failureAction: ChannelKeyHealthCheckFailureAction
   includeDisabled: Boolean
   rules: [ChannelKeyHealthCheckRule!]
+  policies: [ChannelKeyHealthCheckPolicy!]
   keyMetadata: [ChannelKeyMetadata!]
   archivedKeys: [ChannelArchivedAPIKey!]
 }
@@ -182,12 +198,74 @@ type ChannelKeyHealthCheck {
 input ChannelKeyHealthCheckInput {
   enabled: Boolean
   intervalMinutes: Int
+  historyLimit: Int
   failureThreshold: Int
   failureAction: ChannelKeyHealthCheckFailureAction
   includeDisabled: Boolean
   rules: [ChannelKeyHealthCheckRuleInput!]
+  policies: [ChannelKeyHealthCheckPolicyInput!]
   keyMetadata: [ChannelKeyMetadataInput!]
   archivedKeys: [ChannelArchivedAPIKeyInput!]
+}
+
+type ChannelKeyHealthCheckPolicy {
+  id: String!
+  name: String!
+  enabled: Boolean
+  conditions: ChannelKeyHealthCheckPolicyCondition
+  actions: [ChannelKeyHealthCheckPolicyAction!]
+}
+
+input ChannelKeyHealthCheckPolicyInput {
+  id: String!
+  name: String!
+  enabled: Boolean
+  conditions: ChannelKeyHealthCheckPolicyConditionInput
+  actions: [ChannelKeyHealthCheckPolicyActionInput!]
+}
+
+type ChannelKeyHealthCheckPolicyCondition {
+  minFailureCount: Int
+  statusCodes: [Int!]
+  available: Boolean
+  balanceLTE: Float
+  reasonContains: String
+  allCheckedKeysFailed: Boolean
+  expr: String
+}
+
+input ChannelKeyHealthCheckPolicyConditionInput {
+  minFailureCount: Int
+  statusCodes: [Int!]
+  available: Boolean
+  balanceLTE: Float
+  reasonContains: String
+  allCheckedKeysFailed: Boolean
+  expr: String
+}
+
+type ChannelKeyHealthCheckPolicyAction {
+  type: ChannelKeyHealthCheckPolicyActionType!
+  backoff: ChannelKeyHealthCheckBackoff
+}
+
+input ChannelKeyHealthCheckPolicyActionInput {
+  type: ChannelKeyHealthCheckPolicyActionType!
+  backoff: ChannelKeyHealthCheckBackoffInput
+}
+
+type ChannelKeyHealthCheckBackoff {
+  mode: ChannelKeyHealthCheckBackoffMode
+  intervalMinutes: Int
+  maxIntervalMinutes: Int
+  multiplier: Float
+}
+
+input ChannelKeyHealthCheckBackoffInput {
+  mode: ChannelKeyHealthCheckBackoffMode
+  intervalMinutes: Int
+  maxIntervalMinutes: Int
+  multiplier: Float
 }
 
 type ChannelKeyHealthCheckRule {
@@ -261,6 +339,11 @@ type ChannelKeyMetadata {
   balance: JSONRawMessage
   currency: String
   available: Boolean
+  statusCode: Int
+  matchedPolicy: String
+  action: String
+  nextCheckAt: Time
+  backoffAttempt: Int
   history: [ChannelKeyHealthCheckHistoryEntry!]
 }
 
@@ -275,6 +358,11 @@ input ChannelKeyMetadataInput {
   balance: JSONRawMessageInput
   currency: String
   available: Boolean
+  statusCode: Int
+  matchedPolicy: String
+  action: String
+  nextCheckAt: Time
+  backoffAttempt: Int
   history: [ChannelKeyHealthCheckHistoryEntryInput!]
 }
 
@@ -288,6 +376,11 @@ type ChannelKeyHealthCheckHistoryEntry {
   available: Boolean
   trigger: ChannelKeyHealthCheckTrigger
   rule: String
+  statusCode: Int
+  matchedPolicy: String
+  action: String
+  nextCheckAt: Time
+  backoffAttempt: Int
 }
 
 input ChannelKeyHealthCheckHistoryEntryInput {
@@ -300,6 +393,11 @@ input ChannelKeyHealthCheckHistoryEntryInput {
   available: Boolean
   trigger: ChannelKeyHealthCheckTrigger
   rule: String
+  statusCode: Int
+  matchedPolicy: String
+  action: String
+  nextCheckAt: Time
+  backoffAttempt: Int
 }
 
 type ChannelArchivedAPIKey {
@@ -337,6 +435,11 @@ type ChannelAPIKeyInventoryItem {
   balance: JSONRawMessage
   currency: String
   available: Boolean
+  statusCode: Int
+  matchedPolicy: String
+  action: String
+  nextCheckAt: Time
+  backoffAttempt: Int
   history: [ChannelKeyHealthCheckHistoryEntry!]
 }
 

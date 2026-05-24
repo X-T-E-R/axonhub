@@ -9,11 +9,14 @@ import (
 )
 
 const (
-	minChannelKeyHealthCheckIntervalMinutes  = 5
-	maxChannelKeyHealthCheckIntervalMinutes  = 10080
-	maxChannelKeyHealthCheckFailureThreshold = 20
-	maxChannelKeyHealthCheckHTTPTimeoutMs    = 30000
-	maxChannelKeyHealthCheckPassWhenLength   = 1024
+	minChannelKeyHealthCheckIntervalMinutes   = 5
+	maxChannelKeyHealthCheckIntervalMinutes   = 10080
+	maxChannelKeyHealthCheckFailureThreshold  = 20
+	maxChannelKeyHealthCheckHistoryLimit      = 100
+	maxChannelKeyHealthCheckHTTPTimeoutMs     = 30000
+	maxChannelKeyHealthCheckPassWhenLength    = 1024
+	maxChannelKeyHealthCheckBackoffMinutes    = 10080
+	maxChannelKeyHealthCheckBackoffMultiplier = 20
 )
 
 func ValidateChannelKeySettings(settings *objects.ChannelSettings) error {
@@ -49,6 +52,9 @@ func ValidateChannelKeyHealthCheck(health *objects.ChannelKeyHealthCheck) error 
 	if threshold < 1 || threshold > maxChannelKeyHealthCheckFailureThreshold {
 		return fmt.Errorf("failure threshold must be between 1 and %d", maxChannelKeyHealthCheckFailureThreshold)
 	}
+	if health.HistoryLimit < 0 || health.HistoryLimit > maxChannelKeyHealthCheckHistoryLimit {
+		return fmt.Errorf("history limit must be between 1 and %d", maxChannelKeyHealthCheckHistoryLimit)
+	}
 
 	switch health.FailureActionOrDefault() {
 	case objects.ChannelKeyHealthCheckFailureActionReportOnly,
@@ -63,6 +69,78 @@ func ValidateChannelKeyHealthCheck(health *objects.ChannelKeyHealthCheck) error 
 		if err := validateChannelKeyHealthCheckRule(health.Rules[i]); err != nil {
 			return fmt.Errorf("invalid rule %d: %w", i, err)
 		}
+	}
+	for i := range health.Policies {
+		if err := validateChannelKeyHealthCheckPolicy(health.Policies[i]); err != nil {
+			return fmt.Errorf("invalid policy %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+func validateChannelKeyHealthCheckPolicy(policy objects.ChannelKeyHealthCheckPolicy) error {
+	if strings.TrimSpace(policy.ID) == "" {
+		return fmt.Errorf("id is required")
+	}
+	if strings.TrimSpace(policy.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if policy.Conditions.MinFailureCount != nil && *policy.Conditions.MinFailureCount < 1 {
+		return fmt.Errorf("minFailureCount must be at least 1")
+	}
+	for _, status := range policy.Conditions.StatusCodes {
+		if status < 100 || status > 599 {
+			return fmt.Errorf("status code %d is outside HTTP status range", status)
+		}
+	}
+	if len(strings.TrimSpace(policy.Conditions.Expr)) > maxChannelKeyHealthCheckPassWhenLength {
+		return fmt.Errorf("expr must be at most %d characters", maxChannelKeyHealthCheckPassWhenLength)
+	}
+	if len(policy.Actions) == 0 {
+		return fmt.Errorf("at least one action is required")
+	}
+	for i, action := range policy.Actions {
+		if err := validateChannelKeyHealthCheckPolicyAction(action); err != nil {
+			return fmt.Errorf("invalid action %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+func validateChannelKeyHealthCheckPolicyAction(action objects.ChannelKeyHealthCheckPolicyAction) error {
+	switch action.Type {
+	case objects.ChannelKeyHealthCheckPolicyActionReportOnly,
+		objects.ChannelKeyHealthCheckPolicyActionDisableKey,
+		objects.ChannelKeyHealthCheckPolicyActionArchiveKey,
+		objects.ChannelKeyHealthCheckPolicyActionDeleteKey,
+		objects.ChannelKeyHealthCheckPolicyActionDisableChannel:
+		return nil
+	case objects.ChannelKeyHealthCheckPolicyActionBackoff:
+		if action.Backoff == nil {
+			return fmt.Errorf("backoff is required for backoff action")
+		}
+		return validateChannelKeyHealthCheckBackoff(*action.Backoff)
+	default:
+		return fmt.Errorf("unsupported action %q", action.Type)
+	}
+}
+
+func validateChannelKeyHealthCheckBackoff(backoff objects.ChannelKeyHealthCheckBackoff) error {
+	switch backoff.Mode {
+	case "", objects.ChannelKeyHealthCheckBackoffModeFixed, objects.ChannelKeyHealthCheckBackoffModeExponential:
+	default:
+		return fmt.Errorf("unsupported backoff mode %q", backoff.Mode)
+	}
+	if backoff.IntervalMinutes < 0 || backoff.IntervalMinutes > maxChannelKeyHealthCheckBackoffMinutes {
+		return fmt.Errorf("backoff intervalMinutes must be between 1 and %d", maxChannelKeyHealthCheckBackoffMinutes)
+	}
+	if backoff.MaxIntervalMinutes < 0 || backoff.MaxIntervalMinutes > maxChannelKeyHealthCheckBackoffMinutes {
+		return fmt.Errorf("backoff maxIntervalMinutes must be between 1 and %d", maxChannelKeyHealthCheckBackoffMinutes)
+	}
+	if backoff.Multiplier < 0 || backoff.Multiplier > maxChannelKeyHealthCheckBackoffMultiplier {
+		return fmt.Errorf("backoff multiplier must be between 1 and %d", maxChannelKeyHealthCheckBackoffMultiplier)
 	}
 
 	return nil

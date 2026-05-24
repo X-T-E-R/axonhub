@@ -3,11 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
 import { format } from 'date-fns';
-import { useForm } from 'react-hook-form';
+import { useFieldArray, useForm, type Resolver, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   IconArchive,
   IconAlertTriangle,
+  IconChartLine,
+  IconChevronDown,
+  IconChevronUp,
   IconCircleCheck,
   IconCircleX,
   IconDatabase,
@@ -15,6 +18,7 @@ import {
   IconKey,
   IconKeyOff,
   IconLoader2,
+  IconPlus,
   IconPlayerPlay,
   IconRefresh,
   IconRestore,
@@ -23,6 +27,7 @@ import {
   IconTrash,
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from 'recharts';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -56,6 +61,7 @@ import {
   ChannelAPIKeyInventoryItem,
   ChannelKeyHealthCheck,
   ChannelKeyHealthCheckHistoryEntry,
+  ChannelKeyHealthCheckPolicyActionType,
   channelKeyHealthCheckFailureActionSchema,
   channelKeySelectionStrategySchema,
 } from '../data/schema';
@@ -80,10 +86,26 @@ interface KeyInventoryRow {
   currency?: string | null;
   available?: boolean | null;
   reason?: string | null;
+  statusCode?: number | null;
+  matchedPolicy?: string | null;
+  action?: string | null;
+  nextCheckAt?: string | null;
+  backoffAttempt?: number | null;
   history?: ChannelKeyHealthCheckHistoryEntry[] | null;
 }
 
 type BatchKeyAction = 'health' | 'disable' | 'enable' | 'archive' | 'restore' | 'delete';
+type PolicyActionType = ChannelKeyHealthCheckPolicyActionType;
+type AvailabilityConditionMode = 'any' | 'available' | 'unavailable';
+type KeyHistoryTooltipProps = TooltipProps<number, string> & {
+  label?: string | number;
+  payload?: Array<{
+    dataKey?: string | number;
+    color?: string;
+    name?: string;
+    value?: number | string;
+  }>;
+};
 
 const keysFormSchema = z.object({
   strategy: channelKeySelectionStrategySchema,
@@ -91,6 +113,7 @@ const keysFormSchema = z.object({
   healthCheck: z.object({
     enabled: z.boolean(),
     intervalMinutes: z.coerce.number().int().min(5).max(10080),
+    historyLimit: z.coerce.number().int().min(1).max(100),
     failureThreshold: z.coerce.number().int().min(1).max(20),
     failureAction: channelKeyHealthCheckFailureActionSchema,
     includeDisabled: z.boolean(),
@@ -100,19 +123,44 @@ const keysFormSchema = z.object({
     deepseekUseAbsoluteURL: z.boolean(),
     deepseekExpectedStatuses: z.string(),
     deepseekPassWhen: z.string(),
+    policies: z.array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        enabled: z.boolean(),
+        minFailureCount: z.coerce.number().int().min(1).max(100).nullable(),
+        statusCodes: z.string().optional(),
+        availability: z.enum(['any', 'available', 'unavailable']),
+        balanceLTE: z.coerce.number().nullable(),
+        reasonContains: z.string().optional(),
+        allCheckedKeysFailed: z.boolean(),
+        expr: z.string().optional(),
+        actions: z.array(
+          z.object({
+            type: z.enum(['report_only', 'disable_key', 'archive_key', 'delete_key', 'disable_channel', 'backoff']),
+            backoffMode: z.enum(['fixed', 'exponential']),
+            intervalMinutes: z.coerce.number().int().min(1).max(10080),
+            maxIntervalMinutes: z.coerce.number().int().min(1).max(10080),
+            multiplier: z.coerce.number().min(1).max(20),
+          })
+        ),
+      })
+    ),
   }),
 });
 
-type KeysFormInput = z.input<typeof keysFormSchema>;
 type KeysFormValues = z.output<typeof keysFormSchema>;
+const keysFormResolver = zodResolver(keysFormSchema) as unknown as Resolver<KeysFormValues, unknown, KeysFormValues>;
 
 const DEFAULT_STRATEGY: KeysFormValues['strategy'] = 'trace_sticky';
 const STRATEGIES: KeysFormValues['strategy'][] = ['trace_sticky', 'cache_affinity', 'random', 'round_robin'];
 const FAILURE_ACTIONS: KeysFormValues['healthCheck']['failureAction'][] = ['report_only', 'disable', 'archive', 'delete'];
+const POLICY_ACTIONS: PolicyActionType[] = ['report_only', 'disable_key', 'archive_key', 'delete_key', 'disable_channel', 'backoff'];
 
 const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
   enabled: false,
   intervalMinutes: 60,
+  historyLimit: 20,
   failureThreshold: 3,
   failureAction: 'report_only',
   includeDisabled: false,
@@ -122,13 +170,67 @@ const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
   deepseekUseAbsoluteURL: true,
   deepseekExpectedStatuses: '200',
   deepseekPassWhen: 'json.is_available == true',
+  policies: [],
 };
+
+function positiveOrDefault(value: number | null | undefined, fallback: number): number {
+  return typeof value === 'number' && value > 0 ? value : fallback;
+}
+
+function createDefaultPolicy(index: number): KeysFormValues['healthCheck']['policies'][number] {
+  return {
+    id: `policy-${Date.now()}-${index + 1}`,
+    name: `Policy ${index + 1}`,
+    enabled: true,
+    minFailureCount: 3,
+    statusCodes: '',
+    availability: 'any',
+    balanceLTE: null,
+    reasonContains: '',
+    allCheckedKeysFailed: false,
+    expr: '',
+    actions: [
+      {
+        type: 'report_only',
+        backoffMode: 'fixed',
+        intervalMinutes: 30,
+        maxIntervalMinutes: 240,
+        multiplier: 2,
+      },
+    ],
+  };
+}
 
 function parseStatusList(input: string): number[] {
   return input
     .split(',')
     .map((item) => Number(item.trim()))
     .filter((item) => Number.isInteger(item) && item >= 100 && item <= 599);
+}
+
+function policyValuesFromHealth(health?: ChannelKeyHealthCheck | null): KeysFormValues['healthCheck']['policies'] {
+  return (health?.policies ?? []).map((policy, index) => ({
+    id: policy.id || `policy-${index + 1}`,
+    name: policy.name || `Policy ${index + 1}`,
+    enabled: policy.enabled ?? true,
+    minFailureCount: policy.conditions?.minFailureCount ?? null,
+    statusCodes: (policy.conditions?.statusCodes ?? []).join(', '),
+    availability: policy.conditions?.available == null ? 'any' : policy.conditions.available ? 'available' : 'unavailable',
+    balanceLTE: policy.conditions?.balanceLTE ?? null,
+    reasonContains: policy.conditions?.reasonContains ?? '',
+    allCheckedKeysFailed: policy.conditions?.allCheckedKeysFailed ?? false,
+    expr: policy.conditions?.expr ?? '',
+    actions:
+      policy.actions && policy.actions.length > 0
+        ? policy.actions.map((action) => ({
+            type: action.type,
+            backoffMode: action.backoff?.mode ?? 'fixed',
+            intervalMinutes: positiveOrDefault(action.backoff?.intervalMinutes, 30),
+            maxIntervalMinutes: positiveOrDefault(action.backoff?.maxIntervalMinutes, 240),
+            multiplier: positiveOrDefault(action.backoff?.multiplier, 2),
+          }))
+        : createDefaultPolicy(index).actions,
+  }));
 }
 
 function valuesFromChannel(currentRow: Channel): KeysFormValues {
@@ -146,6 +248,7 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
     healthCheck: {
       enabled: health?.enabled ?? DEFAULT_HEALTH_CHECK.enabled,
       intervalMinutes: health?.intervalMinutes ?? DEFAULT_HEALTH_CHECK.intervalMinutes,
+      historyLimit: positiveOrDefault(health?.historyLimit, DEFAULT_HEALTH_CHECK.historyLimit),
       failureThreshold: health?.failureThreshold ?? DEFAULT_HEALTH_CHECK.failureThreshold,
       failureAction: health?.failureAction ?? DEFAULT_HEALTH_CHECK.failureAction,
       includeDisabled: health?.includeDisabled ?? DEFAULT_HEALTH_CHECK.includeDisabled,
@@ -157,6 +260,7 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
       deepseekUseAbsoluteURL,
       deepseekExpectedStatuses: (deepseekRule?.http?.expectedStatuses ?? [200]).join(', '),
       deepseekPassWhen: deepseekRule?.http?.passWhen || DEFAULT_HEALTH_CHECK.deepseekPassWhen,
+      policies: policyValuesFromHealth(health),
     },
   };
 }
@@ -201,10 +305,37 @@ function healthCheckFromValues(values: KeysFormValues, existing?: ChannelKeyHeal
   return {
     enabled: values.healthCheck.enabled,
     intervalMinutes: values.healthCheck.intervalMinutes,
+    historyLimit: values.healthCheck.historyLimit,
     failureThreshold: values.healthCheck.failureThreshold,
     failureAction: values.healthCheck.failureAction,
     includeDisabled: values.healthCheck.includeDisabled,
     rules,
+    policies: values.healthCheck.policies.map((policy) => ({
+      id: policy.id,
+      name: policy.name,
+      enabled: policy.enabled,
+      conditions: {
+        minFailureCount: policy.minFailureCount ?? null,
+        statusCodes: parseStatusList(policy.statusCodes ?? ''),
+        available: policy.availability === 'any' ? null : policy.availability === 'available',
+        balanceLTE: policy.balanceLTE ?? null,
+        reasonContains: policy.reasonContains?.trim() || null,
+        allCheckedKeysFailed: policy.allCheckedKeysFailed || null,
+        expr: policy.expr?.trim() || null,
+      },
+      actions: policy.actions.map((action) => ({
+        type: action.type,
+        backoff:
+          action.type === 'backoff'
+            ? {
+                mode: action.backoffMode,
+                intervalMinutes: action.intervalMinutes,
+                maxIntervalMinutes: action.maxIntervalMinutes,
+                multiplier: action.multiplier,
+              }
+            : null,
+      })),
+    })),
     keyMetadata: existing?.keyMetadata ?? null,
     archivedKeys: existing?.archivedKeys ?? null,
   };
@@ -233,8 +364,34 @@ function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInve
     currency: item.currency,
     available: item.available,
     reason: item.reason,
+    statusCode: item.statusCode,
+    matchedPolicy: item.matchedPolicy,
+    action: item.action,
+    nextCheckAt: item.nextCheckAt,
+    backoffAttempt: item.backoffAttempt,
     history: item.history,
   }));
+}
+
+function numericBalance(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const candidates = ['total_balance', 'totalBalance', 'balance', 'available_balance', 'availableBalance'];
+    for (const key of candidates) {
+      const parsed = numericBalance(record[key]);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+  }
+  return null;
 }
 
 function formatBalance(value: unknown, currency?: string | null): string {
@@ -269,6 +426,505 @@ function healthTone(success?: boolean | null): { textClass: string; badgeVariant
     return { textClass: 'text-destructive', badgeVariant: 'destructive' };
   }
   return { textClass: 'text-muted-foreground', badgeVariant: 'outline' };
+}
+
+function formatPolicyAction(action?: string | null): string {
+  return action?.replaceAll('_', ' ') || '-';
+}
+
+function KeyHistoryTooltip({ active, payload, label }: KeyHistoryTooltipProps) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  return (
+    <div className='bg-background rounded-md border px-3 py-2 text-xs shadow-sm'>
+      <div className='font-medium'>{label}</div>
+      <div className='mt-1 space-y-1'>
+        {payload.map((item) => (
+          <div key={String(item.dataKey)} className='flex items-center gap-2'>
+            <span className='h-2 w-2 rounded-full' style={{ backgroundColor: item.color }} />
+            <span className='text-muted-foreground'>{item.name}</span>
+            <span className='font-medium'>{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KeyHistoryCharts({ history }: { history: ChannelKeyHealthCheckHistoryEntry[] }) {
+  const { t } = useTranslation();
+  const chartData = useMemo(
+    () =>
+      [...history].reverse().map((entry, index) => ({
+        name: format(new Date(entry.checkedAt), 'MM-dd HH:mm'),
+        success: entry.success ? 1 : 0,
+        failure: entry.success ? 0 : 1,
+        balance: numericBalance(entry.balance),
+        index: index + 1,
+      })),
+    [history]
+  );
+  const balanceData = chartData.filter((item) => item.balance != null);
+
+  if (chartData.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className='grid gap-3 md:grid-cols-2'>
+      <div className='rounded-lg border p-3'>
+        <div className='mb-2 text-sm font-medium'>{t('channels.dialogs.keys.details.charts.health')}</div>
+        <ResponsiveContainer width='100%' height={160}>
+          <BarChart data={chartData}>
+            <CartesianGrid strokeDasharray='3 3' stroke='var(--border)' vertical={false} />
+            <XAxis dataKey='index' tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
+            <YAxis hide domain={[0, 1]} />
+            <Tooltip content={<KeyHistoryTooltip />} />
+            <Bar dataKey='success' name={t('channels.dialogs.keys.healthState.success')} fill='var(--chart-2)' radius={[4, 4, 0, 0]} />
+            <Bar dataKey='failure' name={t('channels.dialogs.keys.healthState.failed')} fill='var(--destructive)' radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className='rounded-lg border p-3'>
+        <div className='mb-2 text-sm font-medium'>{t('channels.dialogs.keys.details.charts.balance')}</div>
+        {balanceData.length === 0 ? (
+          <div className='text-muted-foreground flex h-40 items-center justify-center text-sm'>
+            {t('channels.dialogs.keys.details.charts.noBalance')}
+          </div>
+        ) : (
+          <ResponsiveContainer width='100%' height={160}>
+            <AreaChart data={balanceData}>
+              <CartesianGrid strokeDasharray='3 3' stroke='var(--border)' vertical={false} />
+              <XAxis dataKey='index' tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
+              <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
+              <Tooltip content={<KeyHistoryTooltip />} />
+              <Area
+                type='monotone'
+                dataKey='balance'
+                name={t('channels.dialogs.keys.details.balance')}
+                stroke='var(--chart-1)'
+                fill='var(--chart-1)'
+                fillOpacity={0.18}
+                dot={false}
+                activeDot={{ r: 3 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>; disabled: boolean }) {
+  const { t } = useTranslation();
+  const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set());
+  const {
+    fields: policyFields,
+    append: appendPolicy,
+    remove: removePolicy,
+  } = useFieldArray({
+    control: form.control,
+    name: 'healthCheck.policies',
+  });
+
+  const addPolicy = () => {
+    const policy = createDefaultPolicy(policyFields.length);
+    appendPolicy(policy);
+    setExpandedPolicies((prev) => new Set(prev).add(policy.id));
+  };
+
+  const togglePolicy = (id: string) => {
+    setExpandedPolicies((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className='space-y-3'>
+      <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+        <div>
+          <h4 className='text-sm font-medium'>{t('channels.dialogs.keys.health.policies.title')}</h4>
+          <p className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.health.policies.description')}</p>
+        </div>
+        <Button type='button' variant='outline' size='sm' onClick={addPolicy} disabled={disabled}>
+          <IconPlus className='mr-2 h-4 w-4' />
+          {t('channels.dialogs.keys.health.policies.add')}
+        </Button>
+      </div>
+
+      {policyFields.length === 0 ? (
+        <div className='text-muted-foreground rounded-lg border border-dashed p-4 text-sm'>
+          {t('channels.dialogs.keys.health.policies.empty')}
+        </div>
+      ) : (
+        policyFields.map((policyField, policyIndex) => {
+          const policyID = form.watch(`healthCheck.policies.${policyIndex}.id`) || policyField.id;
+          const policyName = form.watch(`healthCheck.policies.${policyIndex}.name`) || t('channels.dialogs.keys.health.policies.unnamed');
+          const policyEnabled = form.watch(`healthCheck.policies.${policyIndex}.enabled`);
+          const actions = form.watch(`healthCheck.policies.${policyIndex}.actions`) ?? [];
+          const isExpanded = expandedPolicies.has(policyID);
+
+          return (
+            <div key={policyField.id} className='rounded-lg border'>
+              <div className='flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between'>
+                <button type='button' className='flex min-w-0 items-center gap-2 text-left' onClick={() => togglePolicy(policyID)}>
+                  {isExpanded ? <IconChevronUp className='h-4 w-4' /> : <IconChevronDown className='h-4 w-4' />}
+                  <div className='min-w-0'>
+                    <div className='truncate text-sm font-medium'>{policyName}</div>
+                    <div className='text-muted-foreground text-xs'>
+                      {t('channels.dialogs.keys.health.policies.actionCount', { count: actions.length })}
+                    </div>
+                  </div>
+                </button>
+                <div className='flex items-center gap-2'>
+                  <Badge variant={policyEnabled ? 'default' : 'outline'}>
+                    {t(`channels.dialogs.keys.health.policies.${policyEnabled ? 'enabled' : 'disabled'}`)}
+                  </Badge>
+                  <FormField
+                    control={form.control}
+                    name={`healthCheck.policies.${policyIndex}.enabled`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <Button type='button' variant='ghost' size='sm' onClick={() => removePolicy(policyIndex)} disabled={disabled}>
+                    <IconTrash className='h-4 w-4' />
+                  </Button>
+                </div>
+              </div>
+
+              {isExpanded ? (
+                <div className='space-y-4 border-t p-3'>
+                  <FormField
+                    control={form.control}
+                    name={`healthCheck.policies.${policyIndex}.name`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('channels.dialogs.keys.health.policies.fields.name')}</FormLabel>
+                        <FormControl>
+                          <Input {...field} disabled={disabled} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className='grid gap-4 md:grid-cols-3'>
+                    <FormField
+                      control={form.control}
+                      name={`healthCheck.policies.${policyIndex}.minFailureCount`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.minFailureCount')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              max={100}
+                              value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
+                              onBlur={field.onBlur}
+                              onChange={(event) => field.onChange(event.target.value)}
+                              disabled={disabled}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`healthCheck.policies.${policyIndex}.statusCodes`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.statusCodes')}</FormLabel>
+                          <FormControl>
+                            <Input placeholder='429, 500' {...field} disabled={disabled} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`healthCheck.policies.${policyIndex}.availability`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.availability')}</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {(['any', 'available', 'unavailable'] satisfies AvailabilityConditionMode[]).map((mode) => (
+                                <SelectItem key={mode} value={mode}>
+                                  {t(`channels.dialogs.keys.health.policies.availability.${mode}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`healthCheck.policies.${policyIndex}.balanceLTE`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.balanceLTE')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
+                              onBlur={field.onBlur}
+                              onChange={(event) => field.onChange(event.target.value)}
+                              disabled={disabled}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`healthCheck.policies.${policyIndex}.reasonContains`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.reasonContains')}</FormLabel>
+                          <FormControl>
+                            <Input {...field} disabled={disabled} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`healthCheck.policies.${policyIndex}.allCheckedKeysFailed`}
+                      render={({ field }) => (
+                        <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                          <div className='space-y-0.5'>
+                            <FormLabel>{t('channels.dialogs.keys.health.policies.fields.allCheckedKeysFailed')}</FormLabel>
+                          </div>
+                          <FormControl>
+                            <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`healthCheck.policies.${policyIndex}.expr`}
+                      render={({ field }) => (
+                        <FormItem className='md:col-span-3'>
+                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.expr')}</FormLabel>
+                          <FormControl>
+                            <Textarea rows={2} {...field} disabled={disabled} />
+                          </FormControl>
+                          <FormDescription>{t('channels.dialogs.keys.health.policies.fields.exprDescription')}</FormDescription>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <PolicyActionsEditor form={form} policyIndex={policyIndex} disabled={disabled} />
+                </div>
+              ) : null}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+function PolicyActionsEditor({
+  form,
+  policyIndex,
+  disabled,
+}: {
+  form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>;
+  policyIndex: number;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation();
+  const {
+    fields: actionFields,
+    append: appendAction,
+    remove: removeAction,
+  } = useFieldArray({
+    control: form.control,
+    name: `healthCheck.policies.${policyIndex}.actions`,
+  });
+
+  return (
+    <div className='space-y-3'>
+      <div className='flex items-center justify-between'>
+        <h5 className='text-sm font-medium'>{t('channels.dialogs.keys.health.policies.actions.title')}</h5>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={() =>
+            appendAction({
+              type: 'report_only',
+              backoffMode: 'fixed',
+              intervalMinutes: 30,
+              maxIntervalMinutes: 240,
+              multiplier: 2,
+            })
+          }
+          disabled={disabled}
+        >
+          <IconPlus className='mr-2 h-4 w-4' />
+          {t('channels.dialogs.keys.health.policies.actions.add')}
+        </Button>
+      </div>
+      {actionFields.map((actionField, actionIndex) => {
+        const actionType = form.watch(`healthCheck.policies.${policyIndex}.actions.${actionIndex}.type`);
+        return (
+          <div key={actionField.id} className='grid gap-3 rounded-lg border p-3 md:grid-cols-4'>
+            <FormField
+              control={form.control}
+              name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.type`}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('channels.dialogs.keys.health.policies.actions.type')}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {POLICY_ACTIONS.map((action) => (
+                        <SelectItem key={action} value={action}>
+                          {t(`channels.dialogs.keys.health.policies.actions.${action}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormItem>
+              )}
+            />
+            {actionType === 'backoff' ? (
+              <>
+                <FormField
+                  control={form.control}
+                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.backoffMode`}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.backoffMode')}</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='fixed'>{t('channels.dialogs.keys.health.policies.actions.fixed')}</SelectItem>
+                          <SelectItem value='exponential'>{t('channels.dialogs.keys.health.policies.actions.exponential')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.intervalMinutes`}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.intervalMinutes')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          ref={field.ref}
+                          name={field.name}
+                          type='number'
+                          min={1}
+                          max={10080}
+                          value={field.value}
+                          onBlur={field.onBlur}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          disabled={disabled}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.maxIntervalMinutes`}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.maxIntervalMinutes')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          ref={field.ref}
+                          name={field.name}
+                          type='number'
+                          min={1}
+                          max={10080}
+                          value={field.value}
+                          onBlur={field.onBlur}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          disabled={disabled}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.multiplier`}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.multiplier')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          ref={field.ref}
+                          name={field.name}
+                          type='number'
+                          min={1}
+                          max={20}
+                          step='0.1'
+                          value={field.value}
+                          onBlur={field.onBlur}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          disabled={disabled}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </>
+            ) : null}
+            <div className='flex items-end justify-end md:col-start-4'>
+              <Button
+                type='button'
+                variant='ghost'
+                size='sm'
+                onClick={() => removeAction(actionIndex)}
+                disabled={disabled || actionFields.length <= 1}
+              >
+                <IconTrash className='h-4 w-4' />
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function KeyDetailsDialog({
@@ -340,10 +996,33 @@ function KeyDetailsDialog({
               <div className='mt-1 text-sm font-medium'>{row.failureCount ?? 0}</div>
             </div>
             <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.statusCode')}</div>
+              <div className='mt-1 text-sm font-medium'>{row.statusCode ?? '-'}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.matchedPolicy')}</div>
+              <div className='mt-1 text-sm font-medium'>{row.matchedPolicy || '-'}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.action')}</div>
+              <div className='mt-1 text-sm font-medium'>{formatPolicyAction(row.action)}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.nextCheckAt')}</div>
+              <div className='mt-1 text-sm font-medium'>{formatDateTime(row.nextCheckAt)}</div>
+              {row.backoffAttempt != null && row.backoffAttempt > 0 ? (
+                <div className='text-muted-foreground mt-1 text-xs'>
+                  {t('channels.dialogs.keys.details.backoffAttempt', { count: row.backoffAttempt })}
+                </div>
+              ) : null}
+            </div>
+            <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.reason')}</div>
               <div className='mt-1 text-sm'>{row.reason || '-'}</div>
             </div>
           </div>
+
+          <KeyHistoryCharts history={history} />
 
           <div className='rounded-lg border'>
             <div className='border-b px-3 py-2 text-sm font-medium'>{t('channels.dialogs.keys.details.history')}</div>
@@ -365,6 +1044,12 @@ function KeyDetailsDialog({
                           </Badge>
                           {entry.trigger ? <Badge variant='outline'>{t(`channels.dialogs.keys.trigger.${entry.trigger}`)}</Badge> : null}
                           {entry.rule ? <span className='text-muted-foreground text-xs'>{entry.rule}</span> : null}
+                          {entry.statusCode ? (
+                            <Badge variant='outline'>
+                              {t('channels.dialogs.keys.details.statusCode')}: {entry.statusCode}
+                            </Badge>
+                          ) : null}
+                          {entry.matchedPolicy ? <Badge variant='outline'>{entry.matchedPolicy}</Badge> : null}
                         </div>
                         <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt)}</div>
                         <div className='text-sm'>{entry.reason || '-'}</div>
@@ -372,6 +1057,10 @@ function KeyDetailsDialog({
                           {formatBalance(entry.balance, entry.currency)}
                           {entry.available != null
                             ? ` · ${t(`channels.dialogs.keys.availability.${entry.available ? 'available' : 'unavailable'}`)}`
+                            : ''}
+                          {entry.action ? ` · ${formatPolicyAction(entry.action)}` : ''}
+                          {entry.nextCheckAt
+                            ? ` · ${t('channels.dialogs.keys.details.nextCheckAt')}: ${formatDateTime(entry.nextCheckAt)}`
                             : ''}
                         </div>
                       </div>
@@ -405,8 +1094,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const disableAPIKey = useDisableChannelAPIKey();
   const enableAPIKey = useEnableChannelAPIKey();
 
-  const form = useForm<KeysFormInput, unknown, KeysFormValues>({
-    resolver: zodResolver(keysFormSchema),
+  const form = useForm<KeysFormValues, unknown, KeysFormValues>({
+    resolver: keysFormResolver,
     defaultValues: valuesFromChannel(currentRow),
     mode: 'onChange',
   });
@@ -448,6 +1137,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const selectedStrategy = form.watch('strategy');
   const deepseekRuleEnabled = form.watch('healthCheck.deepseekRuleEnabled');
   const deepseekUseAbsoluteURL = form.watch('healthCheck.deepseekUseAbsoluteURL');
+  const policyCount = form.watch('healthCheck.policies')?.length ?? 0;
   const isPending =
     keyInventory.isFetching ||
     addAPIKey.isPending ||
@@ -684,6 +1374,33 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                         <IconAlertTriangle className='h-4 w-4' />
                         <AlertDescription>{t('channels.dialogs.keys.inventory.statusCopy')}</AlertDescription>
                       </Alert>
+
+                      <button
+                        type='button'
+                        className='from-primary/10 via-background to-muted/50 hover:border-primary/50 flex w-full flex-col gap-3 rounded-xl border bg-gradient-to-r p-4 text-left transition sm:flex-row sm:items-center sm:justify-between'
+                        onClick={() => {
+                          const firstHistoryRow = visibleInventory.find((item) => (item.history?.length ?? 0) > 0) ?? visibleInventory[0];
+                          if (firstHistoryRow) {
+                            setDetailsKeyID(firstHistoryRow.id);
+                          }
+                        }}
+                        disabled={visibleInventory.length === 0}
+                      >
+                        <div className='flex items-start gap-3'>
+                          <div className='bg-primary/10 text-primary rounded-lg p-2'>
+                            <IconChartLine className='h-5 w-5' />
+                          </div>
+                          <div>
+                            <div className='font-medium'>{t('channels.dialogs.keys.analytics.title')}</div>
+                            <div className='text-muted-foreground mt-1 text-sm'>{t('channels.dialogs.keys.analytics.description')}</div>
+                          </div>
+                        </div>
+                        <Badge variant='outline'>
+                          {t('channels.dialogs.keys.analytics.historyCount', {
+                            count: visibleInventory.reduce((sum, item) => sum + (item.history?.length ?? 0), 0),
+                          })}
+                        </Badge>
+                      </button>
 
                       <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
                         <div className='text-muted-foreground text-sm'>
@@ -1091,51 +1808,93 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                         />
                         <FormField
                           control={form.control}
-                          name='healthCheck.failureThreshold'
+                          name='healthCheck.historyLimit'
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.health.failureThreshold.label')}</FormLabel>
+                              <FormLabel>{t('channels.dialogs.keys.health.historyLimit.label')}</FormLabel>
                               <FormControl>
                                 <Input
                                   ref={field.ref}
                                   name={field.name}
                                   type='number'
                                   min={1}
-                                  max={20}
+                                  max={100}
                                   value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
                                   onBlur={field.onBlur}
                                   onChange={(event) => field.onChange(event.target.value)}
                                 />
                               </FormControl>
-                              <FormDescription>{t('channels.dialogs.keys.health.failureThreshold.description')}</FormDescription>
+                              <FormDescription>{t('channels.dialogs.keys.health.historyLimit.description')}</FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
-                        <FormField
-                          control={form.control}
-                          name='healthCheck.failureAction'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.health.failureAction.label')}</FormLabel>
-                              <Select value={field.value} onValueChange={field.onChange}>
+                      </div>
+
+                      <FailurePolicyEditor form={form} disabled={isPending} />
+
+                      <Separator />
+
+                      <div className='space-y-3 rounded-lg border p-3'>
+                        <div>
+                          <h4 className='text-sm font-medium'>{t('channels.dialogs.keys.health.legacy.title')}</h4>
+                          <p className='text-muted-foreground text-xs'>
+                            {t(
+                              policyCount > 0
+                                ? 'channels.dialogs.keys.health.legacy.descriptionWithPolicies'
+                                : 'channels.dialogs.keys.health.legacy.description'
+                            )}
+                          </p>
+                        </div>
+                        <div className='grid gap-4 md:grid-cols-2'>
+                          <FormField
+                            control={form.control}
+                            name='healthCheck.failureThreshold'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('channels.dialogs.keys.health.failureThreshold.label')}</FormLabel>
                                 <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
+                                  <Input
+                                    ref={field.ref}
+                                    name={field.name}
+                                    type='number'
+                                    min={1}
+                                    max={20}
+                                    value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
+                                    onBlur={field.onBlur}
+                                    onChange={(event) => field.onChange(event.target.value)}
+                                  />
                                 </FormControl>
-                                <SelectContent>
-                                  {FAILURE_ACTIONS.map((action) => (
-                                    <SelectItem key={action} value={action}>
-                                      {t(`channels.dialogs.keys.health.failureActions.${action}`)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormDescription>{t('channels.dialogs.keys.health.failureAction.description')}</FormDescription>
-                            </FormItem>
-                          )}
-                        />
+                                <FormDescription>{t('channels.dialogs.keys.health.failureThreshold.description')}</FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name='healthCheck.failureAction'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('channels.dialogs.keys.health.failureAction.label')}</FormLabel>
+                                <Select value={field.value} onValueChange={field.onChange}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {FAILURE_ACTIONS.map((action) => (
+                                      <SelectItem key={action} value={action}>
+                                        {t(`channels.dialogs.keys.health.failureActions.${action}`)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormDescription>{t('channels.dialogs.keys.health.failureAction.description')}</FormDescription>
+                              </FormItem>
+                            )}
+                          />
+                        </div>
                       </div>
 
                       <Separator />

@@ -325,17 +325,22 @@ type ComplexityRoot struct {
 	}
 
 	ChannelAPIKeyInventoryItem struct {
-		Available     func(childComplexity int) int
-		Balance       func(childComplexity int) int
-		Currency      func(childComplexity int) int
-		FailureCount  func(childComplexity int) int
-		History       func(childComplexity int) int
-		ID            func(childComplexity int) int
-		LastCheckedAt func(childComplexity int) int
-		MaskedKey     func(childComplexity int) int
-		Reason        func(childComplexity int) int
-		Status        func(childComplexity int) int
-		Success       func(childComplexity int) int
+		Action         func(childComplexity int) int
+		Available      func(childComplexity int) int
+		BackoffAttempt func(childComplexity int) int
+		Balance        func(childComplexity int) int
+		Currency       func(childComplexity int) int
+		FailureCount   func(childComplexity int) int
+		History        func(childComplexity int) int
+		ID             func(childComplexity int) int
+		LastCheckedAt  func(childComplexity int) int
+		MaskedKey      func(childComplexity int) int
+		MatchedPolicy  func(childComplexity int) int
+		NextCheckAt    func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		Status         func(childComplexity int) int
+		StatusCode     func(childComplexity int) int
+		Success        func(childComplexity int) int
 	}
 
 	ChannelArchivedAPIKey struct {
@@ -379,10 +384,19 @@ type ComplexityRoot struct {
 		Enabled          func(childComplexity int) int
 		FailureAction    func(childComplexity int) int
 		FailureThreshold func(childComplexity int) int
+		HistoryLimit     func(childComplexity int) int
 		IncludeDisabled  func(childComplexity int) int
 		IntervalMinutes  func(childComplexity int) int
 		KeyMetadata      func(childComplexity int) int
+		Policies         func(childComplexity int) int
 		Rules            func(childComplexity int) int
+	}
+
+	ChannelKeyHealthCheckBackoff struct {
+		IntervalMinutes    func(childComplexity int) int
+		MaxIntervalMinutes func(childComplexity int) int
+		Mode               func(childComplexity int) int
+		Multiplier         func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheckBuiltin struct {
@@ -402,20 +416,48 @@ type ComplexityRoot struct {
 	}
 
 	ChannelKeyHealthCheckHistoryEntry struct {
-		Available func(childComplexity int) int
-		Balance   func(childComplexity int) int
-		CheckedAt func(childComplexity int) int
-		Currency  func(childComplexity int) int
-		ID        func(childComplexity int) int
-		Reason    func(childComplexity int) int
-		Rule      func(childComplexity int) int
-		Success   func(childComplexity int) int
-		Trigger   func(childComplexity int) int
+		Action         func(childComplexity int) int
+		Available      func(childComplexity int) int
+		BackoffAttempt func(childComplexity int) int
+		Balance        func(childComplexity int) int
+		CheckedAt      func(childComplexity int) int
+		Currency       func(childComplexity int) int
+		ID             func(childComplexity int) int
+		MatchedPolicy  func(childComplexity int) int
+		NextCheckAt    func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		Rule           func(childComplexity int) int
+		StatusCode     func(childComplexity int) int
+		Success        func(childComplexity int) int
+		Trigger        func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheckKeyInjection struct {
 		HeaderName func(childComplexity int) int
 		Location   func(childComplexity int) int
+	}
+
+	ChannelKeyHealthCheckPolicy struct {
+		Actions    func(childComplexity int) int
+		Conditions func(childComplexity int) int
+		Enabled    func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Name       func(childComplexity int) int
+	}
+
+	ChannelKeyHealthCheckPolicyAction struct {
+		Backoff func(childComplexity int) int
+		Type    func(childComplexity int) int
+	}
+
+	ChannelKeyHealthCheckPolicyCondition struct {
+		AllCheckedKeysFailed func(childComplexity int) int
+		Available            func(childComplexity int) int
+		BalanceLTE           func(childComplexity int) int
+		Expr                 func(childComplexity int) int
+		MinFailureCount      func(childComplexity int) int
+		ReasonContains       func(childComplexity int) int
+		StatusCodes          func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheckRule struct {
@@ -428,17 +470,22 @@ type ComplexityRoot struct {
 	}
 
 	ChannelKeyMetadata struct {
-		Available     func(childComplexity int) int
-		Balance       func(childComplexity int) int
-		Currency      func(childComplexity int) int
-		FailureCount  func(childComplexity int) int
-		History       func(childComplexity int) int
-		ID            func(childComplexity int) int
-		LastCheckedAt func(childComplexity int) int
-		MaskedKey     func(childComplexity int) int
-		Reason        func(childComplexity int) int
-		Status        func(childComplexity int) int
-		Success       func(childComplexity int) int
+		Action         func(childComplexity int) int
+		Available      func(childComplexity int) int
+		BackoffAttempt func(childComplexity int) int
+		Balance        func(childComplexity int) int
+		Currency       func(childComplexity int) int
+		FailureCount   func(childComplexity int) int
+		History        func(childComplexity int) int
+		ID             func(childComplexity int) int
+		LastCheckedAt  func(childComplexity int) int
+		MaskedKey      func(childComplexity int) int
+		MatchedPolicy  func(childComplexity int) int
+		NextCheckAt    func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		Status         func(childComplexity int) int
+		StatusCode     func(childComplexity int) int
+		Success        func(childComplexity int) int
 	}
 
 	ChannelKeySelection struct {
@@ -3311,12 +3358,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Channel.UsageLogs(childComplexity, args["after"].(*entgql.Cursor[int]), args["first"].(*int), args["before"].(*entgql.Cursor[int]), args["last"].(*int), args["orderBy"].(*ent.UsageLogOrder), args["where"].(*ent.UsageLogWhereInput)), true
 
+	case "ChannelAPIKeyInventoryItem.action":
+		if e.complexity.ChannelAPIKeyInventoryItem.Action == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.Action(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.available":
 		if e.complexity.ChannelAPIKeyInventoryItem.Available == nil {
 			break
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.Available(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.backoffAttempt":
+		if e.complexity.ChannelAPIKeyInventoryItem.BackoffAttempt == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.BackoffAttempt(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.balance":
 		if e.complexity.ChannelAPIKeyInventoryItem.Balance == nil {
 			break
@@ -3359,6 +3418,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.MaskedKey(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.matchedPolicy":
+		if e.complexity.ChannelAPIKeyInventoryItem.MatchedPolicy == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.MatchedPolicy(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.nextCheckAt":
+		if e.complexity.ChannelAPIKeyInventoryItem.NextCheckAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.NextCheckAt(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.reason":
 		if e.complexity.ChannelAPIKeyInventoryItem.Reason == nil {
 			break
@@ -3371,6 +3442,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.Status(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.statusCode":
+		if e.complexity.ChannelAPIKeyInventoryItem.StatusCode == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.StatusCode(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.success":
 		if e.complexity.ChannelAPIKeyInventoryItem.Success == nil {
 			break
@@ -3533,6 +3610,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheck.FailureThreshold(childComplexity), true
+	case "ChannelKeyHealthCheck.historyLimit":
+		if e.complexity.ChannelKeyHealthCheck.HistoryLimit == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.HistoryLimit(childComplexity), true
 	case "ChannelKeyHealthCheck.includeDisabled":
 		if e.complexity.ChannelKeyHealthCheck.IncludeDisabled == nil {
 			break
@@ -3551,12 +3634,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheck.KeyMetadata(childComplexity), true
+	case "ChannelKeyHealthCheck.policies":
+		if e.complexity.ChannelKeyHealthCheck.Policies == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.Policies(childComplexity), true
 	case "ChannelKeyHealthCheck.rules":
 		if e.complexity.ChannelKeyHealthCheck.Rules == nil {
 			break
 		}
 
 		return e.complexity.ChannelKeyHealthCheck.Rules(childComplexity), true
+
+	case "ChannelKeyHealthCheckBackoff.intervalMinutes":
+		if e.complexity.ChannelKeyHealthCheckBackoff.IntervalMinutes == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckBackoff.IntervalMinutes(childComplexity), true
+	case "ChannelKeyHealthCheckBackoff.maxIntervalMinutes":
+		if e.complexity.ChannelKeyHealthCheckBackoff.MaxIntervalMinutes == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckBackoff.MaxIntervalMinutes(childComplexity), true
+	case "ChannelKeyHealthCheckBackoff.mode":
+		if e.complexity.ChannelKeyHealthCheckBackoff.Mode == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckBackoff.Mode(childComplexity), true
+	case "ChannelKeyHealthCheckBackoff.multiplier":
+		if e.complexity.ChannelKeyHealthCheckBackoff.Multiplier == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckBackoff.Multiplier(childComplexity), true
 
 	case "ChannelKeyHealthCheckBuiltin.kind":
 		if e.complexity.ChannelKeyHealthCheckBuiltin.Kind == nil {
@@ -3620,12 +3734,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelKeyHealthCheckHTTPRule.URLMode(childComplexity), true
 
+	case "ChannelKeyHealthCheckHistoryEntry.action":
+		if e.complexity.ChannelKeyHealthCheckHistoryEntry.Action == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckHistoryEntry.Action(childComplexity), true
 	case "ChannelKeyHealthCheckHistoryEntry.available":
 		if e.complexity.ChannelKeyHealthCheckHistoryEntry.Available == nil {
 			break
 		}
 
 		return e.complexity.ChannelKeyHealthCheckHistoryEntry.Available(childComplexity), true
+	case "ChannelKeyHealthCheckHistoryEntry.backoffAttempt":
+		if e.complexity.ChannelKeyHealthCheckHistoryEntry.BackoffAttempt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckHistoryEntry.BackoffAttempt(childComplexity), true
 	case "ChannelKeyHealthCheckHistoryEntry.balance":
 		if e.complexity.ChannelKeyHealthCheckHistoryEntry.Balance == nil {
 			break
@@ -3650,6 +3776,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheckHistoryEntry.ID(childComplexity), true
+	case "ChannelKeyHealthCheckHistoryEntry.matchedPolicy":
+		if e.complexity.ChannelKeyHealthCheckHistoryEntry.MatchedPolicy == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckHistoryEntry.MatchedPolicy(childComplexity), true
+	case "ChannelKeyHealthCheckHistoryEntry.nextCheckAt":
+		if e.complexity.ChannelKeyHealthCheckHistoryEntry.NextCheckAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckHistoryEntry.NextCheckAt(childComplexity), true
 	case "ChannelKeyHealthCheckHistoryEntry.reason":
 		if e.complexity.ChannelKeyHealthCheckHistoryEntry.Reason == nil {
 			break
@@ -3662,6 +3800,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheckHistoryEntry.Rule(childComplexity), true
+	case "ChannelKeyHealthCheckHistoryEntry.statusCode":
+		if e.complexity.ChannelKeyHealthCheckHistoryEntry.StatusCode == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckHistoryEntry.StatusCode(childComplexity), true
 	case "ChannelKeyHealthCheckHistoryEntry.success":
 		if e.complexity.ChannelKeyHealthCheckHistoryEntry.Success == nil {
 			break
@@ -3687,6 +3831,93 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheckKeyInjection.Location(childComplexity), true
+
+	case "ChannelKeyHealthCheckPolicy.actions":
+		if e.complexity.ChannelKeyHealthCheckPolicy.Actions == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicy.Actions(childComplexity), true
+	case "ChannelKeyHealthCheckPolicy.conditions":
+		if e.complexity.ChannelKeyHealthCheckPolicy.Conditions == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicy.Conditions(childComplexity), true
+	case "ChannelKeyHealthCheckPolicy.enabled":
+		if e.complexity.ChannelKeyHealthCheckPolicy.Enabled == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicy.Enabled(childComplexity), true
+	case "ChannelKeyHealthCheckPolicy.id":
+		if e.complexity.ChannelKeyHealthCheckPolicy.ID == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicy.ID(childComplexity), true
+	case "ChannelKeyHealthCheckPolicy.name":
+		if e.complexity.ChannelKeyHealthCheckPolicy.Name == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicy.Name(childComplexity), true
+
+	case "ChannelKeyHealthCheckPolicyAction.backoff":
+		if e.complexity.ChannelKeyHealthCheckPolicyAction.Backoff == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyAction.Backoff(childComplexity), true
+	case "ChannelKeyHealthCheckPolicyAction.type":
+		if e.complexity.ChannelKeyHealthCheckPolicyAction.Type == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyAction.Type(childComplexity), true
+
+	case "ChannelKeyHealthCheckPolicyCondition.allCheckedKeysFailed":
+		if e.complexity.ChannelKeyHealthCheckPolicyCondition.AllCheckedKeysFailed == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyCondition.AllCheckedKeysFailed(childComplexity), true
+	case "ChannelKeyHealthCheckPolicyCondition.available":
+		if e.complexity.ChannelKeyHealthCheckPolicyCondition.Available == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyCondition.Available(childComplexity), true
+	case "ChannelKeyHealthCheckPolicyCondition.balanceLTE":
+		if e.complexity.ChannelKeyHealthCheckPolicyCondition.BalanceLTE == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyCondition.BalanceLTE(childComplexity), true
+	case "ChannelKeyHealthCheckPolicyCondition.expr":
+		if e.complexity.ChannelKeyHealthCheckPolicyCondition.Expr == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyCondition.Expr(childComplexity), true
+	case "ChannelKeyHealthCheckPolicyCondition.minFailureCount":
+		if e.complexity.ChannelKeyHealthCheckPolicyCondition.MinFailureCount == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyCondition.MinFailureCount(childComplexity), true
+	case "ChannelKeyHealthCheckPolicyCondition.reasonContains":
+		if e.complexity.ChannelKeyHealthCheckPolicyCondition.ReasonContains == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyCondition.ReasonContains(childComplexity), true
+	case "ChannelKeyHealthCheckPolicyCondition.statusCodes":
+		if e.complexity.ChannelKeyHealthCheckPolicyCondition.StatusCodes == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckPolicyCondition.StatusCodes(childComplexity), true
 
 	case "ChannelKeyHealthCheckRule.builtin":
 		if e.complexity.ChannelKeyHealthCheckRule.Builtin == nil {
@@ -3725,12 +3956,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelKeyHealthCheckRule.Type(childComplexity), true
 
+	case "ChannelKeyMetadata.action":
+		if e.complexity.ChannelKeyMetadata.Action == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.Action(childComplexity), true
 	case "ChannelKeyMetadata.available":
 		if e.complexity.ChannelKeyMetadata.Available == nil {
 			break
 		}
 
 		return e.complexity.ChannelKeyMetadata.Available(childComplexity), true
+	case "ChannelKeyMetadata.backoffAttempt":
+		if e.complexity.ChannelKeyMetadata.BackoffAttempt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.BackoffAttempt(childComplexity), true
 	case "ChannelKeyMetadata.balance":
 		if e.complexity.ChannelKeyMetadata.Balance == nil {
 			break
@@ -3773,6 +4016,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyMetadata.MaskedKey(childComplexity), true
+	case "ChannelKeyMetadata.matchedPolicy":
+		if e.complexity.ChannelKeyMetadata.MatchedPolicy == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.MatchedPolicy(childComplexity), true
+	case "ChannelKeyMetadata.nextCheckAt":
+		if e.complexity.ChannelKeyMetadata.NextCheckAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.NextCheckAt(childComplexity), true
 	case "ChannelKeyMetadata.reason":
 		if e.complexity.ChannelKeyMetadata.Reason == nil {
 			break
@@ -3785,6 +4040,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyMetadata.Status(childComplexity), true
+	case "ChannelKeyMetadata.statusCode":
+		if e.complexity.ChannelKeyMetadata.StatusCode == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.StatusCode(childComplexity), true
 	case "ChannelKeyMetadata.success":
 		if e.complexity.ChannelKeyMetadata.Success == nil {
 			break
@@ -11108,11 +11369,15 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputChannelArchivedAPIKeyInput,
 		ec.unmarshalInputChannelCredentialsInput,
 		ec.unmarshalInputChannelEndpointInput,
+		ec.unmarshalInputChannelKeyHealthCheckBackoffInput,
 		ec.unmarshalInputChannelKeyHealthCheckBuiltinInput,
 		ec.unmarshalInputChannelKeyHealthCheckHTTPRuleInput,
 		ec.unmarshalInputChannelKeyHealthCheckHistoryEntryInput,
 		ec.unmarshalInputChannelKeyHealthCheckInput,
 		ec.unmarshalInputChannelKeyHealthCheckKeyInjectionInput,
+		ec.unmarshalInputChannelKeyHealthCheckPolicyActionInput,
+		ec.unmarshalInputChannelKeyHealthCheckPolicyConditionInput,
+		ec.unmarshalInputChannelKeyHealthCheckPolicyInput,
 		ec.unmarshalInputChannelKeyHealthCheckRuleInput,
 		ec.unmarshalInputChannelKeyMetadataInput,
 		ec.unmarshalInputChannelKeySelectionInput,
@@ -19638,6 +19903,151 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_available(_ 
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_statusCode(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_statusCode,
+		func(ctx context.Context) (any, error) {
+			return obj.StatusCode, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_statusCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_matchedPolicy(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_matchedPolicy,
+		func(ctx context.Context) (any, error) {
+			return obj.MatchedPolicy, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_matchedPolicy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_action(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_action,
+		func(ctx context.Context) (any, error) {
+			return obj.Action, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_action(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_nextCheckAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_nextCheckAt,
+		func(ctx context.Context) (any, error) {
+			return obj.NextCheckAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_nextCheckAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_backoffAttempt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_backoffAttempt,
+		func(ctx context.Context) (any, error) {
+			return obj.BackoffAttempt, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_backoffAttempt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelAPIKeyInventoryItem_history(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -19680,6 +20090,16 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_history(_ co
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_trigger(ctx, field)
 			case "rule":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_rule(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_statusCode(ctx, field)
+			case "matchedPolicy":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_matchedPolicy(ctx, field)
+			case "action":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_action(ctx, field)
+			case "nextCheckAt":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_nextCheckAt(ctx, field)
+			case "backoffAttempt":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_backoffAttempt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckHistoryEntry", field.Name)
 		},
@@ -20454,6 +20874,35 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_intervalMinutes(_
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyHealthCheck_historyLimit(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_historyLimit,
+		func(ctx context.Context) (any, error) {
+			return obj.HistoryLimit, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_historyLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyHealthCheck_failureThreshold(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20584,6 +21033,47 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_rules(_ context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyHealthCheck_policies(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_policies,
+		func(ctx context.Context) (any, error) {
+			return obj.Policies, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckPolicy2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_policies(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicy_id(ctx, field)
+			case "name":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicy_name(ctx, field)
+			case "enabled":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicy_enabled(ctx, field)
+			case "conditions":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicy_conditions(ctx, field)
+			case "actions":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicy_actions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckPolicy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyHealthCheck_keyMetadata(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20628,6 +21118,16 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_keyMetadata(_ con
 				return ec.fieldContext_ChannelKeyMetadata_currency(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelKeyMetadata_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyMetadata_statusCode(ctx, field)
+			case "matchedPolicy":
+				return ec.fieldContext_ChannelKeyMetadata_matchedPolicy(ctx, field)
+			case "action":
+				return ec.fieldContext_ChannelKeyMetadata_action(ctx, field)
+			case "nextCheckAt":
+				return ec.fieldContext_ChannelKeyMetadata_nextCheckAt(ctx, field)
+			case "backoffAttempt":
+				return ec.fieldContext_ChannelKeyMetadata_backoffAttempt(ctx, field)
 			case "history":
 				return ec.fieldContext_ChannelKeyMetadata_history(ctx, field)
 			}
@@ -20681,6 +21181,122 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_archivedKeys(_ co
 				return ec.fieldContext_ChannelArchivedAPIKey_available(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelArchivedAPIKey", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckBackoff_mode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckBackoff) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckBackoff_mode,
+		func(ctx context.Context) (any, error) {
+			return obj.Mode, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckBackoffMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoffMode,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckBackoff_mode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckBackoff",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelKeyHealthCheckBackoffMode does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckBackoff_intervalMinutes(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckBackoff) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckBackoff_intervalMinutes,
+		func(ctx context.Context) (any, error) {
+			return obj.IntervalMinutes, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckBackoff_intervalMinutes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckBackoff",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckBackoff_maxIntervalMinutes(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckBackoff) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckBackoff_maxIntervalMinutes,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxIntervalMinutes, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckBackoff_maxIntervalMinutes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckBackoff",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckBackoff_multiplier(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckBackoff) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckBackoff_multiplier,
+		func(ctx context.Context) (any, error) {
+			return obj.Multiplier, nil
+		},
+		nil,
+		ec.marshalOFloat2float64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckBackoff_multiplier(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckBackoff",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -21249,6 +21865,151 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_rule(
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry_statusCode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckHistoryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_statusCode,
+		func(ctx context.Context) (any, error) {
+			return obj.StatusCode, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_statusCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckHistoryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry_matchedPolicy(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckHistoryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_matchedPolicy,
+		func(ctx context.Context) (any, error) {
+			return obj.MatchedPolicy, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_matchedPolicy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckHistoryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry_action(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckHistoryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_action,
+		func(ctx context.Context) (any, error) {
+			return obj.Action, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_action(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckHistoryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry_nextCheckAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckHistoryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_nextCheckAt,
+		func(ctx context.Context) (any, error) {
+			return obj.NextCheckAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_nextCheckAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckHistoryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry_backoffAttempt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckHistoryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_backoffAttempt,
+		func(ctx context.Context) (any, error) {
+			return obj.BackoffAttempt, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_backoffAttempt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckHistoryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyHealthCheckKeyInjection_location(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckKeyInjection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21297,6 +22058,444 @@ func (ec *executionContext) _ChannelKeyHealthCheckKeyInjection_headerName(ctx co
 func (ec *executionContext) fieldContext_ChannelKeyHealthCheckKeyInjection_headerName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelKeyHealthCheckKeyInjection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicy_id(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicy_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicy_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicy_name(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicy_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicy_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicy_enabled(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicy_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicy_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicy_conditions(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicy_conditions,
+		func(ctx context.Context) (any, error) {
+			return obj.Conditions, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckPolicyCondition2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyCondition,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicy_conditions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "minFailureCount":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_minFailureCount(ctx, field)
+			case "statusCodes":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_statusCodes(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_available(ctx, field)
+			case "balanceLTE":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_balanceLTE(ctx, field)
+			case "reasonContains":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_reasonContains(ctx, field)
+			case "allCheckedKeysFailed":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_allCheckedKeysFailed(ctx, field)
+			case "expr":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_expr(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckPolicyCondition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicy_actions(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicy_actions,
+		func(ctx context.Context) (any, error) {
+			return obj.Actions, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckPolicyAction2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicy_actions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "type":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyAction_type(ctx, field)
+			case "backoff":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyAction_backoff(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckPolicyAction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyAction_type(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyAction_type,
+		func(ctx context.Context) (any, error) {
+			return obj.Type, nil
+		},
+		nil,
+		ec.marshalNChannelKeyHealthCheckPolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionType,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyAction_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyAction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelKeyHealthCheckPolicyActionType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyAction_backoff(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyAction_backoff,
+		func(ctx context.Context) (any, error) {
+			return obj.Backoff, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckBackoff2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoff,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyAction_backoff(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyAction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "mode":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_mode(ctx, field)
+			case "intervalMinutes":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_intervalMinutes(ctx, field)
+			case "maxIntervalMinutes":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_maxIntervalMinutes(ctx, field)
+			case "multiplier":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_multiplier(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckBackoff", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition_minFailureCount(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyCondition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_minFailureCount,
+		func(ctx context.Context) (any, error) {
+			return obj.MinFailureCount, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyCondition_minFailureCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyCondition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition_statusCodes(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyCondition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_statusCodes,
+		func(ctx context.Context) (any, error) {
+			return obj.StatusCodes, nil
+		},
+		nil,
+		ec.marshalOInt2ᚕintᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyCondition_statusCodes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyCondition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition_available(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyCondition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_available,
+		func(ctx context.Context) (any, error) {
+			return obj.Available, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyCondition_available(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyCondition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition_balanceLTE(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyCondition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_balanceLTE,
+		func(ctx context.Context) (any, error) {
+			return obj.BalanceLTE, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyCondition_balanceLTE(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyCondition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition_reasonContains(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyCondition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_reasonContains,
+		func(ctx context.Context) (any, error) {
+			return obj.ReasonContains, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyCondition_reasonContains(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyCondition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition_allCheckedKeysFailed(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyCondition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_allCheckedKeysFailed,
+		func(ctx context.Context) (any, error) {
+			return obj.AllCheckedKeysFailed, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyCondition_allCheckedKeysFailed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyCondition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition_expr(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckPolicyCondition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_expr,
+		func(ctx context.Context) (any, error) {
+			return obj.Expr, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckPolicyCondition_expr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckPolicyCondition",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -21795,6 +22994,151 @@ func (ec *executionContext) fieldContext_ChannelKeyMetadata_available(_ context.
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyMetadata_statusCode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_statusCode,
+		func(ctx context.Context) (any, error) {
+			return obj.StatusCode, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_statusCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_matchedPolicy(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_matchedPolicy,
+		func(ctx context.Context) (any, error) {
+			return obj.MatchedPolicy, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_matchedPolicy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_action(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_action,
+		func(ctx context.Context) (any, error) {
+			return obj.Action, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_action(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_nextCheckAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_nextCheckAt,
+		func(ctx context.Context) (any, error) {
+			return obj.NextCheckAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_nextCheckAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_backoffAttempt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_backoffAttempt,
+		func(ctx context.Context) (any, error) {
+			return obj.BackoffAttempt, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_backoffAttempt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyMetadata_history(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21837,6 +23181,16 @@ func (ec *executionContext) fieldContext_ChannelKeyMetadata_history(_ context.Co
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_trigger(ctx, field)
 			case "rule":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_rule(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_statusCode(ctx, field)
+			case "matchedPolicy":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_matchedPolicy(ctx, field)
+			case "action":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_action(ctx, field)
+			case "nextCheckAt":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_nextCheckAt(ctx, field)
+			case "backoffAttempt":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_backoffAttempt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckHistoryEntry", field.Name)
 		},
@@ -25323,6 +26677,8 @@ func (ec *executionContext) fieldContext_ChannelSettings_keyHealthCheck(_ contex
 				return ec.fieldContext_ChannelKeyHealthCheck_enabled(ctx, field)
 			case "intervalMinutes":
 				return ec.fieldContext_ChannelKeyHealthCheck_intervalMinutes(ctx, field)
+			case "historyLimit":
+				return ec.fieldContext_ChannelKeyHealthCheck_historyLimit(ctx, field)
 			case "failureThreshold":
 				return ec.fieldContext_ChannelKeyHealthCheck_failureThreshold(ctx, field)
 			case "failureAction":
@@ -25331,6 +26687,8 @@ func (ec *executionContext) fieldContext_ChannelSettings_keyHealthCheck(_ contex
 				return ec.fieldContext_ChannelKeyHealthCheck_includeDisabled(ctx, field)
 			case "rules":
 				return ec.fieldContext_ChannelKeyHealthCheck_rules(ctx, field)
+			case "policies":
+				return ec.fieldContext_ChannelKeyHealthCheck_policies(ctx, field)
 			case "keyMetadata":
 				return ec.fieldContext_ChannelKeyHealthCheck_keyMetadata(ctx, field)
 			case "archivedKeys":
@@ -32890,6 +34248,16 @@ func (ec *executionContext) fieldContext_Mutation_runChannelAPIKeyHealthCheck(ct
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_statusCode(ctx, field)
+			case "matchedPolicy":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_matchedPolicy(ctx, field)
+			case "action":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_action(ctx, field)
+			case "nextCheckAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_nextCheckAt(ctx, field)
+			case "backoffAttempt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_backoffAttempt(ctx, field)
 			case "history":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_history(ctx, field)
 			}
@@ -43067,6 +44435,16 @@ func (ec *executionContext) fieldContext_Query_channelAPIKeyInventory(ctx contex
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_statusCode(ctx, field)
+			case "matchedPolicy":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_matchedPolicy(ctx, field)
+			case "action":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_action(ctx, field)
+			case "nextCheckAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_nextCheckAt(ctx, field)
+			case "backoffAttempt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_backoffAttempt(ctx, field)
 			case "history":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_history(ctx, field)
 			}
@@ -62924,6 +64302,54 @@ func (ec *executionContext) unmarshalInputChannelEndpointInput(ctx context.Conte
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputChannelKeyHealthCheckBackoffInput(ctx context.Context, obj any) (objects.ChannelKeyHealthCheckBackoff, error) {
+	var it objects.ChannelKeyHealthCheckBackoff
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"mode", "intervalMinutes", "maxIntervalMinutes", "multiplier"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "mode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("mode"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckBackoffMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoffMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Mode = data
+		case "intervalMinutes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("intervalMinutes"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.IntervalMinutes = data
+		case "maxIntervalMinutes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxIntervalMinutes"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxIntervalMinutes = data
+		case "multiplier":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("multiplier"))
+			data, err := ec.unmarshalOFloat2float64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Multiplier = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputChannelKeyHealthCheckBuiltinInput(ctx context.Context, obj any) (objects.ChannelKeyHealthCheckBuiltin, error) {
 	var it objects.ChannelKeyHealthCheckBuiltin
 	asMap := map[string]any{}
@@ -63041,7 +64467,7 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckHistoryEntryInput
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "checkedAt", "success", "reason", "balance", "currency", "available", "trigger", "rule"}
+	fieldsInOrder := [...]string{"id", "checkedAt", "success", "reason", "balance", "currency", "available", "trigger", "rule", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -63113,6 +64539,41 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckHistoryEntryInput
 				return it, err
 			}
 			it.Rule = data
+		case "statusCode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("statusCode"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StatusCode = data
+		case "matchedPolicy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("matchedPolicy"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MatchedPolicy = data
+		case "action":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("action"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Action = data
+		case "nextCheckAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nextCheckAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NextCheckAt = data
+		case "backoffAttempt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("backoffAttempt"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BackoffAttempt = data
 		}
 	}
 
@@ -63126,7 +64587,7 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckInput(ctx context
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"enabled", "intervalMinutes", "failureThreshold", "failureAction", "includeDisabled", "rules", "keyMetadata", "archivedKeys"}
+	fieldsInOrder := [...]string{"enabled", "intervalMinutes", "historyLimit", "failureThreshold", "failureAction", "includeDisabled", "rules", "policies", "keyMetadata", "archivedKeys"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -63147,6 +64608,13 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckInput(ctx context
 				return it, err
 			}
 			it.IntervalMinutes = data
+		case "historyLimit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("historyLimit"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HistoryLimit = data
 		case "failureThreshold":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("failureThreshold"))
 			data, err := ec.unmarshalOInt2int(ctx, v)
@@ -63175,6 +64643,13 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckInput(ctx context
 				return it, err
 			}
 			it.Rules = data
+		case "policies":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("policies"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckPolicyInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Policies = data
 		case "keyMetadata":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("keyMetadata"))
 			data, err := ec.unmarshalOChannelKeyMetadataInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyMetadataᚄ(ctx, v)
@@ -63223,6 +64698,164 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckKeyInjectionInput
 				return it, err
 			}
 			it.HeaderName = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputChannelKeyHealthCheckPolicyActionInput(ctx context.Context, obj any) (objects.ChannelKeyHealthCheckPolicyAction, error) {
+	var it objects.ChannelKeyHealthCheckPolicyAction
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"type", "backoff"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "type":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("type"))
+			data, err := ec.unmarshalNChannelKeyHealthCheckPolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Type = data
+		case "backoff":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("backoff"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckBackoffInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoff(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Backoff = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputChannelKeyHealthCheckPolicyConditionInput(ctx context.Context, obj any) (objects.ChannelKeyHealthCheckPolicyCondition, error) {
+	var it objects.ChannelKeyHealthCheckPolicyCondition
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"minFailureCount", "statusCodes", "available", "balanceLTE", "reasonContains", "allCheckedKeysFailed", "expr"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "minFailureCount":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minFailureCount"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinFailureCount = data
+		case "statusCodes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("statusCodes"))
+			data, err := ec.unmarshalOInt2ᚕintᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StatusCodes = data
+		case "available":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("available"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Available = data
+		case "balanceLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("balanceLTE"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BalanceLTE = data
+		case "reasonContains":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("reasonContains"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ReasonContains = data
+		case "allCheckedKeysFailed":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("allCheckedKeysFailed"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AllCheckedKeysFailed = data
+		case "expr":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expr"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Expr = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputChannelKeyHealthCheckPolicyInput(ctx context.Context, obj any) (objects.ChannelKeyHealthCheckPolicy, error) {
+	var it objects.ChannelKeyHealthCheckPolicy
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "name", "enabled", "conditions", "actions"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		case "conditions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("conditions"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckPolicyConditionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyCondition(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Conditions = data
+		case "actions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("actions"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckPolicyActionInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Actions = data
 		}
 	}
 
@@ -63298,7 +64931,7 @@ func (ec *executionContext) unmarshalInputChannelKeyMetadataInput(ctx context.Co
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "maskedKey", "status", "lastCheckedAt", "success", "failureCount", "reason", "balance", "currency", "available", "history"}
+	fieldsInOrder := [...]string{"id", "maskedKey", "status", "lastCheckedAt", "success", "failureCount", "reason", "balance", "currency", "available", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt", "history"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -63377,6 +65010,41 @@ func (ec *executionContext) unmarshalInputChannelKeyMetadataInput(ctx context.Co
 				return it, err
 			}
 			it.Available = data
+		case "statusCode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("statusCode"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StatusCode = data
+		case "matchedPolicy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("matchedPolicy"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MatchedPolicy = data
+		case "action":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("action"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Action = data
+		case "nextCheckAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nextCheckAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NextCheckAt = data
+		case "backoffAttempt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("backoffAttempt"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BackoffAttempt = data
 		case "history":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("history"))
 			data, err := ec.unmarshalOChannelKeyHealthCheckHistoryEntryInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHistoryEntryᚄ(ctx, v)
@@ -89078,6 +90746,16 @@ func (ec *executionContext) _ChannelAPIKeyInventoryItem(ctx context.Context, sel
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_currency(ctx, field, obj)
 		case "available":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_available(ctx, field, obj)
+		case "statusCode":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_statusCode(ctx, field, obj)
+		case "matchedPolicy":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_matchedPolicy(ctx, field, obj)
+		case "action":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_action(ctx, field, obj)
+		case "nextCheckAt":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_nextCheckAt(ctx, field, obj)
+		case "backoffAttempt":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_backoffAttempt(ctx, field, obj)
 		case "history":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_history(ctx, field, obj)
 		default:
@@ -89373,6 +91051,8 @@ func (ec *executionContext) _ChannelKeyHealthCheck(ctx context.Context, sel ast.
 			out.Values[i] = ec._ChannelKeyHealthCheck_enabled(ctx, field, obj)
 		case "intervalMinutes":
 			out.Values[i] = ec._ChannelKeyHealthCheck_intervalMinutes(ctx, field, obj)
+		case "historyLimit":
+			out.Values[i] = ec._ChannelKeyHealthCheck_historyLimit(ctx, field, obj)
 		case "failureThreshold":
 			out.Values[i] = ec._ChannelKeyHealthCheck_failureThreshold(ctx, field, obj)
 		case "failureAction":
@@ -89381,10 +91061,54 @@ func (ec *executionContext) _ChannelKeyHealthCheck(ctx context.Context, sel ast.
 			out.Values[i] = ec._ChannelKeyHealthCheck_includeDisabled(ctx, field, obj)
 		case "rules":
 			out.Values[i] = ec._ChannelKeyHealthCheck_rules(ctx, field, obj)
+		case "policies":
+			out.Values[i] = ec._ChannelKeyHealthCheck_policies(ctx, field, obj)
 		case "keyMetadata":
 			out.Values[i] = ec._ChannelKeyHealthCheck_keyMetadata(ctx, field, obj)
 		case "archivedKeys":
 			out.Values[i] = ec._ChannelKeyHealthCheck_archivedKeys(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelKeyHealthCheckBackoffImplementors = []string{"ChannelKeyHealthCheckBackoff"}
+
+func (ec *executionContext) _ChannelKeyHealthCheckBackoff(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelKeyHealthCheckBackoff) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelKeyHealthCheckBackoffImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelKeyHealthCheckBackoff")
+		case "mode":
+			out.Values[i] = ec._ChannelKeyHealthCheckBackoff_mode(ctx, field, obj)
+		case "intervalMinutes":
+			out.Values[i] = ec._ChannelKeyHealthCheckBackoff_intervalMinutes(ctx, field, obj)
+		case "maxIntervalMinutes":
+			out.Values[i] = ec._ChannelKeyHealthCheckBackoff_maxIntervalMinutes(ctx, field, obj)
+		case "multiplier":
+			out.Values[i] = ec._ChannelKeyHealthCheckBackoff_multiplier(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -89565,6 +91289,16 @@ func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry(ctx context.Conte
 			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_trigger(ctx, field, obj)
 		case "rule":
 			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_rule(ctx, field, obj)
+		case "statusCode":
+			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_statusCode(ctx, field, obj)
+		case "matchedPolicy":
+			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_matchedPolicy(ctx, field, obj)
+		case "action":
+			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_action(ctx, field, obj)
+		case "nextCheckAt":
+			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_nextCheckAt(ctx, field, obj)
+		case "backoffAttempt":
+			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_backoffAttempt(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -89603,6 +91337,145 @@ func (ec *executionContext) _ChannelKeyHealthCheckKeyInjection(ctx context.Conte
 			out.Values[i] = ec._ChannelKeyHealthCheckKeyInjection_location(ctx, field, obj)
 		case "headerName":
 			out.Values[i] = ec._ChannelKeyHealthCheckKeyInjection_headerName(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelKeyHealthCheckPolicyImplementors = []string{"ChannelKeyHealthCheckPolicy"}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicy(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelKeyHealthCheckPolicy) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelKeyHealthCheckPolicyImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelKeyHealthCheckPolicy")
+		case "id":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicy_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicy_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enabled":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicy_enabled(ctx, field, obj)
+		case "conditions":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicy_conditions(ctx, field, obj)
+		case "actions":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicy_actions(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelKeyHealthCheckPolicyActionImplementors = []string{"ChannelKeyHealthCheckPolicyAction"}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyAction(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelKeyHealthCheckPolicyAction) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelKeyHealthCheckPolicyActionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelKeyHealthCheckPolicyAction")
+		case "type":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyAction_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "backoff":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyAction_backoff(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelKeyHealthCheckPolicyConditionImplementors = []string{"ChannelKeyHealthCheckPolicyCondition"}
+
+func (ec *executionContext) _ChannelKeyHealthCheckPolicyCondition(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelKeyHealthCheckPolicyCondition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelKeyHealthCheckPolicyConditionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelKeyHealthCheckPolicyCondition")
+		case "minFailureCount":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyCondition_minFailureCount(ctx, field, obj)
+		case "statusCodes":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyCondition_statusCodes(ctx, field, obj)
+		case "available":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyCondition_available(ctx, field, obj)
+		case "balanceLTE":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyCondition_balanceLTE(ctx, field, obj)
+		case "reasonContains":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyCondition_reasonContains(ctx, field, obj)
+		case "allCheckedKeysFailed":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyCondition_allCheckedKeysFailed(ctx, field, obj)
+		case "expr":
+			out.Values[i] = ec._ChannelKeyHealthCheckPolicyCondition_expr(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -89743,6 +91616,16 @@ func (ec *executionContext) _ChannelKeyMetadata(ctx context.Context, sel ast.Sel
 			out.Values[i] = ec._ChannelKeyMetadata_currency(ctx, field, obj)
 		case "available":
 			out.Values[i] = ec._ChannelKeyMetadata_available(ctx, field, obj)
+		case "statusCode":
+			out.Values[i] = ec._ChannelKeyMetadata_statusCode(ctx, field, obj)
+		case "matchedPolicy":
+			out.Values[i] = ec._ChannelKeyMetadata_matchedPolicy(ctx, field, obj)
+		case "action":
+			out.Values[i] = ec._ChannelKeyMetadata_action(ctx, field, obj)
+		case "nextCheckAt":
+			out.Values[i] = ec._ChannelKeyMetadata_nextCheckAt(ctx, field, obj)
+		case "backoffAttempt":
+			out.Values[i] = ec._ChannelKeyMetadata_backoffAttempt(ctx, field, obj)
 		case "history":
 			out.Values[i] = ec._ChannelKeyMetadata_history(ctx, field, obj)
 		default:
@@ -107051,6 +108934,41 @@ func (ec *executionContext) unmarshalNChannelKeyHealthCheckHistoryEntryInput2git
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNChannelKeyHealthCheckPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicy(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckPolicy) graphql.Marshaler {
+	return ec._ChannelKeyHealthCheckPolicy(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNChannelKeyHealthCheckPolicyAction2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyAction(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckPolicyAction) graphql.Marshaler {
+	return ec._ChannelKeyHealthCheckPolicyAction(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNChannelKeyHealthCheckPolicyActionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyAction(ctx context.Context, v any) (objects.ChannelKeyHealthCheckPolicyAction, error) {
+	res, err := ec.unmarshalInputChannelKeyHealthCheckPolicyActionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNChannelKeyHealthCheckPolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionType(ctx context.Context, v any) (objects.ChannelKeyHealthCheckPolicyActionType, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelKeyHealthCheckPolicyActionType(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChannelKeyHealthCheckPolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionType(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckPolicyActionType) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) unmarshalNChannelKeyHealthCheckPolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicy(ctx context.Context, v any) (objects.ChannelKeyHealthCheckPolicy, error) {
+	res, err := ec.unmarshalInputChannelKeyHealthCheckPolicyInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNChannelKeyHealthCheckRule2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckRule(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckRule) graphql.Marshaler {
 	return ec._ChannelKeyHealthCheckRule(ctx, sel, &v)
 }
@@ -113200,6 +115118,34 @@ func (ec *executionContext) marshalOChannelKeyHealthCheck2ᚖgithubᚗcomᚋloop
 	return ec._ChannelKeyHealthCheck(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalOChannelKeyHealthCheckBackoff2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoff(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelKeyHealthCheckBackoff) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelKeyHealthCheckBackoff(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelKeyHealthCheckBackoffInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoff(ctx context.Context, v any) (*objects.ChannelKeyHealthCheckBackoff, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelKeyHealthCheckBackoffInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOChannelKeyHealthCheckBackoffMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoffMode(ctx context.Context, v any) (objects.ChannelKeyHealthCheckBackoffMode, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelKeyHealthCheckBackoffMode(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelKeyHealthCheckBackoffMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoffMode(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckBackoffMode) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
 func (ec *executionContext) marshalOChannelKeyHealthCheckBuiltin2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBuiltin(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelKeyHealthCheckBuiltin) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -113368,6 +115314,145 @@ func (ec *executionContext) marshalOChannelKeyHealthCheckKeyInjectionLocation2gi
 	_ = ctx
 	res := graphql.MarshalString(string(v))
 	return res
+}
+
+func (ec *executionContext) marshalOChannelKeyHealthCheckPolicy2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelKeyHealthCheckPolicy) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNChannelKeyHealthCheckPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicy(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalOChannelKeyHealthCheckPolicyAction2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelKeyHealthCheckPolicyAction) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNChannelKeyHealthCheckPolicyAction2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyAction(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOChannelKeyHealthCheckPolicyActionInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyActionᚄ(ctx context.Context, v any) ([]objects.ChannelKeyHealthCheckPolicyAction, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.ChannelKeyHealthCheckPolicyAction, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNChannelKeyHealthCheckPolicyActionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyAction(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalOChannelKeyHealthCheckPolicyCondition2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyCondition(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckPolicyCondition) graphql.Marshaler {
+	return ec._ChannelKeyHealthCheckPolicyCondition(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalOChannelKeyHealthCheckPolicyConditionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyCondition(ctx context.Context, v any) (objects.ChannelKeyHealthCheckPolicyCondition, error) {
+	res, err := ec.unmarshalInputChannelKeyHealthCheckPolicyConditionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOChannelKeyHealthCheckPolicyInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyᚄ(ctx context.Context, v any) ([]objects.ChannelKeyHealthCheckPolicy, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.ChannelKeyHealthCheckPolicy, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNChannelKeyHealthCheckPolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicy(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 func (ec *executionContext) marshalOChannelKeyHealthCheckRule2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckRuleᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelKeyHealthCheckRule) graphql.Marshaler {
