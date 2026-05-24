@@ -38,6 +38,7 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
   keyHealthCheck {
     enabled
     intervalMinutes
+    historyLimit
     failureThreshold
     failureAction
     includeDisabled
@@ -67,6 +68,29 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
         passWhen
       }
     }
+    policies {
+      id
+      name
+      enabled
+      conditions {
+        minFailureCount
+        statusCodes
+        available
+        balanceLTE
+        reasonContains
+        allCheckedKeysFailed
+        expr
+      }
+      actions {
+        type
+        backoff {
+          mode
+          intervalMinutes
+          maxIntervalMinutes
+          multiplier
+        }
+      }
+    }
     keyMetadata {
       id
       maskedKey
@@ -78,6 +102,11 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       balance
       currency
       available
+      statusCode
+      matchedPolicy
+      action
+      nextCheckAt
+      backoffAttempt
       history {
         id
         checkedAt
@@ -88,6 +117,11 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
         available
         trigger
         rule
+        statusCode
+        matchedPolicy
+        action
+        nextCheckAt
+        backoffAttempt
       }
     }
     archivedKeys {
@@ -115,6 +149,11 @@ const CHANNEL_API_KEY_INVENTORY_FIELDS = `
   balance
   currency
   available
+  statusCode
+  matchedPolicy
+  action
+  nextCheckAt
+  backoffAttempt
   history {
     id
     checkedAt
@@ -125,6 +164,11 @@ const CHANNEL_API_KEY_INVENTORY_FIELDS = `
     available
     trigger
     rule
+    statusCode
+    matchedPolicy
+    action
+    nextCheckAt
+    backoffAttempt
   }
 `;
 

@@ -19,17 +19,22 @@ import (
 var errCannotArchiveLastUsableChannelAPIKey = errors.New("cannot archive the last usable channel api key")
 
 type ChannelAPIKeyInventoryItem struct {
-	ID            string
-	MaskedKey     string
-	Status        objects.ChannelKeyStatus
-	LastCheckedAt *time.Time
-	Success       *bool
-	FailureCount  int
-	Reason        string
-	Balance       any
-	Currency      string
-	Available     *bool
-	History       []objects.ChannelKeyHealthCheckHistoryEntry
+	ID             string
+	MaskedKey      string
+	Status         objects.ChannelKeyStatus
+	LastCheckedAt  *time.Time
+	Success        *bool
+	FailureCount   int
+	Reason         string
+	Balance        any
+	Currency       string
+	Available      *bool
+	StatusCode     int
+	MatchedPolicy  string
+	Action         string
+	NextCheckAt    *time.Time
+	BackoffAttempt int
+	History        []objects.ChannelKeyHealthCheckHistoryEntry
 }
 
 func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID int) ([]*ChannelAPIKeyInventoryItem, error) {
@@ -591,6 +596,11 @@ func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.Chann
 	item.Balance = meta.Balance
 	item.Currency = meta.Currency
 	item.Available = meta.Available
+	item.StatusCode = meta.StatusCode
+	item.MatchedPolicy = meta.MatchedPolicy
+	item.Action = meta.Action
+	item.NextCheckAt = meta.NextCheckAt
+	item.BackoffAttempt = meta.BackoffAttempt
 	item.History = slices.Clone(meta.History)
 }
 
@@ -755,6 +765,10 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 	if settings.KeyHealthCheck != nil {
 		health := *settings.KeyHealthCheck
 		health.Rules = slices.Clone(settings.KeyHealthCheck.Rules)
+		health.Policies = slices.Clone(settings.KeyHealthCheck.Policies)
+		for i := range health.Policies {
+			health.Policies[i].Actions = slices.Clone(settings.KeyHealthCheck.Policies[i].Actions)
+		}
 		health.KeyMetadata = slices.Clone(settings.KeyHealthCheck.KeyMetadata)
 		for i := range health.KeyMetadata {
 			health.KeyMetadata[i].History = slices.Clone(settings.KeyHealthCheck.KeyMetadata[i].History)

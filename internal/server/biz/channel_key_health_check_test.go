@@ -142,6 +142,7 @@ func TestRunHTTPChannelKeyHealthCheck_StatusFailure(t *testing.T) {
 	})
 
 	require.False(t, result.Success)
+	require.Equal(t, http.StatusUnauthorized, result.StatusCode)
 	require.Contains(t, result.Reason, "unexpected status 401")
 	require.NotContains(t, result.Reason, "sk-status-fail")
 }
@@ -307,7 +308,7 @@ func TestAppendChannelKeyHealthCheckHistoryCapsNewestFirst(t *testing.T) {
 		Balance:  "10.50",
 		Currency: "CNY",
 		Rule:     "DeepSeek balance",
-	}, now, objects.ChannelKeyHealthCheckTriggerManual)
+	}, now, objects.ChannelKeyHealthCheckTriggerManual, channelKeyHealthCheckHistoryLimit)
 
 	require.Len(t, got, channelKeyHealthCheckHistoryLimit)
 	require.Contains(t, got[0].ID, keyID)
@@ -318,6 +319,178 @@ func TestAppendChannelKeyHealthCheckHistoryCapsNewestFirst(t *testing.T) {
 	require.Equal(t, "CNY", got[0].Currency)
 	require.Equal(t, objects.ChannelKeyHealthCheckTriggerManual, got[0].Trigger)
 	require.Equal(t, "DeepSeek balance", got[0].Rule)
+}
+
+func TestChannelKeyHealthCheckPolicy_StatusBackoffReportOnly(t *testing.T) {
+	now := time.Date(2026, 5, 24, 5, 0, 0, 0, time.UTC)
+	health := &objects.ChannelKeyHealthCheck{
+		KeyMetadata: []objects.ChannelKeyMetadata{{
+			ID:             objects.ChannelAPIKeyFingerprint("rate-limit-key"),
+			FailureCount:   1,
+			BackoffAttempt: 1,
+		}},
+		Policies: []objects.ChannelKeyHealthCheckPolicy{{
+			ID:   "rate-limit",
+			Name: "Rate limit",
+			Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+				MinFailureCount: lo.ToPtr(2),
+				StatusCodes:     []int{http.StatusTooManyRequests},
+			},
+			Actions: []objects.ChannelKeyHealthCheckPolicyAction{
+				{Type: objects.ChannelKeyHealthCheckPolicyActionReportOnly},
+				{Type: objects.ChannelKeyHealthCheckPolicyActionBackoff, Backoff: &objects.ChannelKeyHealthCheckBackoff{
+					Mode:               objects.ChannelKeyHealthCheckBackoffModeExponential,
+					IntervalMinutes:    5,
+					MaxIntervalMinutes: 20,
+					Multiplier:         2,
+				}},
+			},
+		}},
+	}
+
+	results := applyChannelKeyHealthCheckPoliciesToResults(health, []string{"rate-limit-key"}, []ChannelKeyHealthCheckResult{{
+		Success:    false,
+		Reason:     "unexpected status 429",
+		StatusCode: http.StatusTooManyRequests,
+	}}, now, objects.ChannelKeyHealthCheckTriggerScheduled, false)
+
+	require.Len(t, results, 1)
+	require.Equal(t, "Rate limit", results[0].MatchedPolicy)
+	require.Equal(t, "report_only,backoff", results[0].Action)
+	require.Equal(t, 2, results[0].BackoffAttempt)
+	require.NotNil(t, results[0].NextCheckAt)
+	require.Equal(t, now.Add(10*time.Minute), *results[0].NextCheckAt)
+
+	metadata := upsertChannelKeyHealthCheckMetadata(nil, "rate-limit-key", results[0], now, objects.ChannelKeyHealthCheckTriggerScheduled, channelKeyHealthCheckHistoryLimit)
+	require.Len(t, metadata, 1)
+	require.Equal(t, http.StatusTooManyRequests, metadata[0].StatusCode)
+	require.Equal(t, "Rate limit", metadata[0].MatchedPolicy)
+	require.Equal(t, "report_only,backoff", metadata[0].Action)
+	require.Equal(t, 2, metadata[0].BackoffAttempt)
+	require.NotNil(t, metadata[0].NextCheckAt)
+	require.Equal(t, http.StatusTooManyRequests, metadata[0].History[0].StatusCode)
+	require.Equal(t, "Rate limit", metadata[0].History[0].MatchedPolicy)
+}
+
+func TestChannelKeyHealthCheckPolicy_BalanceAvailabilityAndExprConditions(t *testing.T) {
+	health := &objects.ChannelKeyHealthCheck{
+		Policies: []objects.ChannelKeyHealthCheckPolicy{{
+			ID:   "exhausted",
+			Name: "Exhausted",
+			Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+				Available:      lo.ToPtr(false),
+				BalanceLTE:     lo.ToPtr(0.0),
+				ReasonContains: "unavailable",
+				Expr:           `success == false && available == false && currency == "CNY" && trigger == "manual"`,
+			},
+			Actions: []objects.ChannelKeyHealthCheckPolicyAction{{Type: objects.ChannelKeyHealthCheckPolicyActionArchiveKey}},
+		}},
+	}
+
+	available := false
+	results := applyChannelKeyHealthCheckPoliciesToResults(health, []string{"empty-key"}, []ChannelKeyHealthCheckResult{{
+		Success:   false,
+		Reason:    "provider unavailable",
+		Balance:   "0",
+		Currency:  "CNY",
+		Available: &available,
+	}}, time.Now(), objects.ChannelKeyHealthCheckTriggerManual, false)
+
+	require.Equal(t, "Exhausted", results[0].MatchedPolicy)
+	require.Equal(t, string(objects.ChannelKeyHealthCheckPolicyActionArchiveKey), results[0].Action)
+}
+
+func TestChannelKeyHealthCheckPolicy_EmptyConditionsIgnored(t *testing.T) {
+	health := &objects.ChannelKeyHealthCheck{
+		Policies: []objects.ChannelKeyHealthCheckPolicy{{
+			ID:      "empty",
+			Name:    "Empty",
+			Actions: []objects.ChannelKeyHealthCheckPolicyAction{{Type: objects.ChannelKeyHealthCheckPolicyActionDisableKey}},
+		}},
+	}
+
+	results := applyChannelKeyHealthCheckPoliciesToResults(health, []string{"key"}, []ChannelKeyHealthCheckResult{{
+		Success: false,
+		Reason:  "failed",
+	}}, time.Now(), objects.ChannelKeyHealthCheckTriggerScheduled, false)
+
+	require.Empty(t, results[0].MatchedPolicy)
+	require.Empty(t, results[0].Action)
+}
+
+func TestValidateChannelKeyHealthCheckPolicy(t *testing.T) {
+	valid := &objects.ChannelKeyHealthCheck{
+		HistoryLimit: 100,
+		Policies: []objects.ChannelKeyHealthCheckPolicy{{
+			ID:   "rate-limit",
+			Name: "Rate limit",
+			Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+				MinFailureCount: lo.ToPtr(1),
+				StatusCodes:     []int{http.StatusTooManyRequests},
+				Expr:            `status == 429`,
+			},
+			Actions: []objects.ChannelKeyHealthCheckPolicyAction{{
+				Type: objects.ChannelKeyHealthCheckPolicyActionBackoff,
+				Backoff: &objects.ChannelKeyHealthCheckBackoff{
+					Mode:               objects.ChannelKeyHealthCheckBackoffModeExponential,
+					IntervalMinutes:    5,
+					MaxIntervalMinutes: 20,
+					Multiplier:         2,
+				},
+			}},
+		}},
+	}
+	require.NoError(t, ValidateChannelKeyHealthCheck(valid))
+
+	invalidHistory := *valid
+	invalidHistory.HistoryLimit = 101
+	require.ErrorContains(t, ValidateChannelKeyHealthCheck(&invalidHistory), "history limit")
+
+	invalidPolicy := *valid
+	invalidPolicy.Policies = []objects.ChannelKeyHealthCheckPolicy{{
+		ID:      "bad",
+		Name:    "Bad",
+		Actions: []objects.ChannelKeyHealthCheckPolicyAction{{Type: objects.ChannelKeyHealthCheckPolicyActionBackoff}},
+	}}
+	require.ErrorContains(t, ValidateChannelKeyHealthCheck(&invalidPolicy), "backoff is required")
+
+	invalidStatus := *valid
+	invalidStatus.Policies = []objects.ChannelKeyHealthCheckPolicy{{
+		ID:   "bad-status",
+		Name: "Bad status",
+		Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+			StatusCodes: []int{99},
+		},
+		Actions: []objects.ChannelKeyHealthCheckPolicyAction{{Type: objects.ChannelKeyHealthCheckPolicyActionReportOnly}},
+	}}
+	require.ErrorContains(t, ValidateChannelKeyHealthCheck(&invalidStatus), "outside HTTP status range")
+}
+
+func TestChannelKeyHealthCheckBackoffDueScheduling(t *testing.T) {
+	now := time.Date(2026, 5, 24, 6, 0, 0, 0, time.UTC)
+	nextCheck := now.Add(15 * time.Minute)
+	ch := &ent.Channel{
+		Status: channel.StatusEnabled,
+		Credentials: objects.ChannelCredentials{
+			APIKeys: []string{"backoff-key"},
+		},
+		Settings: &objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled:         true,
+				IntervalMinutes: 1,
+				KeyMetadata: []objects.ChannelKeyMetadata{{
+					ID:            objects.ChannelAPIKeyFingerprint("backoff-key"),
+					LastCheckedAt: lo.ToPtr(now.Add(-time.Hour)),
+					NextCheckAt:   &nextCheck,
+				}},
+			},
+		},
+	}
+
+	require.False(t, channelKeyHealthCheckDue(ch, now))
+	require.Empty(t, filterChannelKeyHealthCheckDueKeys(ch, []string{"backoff-key"}, now))
+	require.True(t, channelKeyHealthCheckDue(ch, nextCheck))
+	require.Equal(t, []string{"backoff-key"}, filterChannelKeyHealthCheckDueKeys(ch, []string{"backoff-key"}, nextCheck))
 }
 
 func TestSelectedChannelKeyHealthCheckTargetsExcludeArchivedAndDefaultDisabled(t *testing.T) {
@@ -449,7 +622,7 @@ func TestChannelService_HealthCheckFailureActionPreservesLastKeyOnDelete(t *test
 	err = svc.applyChannelKeyHealthCheckFailureActions(ctx, ch.ID, ch.Settings.KeyHealthCheck, []string{"only-key"}, []ChannelKeyHealthCheckResult{{
 		Success: false,
 		Reason:  "bad key",
-	}})
+	}}, false)
 	require.NoError(t, err)
 
 	updated, err := client.Channel.Get(ctx, ch.ID)
@@ -487,13 +660,160 @@ func TestChannelService_HealthCheckFailureActionPreservesLastKeyOnArchive(t *tes
 	err = svc.applyChannelKeyHealthCheckFailureActions(ctx, ch.ID, ch.Settings.KeyHealthCheck, []string{"only-key"}, []ChannelKeyHealthCheckResult{{
 		Success: false,
 		Reason:  "bad key",
-	}})
+	}}, false)
 	require.NoError(t, err)
 
 	updated, err := client.Channel.Get(ctx, ch.ID)
 	require.NoError(t, err)
 	require.Equal(t, []string{"only-key"}, updated.Credentials.APIKeys)
 	require.Empty(t, updated.Settings.KeyHealthCheck.ArchivedKeys)
+}
+
+func TestChannelService_PolicyDisableKeyAndArchivePreserveLastKey(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	available := false
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Policy Disable Archive").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"first-key", "last-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Policies: []objects.ChannelKeyHealthCheckPolicy{{
+					ID:   "unavailable",
+					Name: "Unavailable",
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						Available: lo.ToPtr(false),
+					},
+					Actions: []objects.ChannelKeyHealthCheckPolicyAction{
+						{Type: objects.ChannelKeyHealthCheckPolicyActionDisableKey},
+						{Type: objects.ChannelKeyHealthCheckPolicyActionArchiveKey},
+					},
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	results := applyChannelKeyHealthCheckPoliciesToResults(ch.Settings.KeyHealthCheck, []string{"first-key", "last-key"}, []ChannelKeyHealthCheckResult{
+		{Success: false, Reason: "provider unavailable", Available: &available},
+		{Success: false, Reason: "provider unavailable", Available: &available},
+	}, time.Now(), objects.ChannelKeyHealthCheckTriggerScheduled, true)
+
+	err = svc.applyChannelKeyHealthCheckFailureActions(ctx, ch.ID, ch.Settings.KeyHealthCheck, []string{"first-key", "last-key"}, results, true)
+	require.NoError(t, err)
+
+	updated, err := client.Channel.Get(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Len(t, updated.DisabledAPIKeys, 2)
+	require.Len(t, updated.Settings.KeyHealthCheck.ArchivedKeys, 1)
+	require.Equal(t, objects.ChannelAPIKeyFingerprint("first-key"), updated.Settings.KeyHealthCheck.ArchivedKeys[0].ID)
+}
+
+func TestChannelService_PolicyAllCheckedKeysFailedDisablesChannel(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Policy Disable Channel").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"first-key", "second-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Policies: []objects.ChannelKeyHealthCheckPolicy{{
+					ID:   "all-failed",
+					Name: "All keys failed",
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						AllCheckedKeysFailed: lo.ToPtr(true),
+					},
+					Actions: []objects.ChannelKeyHealthCheckPolicyAction{{Type: objects.ChannelKeyHealthCheckPolicyActionDisableChannel}},
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	results := applyChannelKeyHealthCheckPoliciesToResults(ch.Settings.KeyHealthCheck, []string{"first-key", "second-key"}, []ChannelKeyHealthCheckResult{
+		{Success: false, Reason: "failed"},
+		{Success: false, Reason: "failed"},
+	}, time.Now(), objects.ChannelKeyHealthCheckTriggerScheduled, true)
+
+	err = svc.applyChannelKeyHealthCheckFailureActions(ctx, ch.ID, ch.Settings.KeyHealthCheck, []string{"first-key", "second-key"}, results, true)
+	require.NoError(t, err)
+
+	updated, err := client.Channel.Get(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Equal(t, channel.StatusDisabled, updated.Status)
+	require.NotNil(t, updated.ErrorMessage)
+	require.Contains(t, *updated.ErrorMessage, "All keys failed")
+}
+
+func TestChannelService_RunManualHealthCheckSuccessResetsBackoff(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"is_available":true}`))
+	}))
+	defer server.Close()
+	svc.httpClient = httpclient.NewHttpClientWithClient(server.Client())
+
+	nextCheck := time.Now().Add(time.Hour)
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Health Check Reset Backoff").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL(server.URL).
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"reset-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Rules: []objects.ChannelKeyHealthCheckRule{{
+					ID:   "balance",
+					Name: "Balance",
+					Type: objects.ChannelKeyHealthCheckRuleTypeHTTP,
+					HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+						Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+						URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+						Path:             "/user/balance",
+						ExpectedStatuses: []int{http.StatusOK},
+					},
+				}},
+				KeyMetadata: []objects.ChannelKeyMetadata{{
+					ID:             objects.ChannelAPIKeyFingerprint("reset-key"),
+					FailureCount:   2,
+					NextCheckAt:    &nextCheck,
+					BackoffAttempt: 2,
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = svc.RunChannelAPIKeyHealthCheck(ctx, ch.ID, []string{objects.ChannelAPIKeyFingerprint("reset-key")})
+	require.NoError(t, err)
+
+	updated, err := client.Channel.Get(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 1)
+	require.Equal(t, 0, updated.Settings.KeyHealthCheck.KeyMetadata[0].FailureCount)
+	require.Nil(t, updated.Settings.KeyHealthCheck.KeyMetadata[0].NextCheckAt)
+	require.Equal(t, 0, updated.Settings.KeyHealthCheck.KeyMetadata[0].BackoffAttempt)
 }
 
 func TestChannelService_RunDueHealthCheckUpdatesMetadataAndDisablesFailedKey(t *testing.T) {
