@@ -222,6 +222,9 @@ type ChannelSettings struct {
 	// KeyHealthCheck configures per-channel credential key health checks and
 	// stores secret-safe key metadata for the channel keys panel.
 	KeyHealthCheck *ChannelKeyHealthCheck `json:"keyHealthCheck,omitempty"`
+
+	// FailurePolicy configures request-time and health-check failure reactions.
+	FailurePolicy *ChannelFailurePolicy `json:"failurePolicy,omitempty"`
 }
 
 type RetryableErrorPattern struct {
@@ -264,9 +267,9 @@ func (s *ChannelKeySelection) StrategyOrDefault() ChannelKeySelectionStrategy {
 const (
 	DefaultChannelKeyLikelyAffinityTTLMinutes = 30
 	DefaultChannelKeyExactAffinityTTLMinutes  = 1440
-	MinChannelKeyAffinityTTLMinutes          = 1
-	MaxChannelKeyLikelyAffinityTTLMinutes    = 1440
-	MaxChannelKeyExactAffinityTTLMinutes     = 10080
+	MinChannelKeyAffinityTTLMinutes           = 1
+	MaxChannelKeyLikelyAffinityTTLMinutes     = 1440
+	MaxChannelKeyExactAffinityTTLMinutes      = 10080
 )
 
 func (s *ChannelKeySelection) LikelyAffinityTTLMinutesOrDefault() int {
@@ -434,6 +437,66 @@ type ChannelKeyHealthCheckBackoff struct {
 	IntervalMinutes    int                              `json:"intervalMinutes,omitempty"`
 	MaxIntervalMinutes int                              `json:"maxIntervalMinutes,omitempty"`
 	Multiplier         float64                          `json:"multiplier,omitempty"`
+}
+
+type ChannelFailurePolicyMode string
+
+const (
+	ChannelFailurePolicyModeInherit  ChannelFailurePolicyMode = "inherit"
+	ChannelFailurePolicyModeOverride ChannelFailurePolicyMode = "override"
+	ChannelFailurePolicyModeMerge    ChannelFailurePolicyMode = "merge"
+	ChannelFailurePolicyModeDisabled ChannelFailurePolicyMode = "disabled"
+)
+
+type FailurePolicyEventSource string
+
+const (
+	FailurePolicyEventSourceRequestFailure              FailurePolicyEventSource = "request_failure"
+	FailurePolicyEventSourceScheduledHealthCheckFailure FailurePolicyEventSource = "scheduled_health_check_failure"
+	FailurePolicyEventSourceManualHealthCheckFailure    FailurePolicyEventSource = "manual_health_check_failure"
+)
+
+type FailurePolicyTarget string
+
+const (
+	FailurePolicyTargetKey     FailurePolicyTarget = "key"
+	FailurePolicyTargetChannel FailurePolicyTarget = "channel"
+)
+
+type FailurePolicyActionType string
+
+const (
+	FailurePolicyActionReportOnly     FailurePolicyActionType = "report_only"
+	FailurePolicyActionBackoffKey     FailurePolicyActionType = "backoff_key"
+	FailurePolicyActionDisableKey     FailurePolicyActionType = "disable_key"
+	FailurePolicyActionArchiveKey     FailurePolicyActionType = "archive_key"
+	FailurePolicyActionDeleteKey      FailurePolicyActionType = "delete_key"
+	FailurePolicyActionDisableChannel FailurePolicyActionType = "disable_channel"
+)
+
+type FailurePolicy struct {
+	KeyProfiles     []FailurePolicyProfile `json:"keyProfiles,omitempty"`
+	ChannelProfiles []FailurePolicyProfile `json:"channelProfiles,omitempty"`
+}
+
+type ChannelFailurePolicy struct {
+	Mode            ChannelFailurePolicyMode `json:"mode,omitempty"`
+	KeyProfiles     []FailurePolicyProfile   `json:"keyProfiles,omitempty"`
+	ChannelProfiles []FailurePolicyProfile   `json:"channelProfiles,omitempty"`
+}
+
+type FailurePolicyProfile struct {
+	ID         string                               `json:"id"`
+	Name       string                               `json:"name"`
+	Enabled    *bool                                `json:"enabled,omitempty"`
+	Sources    []FailurePolicyEventSource           `json:"sources,omitempty"`
+	Conditions ChannelKeyHealthCheckPolicyCondition `json:"conditions,omitempty"`
+	Actions    []FailurePolicyAction                `json:"actions,omitempty"`
+}
+
+type FailurePolicyAction struct {
+	Type    FailurePolicyActionType       `json:"type"`
+	Backoff *ChannelKeyHealthCheckBackoff `json:"backoff,omitempty"`
 }
 
 type ChannelKeyHealthCheckRule struct {

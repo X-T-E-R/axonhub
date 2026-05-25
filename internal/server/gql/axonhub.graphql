@@ -167,6 +167,7 @@ type ChannelSettings {
   providerQuota: ChannelProviderQuotaSettings
   keySelection: ChannelKeySelection
   keyHealthCheck: ChannelKeyHealthCheck
+  failurePolicy: ChannelFailurePolicy
 }
 
 enum ChannelKeySelectionStrategy {
@@ -207,6 +208,28 @@ enum ChannelKeyHealthCheckPolicyActionType {
 enum ChannelKeyHealthCheckBackoffMode {
   fixed
   exponential
+}
+
+enum ChannelFailurePolicyMode {
+  inherit
+  override
+  merge
+  disabled
+}
+
+enum FailurePolicyEventSource {
+  request_failure
+  scheduled_health_check_failure
+  manual_health_check_failure
+}
+
+enum FailurePolicyActionType {
+  report_only
+  backoff_key
+  disable_key
+  archive_key
+  delete_key
+  disable_channel
 }
 
 enum ChannelKeyHealthCheckRuleType {
@@ -254,6 +277,56 @@ type ChannelKeyHealthCheck {
   policies: [ChannelKeyHealthCheckPolicy!]
   keyMetadata: [ChannelKeyMetadata!]
   archivedKeys: [ChannelArchivedAPIKey!]
+}
+
+type FailurePolicy {
+  keyProfiles: [FailurePolicyProfile!]
+  channelProfiles: [FailurePolicyProfile!]
+}
+
+input FailurePolicyInput {
+  keyProfiles: [FailurePolicyProfileInput!]
+  channelProfiles: [FailurePolicyProfileInput!]
+}
+
+type ChannelFailurePolicy {
+  mode: ChannelFailurePolicyMode
+  keyProfiles: [FailurePolicyProfile!]
+  channelProfiles: [FailurePolicyProfile!]
+}
+
+input ChannelFailurePolicyInput {
+  mode: ChannelFailurePolicyMode
+  keyProfiles: [FailurePolicyProfileInput!]
+  channelProfiles: [FailurePolicyProfileInput!]
+}
+
+type FailurePolicyProfile {
+  id: String!
+  name: String!
+  enabled: Boolean
+  sources: [FailurePolicyEventSource!]
+  conditions: ChannelKeyHealthCheckPolicyCondition
+  actions: [FailurePolicyAction!]
+}
+
+input FailurePolicyProfileInput {
+  id: String!
+  name: String!
+  enabled: Boolean
+  sources: [FailurePolicyEventSource!]
+  conditions: ChannelKeyHealthCheckPolicyConditionInput
+  actions: [FailurePolicyActionInput!]
+}
+
+type FailurePolicyAction {
+  type: FailurePolicyActionType!
+  backoff: ChannelKeyHealthCheckBackoff
+}
+
+input FailurePolicyActionInput {
+  type: FailurePolicyActionType!
+  backoff: ChannelKeyHealthCheckBackoffInput
 }
 
 input ChannelKeyHealthCheckInput {
@@ -542,6 +615,7 @@ input ChannelSettingsInput {
   providerQuota: ChannelProviderQuotaSettingsInput
   keySelection: ChannelKeySelectionInput
   keyHealthCheck: ChannelKeyHealthCheckInput
+  failurePolicy: ChannelFailurePolicyInput
 }
 
 input ChannelRateLimitInput {

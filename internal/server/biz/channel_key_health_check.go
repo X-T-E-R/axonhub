@@ -376,7 +376,7 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 		}
 	}
 	allCheckedKeysFailed := len(targetKeys) > 0 && failed == len(targetKeys)
-	results = applyChannelKeyHealthCheckPoliciesToResults(settings.KeyHealthCheck, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerScheduled, allCheckedKeysFailed)
+	results = svc.applyFailurePolicyToHealthCheckResults(ctx, ch, settings, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerScheduled, allCheckedKeysFailed)
 	for i, key := range targetKeys {
 		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerScheduled, settings.KeyHealthCheck.HistoryLimitOrDefault())
 	}
@@ -386,7 +386,7 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 		return channelKeyHealthCheckChannelResult{}, fmt.Errorf("failed to save channel key metadata: %w", err)
 	}
 
-	if err := svc.applyChannelKeyHealthCheckFailureActions(ctx, ch.ID, settings.KeyHealthCheck, targetKeys, results, allCheckedKeysFailed); err != nil {
+	if err := svc.applyChannelKeyHealthCheckPolicyActions(ctx, ch.ID, targetKeys, results, allCheckedKeysFailed); err != nil {
 		return channelKeyHealthCheckChannelResult{}, err
 	}
 
@@ -1489,7 +1489,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 		}
 	}
 	allCheckedKeysFailed := len(targetKeys) > 0 && failed == len(targetKeys)
-	results = applyChannelKeyHealthCheckPoliciesToResults(settings.KeyHealthCheck, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerManual, allCheckedKeysFailed)
+	results = svc.applyFailurePolicyToHealthCheckResults(ctx, ch, settings, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerManual, allCheckedKeysFailed)
 	for i, key := range targetKeys {
 		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerManual, settings.KeyHealthCheck.HistoryLimitOrDefault())
 	}
@@ -1499,7 +1499,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 		return nil, fmt.Errorf("failed to save channel key metadata: %w", err)
 	}
 
-	if err := svc.applyChannelKeyHealthCheckFailureActions(ctx, channelID, settings.KeyHealthCheck, targetKeys, results, allCheckedKeysFailed); err != nil {
+	if err := svc.applyChannelKeyHealthCheckPolicyActions(ctx, channelID, targetKeys, results, allCheckedKeysFailed); err != nil {
 		return nil, err
 	}
 	if failed > 0 {
@@ -1656,7 +1656,10 @@ func (svc *ChannelService) applyChannelKeyHealthCheckPolicyActions(
 			if action == "" {
 				continue
 			}
-			if action == string(objects.ChannelKeyHealthCheckPolicyActionReportOnly) || action == string(objects.ChannelKeyHealthCheckPolicyActionBackoff) {
+			if action == string(objects.ChannelKeyHealthCheckPolicyActionReportOnly) ||
+				action == string(objects.ChannelKeyHealthCheckPolicyActionBackoff) ||
+				action == string(objects.FailurePolicyActionReportOnly) ||
+				action == string(objects.FailurePolicyActionBackoffKey) {
 				continue
 			}
 
@@ -1664,7 +1667,10 @@ func (svc *ChannelService) applyChannelKeyHealthCheckPolicyActions(
 			if reason == "" {
 				reason = "channel key health check policy matched"
 			}
-			reason = fmt.Sprintf("%s: %s", result.MatchedPolicy, reason)
+			if !strings.EqualFold(result.MatchedPolicy, "Legacy health-check failure threshold") &&
+				!strings.EqualFold(result.MatchedPolicy, "legacy failure threshold") {
+				reason = fmt.Sprintf("%s: %s", result.MatchedPolicy, reason)
+			}
 			switch objects.ChannelKeyHealthCheckPolicyActionType(action) {
 			case objects.ChannelKeyHealthCheckPolicyActionDisableKey:
 				if err := svc.DisableAPIKey(ctx, channelID, key, channelKeyHealthCheckFailureCode, reason); err != nil {
@@ -1692,7 +1698,35 @@ func (svc *ChannelService) applyChannelKeyHealthCheckPolicyActions(
 				}
 				channelDisabled = true
 			default:
-				return fmt.Errorf("unsupported key health policy action %q", action)
+				switch objects.FailurePolicyActionType(action) {
+				case objects.FailurePolicyActionDisableKey:
+					if err := svc.DisableAPIKey(ctx, channelID, key, channelKeyHealthCheckFailureCode, reason); err != nil {
+						return err
+					}
+				case objects.FailurePolicyActionArchiveKey:
+					err := svc.ArchiveChannelAPIKey(ctx, channelID, key, reason)
+					if errors.Is(err, errCannotArchiveLastUsableChannelAPIKey) {
+						continue
+					}
+					if err != nil {
+						return err
+					}
+				case objects.FailurePolicyActionDeleteKey:
+					_, err := svc.DeleteChannelAPIKey(ctx, channelID, key)
+					if err != nil {
+						return err
+					}
+				case objects.FailurePolicyActionDisableChannel:
+					if channelDisabled || !allCheckedKeysFailed {
+						continue
+					}
+					if err := svc.disableChannelForKeyHealthPolicy(ctx, channelID, result.MatchedPolicy); err != nil {
+						return err
+					}
+					channelDisabled = true
+				default:
+					return fmt.Errorf("unsupported key health policy action %q", action)
+				}
 			}
 		}
 	}

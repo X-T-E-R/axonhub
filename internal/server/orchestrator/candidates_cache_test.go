@@ -100,6 +100,7 @@ func TestDefaultSelector_SelectModelCandidates_Cache(t *testing.T) {
 			SetCredentials(objects.ChannelCredentials{APIKey: "test-key"}).
 			SetStatus(channel.StatusEnabled).
 			SaveX(ctx)
+		require.NoError(t, channelService.ReloadEnabledChannelsCache(ctx))
 
 		req := &llm.Request{Model: modelID}
 		candidates, err := selector.selectModelCandidates(ctx, req)
@@ -111,7 +112,7 @@ func TestDefaultSelector_SelectModelCandidates_Cache(t *testing.T) {
 		entry := selector.associationCache[modelID]
 		selector.cacheMu.RUnlock()
 
-		require.Equal(t, 3, entry.channelCount, "cache should reflect new channel count")
+		require.Equal(t, 4, entry.channelCount, "cache should reflect new channel count")
 	})
 
 	t.Run("cache invalidated when channel updated", func(t *testing.T) {
@@ -124,6 +125,7 @@ func TestDefaultSelector_SelectModelCandidates_Cache(t *testing.T) {
 			SetUpdatedAt(now.Add(1 * time.Hour)).
 			Save(ctx)
 		require.NoError(t, err)
+		require.NoError(t, channelService.ReloadEnabledChannelsCache(ctx))
 
 		enabledChannels := append([]*biz.Channel(nil), channelService.GetEnabledChannels()...)
 		for i, ch := range enabledChannels {

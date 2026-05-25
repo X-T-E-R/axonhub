@@ -181,6 +181,39 @@ models:
   ChannelKeyHealthCheckBackoffMode:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckBackoffMode
+  ChannelFailurePolicyMode:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelFailurePolicyMode
+  FailurePolicyEventSource:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicyEventSource
+  FailurePolicyActionType:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicyActionType
+  FailurePolicy:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicy
+  FailurePolicyInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicy
+  ChannelFailurePolicy:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelFailurePolicy
+  ChannelFailurePolicyInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelFailurePolicy
+  FailurePolicyProfile:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicyProfile
+  FailurePolicyProfileInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicyProfile
+  FailurePolicyAction:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicyAction
+  FailurePolicyActionInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicyAction
   ChannelKeyHealthCheckRuleType:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckRuleType

@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { getTokenFromStorage } from '@/stores/authStore';
 import i18n from '@/lib/i18n';
 import { useErrorHandler } from '@/hooks/use-error-handler';
-import type { ProxyConfig } from '@/features/channels/data/schema';
+import type { ChannelFailurePolicy, ProxyConfig } from '@/features/channels/data/schema';
 import type { ModelAssociation } from '@/features/models/data/schema';
 
 // GraphQL queries and mutations
@@ -111,6 +111,56 @@ const RETRY_POLICY_QUERY = `
         statuses {
           status
           times
+        }
+      }
+      failurePolicy {
+        keyProfiles {
+          id
+          name
+          enabled
+          sources
+          conditions {
+            minFailureCount
+            statusCodes
+            available
+            balanceLTE
+            reasonContains
+            allCheckedKeysFailed
+            expr
+          }
+          actions {
+            type
+            backoff {
+              mode
+              intervalMinutes
+              maxIntervalMinutes
+              multiplier
+            }
+          }
+        }
+        channelProfiles {
+          id
+          name
+          enabled
+          sources
+          conditions {
+            minFailureCount
+            statusCodes
+            available
+            balanceLTE
+            reasonContains
+            allCheckedKeysFailed
+            expr
+          }
+          actions {
+            type
+            backoff {
+              mode
+              intervalMinutes
+              maxIntervalMinutes
+              multiplier
+            }
+          }
         }
       }
     }
@@ -355,6 +405,7 @@ export interface RetryPolicy {
   emptyResponseDetection: boolean;
   emptyResponseTextPatterns: string[];
   upstreamErrorPolicy: UpstreamErrorPolicy;
+  failurePolicy: Omit<ChannelFailurePolicy, 'mode'>;
 }
 
 export interface UpstreamErrorPolicy {
@@ -384,6 +435,7 @@ export interface RetryPolicyInput {
   emptyResponseDetection?: boolean;
   emptyResponseTextPatterns?: string[];
   upstreamErrorPolicy?: Partial<UpstreamErrorPolicy>;
+  failurePolicy?: Omit<ChannelFailurePolicy, 'mode'>;
 }
 
 export interface UpdateDefaultDataStorageInput {

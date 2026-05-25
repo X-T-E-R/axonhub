@@ -41,7 +41,6 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -60,10 +59,12 @@ import {
 import {
   Channel,
   ChannelAPIKeyInventoryItem,
+  ChannelFailurePolicy,
+  ChannelFailurePolicyMode,
+  FailurePolicyActionType,
+  FailurePolicyEventSource,
   ChannelKeyHealthCheck,
   ChannelKeyHealthCheckHistoryEntry,
-  ChannelKeyHealthCheckPolicyActionType,
-  channelKeyHealthCheckFailureActionSchema,
   channelKeySelectionStrategySchema,
 } from '../data/schema';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
@@ -96,7 +97,7 @@ interface KeyInventoryRow {
 }
 
 type BatchKeyAction = 'health' | 'disable' | 'enable' | 'archive' | 'restore' | 'delete';
-type PolicyActionType = ChannelKeyHealthCheckPolicyActionType;
+type FailurePolicyTarget = 'key' | 'channel';
 type AvailabilityConditionMode = 'any' | 'available' | 'unavailable';
 type KeyHistoryTooltipProps = TooltipProps<number, string> & {
   label?: string | number;
@@ -116,6 +117,33 @@ type BalanceSummary = {
   keyCount: number;
 };
 
+const nullableIntField = (min: number, max: number) =>
+  z.preprocess((value) => (value === '' || value == null ? null : value), z.coerce.number().int().min(min).max(max).nullable());
+const nullableNumberField = z.preprocess((value) => (value === '' || value == null ? null : value), z.coerce.number().nullable());
+
+const failureProfileFormSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  sources: z.array(z.enum(['request_failure', 'scheduled_health_check_failure', 'manual_health_check_failure'])).min(1),
+  minFailureCount: nullableIntField(1, 100),
+  statusCodes: z.string().optional(),
+  availability: z.enum(['any', 'available', 'unavailable']),
+  balanceLTE: nullableNumberField,
+  reasonContains: z.string().optional(),
+  allCheckedKeysFailed: z.boolean(),
+  expr: z.string().optional(),
+  actions: z.array(
+    z.object({
+      type: z.enum(['report_only', 'backoff_key', 'disable_key', 'archive_key', 'delete_key', 'disable_channel']),
+      backoffMode: z.enum(['fixed', 'exponential']),
+      intervalMinutes: z.coerce.number().int().min(1).max(10080),
+      maxIntervalMinutes: z.coerce.number().int().min(1).max(10080),
+      multiplier: z.coerce.number().min(1).max(20),
+    })
+  ),
+});
+
 const keysFormSchema = z.object({
   strategy: channelKeySelectionStrategySchema,
   likelyAffinityTTLMinutes: z.coerce.number().int().min(1).max(1440),
@@ -125,8 +153,6 @@ const keysFormSchema = z.object({
     enabled: z.boolean(),
     intervalMinutes: z.coerce.number().int().min(5).max(10080),
     historyLimit: z.coerce.number().int().min(1).max(100),
-    failureThreshold: z.coerce.number().int().min(1).max(20),
-    failureAction: channelKeyHealthCheckFailureActionSchema,
     includeDisabled: z.boolean(),
     builtinRuleEnabled: z.boolean(),
     deepseekRuleEnabled: z.boolean(),
@@ -134,41 +160,31 @@ const keysFormSchema = z.object({
     deepseekUseAbsoluteURL: z.boolean(),
     deepseekExpectedStatuses: z.string(),
     deepseekPassWhen: z.string(),
-    policies: z.array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string().min(1),
-        enabled: z.boolean(),
-        minFailureCount: z.coerce.number().int().min(1).max(100).nullable(),
-        statusCodes: z.string().optional(),
-        availability: z.enum(['any', 'available', 'unavailable']),
-        balanceLTE: z.coerce.number().nullable(),
-        reasonContains: z.string().optional(),
-        allCheckedKeysFailed: z.boolean(),
-        expr: z.string().optional(),
-        actions: z.array(
-          z.object({
-            type: z.enum(['report_only', 'disable_key', 'archive_key', 'delete_key', 'disable_channel', 'backoff']),
-            backoffMode: z.enum(['fixed', 'exponential']),
-            intervalMinutes: z.coerce.number().int().min(1).max(10080),
-            maxIntervalMinutes: z.coerce.number().int().min(1).max(10080),
-            multiplier: z.coerce.number().min(1).max(20),
-          })
-        ),
-      })
-    ),
+  }),
+  failurePolicy: z.object({
+    mode: z.enum(['inherit', 'override', 'merge', 'disabled']),
+    keyProfiles: z.array(failureProfileFormSchema),
+    channelProfiles: z.array(failureProfileFormSchema),
   }),
 });
 
 type KeysFormValues = z.output<typeof keysFormSchema>;
+type FailureProfileFormValue = KeysFormValues['failurePolicy']['keyProfiles'][number];
+type FailureActionFormValue = FailureProfileFormValue['actions'][number];
 const keysFormResolver = zodResolver(keysFormSchema) as unknown as Resolver<KeysFormValues, unknown, KeysFormValues>;
 
 const DEFAULT_STRATEGY: KeysFormValues['strategy'] = 'trace_sticky';
 const DEFAULT_LIKELY_AFFINITY_TTL_MINUTES = 30;
 const DEFAULT_EXACT_AFFINITY_TTL_MINUTES = 1440;
 const STRATEGIES: KeysFormValues['strategy'][] = ['trace_sticky', 'cache_affinity', 'random', 'round_robin'];
-const FAILURE_ACTIONS: KeysFormValues['healthCheck']['failureAction'][] = ['report_only', 'disable', 'archive', 'delete'];
-const POLICY_ACTIONS: PolicyActionType[] = ['report_only', 'disable_key', 'archive_key', 'delete_key', 'disable_channel', 'backoff'];
+const FAILURE_POLICY_MODES: ChannelFailurePolicyMode[] = ['inherit', 'override', 'merge', 'disabled'];
+const FAILURE_EVENT_SOURCES: FailurePolicyEventSource[] = [
+  'request_failure',
+  'scheduled_health_check_failure',
+  'manual_health_check_failure',
+];
+const KEY_FAILURE_ACTIONS: FailurePolicyActionType[] = ['report_only', 'backoff_key', 'disable_key', 'archive_key', 'delete_key'];
+const CHANNEL_FAILURE_ACTIONS: FailurePolicyActionType[] = ['report_only', 'disable_channel'];
 const BALANCE_VALUE_KEYS = [
   'total_balance',
   'totalBalance',
@@ -184,8 +200,6 @@ const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
   enabled: false,
   intervalMinutes: 60,
   historyLimit: 20,
-  failureThreshold: 3,
-  failureAction: 'report_only',
   includeDisabled: false,
   builtinRuleEnabled: true,
   deepseekRuleEnabled: false,
@@ -193,18 +207,18 @@ const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
   deepseekUseAbsoluteURL: true,
   deepseekExpectedStatuses: '200',
   deepseekPassWhen: 'json.is_available == true',
-  policies: [],
 };
 
 function positiveOrDefault(value: number | null | undefined, fallback: number): number {
   return typeof value === 'number' && value > 0 ? value : fallback;
 }
 
-function createDefaultPolicy(index: number): KeysFormValues['healthCheck']['policies'][number] {
+function createDefaultProfile(index: number, target: FailurePolicyTarget): FailureProfileFormValue {
   return {
-    id: `policy-${Date.now()}-${index + 1}`,
-    name: `Policy ${index + 1}`,
+    id: `${target}-policy-${Date.now()}-${index + 1}`,
+    name: `${target === 'key' ? 'Key' : 'Channel'} policy ${index + 1}`,
     enabled: true,
+    sources: target === 'key' ? ['request_failure', 'scheduled_health_check_failure'] : ['request_failure'],
     minFailureCount: 3,
     statusCodes: '',
     availability: 'any',
@@ -214,13 +228,23 @@ function createDefaultPolicy(index: number): KeysFormValues['healthCheck']['poli
     expr: '',
     actions: [
       {
-        type: 'report_only',
+        type: 'report_only' as const,
         backoffMode: 'fixed',
         intervalMinutes: 30,
         maxIntervalMinutes: 240,
         multiplier: 2,
       },
     ],
+  };
+}
+
+function createDefaultAction(target: FailurePolicyTarget): FailureActionFormValue {
+  return {
+    type: target === 'key' ? 'report_only' : 'report_only',
+    backoffMode: 'fixed',
+    intervalMinutes: 30,
+    maxIntervalMinutes: 240,
+    multiplier: 2,
   };
 }
 
@@ -231,29 +255,125 @@ function parseStatusList(input: string): number[] {
     .filter((item) => Number.isInteger(item) && item >= 100 && item <= 599);
 }
 
-function policyValuesFromHealth(health?: ChannelKeyHealthCheck | null): KeysFormValues['healthCheck']['policies'] {
-  return (health?.policies ?? []).map((policy, index) => ({
-    id: policy.id || `policy-${index + 1}`,
-    name: policy.name || `Policy ${index + 1}`,
-    enabled: policy.enabled ?? true,
-    minFailureCount: policy.conditions?.minFailureCount ?? null,
-    statusCodes: (policy.conditions?.statusCodes ?? []).join(', '),
-    availability: policy.conditions?.available == null ? 'any' : policy.conditions.available ? 'available' : 'unavailable',
-    balanceLTE: policy.conditions?.balanceLTE ?? null,
-    reasonContains: policy.conditions?.reasonContains ?? '',
-    allCheckedKeysFailed: policy.conditions?.allCheckedKeysFailed ?? false,
-    expr: policy.conditions?.expr ?? '',
-    actions:
-      policy.actions && policy.actions.length > 0
-        ? policy.actions.map((action) => ({
-            type: action.type,
-            backoffMode: action.backoff?.mode ?? 'fixed',
-            intervalMinutes: positiveOrDefault(action.backoff?.intervalMinutes, 30),
-            maxIntervalMinutes: positiveOrDefault(action.backoff?.maxIntervalMinutes, 240),
-            multiplier: positiveOrDefault(action.backoff?.multiplier, 2),
-          }))
-        : createDefaultPolicy(index).actions,
-  }));
+function toProfileFormValue(
+  profile: NonNullable<ChannelFailurePolicy['keyProfiles']>[number],
+  index: number,
+  target: FailurePolicyTarget,
+  sourcesFallback: FailurePolicyEventSource[]
+): FailureProfileFormValue {
+  const allowedActions = target === 'key' ? KEY_FAILURE_ACTIONS : CHANNEL_FAILURE_ACTIONS;
+  const actions =
+    profile.actions
+      ?.filter((action) => allowedActions.includes(action.type))
+      .map((action) => ({
+        type: action.type,
+        backoffMode: action.backoff?.mode ?? 'fixed',
+        intervalMinutes: positiveOrDefault(action.backoff?.intervalMinutes, 30),
+        maxIntervalMinutes: positiveOrDefault(action.backoff?.maxIntervalMinutes, 240),
+        multiplier: positiveOrDefault(action.backoff?.multiplier, 2),
+      })) ?? [];
+
+  return {
+    id: profile.id || `${target}-policy-${index + 1}`,
+    name: profile.name || `${target === 'key' ? 'Key' : 'Channel'} policy ${index + 1}`,
+    enabled: profile.enabled ?? true,
+    sources: profile.sources && profile.sources.length > 0 ? profile.sources : sourcesFallback,
+    minFailureCount: profile.conditions?.minFailureCount ?? null,
+    statusCodes: (profile.conditions?.statusCodes ?? []).join(', '),
+    availability: profile.conditions?.available == null ? 'any' : profile.conditions.available ? 'available' : 'unavailable',
+    balanceLTE: profile.conditions?.balanceLTE ?? null,
+    reasonContains: profile.conditions?.reasonContains ?? '',
+    allCheckedKeysFailed: profile.conditions?.allCheckedKeysFailed ?? false,
+    expr: profile.conditions?.expr ?? '',
+    actions: actions.length > 0 ? actions : [createDefaultAction(target)],
+  };
+}
+
+function failurePolicyValuesFromStored(policy?: ChannelFailurePolicy | null): KeysFormValues['failurePolicy'] {
+  return {
+    mode: policy?.mode ?? 'inherit',
+    keyProfiles: (policy?.keyProfiles ?? []).map((profile, index) =>
+      toProfileFormValue(profile, index, 'key', ['request_failure', 'scheduled_health_check_failure'])
+    ),
+    channelProfiles: (policy?.channelProfiles ?? []).map((profile, index) =>
+      toProfileFormValue(profile, index, 'channel', ['request_failure'])
+    ),
+  };
+}
+
+function mapLegacyHealthActionType(type: string): FailurePolicyActionType | null {
+  if (type === 'backoff') return 'backoff_key';
+  if (type === 'report_only') return 'report_only';
+  if (type === 'disable_key' || type === 'archive_key' || type === 'delete_key' || type === 'disable_channel') return type;
+  return null;
+}
+
+function failurePolicyValuesFromLegacyHealth(health?: ChannelKeyHealthCheck | null): KeysFormValues['failurePolicy'] {
+  const keyProfiles: FailureProfileFormValue[] = [];
+  const channelProfiles: FailureProfileFormValue[] = [];
+  const legacySources: FailurePolicyEventSource[] = ['scheduled_health_check_failure', 'manual_health_check_failure'];
+
+  (health?.policies ?? []).forEach((policy, index) => {
+    const legacyProfile = {
+      id: policy.id,
+      name: policy.name,
+      enabled: policy.enabled,
+      sources: legacySources,
+      conditions: policy.conditions,
+      actions: (policy.actions ?? [])
+        .map((action) => {
+          const type = mapLegacyHealthActionType(action.type);
+          return type
+            ? {
+                type,
+                backoff: type === 'backoff_key' ? action.backoff : null,
+              }
+            : null;
+        })
+        .filter((action): action is NonNullable<typeof action> => action != null),
+    };
+
+    const keyProfile = toProfileFormValue(legacyProfile, index, 'key', legacySources);
+
+    if (keyProfile.actions.some((action) => KEY_FAILURE_ACTIONS.includes(action.type))) {
+      keyProfiles.push({
+        ...keyProfile,
+        actions: keyProfile.actions.filter((action) => KEY_FAILURE_ACTIONS.includes(action.type)),
+      });
+    }
+
+    if ((policy.actions ?? []).some((action) => action.type === 'disable_channel') || policy.conditions?.allCheckedKeysFailed) {
+      const channelProfile = toProfileFormValue(legacyProfile, index, 'channel', legacySources);
+      channelProfiles.push({
+        ...channelProfile,
+        id: `${channelProfile.id}-channel`,
+        name: `${channelProfile.name} (channel)`,
+        actions: channelProfile.actions.filter((action) => CHANNEL_FAILURE_ACTIONS.includes(action.type)),
+      });
+    }
+  });
+
+  if (health?.failureAction && health.failureAction !== 'report_only') {
+    keyProfiles.push({
+      ...createDefaultProfile(keyProfiles.length, 'key'),
+      id: 'legacy-health-threshold',
+      name: 'Legacy health-check threshold',
+      sources: legacySources,
+      minFailureCount: health.failureThreshold ?? 3,
+      actions: [
+        {
+          ...createDefaultAction('key'),
+          type: health.failureAction === 'disable' ? 'disable_key' : health.failureAction === 'archive' ? 'archive_key' : 'delete_key',
+        },
+      ],
+    });
+  }
+
+  return {
+    mode: 'merge',
+    keyProfiles,
+    channelProfiles: channelProfiles.filter((profile) => profile.actions.length > 0),
+  };
 }
 
 function valuesFromChannel(currentRow: Channel): KeysFormValues {
@@ -274,8 +394,6 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
       enabled: health?.enabled ?? DEFAULT_HEALTH_CHECK.enabled,
       intervalMinutes: health?.intervalMinutes ?? DEFAULT_HEALTH_CHECK.intervalMinutes,
       historyLimit: positiveOrDefault(health?.historyLimit, DEFAULT_HEALTH_CHECK.historyLimit),
-      failureThreshold: health?.failureThreshold ?? DEFAULT_HEALTH_CHECK.failureThreshold,
-      failureAction: health?.failureAction ?? DEFAULT_HEALTH_CHECK.failureAction,
       includeDisabled: health?.includeDisabled ?? DEFAULT_HEALTH_CHECK.includeDisabled,
       builtinRuleEnabled: builtinRule ? (builtinRule.enabled ?? true) : DEFAULT_HEALTH_CHECK.builtinRuleEnabled,
       deepseekRuleEnabled: deepseekRule ? (deepseekRule.enabled ?? true) : DEFAULT_HEALTH_CHECK.deepseekRuleEnabled,
@@ -285,8 +403,10 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
       deepseekUseAbsoluteURL,
       deepseekExpectedStatuses: (deepseekRule?.http?.expectedStatuses ?? [200]).join(', '),
       deepseekPassWhen: deepseekRule?.http?.passWhen || DEFAULT_HEALTH_CHECK.deepseekPassWhen,
-      policies: policyValuesFromHealth(health),
     },
+    failurePolicy: currentRow.settings?.failurePolicy
+      ? failurePolicyValuesFromStored(currentRow.settings.failurePolicy)
+      : failurePolicyValuesFromLegacyHealth(health),
   };
 }
 
@@ -331,27 +451,35 @@ function healthCheckFromValues(values: KeysFormValues): ChannelKeyHealthCheck {
     enabled: values.healthCheck.enabled,
     intervalMinutes: values.healthCheck.intervalMinutes,
     historyLimit: values.healthCheck.historyLimit,
-    failureThreshold: values.healthCheck.failureThreshold,
-    failureAction: values.healthCheck.failureAction,
+    failureThreshold: 3,
+    failureAction: 'report_only',
     includeDisabled: values.healthCheck.includeDisabled,
     rules,
-    policies: values.healthCheck.policies.map((policy) => ({
-      id: policy.id,
-      name: policy.name,
-      enabled: policy.enabled,
-      conditions: {
-        minFailureCount: policy.minFailureCount ?? null,
-        statusCodes: parseStatusList(policy.statusCodes ?? ''),
-        available: policy.availability === 'any' ? null : policy.availability === 'available',
-        balanceLTE: policy.balanceLTE ?? null,
-        reasonContains: policy.reasonContains?.trim() || null,
-        allCheckedKeysFailed: policy.allCheckedKeysFailed || null,
-        expr: policy.expr?.trim() || null,
-      },
-      actions: policy.actions.map((action) => ({
+    policies: [],
+  };
+}
+
+function failurePolicyFromValues(values: KeysFormValues): ChannelFailurePolicy {
+  const toStoredProfile = (policy: FailureProfileFormValue, target: FailurePolicyTarget) => ({
+    id: policy.id,
+    name: policy.name,
+    enabled: policy.enabled,
+    sources: policy.sources,
+    conditions: {
+      minFailureCount: policy.minFailureCount ?? null,
+      statusCodes: parseStatusList(policy.statusCodes ?? ''),
+      available: policy.availability === 'any' ? null : policy.availability === 'available',
+      balanceLTE: policy.balanceLTE ?? null,
+      reasonContains: policy.reasonContains?.trim() || null,
+      allCheckedKeysFailed: policy.allCheckedKeysFailed || null,
+      expr: policy.expr?.trim() || null,
+    },
+    actions: policy.actions
+      .filter((action) => (target === 'key' ? KEY_FAILURE_ACTIONS : CHANNEL_FAILURE_ACTIONS).includes(action.type))
+      .map((action) => ({
         type: action.type,
         backoff:
-          action.type === 'backoff'
+          action.type === 'backoff_key'
             ? {
                 mode: action.backoffMode,
                 intervalMinutes: action.intervalMinutes,
@@ -360,7 +488,12 @@ function healthCheckFromValues(values: KeysFormValues): ChannelKeyHealthCheck {
               }
             : null,
       })),
-    })),
+  });
+
+  return {
+    mode: values.failurePolicy.mode,
+    keyProfiles: values.failurePolicy.keyProfiles.map((profile) => toStoredProfile(profile, 'key')),
+    channelProfiles: values.failurePolicy.channelProfiles.map((profile) => toStoredProfile(profile, 'channel')),
   };
 }
 
@@ -665,6 +798,72 @@ function KeyHistoryCharts({ history }: { history: ChannelKeyHealthCheckHistoryEn
 
 function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>; disabled: boolean }) {
   const { t } = useTranslation();
+
+  return (
+    <div className='space-y-5'>
+      <FormField
+        control={form.control}
+        name='failurePolicy.mode'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('channels.dialogs.keys.failureStrategy.mode.label')}</FormLabel>
+            <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {FAILURE_POLICY_MODES.map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {t(`channels.dialogs.keys.failureStrategy.modes.${mode}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormDescription>{t('channels.dialogs.keys.failureStrategy.mode.description')}</FormDescription>
+          </FormItem>
+        )}
+      />
+
+      <div className='grid gap-4 lg:grid-cols-2'>
+        <FailurePolicyProfilesEditor
+          form={form}
+          disabled={disabled}
+          target='key'
+          name='failurePolicy.keyProfiles'
+          title={t('channels.dialogs.keys.failureStrategy.keyProfiles.title')}
+          description={t('channels.dialogs.keys.failureStrategy.keyProfiles.description')}
+        />
+        <FailurePolicyProfilesEditor
+          form={form}
+          disabled={disabled}
+          target='channel'
+          name='failurePolicy.channelProfiles'
+          title={t('channels.dialogs.keys.failureStrategy.channelProfiles.title')}
+          description={t('channels.dialogs.keys.failureStrategy.channelProfiles.description')}
+        />
+      </div>
+    </div>
+  );
+}
+
+function FailurePolicyProfilesEditor({
+  form,
+  disabled,
+  target,
+  name,
+  title,
+  description,
+}: {
+  form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>;
+  disabled: boolean;
+  target: FailurePolicyTarget;
+  name: 'failurePolicy.keyProfiles' | 'failurePolicy.channelProfiles';
+  title: string;
+  description: string;
+}) {
+  const { t } = useTranslation();
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set());
   const {
     fields: policyFields,
@@ -672,11 +871,11 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
     remove: removePolicy,
   } = useFieldArray({
     control: form.control,
-    name: 'healthCheck.policies',
+    name,
   });
 
   const addPolicy = () => {
-    const policy = createDefaultPolicy(policyFields.length);
+    const policy = createDefaultProfile(policyFields.length, target);
     appendPolicy(policy);
     setExpandedPolicies((prev) => new Set(prev).add(policy.id));
   };
@@ -694,28 +893,29 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
   };
 
   return (
-    <div className='space-y-3'>
+    <div className='space-y-3 rounded-lg border p-3'>
       <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
         <div>
-          <h4 className='text-sm font-medium'>{t('channels.dialogs.keys.health.policies.title')}</h4>
-          <p className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.health.policies.description')}</p>
+          <h4 className='text-sm font-medium'>{title}</h4>
+          <p className='text-muted-foreground text-xs'>{description}</p>
         </div>
         <Button type='button' variant='outline' size='sm' onClick={addPolicy} disabled={disabled}>
           <IconPlus className='mr-2 h-4 w-4' />
-          {t('channels.dialogs.keys.health.policies.add')}
+          {t('channels.dialogs.keys.failureStrategy.profiles.add')}
         </Button>
       </div>
 
       {policyFields.length === 0 ? (
         <div className='text-muted-foreground rounded-lg border border-dashed p-4 text-sm'>
-          {t('channels.dialogs.keys.health.policies.empty')}
+          {t('channels.dialogs.keys.failureStrategy.profiles.empty')}
         </div>
       ) : (
         policyFields.map((policyField, policyIndex) => {
-          const policyID = form.watch(`healthCheck.policies.${policyIndex}.id`) || policyField.id;
-          const policyName = form.watch(`healthCheck.policies.${policyIndex}.name`) || t('channels.dialogs.keys.health.policies.unnamed');
-          const policyEnabled = form.watch(`healthCheck.policies.${policyIndex}.enabled`);
-          const actions = form.watch(`healthCheck.policies.${policyIndex}.actions`) ?? [];
+          const profilePath = `${name}.${policyIndex}` as const;
+          const policyID = form.watch(`${profilePath}.id`) || policyField.id;
+          const policyName = form.watch(`${profilePath}.name`) || t('channels.dialogs.keys.failureStrategy.profiles.unnamed');
+          const policyEnabled = form.watch(`${profilePath}.enabled`);
+          const actions = form.watch(`${profilePath}.actions`) ?? [];
           const isExpanded = expandedPolicies.has(policyID);
 
           return (
@@ -726,17 +926,17 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                   <div className='min-w-0'>
                     <div className='truncate text-sm font-medium'>{policyName}</div>
                     <div className='text-muted-foreground text-xs'>
-                      {t('channels.dialogs.keys.health.policies.actionCount', { count: actions.length })}
+                      {t('channels.dialogs.keys.failureStrategy.profiles.actionCount', { count: actions.length })}
                     </div>
                   </div>
                 </button>
                 <div className='flex items-center gap-2'>
                   <Badge variant={policyEnabled ? 'default' : 'outline'}>
-                    {t(`channels.dialogs.keys.health.policies.${policyEnabled ? 'enabled' : 'disabled'}`)}
+                    {t(`channels.dialogs.keys.failureStrategy.profiles.${policyEnabled ? 'enabled' : 'disabled'}`)}
                   </Badge>
                   <FormField
                     control={form.control}
-                    name={`healthCheck.policies.${policyIndex}.enabled`}
+                    name={`${profilePath}.enabled`}
                     render={({ field }) => (
                       <FormItem>
                         <FormControl>
@@ -755,10 +955,10 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                 <div className='space-y-4 border-t p-3'>
                   <FormField
                     control={form.control}
-                    name={`healthCheck.policies.${policyIndex}.name`}
+                    name={`${profilePath}.name`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('channels.dialogs.keys.health.policies.fields.name')}</FormLabel>
+                        <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.name')}</FormLabel>
                         <FormControl>
                           <Input {...field} disabled={disabled} />
                         </FormControl>
@@ -767,13 +967,52 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                     )}
                   />
 
+                  <div className='space-y-2 rounded-lg border p-3'>
+                    <div className='text-sm font-medium'>{t('channels.dialogs.keys.failureStrategy.profiles.fields.sources')}</div>
+                    <div className='grid gap-2'>
+                      {FAILURE_EVENT_SOURCES.map((source) => (
+                        <FormField
+                          key={source}
+                          control={form.control}
+                          name={`${profilePath}.sources`}
+                          render={({ field }) => {
+                            const selected = field.value?.includes(source) ?? false;
+                            return (
+                              <FormItem className='flex items-center gap-2 space-y-0'>
+                                <FormControl>
+                                  <Checkbox
+                                    checked={selected}
+                                    onCheckedChange={(checked) => {
+                                      const current = field.value ?? [];
+                                      field.onChange(
+                                        checked
+                                          ? [...current.filter((item) => item !== source), source]
+                                          : current.length <= 1
+                                            ? current
+                                            : current.filter((item) => item !== source)
+                                      );
+                                    }}
+                                    disabled={disabled}
+                                  />
+                                </FormControl>
+                                <FormLabel className='text-sm font-normal'>
+                                  {t(`channels.dialogs.keys.failureStrategy.sources.${source}`)}
+                                </FormLabel>
+                              </FormItem>
+                            );
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
                   <div className='grid gap-4 md:grid-cols-3'>
                     <FormField
                       control={form.control}
-                      name={`healthCheck.policies.${policyIndex}.minFailureCount`}
+                      name={`${profilePath}.minFailureCount`}
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.minFailureCount')}</FormLabel>
+                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.minFailureCount')}</FormLabel>
                           <FormControl>
                             <Input
                               type='number'
@@ -791,10 +1030,10 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                     />
                     <FormField
                       control={form.control}
-                      name={`healthCheck.policies.${policyIndex}.statusCodes`}
+                      name={`${profilePath}.statusCodes`}
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.statusCodes')}</FormLabel>
+                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.statusCodes')}</FormLabel>
                           <FormControl>
                             <Input placeholder='429, 500' {...field} disabled={disabled} />
                           </FormControl>
@@ -803,10 +1042,10 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                     />
                     <FormField
                       control={form.control}
-                      name={`healthCheck.policies.${policyIndex}.availability`}
+                      name={`${profilePath}.availability`}
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.availability')}</FormLabel>
+                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.availability')}</FormLabel>
                           <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
                             <FormControl>
                               <SelectTrigger>
@@ -816,7 +1055,7 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                             <SelectContent>
                               {(['any', 'available', 'unavailable'] satisfies AvailabilityConditionMode[]).map((mode) => (
                                 <SelectItem key={mode} value={mode}>
-                                  {t(`channels.dialogs.keys.health.policies.availability.${mode}`)}
+                                  {t(`channels.dialogs.keys.failureStrategy.profiles.availability.${mode}`)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -826,10 +1065,10 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                     />
                     <FormField
                       control={form.control}
-                      name={`healthCheck.policies.${policyIndex}.balanceLTE`}
+                      name={`${profilePath}.balanceLTE`}
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.balanceLTE')}</FormLabel>
+                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.balanceLTE')}</FormLabel>
                           <FormControl>
                             <Input
                               type='number'
@@ -844,10 +1083,10 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                     />
                     <FormField
                       control={form.control}
-                      name={`healthCheck.policies.${policyIndex}.reasonContains`}
+                      name={`${profilePath}.reasonContains`}
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.reasonContains')}</FormLabel>
+                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.reasonContains')}</FormLabel>
                           <FormControl>
                             <Input {...field} disabled={disabled} />
                           </FormControl>
@@ -856,11 +1095,11 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                     />
                     <FormField
                       control={form.control}
-                      name={`healthCheck.policies.${policyIndex}.allCheckedKeysFailed`}
+                      name={`${profilePath}.allCheckedKeysFailed`}
                       render={({ field }) => (
                         <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
                           <div className='space-y-0.5'>
-                            <FormLabel>{t('channels.dialogs.keys.health.policies.fields.allCheckedKeysFailed')}</FormLabel>
+                            <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.allCheckedKeysFailed')}</FormLabel>
                           </div>
                           <FormControl>
                             <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
@@ -870,20 +1109,20 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
                     />
                     <FormField
                       control={form.control}
-                      name={`healthCheck.policies.${policyIndex}.expr`}
+                      name={`${profilePath}.expr`}
                       render={({ field }) => (
                         <FormItem className='md:col-span-3'>
-                          <FormLabel>{t('channels.dialogs.keys.health.policies.fields.expr')}</FormLabel>
+                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.expr')}</FormLabel>
                           <FormControl>
                             <Textarea rows={2} {...field} disabled={disabled} />
                           </FormControl>
-                          <FormDescription>{t('channels.dialogs.keys.health.policies.fields.exprDescription')}</FormDescription>
+                          <FormDescription>{t('channels.dialogs.keys.failureStrategy.profiles.fields.exprDescription')}</FormDescription>
                         </FormItem>
                       )}
                     />
                   </div>
 
-                  <PolicyActionsEditor form={form} policyIndex={policyIndex} disabled={disabled} />
+                  <PolicyActionsEditor form={form} profileName={name} profileIndex={policyIndex} target={target} disabled={disabled} />
                 </div>
               ) : null}
             </div>
@@ -896,56 +1135,49 @@ function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormV
 
 function PolicyActionsEditor({
   form,
-  policyIndex,
+  profileName,
+  profileIndex,
+  target,
   disabled,
 }: {
   form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>;
-  policyIndex: number;
+  profileName: 'failurePolicy.keyProfiles' | 'failurePolicy.channelProfiles';
+  profileIndex: number;
+  target: FailurePolicyTarget;
   disabled: boolean;
 }) {
   const { t } = useTranslation();
+  const actionsName = `${profileName}.${profileIndex}.actions` as const;
+  const actionChoices = target === 'key' ? KEY_FAILURE_ACTIONS : CHANNEL_FAILURE_ACTIONS;
   const {
     fields: actionFields,
     append: appendAction,
     remove: removeAction,
   } = useFieldArray({
     control: form.control,
-    name: `healthCheck.policies.${policyIndex}.actions`,
+    name: actionsName,
   });
 
   return (
     <div className='space-y-3'>
       <div className='flex items-center justify-between'>
-        <h5 className='text-sm font-medium'>{t('channels.dialogs.keys.health.policies.actions.title')}</h5>
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          onClick={() =>
-            appendAction({
-              type: 'report_only',
-              backoffMode: 'fixed',
-              intervalMinutes: 30,
-              maxIntervalMinutes: 240,
-              multiplier: 2,
-            })
-          }
-          disabled={disabled}
-        >
+        <h5 className='text-sm font-medium'>{t('channels.dialogs.keys.failureStrategy.actions.title')}</h5>
+        <Button type='button' variant='outline' size='sm' onClick={() => appendAction(createDefaultAction(target))} disabled={disabled}>
           <IconPlus className='mr-2 h-4 w-4' />
-          {t('channels.dialogs.keys.health.policies.actions.add')}
+          {t('channels.dialogs.keys.failureStrategy.actions.add')}
         </Button>
       </div>
       {actionFields.map((actionField, actionIndex) => {
-        const actionType = form.watch(`healthCheck.policies.${policyIndex}.actions.${actionIndex}.type`);
+        const actionPath = `${actionsName}.${actionIndex}` as const;
+        const actionType = form.watch(`${actionPath}.type`);
         return (
           <div key={actionField.id} className='grid gap-3 rounded-lg border p-3 md:grid-cols-4'>
             <FormField
               control={form.control}
-              name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.type`}
+              name={`${actionPath}.type`}
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('channels.dialogs.keys.health.policies.actions.type')}</FormLabel>
+                  <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.type')}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
                     <FormControl>
                       <SelectTrigger>
@@ -953,9 +1185,9 @@ function PolicyActionsEditor({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {POLICY_ACTIONS.map((action) => (
+                      {actionChoices.map((action) => (
                         <SelectItem key={action} value={action}>
-                          {t(`channels.dialogs.keys.health.policies.actions.${action}`)}
+                          {t(`channels.dialogs.keys.failureStrategy.actions.${action}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -963,14 +1195,14 @@ function PolicyActionsEditor({
                 </FormItem>
               )}
             />
-            {actionType === 'backoff' ? (
+            {actionType === 'backoff_key' ? (
               <>
                 <FormField
                   control={form.control}
-                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.backoffMode`}
+                  name={`${actionPath}.backoffMode`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.backoffMode')}</FormLabel>
+                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.backoffMode')}</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
                         <FormControl>
                           <SelectTrigger>
@@ -978,8 +1210,8 @@ function PolicyActionsEditor({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value='fixed'>{t('channels.dialogs.keys.health.policies.actions.fixed')}</SelectItem>
-                          <SelectItem value='exponential'>{t('channels.dialogs.keys.health.policies.actions.exponential')}</SelectItem>
+                          <SelectItem value='fixed'>{t('channels.dialogs.keys.failureStrategy.actions.fixed')}</SelectItem>
+                          <SelectItem value='exponential'>{t('channels.dialogs.keys.failureStrategy.actions.exponential')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </FormItem>
@@ -987,10 +1219,10 @@ function PolicyActionsEditor({
                 />
                 <FormField
                   control={form.control}
-                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.intervalMinutes`}
+                  name={`${actionPath}.intervalMinutes`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.intervalMinutes')}</FormLabel>
+                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.intervalMinutes')}</FormLabel>
                       <FormControl>
                         <Input
                           ref={field.ref}
@@ -1009,10 +1241,10 @@ function PolicyActionsEditor({
                 />
                 <FormField
                   control={form.control}
-                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.maxIntervalMinutes`}
+                  name={`${actionPath}.maxIntervalMinutes`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.maxIntervalMinutes')}</FormLabel>
+                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.maxIntervalMinutes')}</FormLabel>
                       <FormControl>
                         <Input
                           ref={field.ref}
@@ -1031,10 +1263,10 @@ function PolicyActionsEditor({
                 />
                 <FormField
                   control={form.control}
-                  name={`healthCheck.policies.${policyIndex}.actions.${actionIndex}.multiplier`}
+                  name={`${actionPath}.multiplier`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.health.policies.actions.multiplier')}</FormLabel>
+                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.multiplier')}</FormLabel>
                       <FormControl>
                         <Input
                           ref={field.ref}
@@ -1287,7 +1519,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const selectedStrategy = form.watch('strategy');
   const deepseekRuleEnabled = form.watch('healthCheck.deepseekRuleEnabled');
   const deepseekUseAbsoluteURL = form.watch('healthCheck.deepseekUseAbsoluteURL');
-  const policyCount = form.watch('healthCheck.policies')?.length ?? 0;
   const isPending =
     keyInventory.isFetching ||
     addAPIKey.isPending ||
@@ -1327,6 +1558,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
       },
       keyHealthCheck: healthCheckFromValues(values),
+      failurePolicy: failurePolicyFromValues(values),
     });
 
     await updateChannel.mutateAsync({
@@ -1865,6 +2097,16 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                       </div>
                     </CardContent>
                   </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{t('channels.dialogs.keys.failureStrategy.title')}</CardTitle>
+                      <CardDescription>{t('channels.dialogs.keys.failureStrategy.description')}</CardDescription>
+                    </CardHeader>
+                    <CardContent className='space-y-5'>
+                      <FailurePolicyEditor form={form} disabled={isPending} />
+                    </CardContent>
+                  </Card>
                 </TabsContent>
 
                 <TabsContent value='routing' className='mt-0 space-y-4'>
@@ -2054,74 +2296,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                           )}
                         />
                       </div>
-
-                      <FailurePolicyEditor form={form} disabled={isPending} />
-
-                      <Separator />
-
-                      <div className='space-y-3 rounded-lg border p-3'>
-                        <div>
-                          <h4 className='text-sm font-medium'>{t('channels.dialogs.keys.health.legacy.title')}</h4>
-                          <p className='text-muted-foreground text-xs'>
-                            {t(
-                              policyCount > 0
-                                ? 'channels.dialogs.keys.health.legacy.descriptionWithPolicies'
-                                : 'channels.dialogs.keys.health.legacy.description'
-                            )}
-                          </p>
-                        </div>
-                        <div className='grid gap-4 md:grid-cols-2'>
-                          <FormField
-                            control={form.control}
-                            name='healthCheck.failureThreshold'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('channels.dialogs.keys.health.failureThreshold.label')}</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    ref={field.ref}
-                                    name={field.name}
-                                    type='number'
-                                    min={1}
-                                    max={20}
-                                    value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
-                                    onBlur={field.onBlur}
-                                    onChange={(event) => field.onChange(event.target.value)}
-                                  />
-                                </FormControl>
-                                <FormDescription>{t('channels.dialogs.keys.health.failureThreshold.description')}</FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name='healthCheck.failureAction'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('channels.dialogs.keys.health.failureAction.label')}</FormLabel>
-                                <Select value={field.value} onValueChange={field.onChange}>
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {FAILURE_ACTIONS.map((action) => (
-                                      <SelectItem key={action} value={action}>
-                                        {t(`channels.dialogs.keys.health.failureActions.${action}`)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription>{t('channels.dialogs.keys.health.failureAction.description')}</FormDescription>
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      </div>
-
-                      <Separator />
 
                       <div className='space-y-4'>
                         <FormField

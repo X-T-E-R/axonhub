@@ -130,6 +130,7 @@ type RetryPolicy {
   emptyResponseDetection: Boolean!
   emptyResponseTextPatterns: [String!]!
   upstreamErrorPolicy: UpstreamErrorPolicy!
+  failurePolicy: FailurePolicy!
 }
 
 type UpstreamErrorPolicy {
@@ -164,6 +165,7 @@ input UpdateRetryPolicyInput {
   emptyResponseDetection: Boolean
   emptyResponseTextPatterns: [String!]
   upstreamErrorPolicy: UpstreamErrorPolicyInput
+  failurePolicy: FailurePolicyInput
 }
 
 enum QuotaEnforcementMode {

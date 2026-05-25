@@ -24,6 +24,20 @@ type stickyCacheEntry struct {
 	ExpiresAt time.Time
 }
 
+// StaticChannelKeyProvider returns a fixed API key while still recording the
+// selected key in context so request-time failure policy evaluation can see it.
+type StaticChannelKeyProvider struct {
+	key string
+}
+
+func NewStaticChannelKeyProvider(key string) *StaticChannelKeyProvider {
+	return &StaticChannelKeyProvider{key: key}
+}
+
+func (p *StaticChannelKeyProvider) Get(ctx context.Context) string {
+	return recordSelectedChannelAPIKey(ctx, p.key)
+}
+
 // TraceStickyKeyProvider selects an API key deterministically per traceID (if present),
 // using cached enabled keys from the channel snapshot.
 //
@@ -50,7 +64,7 @@ func NewTraceStickyKeyProvider(channel *Channel) *TraceStickyKeyProvider {
 func (p *TraceStickyKeyProvider) Get(ctx context.Context) string {
 	enabled := p.channel.cachedEnabledAPIKeys
 	if len(enabled) == 0 {
-		return recordSelectedChannelAPIKey(ctx, p.channel.Credentials.APIKeys[0])
+		return recordFallbackChannelAPIKey(ctx, p.channel)
 	}
 
 	if len(enabled) == 1 {
@@ -112,7 +126,7 @@ func NewCacheAffinityKeyProvider(channel *Channel) *CacheAffinityKeyProvider {
 func (p *CacheAffinityKeyProvider) Get(ctx context.Context) string {
 	enabled := p.channel.cachedEnabledAPIKeys
 	if len(enabled) == 0 {
-		return recordSelectedChannelAPIKey(ctx, p.channel.Credentials.APIKeys[0])
+		return recordFallbackChannelAPIKey(ctx, p.channel)
 	}
 
 	if len(enabled) == 1 {
@@ -174,7 +188,7 @@ func NewRandomChannelKeyProvider(channel *Channel) *RandomChannelKeyProvider {
 func (p *RandomChannelKeyProvider) Get(ctx context.Context) string {
 	enabled := p.channel.cachedEnabledAPIKeys
 	if len(enabled) == 0 {
-		return recordSelectedChannelAPIKey(ctx, p.channel.Credentials.APIKeys[0])
+		return recordFallbackChannelAPIKey(ctx, p.channel)
 	}
 
 	if len(enabled) == 1 {
@@ -199,7 +213,7 @@ func NewRoundRobinChannelKeyProvider(channel *Channel) *RoundRobinChannelKeyProv
 func (p *RoundRobinChannelKeyProvider) Get(ctx context.Context) string {
 	enabled := p.channel.cachedEnabledAPIKeys
 	if len(enabled) == 0 {
-		return recordSelectedChannelAPIKey(ctx, p.channel.Credentials.APIKeys[0])
+		return recordFallbackChannelAPIKey(ctx, p.channel)
 	}
 
 	if len(enabled) == 1 {
@@ -247,6 +261,19 @@ func recordSelectedChannelAPIKey(ctx context.Context, key string) string {
 	ctx = contexts.WithChannelAPIKey(ctx, key)
 
 	return key
+}
+
+func recordFallbackChannelAPIKey(ctx context.Context, channel *Channel) string {
+	if channel == nil {
+		return ""
+	}
+
+	all := channel.Credentials.GetAllAPIKeys()
+	if len(all) == 0 {
+		return ""
+	}
+
+	return recordSelectedChannelAPIKey(ctx, all[0])
 }
 
 // rendezvousSelect picks a key using Highest Random Weight (Rendezvous) hashing.
