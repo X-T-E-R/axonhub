@@ -216,6 +216,22 @@ export const channelKeyHealthCheckPolicyActionTypeSchema = z.enum([
 ]);
 export type ChannelKeyHealthCheckPolicyActionType = z.infer<typeof channelKeyHealthCheckPolicyActionTypeSchema>;
 
+export const channelFailurePolicyModeSchema = z.enum(['inherit', 'override', 'merge', 'disabled']);
+export type ChannelFailurePolicyMode = z.infer<typeof channelFailurePolicyModeSchema>;
+
+export const failurePolicyEventSourceSchema = z.enum(['request_failure', 'scheduled_health_check_failure', 'manual_health_check_failure']);
+export type FailurePolicyEventSource = z.infer<typeof failurePolicyEventSourceSchema>;
+
+export const failurePolicyActionTypeSchema = z.enum([
+  'report_only',
+  'backoff_key',
+  'disable_key',
+  'archive_key',
+  'delete_key',
+  'disable_channel',
+]);
+export type FailurePolicyActionType = z.infer<typeof failurePolicyActionTypeSchema>;
+
 export const channelKeyHealthCheckBackoffModeSchema = z.enum(['fixed', 'exponential']);
 export type ChannelKeyHealthCheckBackoffMode = z.infer<typeof channelKeyHealthCheckBackoffModeSchema>;
 
@@ -295,6 +311,29 @@ export const channelKeyHealthCheckPolicySchema = z.object({
   actions: z.array(channelKeyHealthCheckPolicyActionSchema).optional().nullable(),
 });
 export type ChannelKeyHealthCheckPolicy = z.infer<typeof channelKeyHealthCheckPolicySchema>;
+
+export const failurePolicyActionSchema = z.object({
+  type: failurePolicyActionTypeSchema,
+  backoff: channelKeyHealthCheckBackoffSchema.optional().nullable(),
+});
+export type FailurePolicyAction = z.infer<typeof failurePolicyActionSchema>;
+
+export const failurePolicyProfileSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean().optional().nullable(),
+  sources: z.array(failurePolicyEventSourceSchema).optional().nullable(),
+  conditions: channelKeyHealthCheckPolicyConditionSchema.optional().nullable(),
+  actions: z.array(failurePolicyActionSchema).optional().nullable(),
+});
+export type FailurePolicyProfile = z.infer<typeof failurePolicyProfileSchema>;
+
+export const channelFailurePolicySchema = z.object({
+  mode: channelFailurePolicyModeSchema.optional().nullable(),
+  keyProfiles: z.preprocess((value) => value ?? [], z.array(failurePolicyProfileSchema)),
+  channelProfiles: z.preprocess((value) => value ?? [], z.array(failurePolicyProfileSchema)),
+});
+export type ChannelFailurePolicy = z.infer<typeof channelFailurePolicySchema>;
 
 export const channelKeyHealthCheckHistoryEntrySchema = z.object({
   id: z.string(),
@@ -408,6 +447,7 @@ export const channelSettingsSchema = z.object({
   rateLimit: channelRateLimitSchema.optional().nullable(),
   keySelection: channelKeySelectionSchema.optional().nullable(),
   keyHealthCheck: channelKeyHealthCheckSchema.optional().nullable(),
+  failurePolicy: channelFailurePolicySchema.optional().nullable(),
 });
 
 export type ChannelSettings = z.infer<typeof channelSettingsSchema>;

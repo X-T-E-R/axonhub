@@ -379,6 +379,12 @@ type ComplexityRoot struct {
 		Path      func(childComplexity int) int
 	}
 
+	ChannelFailurePolicy struct {
+		ChannelProfiles func(childComplexity int) int
+		KeyProfiles     func(childComplexity int) int
+		Mode            func(childComplexity int) int
+	}
+
 	ChannelKeyHealthCheck struct {
 		ArchivedKeys     func(childComplexity int) int
 		Enabled          func(childComplexity int) int
@@ -649,6 +655,7 @@ type ComplexityRoot struct {
 		AutoTrimedModelPrefixes  func(childComplexity int) int
 		BodyOverrideOperations   func(childComplexity int) int
 		ExtraModelPrefix         func(childComplexity int) int
+		FailurePolicy            func(childComplexity int) int
 		HeaderOverrideOperations func(childComplexity int) int
 		HideMappedModels         func(childComplexity int) int
 		HideOriginalModels       func(childComplexity int) int
@@ -798,6 +805,25 @@ type ComplexityRoot struct {
 		ChannelIds         func(childComplexity int) int
 		ChannelNamePattern func(childComplexity int) int
 		ChannelTags        func(childComplexity int) int
+	}
+
+	FailurePolicy struct {
+		ChannelProfiles func(childComplexity int) int
+		KeyProfiles     func(childComplexity int) int
+	}
+
+	FailurePolicyAction struct {
+		Backoff func(childComplexity int) int
+		Type    func(childComplexity int) int
+	}
+
+	FailurePolicyProfile struct {
+		Actions    func(childComplexity int) int
+		Conditions func(childComplexity int) int
+		Enabled    func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Sources    func(childComplexity int) int
 	}
 
 	FastestChannel struct {
@@ -1586,6 +1612,7 @@ type ComplexityRoot struct {
 		EmptyResponseDetection    func(childComplexity int) int
 		EmptyResponseTextPatterns func(childComplexity int) int
 		Enabled                   func(childComplexity int) int
+		FailurePolicy             func(childComplexity int) int
 		LoadBalancerStrategy      func(childComplexity int) int
 		MaxChannelRetries         func(childComplexity int) int
 		MaxSingleChannelRetries   func(childComplexity int) int
@@ -3602,6 +3629,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelEndpoint.Path(childComplexity), true
 
+	case "ChannelFailurePolicy.channelProfiles":
+		if e.complexity.ChannelFailurePolicy.ChannelProfiles == nil {
+			break
+		}
+
+		return e.complexity.ChannelFailurePolicy.ChannelProfiles(childComplexity), true
+	case "ChannelFailurePolicy.keyProfiles":
+		if e.complexity.ChannelFailurePolicy.KeyProfiles == nil {
+			break
+		}
+
+		return e.complexity.ChannelFailurePolicy.KeyProfiles(childComplexity), true
+	case "ChannelFailurePolicy.mode":
+		if e.complexity.ChannelFailurePolicy.Mode == nil {
+			break
+		}
+
+		return e.complexity.ChannelFailurePolicy.Mode(childComplexity), true
+
 	case "ChannelKeyHealthCheck.archivedKeys":
 		if e.complexity.ChannelKeyHealthCheck.ArchivedKeys == nil {
 			break
@@ -4655,6 +4701,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.ExtraModelPrefix(childComplexity), true
+	case "ChannelSettings.failurePolicy":
+		if e.complexity.ChannelSettings.FailurePolicy == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.FailurePolicy(childComplexity), true
 	case "ChannelSettings.headerOverrideOperations":
 		if e.complexity.ChannelSettings.HeaderOverrideOperations == nil {
 			break
@@ -5202,6 +5254,69 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ExcludeAssociation.ChannelTags(childComplexity), true
+
+	case "FailurePolicy.channelProfiles":
+		if e.complexity.FailurePolicy.ChannelProfiles == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicy.ChannelProfiles(childComplexity), true
+	case "FailurePolicy.keyProfiles":
+		if e.complexity.FailurePolicy.KeyProfiles == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicy.KeyProfiles(childComplexity), true
+
+	case "FailurePolicyAction.backoff":
+		if e.complexity.FailurePolicyAction.Backoff == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyAction.Backoff(childComplexity), true
+	case "FailurePolicyAction.type":
+		if e.complexity.FailurePolicyAction.Type == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyAction.Type(childComplexity), true
+
+	case "FailurePolicyProfile.actions":
+		if e.complexity.FailurePolicyProfile.Actions == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyProfile.Actions(childComplexity), true
+	case "FailurePolicyProfile.conditions":
+		if e.complexity.FailurePolicyProfile.Conditions == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyProfile.Conditions(childComplexity), true
+	case "FailurePolicyProfile.enabled":
+		if e.complexity.FailurePolicyProfile.Enabled == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyProfile.Enabled(childComplexity), true
+	case "FailurePolicyProfile.id":
+		if e.complexity.FailurePolicyProfile.ID == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyProfile.ID(childComplexity), true
+	case "FailurePolicyProfile.name":
+		if e.complexity.FailurePolicyProfile.Name == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyProfile.Name(childComplexity), true
+	case "FailurePolicyProfile.sources":
+		if e.complexity.FailurePolicyProfile.Sources == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyProfile.Sources(childComplexity), true
 
 	case "FastestChannel.channelId":
 		if e.complexity.FastestChannel.ChannelID == nil {
@@ -9393,6 +9508,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RetryPolicy.Enabled(childComplexity), true
+	case "RetryPolicy.failurePolicy":
+		if e.complexity.RetryPolicy.FailurePolicy == nil {
+			break
+		}
+
+		return e.complexity.RetryPolicy.FailurePolicy(childComplexity), true
 	case "RetryPolicy.loadBalancerStrategy":
 		if e.complexity.RetryPolicy.LoadBalancerStrategy == nil {
 			break
@@ -11433,6 +11554,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputChannelArchivedAPIKeyInput,
 		ec.unmarshalInputChannelCredentialsInput,
 		ec.unmarshalInputChannelEndpointInput,
+		ec.unmarshalInputChannelFailurePolicyInput,
 		ec.unmarshalInputChannelKeyHealthCheckBackoffInput,
 		ec.unmarshalInputChannelKeyHealthCheckBuiltinInput,
 		ec.unmarshalInputChannelKeyHealthCheckHTTPRuleInput,
@@ -11492,6 +11614,9 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDataStorageWhereInput,
 		ec.unmarshalInputDeveloperModelSettingsInput,
 		ec.unmarshalInputExcludeAssociationInput,
+		ec.unmarshalInputFailurePolicyActionInput,
+		ec.unmarshalInputFailurePolicyInput,
+		ec.unmarshalInputFailurePolicyProfileInput,
 		ec.unmarshalInputFastestChannelsInput,
 		ec.unmarshalInputFetchModelsInput,
 		ec.unmarshalInputFilterConditionInput,
@@ -19071,6 +19196,8 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 				return ec.fieldContext_ChannelSettings_keySelection(ctx, field)
 			case "keyHealthCheck":
 				return ec.fieldContext_ChannelSettings_keyHealthCheck(ctx, field)
+			case "failurePolicy":
+				return ec.fieldContext_ChannelSettings_failurePolicy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelSettings", field.Name)
 		},
@@ -20887,6 +21014,121 @@ func (ec *executionContext) fieldContext_ChannelEndpoint_baseURL(_ context.Conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelFailurePolicy_mode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelFailurePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelFailurePolicy_mode,
+		func(ctx context.Context) (any, error) {
+			return obj.Mode, nil
+		},
+		nil,
+		ec.marshalOChannelFailurePolicyMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicyMode,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelFailurePolicy_mode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelFailurePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelFailurePolicyMode does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelFailurePolicy_keyProfiles(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelFailurePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelFailurePolicy_keyProfiles,
+		func(ctx context.Context) (any, error) {
+			return obj.KeyProfiles, nil
+		},
+		nil,
+		ec.marshalOFailurePolicyProfile2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelFailurePolicy_keyProfiles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelFailurePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_FailurePolicyProfile_id(ctx, field)
+			case "name":
+				return ec.fieldContext_FailurePolicyProfile_name(ctx, field)
+			case "enabled":
+				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
+			case "sources":
+				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditions":
+				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
+			case "actions":
+				return ec.fieldContext_FailurePolicyProfile_actions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type FailurePolicyProfile", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelFailurePolicy_channelProfiles(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelFailurePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelFailurePolicy_channelProfiles,
+		func(ctx context.Context) (any, error) {
+			return obj.ChannelProfiles, nil
+		},
+		nil,
+		ec.marshalOFailurePolicyProfile2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelFailurePolicy_channelProfiles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelFailurePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_FailurePolicyProfile_id(ctx, field)
+			case "name":
+				return ec.fieldContext_FailurePolicyProfile_name(ctx, field)
+			case "enabled":
+				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
+			case "sources":
+				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditions":
+				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
+			case "actions":
+				return ec.fieldContext_FailurePolicyProfile_actions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type FailurePolicyProfile", field.Name)
 		},
 	}
 	return fc, nil
@@ -26838,6 +27080,43 @@ func (ec *executionContext) fieldContext_ChannelSettings_keyHealthCheck(_ contex
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelSettings_failurePolicy(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_failurePolicy,
+		func(ctx context.Context) (any, error) {
+			return obj.FailurePolicy, nil
+		},
+		nil,
+		ec.marshalOChannelFailurePolicy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicy,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_failurePolicy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "mode":
+				return ec.fieldContext_ChannelFailurePolicy_mode(ctx, field)
+			case "keyProfiles":
+				return ec.fieldContext_ChannelFailurePolicy_keyProfiles(ctx, field)
+			case "channelProfiles":
+				return ec.fieldContext_ChannelFailurePolicy_channelProfiles(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelFailurePolicy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelSuccessRate_channelId(ctx context.Context, field graphql.CollectedField, obj *ChannelSuccessRate) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -29199,6 +29478,356 @@ func (ec *executionContext) fieldContext_ExcludeAssociation_channelTags(_ contex
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicy_keyProfiles(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicy_keyProfiles,
+		func(ctx context.Context) (any, error) {
+			return obj.KeyProfiles, nil
+		},
+		nil,
+		ec.marshalOFailurePolicyProfile2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicy_keyProfiles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_FailurePolicyProfile_id(ctx, field)
+			case "name":
+				return ec.fieldContext_FailurePolicyProfile_name(ctx, field)
+			case "enabled":
+				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
+			case "sources":
+				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditions":
+				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
+			case "actions":
+				return ec.fieldContext_FailurePolicyProfile_actions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type FailurePolicyProfile", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicy_channelProfiles(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicy_channelProfiles,
+		func(ctx context.Context) (any, error) {
+			return obj.ChannelProfiles, nil
+		},
+		nil,
+		ec.marshalOFailurePolicyProfile2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicy_channelProfiles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_FailurePolicyProfile_id(ctx, field)
+			case "name":
+				return ec.fieldContext_FailurePolicyProfile_name(ctx, field)
+			case "enabled":
+				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
+			case "sources":
+				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditions":
+				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
+			case "actions":
+				return ec.fieldContext_FailurePolicyProfile_actions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type FailurePolicyProfile", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyAction_type(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyAction_type,
+		func(ctx context.Context) (any, error) {
+			return obj.Type, nil
+		},
+		nil,
+		ec.marshalNFailurePolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionType,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyAction_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyAction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type FailurePolicyActionType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyAction_backoff(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyAction_backoff,
+		func(ctx context.Context) (any, error) {
+			return obj.Backoff, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckBackoff2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoff,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyAction_backoff(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyAction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "mode":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_mode(ctx, field)
+			case "intervalMinutes":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_intervalMinutes(ctx, field)
+			case "maxIntervalMinutes":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_maxIntervalMinutes(ctx, field)
+			case "multiplier":
+				return ec.fieldContext_ChannelKeyHealthCheckBackoff_multiplier(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckBackoff", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyProfile_id(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyProfile_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyProfile_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyProfile_name(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyProfile_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyProfile_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyProfile_enabled(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyProfile_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyProfile_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyProfile_sources(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyProfile_sources,
+		func(ctx context.Context) (any, error) {
+			return obj.Sources, nil
+		},
+		nil,
+		ec.marshalOFailurePolicyEventSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSourceᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyProfile_sources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type FailurePolicyEventSource does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyProfile_conditions(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyProfile_conditions,
+		func(ctx context.Context) (any, error) {
+			return obj.Conditions, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckPolicyCondition2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyCondition,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyProfile_conditions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "minFailureCount":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_minFailureCount(ctx, field)
+			case "statusCodes":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_statusCodes(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_available(ctx, field)
+			case "balanceLTE":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_balanceLTE(ctx, field)
+			case "reasonContains":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_reasonContains(ctx, field)
+			case "allCheckedKeysFailed":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_allCheckedKeysFailed(ctx, field)
+			case "expr":
+				return ec.fieldContext_ChannelKeyHealthCheckPolicyCondition_expr(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckPolicyCondition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyProfile_actions(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyProfile_actions,
+		func(ctx context.Context) (any, error) {
+			return obj.Actions, nil
+		},
+		nil,
+		ec.marshalOFailurePolicyAction2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyProfile_actions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "type":
+				return ec.fieldContext_FailurePolicyAction_type(ctx, field)
+			case "backoff":
+				return ec.fieldContext_FailurePolicyAction_backoff(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type FailurePolicyAction", field.Name)
 		},
 	}
 	return fc, nil
@@ -46276,6 +46905,8 @@ func (ec *executionContext) fieldContext_Query_retryPolicy(_ context.Context, fi
 				return ec.fieldContext_RetryPolicy_emptyResponseTextPatterns(ctx, field)
 			case "upstreamErrorPolicy":
 				return ec.fieldContext_RetryPolicy_upstreamErrorPolicy(ctx, field)
+			case "failurePolicy":
+				return ec.fieldContext_RetryPolicy_failurePolicy(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type RetryPolicy", field.Name)
 		},
@@ -50737,6 +51368,41 @@ func (ec *executionContext) fieldContext_RetryPolicy_upstreamErrorPolicy(_ conte
 				return ec.fieldContext_UpstreamErrorPolicy_customMessage(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type UpstreamErrorPolicy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RetryPolicy_failurePolicy(ctx context.Context, field graphql.CollectedField, obj *biz.RetryPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RetryPolicy_failurePolicy,
+		func(ctx context.Context) (any, error) {
+			return obj.FailurePolicy, nil
+		},
+		nil,
+		ec.marshalNFailurePolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicy,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RetryPolicy_failurePolicy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RetryPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "keyProfiles":
+				return ec.fieldContext_FailurePolicy_keyProfiles(ctx, field)
+			case "channelProfiles":
+				return ec.fieldContext_FailurePolicy_channelProfiles(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type FailurePolicy", field.Name)
 		},
 	}
 	return fc, nil
@@ -64609,6 +65275,47 @@ func (ec *executionContext) unmarshalInputChannelEndpointInput(ctx context.Conte
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputChannelFailurePolicyInput(ctx context.Context, obj any) (objects.ChannelFailurePolicy, error) {
+	var it objects.ChannelFailurePolicy
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"mode", "keyProfiles", "channelProfiles"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "mode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("mode"))
+			data, err := ec.unmarshalOChannelFailurePolicyMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicyMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Mode = data
+		case "keyProfiles":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("keyProfiles"))
+			data, err := ec.unmarshalOFailurePolicyProfileInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.KeyProfiles = data
+		case "channelProfiles":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("channelProfiles"))
+			data, err := ec.unmarshalOFailurePolicyProfileInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ChannelProfiles = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputChannelKeyHealthCheckBackoffInput(ctx context.Context, obj any) (objects.ChannelKeyHealthCheckBackoff, error) {
 	var it objects.ChannelKeyHealthCheckBackoff
 	asMap := map[string]any{}
@@ -68034,7 +68741,7 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "rateLimit", "keySelection", "keyHealthCheck"}
+	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "rateLimit", "keySelection", "keyHealthCheck", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -68146,6 +68853,13 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 				return it, err
 			}
 			it.KeyHealthCheck = data
+		case "failurePolicy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("failurePolicy"))
+			data, err := ec.unmarshalOChannelFailurePolicyInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicy(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FailurePolicy = data
 		}
 	}
 
@@ -71533,6 +72247,136 @@ func (ec *executionContext) unmarshalInputExcludeAssociationInput(ctx context.Co
 				return it, err
 			}
 			it.ChannelTags = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputFailurePolicyActionInput(ctx context.Context, obj any) (objects.FailurePolicyAction, error) {
+	var it objects.FailurePolicyAction
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"type", "backoff"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "type":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("type"))
+			data, err := ec.unmarshalNFailurePolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Type = data
+		case "backoff":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("backoff"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckBackoffInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckBackoff(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Backoff = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputFailurePolicyInput(ctx context.Context, obj any) (objects.FailurePolicy, error) {
+	var it objects.FailurePolicy
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"keyProfiles", "channelProfiles"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "keyProfiles":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("keyProfiles"))
+			data, err := ec.unmarshalOFailurePolicyProfileInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.KeyProfiles = data
+		case "channelProfiles":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("channelProfiles"))
+			data, err := ec.unmarshalOFailurePolicyProfileInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ChannelProfiles = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputFailurePolicyProfileInput(ctx context.Context, obj any) (objects.FailurePolicyProfile, error) {
+	var it objects.FailurePolicyProfile
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "name", "enabled", "sources", "conditions", "actions"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		case "sources":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sources"))
+			data, err := ec.unmarshalOFailurePolicyEventSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSourceᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Sources = data
+		case "conditions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("conditions"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckPolicyConditionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyCondition(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Conditions = data
+		case "actions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("actions"))
+			data, err := ec.unmarshalOFailurePolicyActionInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Actions = data
 		}
 	}
 
@@ -84392,7 +85236,7 @@ func (ec *executionContext) unmarshalInputUpdateRetryPolicyInput(ctx context.Con
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"maxChannelRetries", "maxSingleChannelRetries", "retryDelayMs", "loadBalancerStrategy", "enabled", "autoDisableChannel", "emptyResponseDetection", "emptyResponseTextPatterns", "upstreamErrorPolicy"}
+	fieldsInOrder := [...]string{"maxChannelRetries", "maxSingleChannelRetries", "retryDelayMs", "loadBalancerStrategy", "enabled", "autoDisableChannel", "emptyResponseDetection", "emptyResponseTextPatterns", "upstreamErrorPolicy", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -84462,6 +85306,13 @@ func (ec *executionContext) unmarshalInputUpdateRetryPolicyInput(ctx context.Con
 				return it, err
 			}
 			it.UpstreamErrorPolicy = data
+		case "failurePolicy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("failurePolicy"))
+			data, err := ec.unmarshalOFailurePolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicy(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FailurePolicy = data
 		}
 	}
 
@@ -91384,6 +92235,46 @@ func (ec *executionContext) _ChannelEndpoint(ctx context.Context, sel ast.Select
 	return out
 }
 
+var channelFailurePolicyImplementors = []string{"ChannelFailurePolicy"}
+
+func (ec *executionContext) _ChannelFailurePolicy(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelFailurePolicy) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelFailurePolicyImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelFailurePolicy")
+		case "mode":
+			out.Values[i] = ec._ChannelFailurePolicy_mode(ctx, field, obj)
+		case "keyProfiles":
+			out.Values[i] = ec._ChannelFailurePolicy_keyProfiles(ctx, field, obj)
+		case "channelProfiles":
+			out.Values[i] = ec._ChannelFailurePolicy_channelProfiles(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var channelKeyHealthCheckImplementors = []string{"ChannelKeyHealthCheck"}
 
 func (ec *executionContext) _ChannelKeyHealthCheck(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelKeyHealthCheck) graphql.Marshaler {
@@ -93723,6 +94614,8 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelSettings_keySelection(ctx, field, obj)
 		case "keyHealthCheck":
 			out.Values[i] = ec._ChannelSettings_keyHealthCheck(ctx, field, obj)
+		case "failurePolicy":
+			out.Values[i] = ec._ChannelSettings_failurePolicy(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -94858,6 +95751,137 @@ func (ec *executionContext) _ExcludeAssociation(ctx context.Context, sel ast.Sel
 			out.Values[i] = ec._ExcludeAssociation_channelIds(ctx, field, obj)
 		case "channelTags":
 			out.Values[i] = ec._ExcludeAssociation_channelTags(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var failurePolicyImplementors = []string{"FailurePolicy"}
+
+func (ec *executionContext) _FailurePolicy(ctx context.Context, sel ast.SelectionSet, obj *objects.FailurePolicy) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, failurePolicyImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FailurePolicy")
+		case "keyProfiles":
+			out.Values[i] = ec._FailurePolicy_keyProfiles(ctx, field, obj)
+		case "channelProfiles":
+			out.Values[i] = ec._FailurePolicy_channelProfiles(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var failurePolicyActionImplementors = []string{"FailurePolicyAction"}
+
+func (ec *executionContext) _FailurePolicyAction(ctx context.Context, sel ast.SelectionSet, obj *objects.FailurePolicyAction) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, failurePolicyActionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FailurePolicyAction")
+		case "type":
+			out.Values[i] = ec._FailurePolicyAction_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "backoff":
+			out.Values[i] = ec._FailurePolicyAction_backoff(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var failurePolicyProfileImplementors = []string{"FailurePolicyProfile"}
+
+func (ec *executionContext) _FailurePolicyProfile(ctx context.Context, sel ast.SelectionSet, obj *objects.FailurePolicyProfile) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, failurePolicyProfileImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FailurePolicyProfile")
+		case "id":
+			out.Values[i] = ec._FailurePolicyProfile_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._FailurePolicyProfile_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enabled":
+			out.Values[i] = ec._FailurePolicyProfile_enabled(ctx, field, obj)
+		case "sources":
+			out.Values[i] = ec._FailurePolicyProfile_sources(ctx, field, obj)
+		case "conditions":
+			out.Values[i] = ec._FailurePolicyProfile_conditions(ctx, field, obj)
+		case "actions":
+			out.Values[i] = ec._FailurePolicyProfile_actions(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -103041,6 +104065,11 @@ func (ec *executionContext) _RetryPolicy(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "failurePolicy":
+			out.Values[i] = ec._RetryPolicy_failurePolicy(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -110836,6 +111865,62 @@ func (ec *executionContext) unmarshalNExcludeAssociationInput2ᚖgithubᚗcomᚋ
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNFailurePolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicy(ctx context.Context, sel ast.SelectionSet, v objects.FailurePolicy) graphql.Marshaler {
+	return ec._FailurePolicy(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNFailurePolicyAction2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyAction(ctx context.Context, sel ast.SelectionSet, v objects.FailurePolicyAction) graphql.Marshaler {
+	return ec._FailurePolicyAction(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNFailurePolicyActionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyAction(ctx context.Context, v any) (objects.FailurePolicyAction, error) {
+	res, err := ec.unmarshalInputFailurePolicyActionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNFailurePolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionType(ctx context.Context, v any) (objects.FailurePolicyActionType, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.FailurePolicyActionType(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNFailurePolicyActionType2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionType(ctx context.Context, sel ast.SelectionSet, v objects.FailurePolicyActionType) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) unmarshalNFailurePolicyEventSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSource(ctx context.Context, v any) (objects.FailurePolicyEventSource, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.FailurePolicyEventSource(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNFailurePolicyEventSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSource(ctx context.Context, sel ast.SelectionSet, v objects.FailurePolicyEventSource) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNFailurePolicyProfile2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfile(ctx context.Context, sel ast.SelectionSet, v objects.FailurePolicyProfile) graphql.Marshaler {
+	return ec._FailurePolicyProfile(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNFailurePolicyProfileInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfile(ctx context.Context, v any) (objects.FailurePolicyProfile, error) {
+	res, err := ec.unmarshalInputFailurePolicyProfileInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNFastestChannel2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐFastestChannelᚄ(ctx context.Context, sel ast.SelectionSet, v []*FastestChannel) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -115616,6 +116701,34 @@ func (ec *executionContext) unmarshalOChannelEndpointInput2ᚕgithubᚗcomᚋloo
 	return res, nil
 }
 
+func (ec *executionContext) marshalOChannelFailurePolicy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicy(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelFailurePolicy) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelFailurePolicy(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelFailurePolicyInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicy(ctx context.Context, v any) (*objects.ChannelFailurePolicy, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelFailurePolicyInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOChannelFailurePolicyMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicyMode(ctx context.Context, v any) (objects.ChannelFailurePolicyMode, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelFailurePolicyMode(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelFailurePolicyMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicyMode(ctx context.Context, sel ast.SelectionSet, v objects.ChannelFailurePolicyMode) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
 func (ec *executionContext) marshalOChannelKeyHealthCheck2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheck(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelKeyHealthCheck) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -117548,6 +118661,206 @@ func (ec *executionContext) unmarshalOExcludeAssociationInput2ᚕᚖgithubᚗcom
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
 		res[i], err = ec.unmarshalNExcludeAssociationInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐExcludeAssociation(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalOFailurePolicyAction2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.FailurePolicyAction) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNFailurePolicyAction2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyAction(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOFailurePolicyActionInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyActionᚄ(ctx context.Context, v any) ([]objects.FailurePolicyAction, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.FailurePolicyAction, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNFailurePolicyActionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyAction(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalOFailurePolicyEventSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSourceᚄ(ctx context.Context, v any) ([]objects.FailurePolicyEventSource, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.FailurePolicyEventSource, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNFailurePolicyEventSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSource(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalOFailurePolicyEventSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSourceᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.FailurePolicyEventSource) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNFailurePolicyEventSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSource(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOFailurePolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicy(ctx context.Context, v any) (objects.FailurePolicy, error) {
+	res, err := ec.unmarshalInputFailurePolicyInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFailurePolicyProfile2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.FailurePolicyProfile) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNFailurePolicyProfile2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfile(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOFailurePolicyProfileInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfileᚄ(ctx context.Context, v any) ([]objects.FailurePolicyProfile, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.FailurePolicyProfile, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNFailurePolicyProfileInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyProfile(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}

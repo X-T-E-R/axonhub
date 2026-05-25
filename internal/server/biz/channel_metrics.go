@@ -324,17 +324,8 @@ func (svc *ChannelService) RecordPerformance(ctx context.Context, perf *Performa
 	} else if !perf.Canceled {
 		policy := svc.SystemService.RetryPolicyOrDefault(ctx)
 
-		if policy.AutoDisableChannel.Enabled {
-			// Check API key error first if available.
-			if perf.APIKey != "" {
-				if svc.checkAndHandleAPIKeyError(ctx, perf, policy) {
-					return
-				}
-			} else {
-				if svc.checkAndHandleChannelError(ctx, perf, policy) {
-					return
-				}
-			}
+		if svc.handleRequestFailurePolicy(ctx, perf, policy) {
+			return
 		}
 	}
 
@@ -491,17 +482,17 @@ func deriveErrorMessage(errorCode int) string {
 
 // PerformanceRecord contains performance metrics collected during request processing.
 type PerformanceRecord struct {
-	ChannelID        int
-	APIKey           string // API key used for the request (sensitive, do not log full value)
-	StartTime           time.Time
-	FirstTokenTime      *time.Time
-	ReasoningStartTime  *time.Time
-	ReasoningEndTime    *time.Time
-	EndTime             time.Time
-	Stream              bool
-	Success          bool
-	Canceled         bool
-	RequestCompleted bool
+	ChannelID          int
+	APIKey             string // API key used for the request (sensitive, do not log full value)
+	StartTime          time.Time
+	FirstTokenTime     *time.Time
+	ReasoningStartTime *time.Time
+	ReasoningEndTime   *time.Time
+	EndTime            time.Time
+	Stream             bool
+	Success            bool
+	Canceled           bool
+	RequestCompleted   bool
 
 	// If response status code is 0, it means the request is successful.
 	ResponseStatusCode int

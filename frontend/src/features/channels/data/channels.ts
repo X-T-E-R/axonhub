@@ -134,6 +134,57 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       available
     }
   }
+  failurePolicy {
+    mode
+    keyProfiles {
+      id
+      name
+      enabled
+      sources
+      conditions {
+        minFailureCount
+        statusCodes
+        available
+        balanceLTE
+        reasonContains
+        allCheckedKeysFailed
+        expr
+      }
+      actions {
+        type
+        backoff {
+          mode
+          intervalMinutes
+          maxIntervalMinutes
+          multiplier
+        }
+      }
+    }
+    channelProfiles {
+      id
+      name
+      enabled
+      sources
+      conditions {
+        minFailureCount
+        statusCodes
+        available
+        balanceLTE
+        reasonContains
+        allCheckedKeysFailed
+        expr
+      }
+      actions {
+        type
+        backoff {
+          mode
+          intervalMinutes
+          maxIntervalMinutes
+          multiplier
+        }
+      }
+    }
+  }
 `;
 
 const CHANNEL_API_KEY_INVENTORY_FIELDS = `

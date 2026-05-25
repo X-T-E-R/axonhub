@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/looplj/axonhub/internal/objects"
 )
@@ -26,6 +27,9 @@ func ValidateChannelKeySettings(settings *objects.ChannelSettings) error {
 	}
 
 	if err := ValidateChannelKeySelection(settings.KeySelection); err != nil {
+		return err
+	}
+	if err := ValidateChannelFailurePolicy(settings.FailurePolicy); err != nil {
 		return err
 	}
 
@@ -268,6 +272,90 @@ func validateChannelKeyHealthCheckHTTPRule(rule objects.ChannelKeyHealthCheckHTT
 	return nil
 }
 
+func ValidateChannelFailurePolicy(policy *objects.ChannelFailurePolicy) error {
+	if policy == nil {
+		return nil
+	}
+
+	switch policy.Mode {
+	case "", objects.ChannelFailurePolicyModeInherit,
+		objects.ChannelFailurePolicyModeOverride,
+		objects.ChannelFailurePolicyModeMerge,
+		objects.ChannelFailurePolicyModeDisabled:
+	default:
+		return fmt.Errorf("unsupported failure policy mode %q", policy.Mode)
+	}
+	for i, profile := range policy.KeyProfiles {
+		if err := validateFailurePolicyProfile(profile); err != nil {
+			return fmt.Errorf("invalid key failure profile %d: %w", i, err)
+		}
+	}
+	for i, profile := range policy.ChannelProfiles {
+		if err := validateFailurePolicyProfile(profile); err != nil {
+			return fmt.Errorf("invalid channel failure profile %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+func validateFailurePolicyProfile(profile objects.FailurePolicyProfile) error {
+	if strings.TrimSpace(profile.ID) == "" {
+		return fmt.Errorf("id is required")
+	}
+	if strings.TrimSpace(profile.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if profile.Conditions.MinFailureCount != nil && *profile.Conditions.MinFailureCount < 1 {
+		return fmt.Errorf("minFailureCount must be at least 1")
+	}
+	for _, status := range profile.Conditions.StatusCodes {
+		if status < 100 || status > 599 {
+			return fmt.Errorf("status code %d is outside HTTP status range", status)
+		}
+	}
+	if len(strings.TrimSpace(profile.Conditions.Expr)) > maxChannelKeyHealthCheckPassWhenLength {
+		return fmt.Errorf("expr must be at most %d characters", maxChannelKeyHealthCheckPassWhenLength)
+	}
+	for _, source := range profile.Sources {
+		switch source {
+		case objects.FailurePolicyEventSourceRequestFailure,
+			objects.FailurePolicyEventSourceScheduledHealthCheckFailure,
+			objects.FailurePolicyEventSourceManualHealthCheckFailure:
+		default:
+			return fmt.Errorf("unsupported source %q", source)
+		}
+	}
+	if len(profile.Actions) == 0 {
+		return fmt.Errorf("at least one action is required")
+	}
+	for i, action := range profile.Actions {
+		if err := validateFailurePolicyAction(action); err != nil {
+			return fmt.Errorf("invalid action %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+func validateFailurePolicyAction(action objects.FailurePolicyAction) error {
+	switch action.Type {
+	case objects.FailurePolicyActionReportOnly,
+		objects.FailurePolicyActionDisableKey,
+		objects.FailurePolicyActionArchiveKey,
+		objects.FailurePolicyActionDeleteKey,
+		objects.FailurePolicyActionDisableChannel:
+		return nil
+	case objects.FailurePolicyActionBackoffKey:
+		if action.Backoff == nil {
+			return fmt.Errorf("backoff is required for backoff_key action")
+		}
+		return validateChannelKeyHealthCheckBackoff(*action.Backoff)
+	default:
+		return fmt.Errorf("unsupported action %q", action.Type)
+	}
+}
+
 func validateChannelKeyHealthCheckURLsForBaseURL(baseURL string, settings *objects.ChannelSettings) error {
 	if settings == nil || settings.KeyHealthCheck == nil {
 		return nil
@@ -411,4 +499,47 @@ func channelArchivedAPIKeys(settings *objects.ChannelSettings) []objects.Channel
 
 func ChannelArchivedAPIKeys(settings *objects.ChannelSettings) []objects.ChannelArchivedAPIKey {
 	return channelArchivedAPIKeys(settings)
+}
+
+func routableChannelAPIKeys(credentials objects.ChannelCredentials, disabledKeys []objects.DisabledAPIKey, settings *objects.ChannelSettings, now time.Time) []string {
+	keys := credentials.GetRoutableAPIKeys(disabledKeys, channelArchivedAPIKeys(settings))
+	if len(keys) == 0 || settings == nil || settings.KeyHealthCheck == nil {
+		return keys
+	}
+
+	backedOff := channelBackedOffAPIKeyIDs(settings, now)
+	if len(backedOff) == 0 {
+		return keys
+	}
+
+	next := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if _, ok := backedOff[objects.ChannelAPIKeyFingerprint(key)]; ok {
+			continue
+		}
+		next = append(next, key)
+	}
+
+	return next
+}
+
+func channelBackedOffAPIKeyIDs(settings *objects.ChannelSettings, now time.Time) map[string]struct{} {
+	if settings == nil || settings.KeyHealthCheck == nil {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	backedOff := make(map[string]struct{})
+	for _, meta := range settings.KeyHealthCheck.KeyMetadata {
+		if meta.ID == "" || meta.NextCheckAt == nil {
+			continue
+		}
+		if now.Before(*meta.NextCheckAt) {
+			backedOff[meta.ID] = struct{}{}
+		}
+	}
+
+	return backedOff
 }

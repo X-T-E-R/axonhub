@@ -7,6 +7,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcontext"
 )
 
@@ -168,4 +169,123 @@ func (svc *ChannelService) checkAndHandleAPIKeyError(ctx context.Context, perf *
 	}
 
 	return false
+}
+
+func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf *PerformanceRecord, policy *RetryPolicy) bool {
+	if perf == nil || policy == nil || perf.ResponseStatusCode == 0 {
+		return false
+	}
+
+	channelCount := svc.incrementChannelFailureCount(perf.ChannelID, perf.ResponseStatusCode)
+	keyCount := 0
+	if perf.APIKey != "" {
+		keyCount = svc.incrementAPIKeyFailureCount(perf.ChannelID, perf.APIKey, perf.ResponseStatusCode)
+	}
+
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, perf.ChannelID)
+	if err != nil {
+		log.Warn(ctx, "failed to load channel for failure policy",
+			log.Int("channel_id", perf.ChannelID),
+			log.Cause(err),
+		)
+
+		return false
+	}
+
+	effective := resolveEffectiveFailurePolicy(policy, ch.Settings, perf.APIKey == "")
+	if len(effective.KeyProfiles) == 0 && len(effective.ChannelProfiles) == 0 {
+		return false
+	}
+
+	now := time.Now()
+	routingChanged := false
+	if perf.APIKey != "" {
+		keyEvent := failurePolicyEvent{
+			Source:       objects.FailurePolicyEventSourceRequestFailure,
+			Target:       objects.FailurePolicyTargetKey,
+			ChannelID:    perf.ChannelID,
+			Key:          perf.APIKey,
+			StatusCode:   perf.ResponseStatusCode,
+			FailureCount: keyCount,
+			Reason:       deriveErrorMessage(perf.ResponseStatusCode),
+			CheckedAt:    now,
+		}
+		matches := evaluateFailurePolicyProfiles(effective.KeyProfiles, keyEvent)
+		if len(matches) > 0 {
+			changed, err := svc.applyFailurePolicyActions(ctx, keyEvent, summarizeFailurePolicyMatches(matches), matchesToFailurePolicyActions(matches), true)
+			if err != nil {
+				log.Error(ctx, "failed to apply key failure policy",
+					log.Int("channel_id", perf.ChannelID),
+					log.Int("error_code", perf.ResponseStatusCode),
+					log.Cause(err),
+				)
+			}
+			routingChanged = routingChanged || changed
+			if changed {
+				svc.apiKeyErrorCountsLock.Lock()
+				delete(svc.apiKeyErrorCounts[perf.ChannelID], perf.APIKey)
+				svc.apiKeyErrorCountsLock.Unlock()
+			}
+		}
+	}
+
+	channelEvent := failurePolicyEvent{
+		Source:       objects.FailurePolicyEventSourceRequestFailure,
+		Target:       objects.FailurePolicyTargetChannel,
+		ChannelID:    perf.ChannelID,
+		StatusCode:   perf.ResponseStatusCode,
+		FailureCount: channelCount,
+		Reason:       deriveErrorMessage(perf.ResponseStatusCode),
+		CheckedAt:    now,
+	}
+	matches := evaluateFailurePolicyProfiles(effective.ChannelProfiles, channelEvent)
+	if len(matches) > 0 {
+		changed, err := svc.applyFailurePolicyActions(ctx, channelEvent, summarizeFailurePolicyMatches(matches), matchesToFailurePolicyActions(matches), true)
+		if err != nil {
+			log.Error(ctx, "failed to apply channel failure policy",
+				log.Int("channel_id", perf.ChannelID),
+				log.Int("error_code", perf.ResponseStatusCode),
+				log.Cause(err),
+			)
+		}
+		routingChanged = routingChanged || changed
+		if changed {
+			svc.channelErrorCountsLock.Lock()
+			delete(svc.channelErrorCounts, perf.ChannelID)
+			svc.channelErrorCountsLock.Unlock()
+		}
+	}
+
+	if routingChanged {
+		svc.asyncReloadChannels()
+	}
+
+	return routingChanged
+}
+
+func (svc *ChannelService) incrementChannelFailureCount(channelID int, status int) int {
+	svc.channelErrorCountsLock.Lock()
+	defer svc.channelErrorCountsLock.Unlock()
+
+	if svc.channelErrorCounts[channelID] == nil {
+		svc.channelErrorCounts[channelID] = make(map[int]int)
+	}
+	svc.channelErrorCounts[channelID][status]++
+
+	return svc.channelErrorCounts[channelID][status]
+}
+
+func (svc *ChannelService) incrementAPIKeyFailureCount(channelID int, apiKey string, status int) int {
+	svc.apiKeyErrorCountsLock.Lock()
+	defer svc.apiKeyErrorCountsLock.Unlock()
+
+	if svc.apiKeyErrorCounts[channelID] == nil {
+		svc.apiKeyErrorCounts[channelID] = make(map[string]map[int]int)
+	}
+	if svc.apiKeyErrorCounts[channelID][apiKey] == nil {
+		svc.apiKeyErrorCounts[channelID][apiKey] = make(map[int]int)
+	}
+	svc.apiKeyErrorCounts[channelID][apiKey][status]++
+
+	return svc.apiKeyErrorCounts[channelID][apiKey][status]
 }

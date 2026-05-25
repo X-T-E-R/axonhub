@@ -125,7 +125,7 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 		Channel:              c,
 		HTTPClient:           httpClient,
 		cachedDisabledKeySet: disabledKeySet,
-		cachedEnabledAPIKeys: c.Credentials.GetRoutableAPIKeys(c.DisabledAPIKeys, channelArchivedAPIKeys(c.Settings)),
+		cachedEnabledAPIKeys: routableChannelAPIKeys(c.Credentials, c.DisabledAPIKeys, c.Settings, time.Now()),
 	}
 
 	// Precompute other caches
@@ -174,7 +174,7 @@ func getAPIKeyProvider(ch *Channel) auth.APIKeyProvider {
 	}
 
 	if len(enabled) == 1 {
-		return auth.NewStaticKeyProvider(enabled[0])
+		return NewStaticChannelKeyProvider(enabled[0])
 	}
 
 	panic(fmt.Errorf("no enabled api key configured for channel %s", ch.Name))
@@ -330,7 +330,7 @@ func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel) (*Channel
 	// Validate credentials early so we can fail fast without constructing HTTP clients/transformers.
 	//
 	// NOTE: "enabled" keys excludes keys that were explicitly disabled for this channel.
-	enabledKeys := c.Credentials.GetRoutableAPIKeys(c.DisabledAPIKeys, channelArchivedAPIKeys(c.Settings))
+	enabledKeys := routableChannelAPIKeys(c.Credentials, c.DisabledAPIKeys, c.Settings, time.Now())
 
 	//nolint:exhaustive // Checked.
 	switch c.Type {

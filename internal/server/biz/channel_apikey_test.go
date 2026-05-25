@@ -101,6 +101,26 @@ func TestTraceStickyKeyProvider_EmptyEnabledKeys_FallbackToFirst(t *testing.T) {
 	require.Equal(t, "fallback-key", key)
 }
 
+func TestGetAPIKeyProvider_SingleKey_RecordsSelectedKey(t *testing.T) {
+	ch := &Channel{
+		Channel: &ent.Channel{
+			Credentials: objects.ChannelCredentials{
+				APIKey: "only-key",
+			},
+		},
+		cachedEnabledAPIKeys: []string{"only-key"},
+	}
+
+	provider := getAPIKeyProvider(ch)
+	ctx := contexts.EnsureContainer(context.Background())
+
+	key := provider.Get(ctx)
+	selectedKey, ok := contexts.GetChannelAPIKey(ctx)
+	require.True(t, ok)
+	require.Equal(t, "only-key", key)
+	require.Equal(t, "only-key", selectedKey)
+}
+
 func TestTraceStickyKeyProvider_AddKey_MinimalRemapping(t *testing.T) {
 	originalKeys := []string{"key-1", "key-2", "key-3"}
 	ch := &Channel{

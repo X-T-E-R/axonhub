@@ -310,6 +310,9 @@ type RetryPolicy struct {
 	// If the channel has more than one key, the API key will be disabled instead of the channel.
 	AutoDisableChannel AutoDisableChannel `json:"auto_disable_channel"`
 
+	// FailurePolicy controls global request-time and health-check failure reactions.
+	FailurePolicy objects.FailurePolicy `json:"failure_policy"`
+
 	// EmptyResponseDetection controls whether to detect empty streaming responses.
 	// When enabled, the pipeline pre-reads stream events to check if the response
 	// contains meaningful content, and marks empty responses as failed attempts for retry handling.
@@ -1001,6 +1004,12 @@ func normalizeRetryPolicy(policy *RetryPolicy) {
 
 	if policy.AutoDisableChannel.Statuses == nil {
 		policy.AutoDisableChannel.Statuses = []AutoDisableChannelStatus{}
+	}
+	if policy.FailurePolicy.KeyProfiles == nil {
+		policy.FailurePolicy.KeyProfiles = []objects.FailurePolicyProfile{}
+	}
+	if policy.FailurePolicy.ChannelProfiles == nil {
+		policy.FailurePolicy.ChannelProfiles = []objects.FailurePolicyProfile{}
 	}
 
 	if policy.EmptyResponseTextPatterns == nil {
