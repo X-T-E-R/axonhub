@@ -36,6 +36,7 @@ type Handlers struct {
 	RequestContent *api.RequestContentHandlers
 	OIDC           *api.OIDCHandlers
 	RequestPreview *api.RequestPreviewHandlers
+	Management     *api.ManagementHandlers
 }
 
 type Services struct {
@@ -136,6 +137,8 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			middleware.WithTimeout(server.Config.RequestTimeout),
 			handlers.RequestPreview.PreviewRequest,
 		)
+
+		handlers.Management.RegisterAdminRoutes(adminGroup)
 	}
 
 	openAPIGroup := server.Group("/openapi", middleware.WithOpenAPIAuth(services.AuthService), middleware.WithTimeout(server.Config.RequestTimeout))
@@ -148,6 +151,8 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		})
 
 		openAPIGroup.POST("/webhook/echo", handlers.System.WebhookEcho)
+
+		handlers.Management.RegisterOpenAPIRoutes(openAPIGroup)
 	}
 
 	apiGroup := server.Group("/",

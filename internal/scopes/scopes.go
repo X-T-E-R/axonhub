@@ -8,6 +8,9 @@ type ScopeSlug string
 
 // Available scopes in the system.
 const (
+	// ScopeWildcard grants all scopes for service-account API keys and owner-managed tokens.
+	ScopeWildcard = "*"
+
 	// ScopeReadDashboard read the dashboard of the system.
 	ScopeReadDashboard ScopeSlug = "read_dashboard"
 
@@ -213,4 +216,9 @@ func IsValidScope(scope string) bool {
 	}
 
 	return false
+}
+
+// IsValidScopeOrWildcard checks if a scope is a known scope or the management wildcard.
+func IsValidScopeOrWildcard(scope string) bool {
+	return scope == ScopeWildcard || IsValidScope(scope)
 }

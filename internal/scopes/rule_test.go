@@ -82,6 +82,12 @@ func TestHasScope(t *testing.T) {
 			requiredScope: "read_users",
 			expected:      false,
 		},
+		{
+			name:          "wildcard grants required scope",
+			userScopes:    []string{ScopeWildcard},
+			requiredScope: "write_channels",
+			expected:      true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -22,5 +22,6 @@ var Module = fx.Module("api",
 	fx.Provide(NewRequestContentHandlers),
 	fx.Provide(NewOIDCHandlers),
 	fx.Provide(NewRequestPreviewHandlers),
+	fx.Provide(NewManagementHandlers),
 	fx.Invoke(initLogger),
 )
