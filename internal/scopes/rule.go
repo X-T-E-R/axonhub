@@ -25,7 +25,7 @@ func AlwaysDeny() privacy.QueryMutationRule {
 
 // hasScope checks if a scope exists in the given scopes slice.
 func hasScope(scopes []string, requiredScope string) bool {
-	return slices.Contains(scopes, requiredScope)
+	return slices.Contains(scopes, ScopeWildcard) || slices.Contains(scopes, requiredScope)
 }
 
 // hasSystemRoleScope checks if a user has a required scope through their roles.

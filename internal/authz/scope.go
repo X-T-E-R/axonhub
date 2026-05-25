@@ -138,5 +138,5 @@ func apiKeyHasScope(ctx context.Context, requiredScope scopes.ScopeSlug) bool {
 		return false
 	}
 
-	return slices.Contains(apiKey.Scopes, string(requiredScope))
+	return slices.Contains(apiKey.Scopes, scopes.ScopeWildcard) || slices.Contains(apiKey.Scopes, string(requiredScope))
 }

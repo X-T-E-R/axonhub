@@ -248,6 +248,22 @@ func TestHasScope_APIKeyPrincipal(t *testing.T) {
 	}
 }
 
+func TestHasScope_APIKeyPrincipal_Wildcard(t *testing.T) {
+	ctx := NewAPIKeyContext(context.Background(), 1, 1)
+	ctx = contexts.WithAPIKey(ctx, &ent.APIKey{
+		ID:     1,
+		Scopes: []string{scopes.ScopeWildcard},
+	})
+
+	if !HasScope(ctx, scopes.ScopeReadChannels) {
+		t.Error("apikey wildcard should grant read scope")
+	}
+
+	if !HasScope(ctx, scopes.ScopeWriteAPIKeys) {
+		t.Error("apikey wildcard should grant write scope")
+	}
+}
+
 func TestHasScope_APIKeyPrincipal_NoAPIKey(t *testing.T) {
 	ctx := NewAPIKeyContext(context.Background(), 1, 1)
 

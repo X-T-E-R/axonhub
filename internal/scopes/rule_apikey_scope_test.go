@@ -59,6 +59,15 @@ func TestAPIKeyQueryRule(t *testing.T) {
 			requiredScope: ScopeReadUsers,
 			expectAllow:   false,
 		},
+		{
+			name: "API key with wildcard scope",
+			ctx: contexts.WithAPIKey(context.Background(), &ent.APIKey{
+				ID:     1,
+				Scopes: []string{ScopeWildcard},
+			}),
+			requiredScope: ScopeReadUsers,
+			expectAllow:   true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -115,6 +124,15 @@ func TestAPIKeyScopeMutationRule(t *testing.T) {
 			}),
 			requiredScope: ScopeWriteUsers,
 			expectAllow:   false,
+		},
+		{
+			name: "API key with wildcard scope",
+			ctx: contexts.WithAPIKey(context.Background(), &ent.APIKey{
+				ID:     1,
+				Scopes: []string{ScopeWildcard},
+			}),
+			requiredScope: ScopeWriteUsers,
+			expectAllow:   true,
 		},
 	}
 
@@ -197,6 +215,16 @@ func TestAPIKeyProjectScopeReadRule(t *testing.T) {
 			}),
 			requiredScope: ScopeReadAPIKeys,
 			expectAllow:   false,
+		},
+		{
+			name: "API key with wildcard scope",
+			ctx: contexts.WithAPIKey(context.Background(), &ent.APIKey{
+				ID:        1,
+				ProjectID: 100,
+				Scopes:    []string{ScopeWildcard},
+			}),
+			requiredScope: ScopeReadAPIKeys,
+			expectAllow:   true,
 		},
 	}
 
