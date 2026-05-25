@@ -76,6 +76,7 @@ func (h *ManagementHandlers) RegisterOpenAPIRoutes(group *gin.RouterGroup) {
 	management.POST("/channels/:id/keys/:key_id/enable", h.EnableManagementChannelKey)
 	management.POST("/channels/:id/keys/:key_id/archive", h.ArchiveManagementChannelKey)
 	management.POST("/channels/:id/keys/:key_id/restore", h.RestoreManagementChannelKey)
+	management.POST("/channels/:id/keys/:key_id/health-check", h.RunManagementChannelSingleKeyHealthCheck)
 	management.POST("/channels/:id/keys/health-check", h.RunManagementChannelKeyHealthCheck)
 }
 
@@ -171,7 +172,7 @@ type updateChannelStatusRequest struct {
 }
 
 type healthCheckRequest struct {
-	KeyIDs []string `json:"keyIds"`
+	KeyIDs *[]string `json:"keyIds"`
 }
 
 type deleteKeyResponse struct {
@@ -435,18 +436,24 @@ func (h *ManagementHandlers) GetManagementCapabilities(c *gin.Context) {
 	c.JSON(http.StatusOK, managementCapabilitiesResponse{
 		Scopes: scopeResponses,
 		Operations: map[string]string{
-			"GET /openapi/v1/management/capabilities":                       "authenticated",
-			"GET /openapi/v1/management/channels":                           string(scopes.ScopeReadChannels),
-			"GET /openapi/v1/management/channels/:id":                       string(scopes.ScopeReadChannels),
-			"PATCH /openapi/v1/management/channels/:id/status":              string(scopes.ScopeWriteChannels),
-			"GET /openapi/v1/management/channels/:id/keys":                  string(scopes.ScopeReadChannels),
-			"POST /openapi/v1/management/channels/:id/keys":                 string(scopes.ScopeWriteChannels),
-			"DELETE /openapi/v1/management/channels/:id/keys/:key_id":       string(scopes.ScopeWriteChannels),
-			"POST /openapi/v1/management/channels/:id/keys/:key_id/disable": string(scopes.ScopeWriteChannels),
-			"POST /openapi/v1/management/channels/:id/keys/:key_id/enable":  string(scopes.ScopeWriteChannels),
-			"POST /openapi/v1/management/channels/:id/keys/:key_id/archive": string(scopes.ScopeWriteChannels),
-			"POST /openapi/v1/management/channels/:id/keys/:key_id/restore": string(scopes.ScopeWriteChannels),
-			"POST /openapi/v1/management/channels/:id/keys/health-check":    string(scopes.ScopeWriteChannels),
+			"POST /admin/management/tokens":                                      string(scopes.ScopeWriteAPIKeys),
+			"GET /admin/management/tokens":                                       string(scopes.ScopeReadAPIKeys),
+			"GET /admin/management/tokens/:id":                                   string(scopes.ScopeReadAPIKeys),
+			"PATCH /admin/management/tokens/:id":                                 string(scopes.ScopeWriteAPIKeys),
+			"POST /admin/management/tokens/:id/revoke":                           string(scopes.ScopeWriteAPIKeys),
+			"GET /openapi/v1/management/capabilities":                            "authenticated",
+			"GET /openapi/v1/management/channels":                                string(scopes.ScopeReadChannels),
+			"GET /openapi/v1/management/channels/:id":                            string(scopes.ScopeReadChannels),
+			"PATCH /openapi/v1/management/channels/:id/status":                   string(scopes.ScopeWriteChannels),
+			"GET /openapi/v1/management/channels/:id/keys":                       string(scopes.ScopeReadChannels),
+			"POST /openapi/v1/management/channels/:id/keys":                      string(scopes.ScopeWriteChannels),
+			"DELETE /openapi/v1/management/channels/:id/keys/:key_id":            string(scopes.ScopeWriteChannels),
+			"POST /openapi/v1/management/channels/:id/keys/:key_id/disable":      string(scopes.ScopeWriteChannels),
+			"POST /openapi/v1/management/channels/:id/keys/:key_id/enable":       string(scopes.ScopeWriteChannels),
+			"POST /openapi/v1/management/channels/:id/keys/:key_id/archive":      string(scopes.ScopeWriteChannels),
+			"POST /openapi/v1/management/channels/:id/keys/:key_id/restore":      string(scopes.ScopeWriteChannels),
+			"POST /openapi/v1/management/channels/:id/keys/:key_id/health-check": string(scopes.ScopeWriteChannels),
+			"POST /openapi/v1/management/channels/:id/keys/health-check":         string(scopes.ScopeWriteChannels),
 		},
 	})
 }
@@ -712,14 +719,51 @@ func (h *ManagementHandlers) RunManagementChannelKeyHealthCheck(c *gin.Context) 
 	}
 
 	var req healthCheckRequest
+	var keyIDs []string
 	if c.Request.Body != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			JSONError(c, http.StatusBadRequest, errors.New("invalid request format"))
 			return
 		}
+		if req.KeyIDs != nil {
+			keyIDs = normalizeKeyIDs(*req.KeyIDs)
+			if len(keyIDs) == 0 {
+				JSONError(c, http.StatusBadRequest, errors.New("keyIds cannot be empty when provided"))
+				return
+			}
+		}
 	}
 
-	items, err := h.channelService.RunChannelAPIKeyHealthCheck(ctx, id, req.KeyIDs)
+	items, err := h.channelService.RunChannelAPIKeyHealthCheck(ctx, id, keyIDs)
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: inventoryItemsResponse(items)})
+}
+
+func (h *ManagementHandlers) RunManagementChannelSingleKeyHealthCheck(c *gin.Context) {
+	id, keyID, ok := parseChannelKeyParams(c)
+	if !ok {
+		return
+	}
+	ctx, ok := h.requireScope(c, scopes.ScopeWriteChannels, 0)
+	if !ok {
+		return
+	}
+
+	found, err := h.managementChannelKeyExists(ctx, id, keyID)
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+	if !found {
+		JSONError(c, http.StatusNotFound, errors.New("channel key not found"))
+		return
+	}
+
+	items, err := h.channelService.RunChannelAPIKeyHealthCheck(ctx, id, []string{keyID})
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -816,6 +860,21 @@ func (h *ManagementHandlers) writeInventory(c *gin.Context, ctx context.Context,
 	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: inventoryItemsResponse(items)})
 }
 
+func (h *ManagementHandlers) managementChannelKeyExists(ctx context.Context, channelID int, keyID string) (bool, error) {
+	items, err := h.channelService.ChannelAPIKeyInventory(ctx, channelID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, item := range items {
+		if managementChannelKeyIDMatches(item.ID, keyID) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func (h *ManagementHandlers) writeServiceError(c *gin.Context, err error) {
 	switch {
 	case ent.IsNotFound(err):
@@ -887,6 +946,39 @@ func normalizeProviderKeys(input []string) []string {
 	}
 
 	return out
+}
+
+func normalizeKeyIDs(input []string) []string {
+	seen := make(map[string]struct{}, len(input))
+	out := make([]string, 0, len(input))
+	for _, keyID := range input {
+		keyID = strings.TrimSpace(keyID)
+		if keyID == "" {
+			continue
+		}
+		if _, ok := seen[keyID]; ok {
+			continue
+		}
+		seen[keyID] = struct{}{}
+		out = append(out, keyID)
+	}
+
+	return out
+}
+
+func managementChannelKeyIDMatches(itemID string, keyID string) bool {
+	keyID = strings.TrimSpace(keyID)
+	if keyID == "" {
+		return false
+	}
+	if itemID == keyID {
+		return true
+	}
+	if strings.HasPrefix(keyID, "key_") {
+		return false
+	}
+
+	return itemID == objects.ChannelAPIKeyFingerprint(keyID)
 }
 
 func keyCounts(items []*biz.ChannelAPIKeyInventoryItem) managementChannelKeyCounts {

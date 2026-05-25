@@ -50,6 +50,29 @@ func TestManagementChannels_MissingReadScopeDenied(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
+func TestManagementCapabilities_IncludesTokenAndHealthCheckOperations(t *testing.T) {
+	handler := &ManagementHandlers{}
+
+	router := gin.New()
+	handler.RegisterOpenAPIRoutes(router.Group(""))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/management/capabilities", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp managementCapabilitiesResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, string(scopes.ScopeWriteAPIKeys), resp.Operations["POST /admin/management/tokens"])
+	require.Equal(t, string(scopes.ScopeReadAPIKeys), resp.Operations["GET /admin/management/tokens"])
+	require.Equal(t, string(scopes.ScopeReadAPIKeys), resp.Operations["GET /admin/management/tokens/:id"])
+	require.Equal(t, string(scopes.ScopeWriteAPIKeys), resp.Operations["PATCH /admin/management/tokens/:id"])
+	require.Equal(t, string(scopes.ScopeWriteAPIKeys), resp.Operations["POST /admin/management/tokens/:id/revoke"])
+	require.Equal(t, string(scopes.ScopeWriteChannels), resp.Operations["POST /openapi/v1/management/channels/:id/keys/:key_id/health-check"])
+	require.Equal(t, string(scopes.ScopeWriteChannels), resp.Operations["POST /openapi/v1/management/channels/:id/keys/health-check"])
+}
+
 func TestManagementAddChannelKeys_DoesNotEchoRawProviderKey(t *testing.T) {
 	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
 	t.Cleanup(func() { _ = client.Close() })
@@ -92,6 +115,98 @@ func TestManagementAddChannelKeys_DoesNotEchoRawProviderKey(t *testing.T) {
 	updated, err := client.Channel.Get(setupCtx, ch.ID)
 	require.NoError(t, err)
 	require.Contains(t, updated.Credentials.GetAllAPIKeys(), rawProviderKey)
+}
+
+func TestManagementSingleKeyHealthCheckRoute_RequiresWriteScope(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
+	t.Cleanup(func() { _ = client.Close() })
+
+	project := createManagementTestProject(t, client)
+	callCtx := managementAPIKeyContext(client, project.ID, []string{string(scopes.ScopeReadChannels)})
+	handler := &ManagementHandlers{
+		ent:                 client,
+		channelService:      biz.NewChannelServiceForTest(client),
+		permissionValidator: biz.NewPermissionValidator(),
+	}
+
+	router := gin.New()
+	router.Use(withManagementTestContext(callCtx))
+	handler.RegisterOpenAPIRoutes(router.Group(""))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/management/channels/1/keys/key-id/health-check", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
+func TestManagementSingleKeyHealthCheckRoute_RejectsUnknownKey(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
+	t.Cleanup(func() { _ = client.Close() })
+
+	project := createManagementTestProject(t, client)
+	setupCtx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("management-test-health-channel").
+		SetBaseURL("https://api.example.test/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"sk-existing-provider-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	callCtx := managementAPIKeyContext(client, project.ID, []string{string(scopes.ScopeWriteChannels)})
+	handler := &ManagementHandlers{
+		ent:                 client,
+		channelService:      biz.NewChannelServiceForTest(client),
+		permissionValidator: biz.NewPermissionValidator(),
+	}
+
+	router := gin.New()
+	router.Use(withManagementTestContext(callCtx))
+	handler.RegisterOpenAPIRoutes(router.Group(""))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/management/channels/"+strconvItoa(ch.ID)+"/keys/not-a-known-key/health-check", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	require.NotContains(t, rec.Body.String(), "sk-existing-provider-key")
+}
+
+func TestManagementSelectedKeyHealthCheckRoute_RejectsExplicitEmptyKeyIDs(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
+	t.Cleanup(func() { _ = client.Close() })
+
+	project := createManagementTestProject(t, client)
+	callCtx := managementAPIKeyContext(client, project.ID, []string{string(scopes.ScopeWriteChannels)})
+	handler := &ManagementHandlers{
+		ent:                 client,
+		channelService:      biz.NewChannelServiceForTest(client),
+		permissionValidator: biz.NewPermissionValidator(),
+	}
+
+	router := gin.New()
+	router.Use(withManagementTestContext(callCtx))
+	handler.RegisterOpenAPIRoutes(router.Group(""))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/management/channels/1/keys/health-check", strings.NewReader(`{"keyIds":["  ",""]}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+}
+
+func TestManagementChannelKeyIDMatchesFingerprintAndRawKey(t *testing.T) {
+	key := "sk-existing-provider-key"
+	fingerprint := objects.ChannelAPIKeyFingerprint(key)
+
+	require.True(t, managementChannelKeyIDMatches(fingerprint, fingerprint))
+	require.True(t, managementChannelKeyIDMatches(fingerprint, key))
+	require.False(t, managementChannelKeyIDMatches(fingerprint, "key_unknown"))
 }
 
 func TestManagementTokenCreate_ReturnsRawTokenOnlyOnce(t *testing.T) {
