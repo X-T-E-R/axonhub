@@ -303,19 +303,21 @@ type ChannelKeyHealthCheckTrigger string
 const (
 	ChannelKeyHealthCheckTriggerManual    ChannelKeyHealthCheckTrigger = "manual"
 	ChannelKeyHealthCheckTriggerScheduled ChannelKeyHealthCheckTrigger = "scheduled"
+	ChannelKeyHealthCheckTriggerRequest   ChannelKeyHealthCheckTrigger = "request"
 )
 
 type ChannelKeyHealthCheck struct {
-	Enabled          bool                               `json:"enabled"`
-	IntervalMinutes  int                                `json:"intervalMinutes,omitempty"`
-	HistoryLimit     int                                `json:"historyLimit,omitempty"`
-	FailureThreshold int                                `json:"failureThreshold,omitempty"`
-	FailureAction    ChannelKeyHealthCheckFailureAction `json:"failureAction,omitempty"`
-	IncludeDisabled  bool                               `json:"includeDisabled,omitempty"`
-	Rules            []ChannelKeyHealthCheckRule        `json:"rules,omitempty"`
-	Policies         []ChannelKeyHealthCheckPolicy      `json:"policies,omitempty"`
-	KeyMetadata      []ChannelKeyMetadata               `json:"keyMetadata,omitempty"`
-	ArchivedKeys     []ChannelArchivedAPIKey            `json:"archivedKeys,omitempty"`
+	Enabled          bool                                `json:"enabled"`
+	IntervalMinutes  int                                 `json:"intervalMinutes,omitempty"`
+	HistoryLimit     int                                 `json:"historyLimit,omitempty"`
+	FailureThreshold int                                 `json:"failureThreshold,omitempty"`
+	FailureAction    ChannelKeyHealthCheckFailureAction  `json:"failureAction,omitempty"`
+	IncludeDisabled  bool                                `json:"includeDisabled,omitempty"`
+	Rules            []ChannelKeyHealthCheckRule         `json:"rules,omitempty"`
+	Policies         []ChannelKeyHealthCheckPolicy       `json:"policies,omitempty"`
+	KeyMetadata      []ChannelKeyMetadata                `json:"keyMetadata,omitempty"`
+	ArchivedKeys     []ChannelArchivedAPIKey             `json:"archivedKeys,omitempty"`
+	History          []ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
 }
 
 func (h *ChannelKeyHealthCheck) IntervalMinutesOrDefault() int {

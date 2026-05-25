@@ -1453,11 +1453,120 @@ function KeyDetailsDialog({
   );
 }
 
+function ChannelHistoryDialog({
+  history,
+  open,
+  onOpenChange,
+}: {
+  history: ChannelKeyHealthCheckHistoryEntry[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const latest = history[0] ?? null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-2xl'>
+        <DialogHeader className='shrink-0 text-left'>
+          <DialogTitle className='flex items-center gap-2'>
+            <IconRoute className='h-5 w-5' />
+            {t('channels.dialogs.keys.channelHistory.title')}
+          </DialogTitle>
+          <DialogDescription>{t('channels.dialogs.keys.channelHistory.description')}</DialogDescription>
+        </DialogHeader>
+
+        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto pr-1'>
+          <div className='grid gap-3 md:grid-cols-2'>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.channelHistory.scope')}</div>
+              <div className='mt-1 text-sm font-medium'>{t('channels.dialogs.keys.channelHistory.scopeValue')}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.channelHistory.eventCount')}</div>
+              <div className='mt-1 text-sm font-medium'>{history.length}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.latestHealth')}</div>
+              <div className='mt-1 text-sm font-medium'>
+                {latest ? t(`channels.dialogs.keys.healthState.${latest.success ? 'success' : 'failed'}`) : '-'}
+              </div>
+              <div className='text-muted-foreground mt-1 text-xs'>{formatDateTime(latest?.checkedAt)}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.matchedPolicy')}</div>
+              <div className='mt-1 text-sm font-medium'>{latest?.matchedPolicy || '-'}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.action')}</div>
+              <div className='mt-1 text-sm font-medium'>{formatPolicyAction(latest?.action)}</div>
+            </div>
+            <div className='rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.reason')}</div>
+              <div className='mt-1 text-sm'>{latest?.reason || '-'}</div>
+            </div>
+          </div>
+
+          <KeyHistoryCharts history={history} />
+
+          <div className='rounded-lg border'>
+            <div className='border-b px-3 py-2 text-sm font-medium'>{t('channels.dialogs.keys.details.history')}</div>
+            <div className='max-h-72 divide-y overflow-auto'>
+              {history.length === 0 ? (
+                <div className='text-muted-foreground p-4 text-sm'>{t('channels.dialogs.keys.channelHistory.empty')}</div>
+              ) : (
+                history.map((entry) => {
+                  const tone = healthTone(entry.success);
+                  return (
+                    <div key={entry.id} className='flex gap-3 p-3'>
+                      <div className={tone.textClass}>
+                        {entry.success ? <IconCircleCheck className='h-4 w-4' /> : <IconCircleX className='h-4 w-4' />}
+                      </div>
+                      <div className='min-w-0 flex-1 space-y-1'>
+                        <div className='flex flex-wrap items-center gap-2'>
+                          <Badge variant={tone.badgeVariant}>
+                            {t(`channels.dialogs.keys.healthState.${entry.success ? 'success' : 'failed'}`)}
+                          </Badge>
+                          {entry.trigger ? <Badge variant='outline'>{t(`channels.dialogs.keys.trigger.${entry.trigger}`)}</Badge> : null}
+                          <Badge variant='outline'>
+                            {entry.id?.startsWith('channel:')
+                              ? t('channels.dialogs.keys.channelHistory.target.channel')
+                              : t('channels.dialogs.keys.channelHistory.target.key')}
+                          </Badge>
+                          {entry.statusCode ? (
+                            <Badge variant='outline'>
+                              {t('channels.dialogs.keys.details.statusCode')}: {entry.statusCode}
+                            </Badge>
+                          ) : null}
+                          {entry.matchedPolicy ? <Badge variant='outline'>{entry.matchedPolicy}</Badge> : null}
+                        </div>
+                        <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt)}</div>
+                        <div className='text-sm'>{entry.reason || '-'}</div>
+                        <div className='text-muted-foreground text-xs'>
+                          {entry.action ? formatPolicyAction(entry.action) : '-'}
+                          {entry.nextCheckAt
+                            ? ` · ${t('channels.dialogs.keys.details.nextCheckAt')}: ${formatDateTime(entry.nextCheckAt)}`
+                            : ''}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const { t, i18n } = useTranslation();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
   const [detailsKeyID, setDetailsKeyID] = useState<string | null>(null);
+  const [channelHistoryOpen, setChannelHistoryOpen] = useState(false);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
 
@@ -1483,6 +1592,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
       setSelectedKeys(new Set());
       setShowArchived(false);
       setDetailsKeyID(null);
+      setChannelHistoryOpen(false);
       setConfirmDeleteKey(null);
       setConfirmBatchDelete(false);
     }
@@ -1492,6 +1602,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const activeKeys = useMemo(() => inventory.filter((item) => item.status === 'active'), [inventory]);
   const disabledKeys = useMemo(() => inventory.filter((item) => item.status === 'disabled'), [inventory]);
   const archivedKeys = useMemo(() => inventory.filter((item) => item.status === 'archived'), [inventory]);
+  const channelHistory = useMemo(() => currentRow.settings?.keyHealthCheck?.history ?? [], [currentRow.settings?.keyHealthCheck?.history]);
   const isDeepSeekChannel = currentRow.type === 'deepseek' || currentRow.type === 'deepseek_anthropic';
   const deepSeekActiveBalanceSummary = useMemo(
     () => (isDeepSeekChannel ? summarizeActiveBalances(activeKeys, t, i18n.language) : null),
@@ -1516,6 +1627,10 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     [selectedRows]
   );
   const detailsRow = useMemo(() => inventory.find((item) => item.id === detailsKeyID) ?? null, [detailsKeyID, inventory]);
+  const inventoryHistoryCount = useMemo(
+    () => visibleInventory.reduce((sum, item) => sum + (item.history?.length ?? 0), 0),
+    [visibleInventory]
+  );
   const selectedStrategy = form.watch('strategy');
   const deepseekRuleEnabled = form.watch('healthCheck.deepseekRuleEnabled');
   const deepseekUseAbsoluteURL = form.watch('healthCheck.deepseekUseAbsoluteURL');
@@ -1789,9 +1904,11 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                           const firstHistoryRow = visibleInventory.find((item) => (item.history?.length ?? 0) > 0) ?? visibleInventory[0];
                           if (firstHistoryRow) {
                             setDetailsKeyID(firstHistoryRow.id);
+                          } else if (channelHistory.length > 0) {
+                            setChannelHistoryOpen(true);
                           }
                         }}
-                        disabled={visibleInventory.length === 0}
+                        disabled={visibleInventory.length === 0 && channelHistory.length === 0}
                       >
                         <div className='flex items-start gap-3'>
                           <div className='bg-primary/10 text-primary rounded-lg p-2'>
@@ -1804,10 +1921,33 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                         </div>
                         <Badge variant='outline'>
                           {t('channels.dialogs.keys.analytics.historyCount', {
-                            count: visibleInventory.reduce((sum, item) => sum + (item.history?.length ?? 0), 0),
+                            count: inventoryHistoryCount + channelHistory.length,
                           })}
                         </Badge>
                       </button>
+
+                      {channelHistory.length > 0 ? (
+                        <button
+                          type='button'
+                          className='from-primary/5 via-background to-muted/40 hover:border-primary/40 flex w-full flex-col gap-3 rounded-xl border bg-gradient-to-r p-4 text-left transition sm:flex-row sm:items-center sm:justify-between'
+                          onClick={() => setChannelHistoryOpen(true)}
+                        >
+                          <div className='flex items-start gap-3'>
+                            <div className='bg-primary/10 text-primary rounded-lg p-2'>
+                              <IconRoute className='h-5 w-5' />
+                            </div>
+                            <div>
+                              <div className='font-medium'>{t('channels.dialogs.keys.channelHistory.title')}</div>
+                              <div className='text-muted-foreground mt-1 text-sm'>
+                                {t('channels.dialogs.keys.channelHistory.description')}
+                              </div>
+                            </div>
+                          </div>
+                          <Badge variant='outline'>
+                            {t('channels.dialogs.keys.analytics.historyCount', { count: channelHistory.length })}
+                          </Badge>
+                        </button>
+                      ) : null}
 
                       <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
                         <div className='text-muted-foreground text-sm'>
@@ -2436,6 +2576,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         </DialogContent>
       </Dialog>
       <KeyDetailsDialog row={detailsRow} open={!!detailsRow} onOpenChange={(state) => !state && setDetailsKeyID(null)} />
+      <ChannelHistoryDialog history={channelHistory} open={channelHistoryOpen} onOpenChange={setChannelHistoryOpen} />
     </>
   );
 }

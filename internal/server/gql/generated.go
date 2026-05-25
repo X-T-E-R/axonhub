@@ -390,6 +390,7 @@ type ComplexityRoot struct {
 		Enabled          func(childComplexity int) int
 		FailureAction    func(childComplexity int) int
 		FailureThreshold func(childComplexity int) int
+		History          func(childComplexity int) int
 		HistoryLimit     func(childComplexity int) int
 		IncludeDisabled  func(childComplexity int) int
 		IntervalMinutes  func(childComplexity int) int
@@ -3672,6 +3673,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheck.FailureThreshold(childComplexity), true
+	case "ChannelKeyHealthCheck.history":
+		if e.complexity.ChannelKeyHealthCheck.History == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.History(childComplexity), true
 	case "ChannelKeyHealthCheck.historyLimit":
 		if e.complexity.ChannelKeyHealthCheck.HistoryLimit == nil {
 			break
@@ -21504,6 +21511,65 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_archivedKeys(_ co
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyHealthCheck_history(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_history,
+		func(ctx context.Context) (any, error) {
+			return obj.History, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckHistoryEntry2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHistoryEntryᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_history(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_id(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_checkedAt(ctx, field)
+			case "success":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_success(ctx, field)
+			case "reason":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_reason(ctx, field)
+			case "balance":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balance(ctx, field)
+			case "currency":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_currency(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_available(ctx, field)
+			case "trigger":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_trigger(ctx, field)
+			case "rule":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_rule(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_statusCode(ctx, field)
+			case "matchedPolicy":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_matchedPolicy(ctx, field)
+			case "action":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_action(ctx, field)
+			case "nextCheckAt":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_nextCheckAt(ctx, field)
+			case "backoffAttempt":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_backoffAttempt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckHistoryEntry", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyHealthCheckBackoff_mode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckBackoff) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -27073,6 +27139,8 @@ func (ec *executionContext) fieldContext_ChannelSettings_keyHealthCheck(_ contex
 				return ec.fieldContext_ChannelKeyHealthCheck_keyMetadata(ctx, field)
 			case "archivedKeys":
 				return ec.fieldContext_ChannelKeyHealthCheck_archivedKeys(ctx, field)
+			case "history":
+				return ec.fieldContext_ChannelKeyHealthCheck_history(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheck", field.Name)
 		},
@@ -65601,7 +65669,7 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckInput(ctx context
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"enabled", "intervalMinutes", "historyLimit", "failureThreshold", "failureAction", "includeDisabled", "rules", "policies", "keyMetadata", "archivedKeys"}
+	fieldsInOrder := [...]string{"enabled", "intervalMinutes", "historyLimit", "failureThreshold", "failureAction", "includeDisabled", "rules", "policies", "keyMetadata", "archivedKeys", "history"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -65678,6 +65746,13 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckInput(ctx context
 				return it, err
 			}
 			it.ArchivedKeys = data
+		case "history":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("history"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckHistoryEntryInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHistoryEntryᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.History = data
 		}
 	}
 
@@ -92306,6 +92381,8 @@ func (ec *executionContext) _ChannelKeyHealthCheck(ctx context.Context, sel ast.
 			out.Values[i] = ec._ChannelKeyHealthCheck_keyMetadata(ctx, field, obj)
 		case "archivedKeys":
 			out.Values[i] = ec._ChannelKeyHealthCheck_archivedKeys(ctx, field, obj)
+		case "history":
+			out.Values[i] = ec._ChannelKeyHealthCheck_history(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

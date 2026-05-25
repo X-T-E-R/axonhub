@@ -207,6 +207,7 @@ enum ChannelKeyStatus {
 enum ChannelKeyHealthCheckTrigger {
   manual
   scheduled
+  request
 }
 
 type ChannelKeyHealthCheck {
@@ -220,6 +221,7 @@ type ChannelKeyHealthCheck {
   policies: [ChannelKeyHealthCheckPolicy!]
   keyMetadata: [ChannelKeyMetadata!]
   archivedKeys: [ChannelArchivedAPIKey!]
+  history: [ChannelKeyHealthCheckHistoryEntry!]
 }
 
 type FailurePolicy {
@@ -283,6 +285,7 @@ input ChannelKeyHealthCheckInput {
   policies: [ChannelKeyHealthCheckPolicyInput!]
   keyMetadata: [ChannelKeyMetadataInput!]
   archivedKeys: [ChannelArchivedAPIKeyInput!]
+  history: [ChannelKeyHealthCheckHistoryEntryInput!]
 }
 
 type ChannelKeyHealthCheckPolicy {

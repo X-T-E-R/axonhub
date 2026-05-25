@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -88,17 +89,17 @@ func TestChatCompletionOrchestrator_Process_MinuteQuotaExceeded(t *testing.T) {
 	channelSelector := &staticChannelSelector{candidates: channelsToTestCandidates([]*biz.Channel{bizChannel}, "gpt-4")}
 
 	orchestrator := &ChatCompletionOrchestrator{
-		channelSelector:   channelSelector,
-		Inbound:           openai.NewInboundTransformer(),
-		RequestService:    requestService,
-		ChannelService:    channelService,
-		PromptProvider:    &stubPromptProvider{},
-		SystemService:     systemService,
-		UsageLogService:   usageLogService,
-		QuotaService:      quotaService,
-		PipelineFactory:   pipeline.NewFactory(executor),
-		ModelMapper:       NewModelMapper(),
-		channelLimiterManager:      NewChannelLimiterManager(),
+		channelSelector:       channelSelector,
+		Inbound:               openai.NewInboundTransformer(),
+		RequestService:        requestService,
+		ChannelService:        channelService,
+		PromptProvider:        &stubPromptProvider{},
+		SystemService:         systemService,
+		UsageLogService:       usageLogService,
+		QuotaService:          quotaService,
+		PipelineFactory:       pipeline.NewFactory(executor),
+		ModelMapper:           NewModelMapper(),
+		channelLimiterManager: NewChannelLimiterManager(),
 		Middlewares: []pipeline.Middleware{
 			stream.EnsureUsage(),
 		},
@@ -111,6 +112,14 @@ func TestChatCompletionOrchestrator_Process_MinuteQuotaExceeded(t *testing.T) {
 
 	_, err = orchestrator.Process(ctx, httpRequest)
 	require.NoError(t, err)
+
+	// Avoid relying on exact same-tick ordering between the first usage-log
+	// created_at value and the next rolling-window quota check end time.
+	quota := apiKey.GetActiveProfile().Quota
+	require.Eventually(t, func() bool {
+		result, err := quotaService.CheckAPIKeyQuota(ctx, apiKey.ID, quota)
+		return err == nil && !result.Allowed
+	}, time.Second, time.Millisecond)
 
 	_, err = orchestrator.Process(ctx, httpRequest)
 	require.Error(t, err)
