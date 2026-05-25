@@ -135,6 +135,22 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       currency
       available
     }
+    history {
+      id
+      checkedAt
+      success
+      reason
+      balance
+      currency
+      available
+      trigger
+      rule
+      statusCode
+      matchedPolicy
+      action
+      nextCheckAt
+      backoffAttempt
+    }
   }
   failurePolicy {
     mode

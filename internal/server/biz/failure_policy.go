@@ -58,7 +58,16 @@ func resolveEffectiveFailurePolicy(retry *RetryPolicy, settings *objects.Channel
 			}
 		case objects.ChannelFailurePolicyModeMerge:
 			return mergeFailurePolicies(channelPolicy.KeyProfiles, global.KeyProfiles, channelPolicy.ChannelProfiles, global.ChannelProfiles)
-		case "", objects.ChannelFailurePolicyModeInherit:
+		case "":
+			if channelFailurePolicyHasProfiles(channelPolicy) {
+				return mergeFailurePolicies(channelPolicy.KeyProfiles, global.KeyProfiles, channelPolicy.ChannelProfiles, global.ChannelProfiles)
+			}
+
+			return effectiveFailurePolicy{
+				KeyProfiles:     slices.Clone(global.KeyProfiles),
+				ChannelProfiles: slices.Clone(global.ChannelProfiles),
+			}
+		case objects.ChannelFailurePolicyModeInherit:
 			return effectiveFailurePolicy{
 				KeyProfiles:     slices.Clone(global.KeyProfiles),
 				ChannelProfiles: slices.Clone(global.ChannelProfiles),
@@ -111,6 +120,10 @@ func channelFailurePolicyOrLegacy(settings *objects.ChannelSettings) (objects.Ch
 }
 
 func failurePolicyHasProfiles(policy objects.FailurePolicy) bool {
+	return len(policy.KeyProfiles) > 0 || len(policy.ChannelProfiles) > 0
+}
+
+func channelFailurePolicyHasProfiles(policy objects.ChannelFailurePolicy) bool {
 	return len(policy.KeyProfiles) > 0 || len(policy.ChannelProfiles) > 0
 }
 
@@ -273,7 +286,10 @@ func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event fai
 		StatusCode: event.StatusCode,
 	}
 	trigger := objects.ChannelKeyHealthCheckTriggerScheduled
-	if event.Source == objects.FailurePolicyEventSourceManualHealthCheckFailure {
+	switch event.Source {
+	case objects.FailurePolicyEventSourceRequestFailure:
+		trigger = objects.ChannelKeyHealthCheckTriggerRequest
+	case objects.FailurePolicyEventSourceManualHealthCheckFailure:
 		trigger = objects.ChannelKeyHealthCheckTriggerManual
 	}
 
@@ -362,6 +378,12 @@ func matchesToFailurePolicyActions(matches []failurePolicyMatch) []objects.Failu
 
 func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event failurePolicyEvent, matchedPolicy string, actions []objects.FailurePolicyAction, persistBackoff bool) (bool, error) {
 	routingChanged := false
+	if event.Source == objects.FailurePolicyEventSourceRequestFailure {
+		if err := svc.recordRequestFailurePolicyHistory(ctx, event, matchedPolicy, actions); err != nil {
+			return routingChanged, err
+		}
+	}
+
 	for _, action := range actions {
 		reason := event.Reason
 		if reason == "" {
@@ -378,7 +400,7 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 			if event.Key == "" || action.Backoff == nil {
 				continue
 			}
-			if persistBackoff {
+			if persistBackoff && event.Source != objects.FailurePolicyEventSourceRequestFailure {
 				if err := svc.recordFailurePolicyKeyBackoff(ctx, event, matchedPolicy, actions, *action.Backoff); err != nil {
 					return routingChanged, err
 				}
@@ -427,6 +449,128 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 	}
 
 	return routingChanged, nil
+}
+
+func (svc *ChannelService) recordRequestFailurePolicyHistory(ctx context.Context, event failurePolicyEvent, matchedPolicy string, actions []objects.FailurePolicyAction) error {
+	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, event.ChannelID)
+	if err != nil {
+		return fmt.Errorf("failed to get channel for request failure policy history: %w", err)
+	}
+
+	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
+	now := event.CheckedAt
+	if now.IsZero() {
+		now = time.Now()
+	}
+	actionSummary := summarizeFailurePolicyActionList(actions)
+	historyLimit := settings.KeyHealthCheck.HistoryLimitOrDefault()
+	if event.Target == objects.FailurePolicyTargetKey && event.Key != "" {
+		settings.KeyHealthCheck.KeyMetadata = upsertRequestFailurePolicyKeyMetadata(settings.KeyHealthCheck.KeyMetadata, event, matchedPolicy, actionSummary, actions, now, historyLimit)
+	}
+	settings.KeyHealthCheck.History = appendRequestFailurePolicyChannelHistory(settings.KeyHealthCheck.History, event, matchedPolicy, actionSummary, now, historyLimit)
+
+	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(event.ChannelID).SetSettings(settings).Save(ctx); err != nil {
+		return fmt.Errorf("failed to save request failure policy history: %w", err)
+	}
+
+	return nil
+}
+
+func upsertRequestFailurePolicyKeyMetadata(metadata []objects.ChannelKeyMetadata, event failurePolicyEvent, matchedPolicy string, actionSummary string, actions []objects.FailurePolicyAction, now time.Time, historyLimit int) []objects.ChannelKeyMetadata {
+	id := objects.ChannelAPIKeyFingerprint(event.Key)
+	next := slices.Clone(metadata)
+	for i := range next {
+		if next[i].ID != id {
+			continue
+		}
+
+		next[i] = updateRequestFailurePolicyKeyMetadata(next[i], event, matchedPolicy, actionSummary, actions, now, historyLimit)
+
+		return next
+	}
+
+	return append(next, updateRequestFailurePolicyKeyMetadata(objects.ChannelKeyMetadata{ID: id}, event, matchedPolicy, actionSummary, actions, now, historyLimit))
+}
+
+func updateRequestFailurePolicyKeyMetadata(meta objects.ChannelKeyMetadata, event failurePolicyEvent, matchedPolicy string, actionSummary string, actions []objects.FailurePolicyAction, now time.Time, historyLimit int) objects.ChannelKeyMetadata {
+	meta.ID = objects.ChannelAPIKeyFingerprint(event.Key)
+	meta.MaskedKey = objects.MaskChannelAPIKey(event.Key)
+	if meta.Status == "" {
+		meta.Status = objects.ChannelKeyStatusActive
+	}
+	meta.LastCheckedAt = &now
+	success := false
+	meta.Success = &success
+	meta.FailureCount = event.FailureCount
+	meta.Reason = event.Reason
+	meta.StatusCode = event.StatusCode
+	meta.MatchedPolicy = matchedPolicy
+	meta.Action = actionSummary
+
+	result := ChannelKeyHealthCheckResult{
+		Success:       false,
+		Reason:        event.Reason,
+		StatusCode:    event.StatusCode,
+		MatchedPolicy: matchedPolicy,
+		Action:        actionSummary,
+	}
+	if backoff, ok := firstFailurePolicyBackoff(actions); ok {
+		meta.BackoffAttempt++
+		if event.FailureCount > meta.BackoffAttempt {
+			meta.BackoffAttempt = event.FailureCount
+		}
+		nextCheckAt := now.Add(computeChannelKeyHealthCheckBackoffDuration(backoff, meta.BackoffAttempt))
+		meta.NextCheckAt = &nextCheckAt
+		result.NextCheckAt = &nextCheckAt
+		result.BackoffAttempt = meta.BackoffAttempt
+	}
+	meta.History = appendChannelKeyHealthCheckHistory(meta.History, meta.ID, result, now, objects.ChannelKeyHealthCheckTriggerRequest, historyLimit)
+
+	return meta
+}
+
+func appendRequestFailurePolicyChannelHistory(history []objects.ChannelKeyHealthCheckHistoryEntry, event failurePolicyEvent, matchedPolicy string, actionSummary string, now time.Time, historyLimit int) []objects.ChannelKeyHealthCheckHistoryEntry {
+	result := ChannelKeyHealthCheckResult{
+		Success:       false,
+		Reason:        event.Reason,
+		StatusCode:    event.StatusCode,
+		MatchedPolicy: matchedPolicy,
+		Action:        actionSummary,
+	}
+	if historyLimit <= 0 {
+		historyLimit = channelKeyHealthCheckHistoryLimit
+	}
+	historyLimit = min(historyLimit, channelKeyHealthCheckMaxHistoryLimit)
+	targetID := fmt.Sprintf("channel:%d", event.ChannelID)
+	if event.Target == objects.FailurePolicyTargetKey && event.Key != "" {
+		targetID = objects.ChannelAPIKeyFingerprint(event.Key)
+	}
+	entry := objects.ChannelKeyHealthCheckHistoryEntry{
+		ID:            fmt.Sprintf("%s:%d:%s", targetID, now.UnixNano(), objects.ChannelKeyHealthCheckTriggerRequest),
+		CheckedAt:     now,
+		Success:       result.Success,
+		Reason:        result.Reason,
+		Trigger:       objects.ChannelKeyHealthCheckTriggerRequest,
+		StatusCode:    result.StatusCode,
+		MatchedPolicy: result.MatchedPolicy,
+		Action:        result.Action,
+	}
+	next := append([]objects.ChannelKeyHealthCheckHistoryEntry{entry}, history...)
+	if len(next) > historyLimit {
+		next = next[:historyLimit]
+	}
+
+	return next
+}
+
+func firstFailurePolicyBackoff(actions []objects.FailurePolicyAction) (objects.ChannelKeyHealthCheckBackoff, bool) {
+	for _, action := range actions {
+		if action.Type == objects.FailurePolicyActionBackoffKey && action.Backoff != nil {
+			return *action.Backoff, true
+		}
+	}
+
+	return objects.ChannelKeyHealthCheckBackoff{}, false
 }
 
 func (svc *ChannelService) recordFailurePolicyKeyBackoff(ctx context.Context, event failurePolicyEvent, matchedPolicy string, actions []objects.FailurePolicyAction, backoff objects.ChannelKeyHealthCheckBackoff) error {

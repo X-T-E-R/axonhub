@@ -369,7 +369,7 @@ export const channelKeyHealthCheckHistoryEntrySchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
-  trigger: z.enum(['manual', 'scheduled']).optional().nullable(),
+  trigger: z.enum(['manual', 'scheduled', 'request']).optional().nullable(),
   rule: z.string().optional().nullable(),
   statusCode: z.number().int().optional().nullable(),
   matchedPolicy: z.string().optional().nullable(),
@@ -443,6 +443,7 @@ export const channelKeyHealthCheckSchema = z.object({
   policies: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckPolicySchema)),
   keyMetadata: z.array(channelKeyMetadataSchema).optional().nullable(),
   archivedKeys: z.array(channelArchivedAPIKeySchema).optional().nullable(),
+  history: z.array(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
 });
 export type ChannelKeyHealthCheck = z.infer<typeof channelKeyHealthCheckSchema>;
 

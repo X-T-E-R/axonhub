@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/objects"
@@ -29,6 +31,7 @@ func TestResolveEffectiveFailurePolicyModes(t *testing.T) {
 		{name: "override", mode: objects.ChannelFailurePolicyModeOverride, want: []string{"channel-key"}},
 		{name: "merge", mode: objects.ChannelFailurePolicyModeMerge, want: []string{"channel-key", "global-key"}},
 		{name: "disabled", mode: objects.ChannelFailurePolicyModeDisabled, want: []string{}},
+		{name: "empty mode with local profiles merges", mode: "", want: []string{"channel-key", "global-key"}},
 	}
 
 	for _, tt := range tests {
@@ -107,6 +110,289 @@ func TestFailurePolicyEmptySourcesDoNotMatchManualHealthChecks(t *testing.T) {
 		FailureCount: 1,
 	})
 	require.Len(t, requestMatches, 1)
+}
+
+func TestRequestFailurePolicyReportOnlyRecordsKeyHistory(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	apiKey := "sk-report-only-secret"
+	minFailures := 1
+	ch := client.Channel.Create().
+		SetName("Request Report Policy").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{apiKey}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				KeyProfiles: []objects.FailurePolicyProfile{{
+					ID:      "request-report",
+					Name:    "Request report",
+					Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						MinFailureCount: &minFailures,
+						StatusCodes:     []int{http.StatusTooManyRequests},
+					},
+					Actions: []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionReportOnly}},
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	svc := NewChannelServiceForTest(client)
+	changed := svc.handleRequestFailurePolicy(ctx, &PerformanceRecord{
+		ChannelID:          ch.ID,
+		APIKey:             apiKey,
+		ResponseStatusCode: http.StatusTooManyRequests,
+		Success:            false,
+	}, &RetryPolicy{})
+	require.False(t, changed)
+
+	updated := client.Channel.GetX(ctx, ch.ID)
+	require.Equal(t, channel.StatusEnabled, updated.Status)
+	require.Empty(t, updated.DisabledAPIKeys)
+	require.NotNil(t, updated.Settings)
+	require.NotNil(t, updated.Settings.KeyHealthCheck)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 1)
+	meta := updated.Settings.KeyHealthCheck.KeyMetadata[0]
+	require.Equal(t, objects.ChannelAPIKeyFingerprint(apiKey), meta.ID)
+	require.Equal(t, objects.MaskChannelAPIKey(apiKey), meta.MaskedKey)
+	require.False(t, *meta.Success)
+	require.Equal(t, 1, meta.FailureCount)
+	require.Equal(t, "Request report", meta.MatchedPolicy)
+	require.Equal(t, string(objects.FailurePolicyActionReportOnly), meta.Action)
+	require.Nil(t, meta.NextCheckAt)
+	require.Len(t, meta.History, 1)
+	require.Equal(t, objects.ChannelKeyHealthCheckTriggerRequest, meta.History[0].Trigger)
+	require.Equal(t, "Request report", meta.History[0].MatchedPolicy)
+	require.Equal(t, string(objects.FailurePolicyActionReportOnly), meta.History[0].Action)
+	require.Nil(t, meta.History[0].NextCheckAt)
+	require.Len(t, updated.Settings.KeyHealthCheck.History, 1)
+	require.Equal(t, objects.ChannelKeyHealthCheckTriggerRequest, updated.Settings.KeyHealthCheck.History[0].Trigger)
+
+	rawHistory, err := json.Marshal(meta)
+	require.NoError(t, err)
+	require.NotContains(t, string(rawHistory), apiKey)
+}
+
+func TestRequestFailurePolicyBackoffRecordsHistoryAndNextCheckAt(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	apiKey := "sk-backoff-secret"
+	minFailures := 1
+	ch := client.Channel.Create().
+		SetName("Request Backoff Policy").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{apiKey}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{HistoryLimit: 10},
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				Mode: objects.ChannelFailurePolicyModeMerge,
+				KeyProfiles: []objects.FailurePolicyProfile{{
+					ID:      "request-backoff",
+					Name:    "Request backoff",
+					Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						MinFailureCount: &minFailures,
+						StatusCodes:     []int{http.StatusTooManyRequests},
+					},
+					Actions: []objects.FailurePolicyAction{{
+						Type: objects.FailurePolicyActionBackoffKey,
+						Backoff: &objects.ChannelKeyHealthCheckBackoff{
+							Mode:            objects.ChannelKeyHealthCheckBackoffModeFixed,
+							IntervalMinutes: 7,
+						},
+					}},
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	svc := NewChannelServiceForTest(client)
+	start := time.Now()
+	changed := svc.handleRequestFailurePolicy(ctx, &PerformanceRecord{
+		ChannelID:          ch.ID,
+		APIKey:             apiKey,
+		ResponseStatusCode: http.StatusTooManyRequests,
+		Success:            false,
+	}, &RetryPolicy{})
+	require.True(t, changed)
+
+	updated := client.Channel.GetX(ctx, ch.ID)
+	require.NotNil(t, updated.Settings)
+	require.NotNil(t, updated.Settings.KeyHealthCheck)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 1)
+	meta := updated.Settings.KeyHealthCheck.KeyMetadata[0]
+	require.NotNil(t, meta.NextCheckAt)
+	require.GreaterOrEqual(t, meta.NextCheckAt.Sub(start), 6*time.Minute)
+	require.LessOrEqual(t, meta.NextCheckAt.Sub(start), 8*time.Minute)
+	require.Equal(t, 1, meta.BackoffAttempt)
+	require.Equal(t, "Request backoff", meta.MatchedPolicy)
+	require.Equal(t, string(objects.FailurePolicyActionBackoffKey), meta.Action)
+	require.Len(t, meta.History, 1)
+	require.Equal(t, objects.ChannelKeyHealthCheckTriggerRequest, meta.History[0].Trigger)
+	require.Equal(t, string(objects.FailurePolicyActionBackoffKey), meta.History[0].Action)
+	require.NotNil(t, meta.History[0].NextCheckAt)
+	require.Equal(t, meta.NextCheckAt, meta.History[0].NextCheckAt)
+}
+
+func TestRequestFailurePolicyDeleteKeyKeepsRequestHistory(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	apiKey := "sk-delete-secret"
+	minFailures := 1
+	ch := client.Channel.Create().
+		SetName("Request Delete Policy").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{apiKey, "sk-spare-secret"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{HistoryLimit: 10},
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				KeyProfiles: []objects.FailurePolicyProfile{{
+					ID:      "request-delete",
+					Name:    "Request delete",
+					Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						MinFailureCount: &minFailures,
+						StatusCodes:     []int{http.StatusUnauthorized},
+					},
+					Actions: []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDeleteKey}},
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	svc := NewChannelServiceForTest(client)
+	changed := svc.handleRequestFailurePolicy(ctx, &PerformanceRecord{
+		ChannelID:          ch.ID,
+		APIKey:             apiKey,
+		ResponseStatusCode: http.StatusUnauthorized,
+		Success:            false,
+	}, &RetryPolicy{})
+	require.True(t, changed)
+
+	updated := client.Channel.GetX(ctx, ch.ID)
+	require.NotContains(t, updated.Credentials.APIKeys, apiKey)
+	require.Len(t, updated.Settings.KeyHealthCheck.History, 1)
+	entry := updated.Settings.KeyHealthCheck.History[0]
+	require.Contains(t, entry.ID, objects.ChannelAPIKeyFingerprint(apiKey))
+	require.Equal(t, objects.ChannelKeyHealthCheckTriggerRequest, entry.Trigger)
+	require.Equal(t, "Request delete", entry.MatchedPolicy)
+	require.Equal(t, string(objects.FailurePolicyActionDeleteKey), entry.Action)
+
+	rawHistory, err := json.Marshal(updated.Settings.KeyHealthCheck.History)
+	require.NoError(t, err)
+	require.NotContains(t, string(rawHistory), apiKey)
+}
+
+func TestRequestFailurePolicyChannelTargetRecordsChannelHistory(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	minFailures := 1
+	ch := client.Channel.Create().
+		SetName("Request Channel Policy").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKey: "sk-channel-secret"}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				ChannelProfiles: []objects.FailurePolicyProfile{{
+					ID:      "request-channel-report",
+					Name:    "Request channel report",
+					Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						MinFailureCount: &minFailures,
+						StatusCodes:     []int{http.StatusInternalServerError},
+					},
+					Actions: []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionReportOnly}},
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	svc := NewChannelServiceForTest(client)
+	changed := svc.handleRequestFailurePolicy(ctx, &PerformanceRecord{
+		ChannelID:          ch.ID,
+		ResponseStatusCode: http.StatusInternalServerError,
+		Success:            false,
+	}, &RetryPolicy{})
+	require.False(t, changed)
+
+	updated := client.Channel.GetX(ctx, ch.ID)
+	require.NotNil(t, updated.Settings)
+	require.NotNil(t, updated.Settings.KeyHealthCheck)
+	require.Len(t, updated.Settings.KeyHealthCheck.History, 1)
+	entry := updated.Settings.KeyHealthCheck.History[0]
+	require.Equal(t, objects.ChannelKeyHealthCheckTriggerRequest, entry.Trigger)
+	require.Equal(t, "Request channel report", entry.MatchedPolicy)
+	require.Equal(t, string(objects.FailurePolicyActionReportOnly), entry.Action)
+}
+
+func TestUpdateChannelPreservesRequestFailurePolicyChannelHistory(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	eventTime := time.Now().Add(-time.Minute)
+	ch := client.Channel.Create().
+		SetName("Preserve Request History").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKey: "sk-preserve-secret"}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				History: []objects.ChannelKeyHealthCheckHistoryEntry{{
+					ID:            "channel:1:request",
+					CheckedAt:     eventTime,
+					Success:       false,
+					Trigger:       objects.ChannelKeyHealthCheckTriggerRequest,
+					MatchedPolicy: "Request channel report",
+					Action:        string(objects.FailurePolicyActionReportOnly),
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	svc := NewChannelServiceForTest(client)
+	updated, err := svc.UpdateChannel(ctx, ch.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled:         true,
+				IntervalMinutes: 30,
+				HistoryLimit:    10,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Settings)
+	require.NotNil(t, updated.Settings.KeyHealthCheck)
+	require.Len(t, updated.Settings.KeyHealthCheck.History, 1)
+	require.Equal(t, objects.ChannelKeyHealthCheckTriggerRequest, updated.Settings.KeyHealthCheck.History[0].Trigger)
+	require.Equal(t, "Request channel report", updated.Settings.KeyHealthCheck.History[0].MatchedPolicy)
 }
 
 func TestRoutableChannelAPIKeysExcludeBackedOffKeys(t *testing.T) {
