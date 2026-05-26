@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/tidwall/sjson"
 
+	entchannel "github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
@@ -45,6 +48,8 @@ func (p *PersistentOutboundTransformer) isPassThroughEnabled(ctx context.Context
 	var enabled bool
 
 	switch {
+	case isAxonHubFullPassThroughChannel(channel):
+		enabled = true
 	case channel.Settings != nil && channel.Settings.PassThroughBody != nil:
 		enabled = *channel.Settings.PassThroughBody
 	case systemService != nil:
@@ -61,11 +66,148 @@ func (p *PersistentOutboundTransformer) isPassThroughEnabled(ctx context.Context
 	return enabled
 }
 
+func isAxonHubFullPassThroughChannel(channel *biz.Channel) bool {
+	return channel != nil &&
+		channel.Channel != nil &&
+		channel.Type == entchannel.TypeAxonhub &&
+		channel.Settings != nil &&
+		channel.Settings.FullPassThrough
+}
+
 func passThroughStreamAligned(originalStream, effectiveStream *bool) bool {
 	originalEnabled := originalStream != nil && *originalStream
 	effectiveEnabled := effectiveStream != nil && *effectiveStream
 
 	return originalEnabled == effectiveEnabled
+}
+
+// applyAxonHubFullPassThroughRequest preserves the inbound AxonHub request shape
+// for trusted AxonHub-to-AxonHub upstream boundaries while keeping the upstream
+// channel authentication and the existing safe-header merge policy.
+func applyAxonHubFullPassThroughRequest(outbound *PersistentOutboundTransformer) pipeline.Middleware {
+	return pipeline.OnRawRequest("axonhub-full-pass-through-request", func(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error) {
+		channel := outbound.GetCurrentChannel()
+		if !isAxonHubFullPassThroughChannel(channel) {
+			return request, nil
+		}
+
+		llmReq := outbound.state.LlmRequest
+		if llmReq == nil || llmReq.RawRequest == nil {
+			return nil, fmt.Errorf("axonhub full pass-through requires inbound raw request metadata")
+		}
+
+		rawReq := llmReq.RawRequest
+		inboundPath := rawReq.Path
+		escapedPath := inboundPath
+		rawQuery := rawReq.Query.Encode()
+		if rawReq.RawRequest != nil && rawReq.RawRequest.URL != nil {
+			if rawReq.RawRequest.URL.Path != "" {
+				inboundPath = rawReq.RawRequest.URL.Path
+			}
+			if ep := rawReq.RawRequest.URL.EscapedPath(); ep != "" {
+				escapedPath = ep
+			}
+			rawQuery = rawReq.RawRequest.URL.RawQuery
+		}
+
+		if !isAllowedAxonHubFullPassThroughPath(inboundPath) {
+			return nil, fmt.Errorf("axonhub full pass-through path is not allowed: %s", inboundPath)
+		}
+
+		fullURL, err := buildAxonHubFullPassThroughURL(channel.BaseURL, escapedPath, rawQuery)
+		if err != nil {
+			return nil, err
+		}
+
+		body, err := mergePassThroughRequestBody(rawReq.Body, llmReq.APIFormat, llmReq.Model)
+		if err != nil {
+			return nil, fmt.Errorf("merge axonhub full pass-through body: %w", err)
+		}
+
+		request.Method = rawReq.Method
+		request.URL = fullURL
+		request.Path = inboundPath
+		request.Query = nil
+		request.Body = body
+		request.RequestType = string(llmReq.RequestType)
+		request.APIFormat = string(llmReq.APIFormat)
+
+		if request.Headers == nil {
+			request.Headers = make(http.Header)
+		}
+		if contentType := rawReq.Headers.Get("Content-Type"); contentType != "" {
+			request.ContentType = contentType
+			request.Headers.Set("Content-Type", contentType)
+		}
+
+		log.Debug(ctx, "applying axonhub full pass-through",
+			log.String("channel", channel.Name),
+			log.String("path", inboundPath),
+			log.String("api_format", request.APIFormat),
+		)
+
+		return request, nil
+	})
+}
+
+func isAllowedAxonHubFullPassThroughPath(path string) bool {
+	if path == "" || !strings.HasPrefix(path, "/") {
+		return false
+	}
+
+	allowedPrefixes := []string{
+		"/v1/",
+		"/anthropic/v1/",
+		"/jina/v1/",
+		"/gemini/",
+		"/v1beta/",
+		"/doubao/v3/",
+	}
+
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	return path == "/v1" || path == "/v1beta"
+}
+
+func buildAxonHubFullPassThroughURL(baseURL, escapedPath, rawQuery string) (string, error) {
+	if baseURL == "" {
+		return "", fmt.Errorf("axonhub full pass-through base URL is empty")
+	}
+
+	if escapedPath == "" || !strings.HasPrefix(escapedPath, "/") {
+		return "", fmt.Errorf("axonhub full pass-through path must be absolute: %s", escapedPath)
+	}
+	decodedPath, err := url.PathUnescape(escapedPath)
+	if err != nil {
+		return "", fmt.Errorf("unescape axonhub full pass-through path: %w", err)
+	}
+
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse axonhub full pass-through base URL: %w", err)
+	}
+	if base.Scheme == "" || base.Host == "" {
+		return "", fmt.Errorf("axonhub full pass-through base URL must include scheme and host")
+	}
+
+	base.RawQuery = ""
+	base.Fragment = ""
+
+	basePath := strings.TrimRight(base.Path, "/")
+	baseRawPath := strings.TrimRight(base.EscapedPath(), "/")
+	base.Path = basePath + decodedPath
+	if base.RawPath != "" || escapedPath != decodedPath {
+		base.RawPath = baseRawPath + escapedPath
+	} else {
+		base.RawPath = ""
+	}
+	base.RawQuery = rawQuery
+
+	return base.String(), nil
 }
 
 // applyPassThroughRequestBody creates a middleware that reuses the original inbound request body when

@@ -49,6 +49,7 @@ export const channelTypeSchema = z.enum([
   'openai',
   'openai_responses',
   'atlascloud',
+  'axonhub',
   'codex',
   'anthropic',
   'anthropic_aws',
@@ -214,6 +215,8 @@ export const channelSettingsSchema = z.object({
   transformOptions: transformOptionsSchema.optional(),
   passThroughUserAgent: z.boolean().optional().nullable(),
   passThroughBody: z.boolean().optional().nullable(),
+  disableRetries: z.boolean().optional(),
+  fullPassThrough: z.boolean().optional(),
   rateLimit: channelRateLimitSchema.optional().nullable(),
 });
 
