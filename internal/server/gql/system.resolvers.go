@@ -233,6 +233,15 @@ func (r *mutationResolver) UpdateSecuritySettings(ctx context.Context, input Upd
 	return true, nil
 }
 
+// UpdateMonitoringSettings is the resolver for the updateMonitoringSettings field.
+func (r *mutationResolver) UpdateMonitoringSettings(ctx context.Context, input biz.MonitoringSettings) (bool, error) {
+	if err := r.systemService.SetMonitoringSettings(ctx, input); err != nil {
+		return false, fmt.Errorf("failed to update monitoring settings: %w", err)
+	}
+
+	return true, nil
+}
+
 // CheckProviderQuotas is the resolver for the checkProviderQuotas field.
 func (r *mutationResolver) CheckProviderQuotas(ctx context.Context) (bool, error) {
 	if r.providerQuotaService == nil {
@@ -537,6 +546,11 @@ func (r *queryResolver) QuotaEnforcementSettings(ctx context.Context) (*biz.Quot
 // SecuritySettings is the resolver for the securitySettings field.
 func (r *queryResolver) SecuritySettings(ctx context.Context) (*biz.SecuritySettings, error) {
 	return r.systemService.SecuritySettings(ctx)
+}
+
+// MonitoringSettings is the resolver for the monitoringSettings field.
+func (r *queryResolver) MonitoringSettings(ctx context.Context) (*biz.MonitoringSettings, error) {
+	return r.systemService.MonitoringSettings(ctx)
 }
 
 // ProxyPresets is the resolver for the proxyPresets field.

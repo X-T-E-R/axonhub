@@ -121,6 +121,10 @@ const (
 	// SystemKeySecuritySettings is the key used to store security settings.
 	// The value is JSON-encoded SecuritySettings struct.
 	SystemKeySecuritySettings = "security_settings"
+
+	// SystemKeyMonitoringSettings is the key used to store global channel-key monitoring settings.
+	// The value is JSON-encoded MonitoringSettings struct.
+	SystemKeyMonitoringSettings = "monitoring_settings"
 )
 
 // SystemGeneralSettings represents general system configuration settings.
@@ -230,6 +234,41 @@ type RequestObservabilitySettings struct {
 	// ExposeSelectedChannelAPIKey controls whether GraphQL request responses return
 	// the masked upstream channel API key selected for a request/execution.
 	ExposeSelectedChannelAPIKey bool `json:"expose_selected_channel_api_key"`
+}
+
+// MonitoringSettings controls global scheduled channel-key monitoring.
+type MonitoringSettings struct {
+	Enabled              bool             `json:"enabled"`
+	HistoryRetentionDays int              `json:"historyRetentionDays,omitempty"`
+	Rules                []MonitoringRule `json:"rules,omitempty"`
+}
+
+type MonitoringRule struct {
+	ID              string                              `json:"id"`
+	Name            string                              `json:"name"`
+	Description     string                              `json:"description,omitempty"`
+	Enabled         *bool                               `json:"enabled,omitempty"`
+	Schedule        MonitoringRuleSchedule              `json:"schedule,omitempty"`
+	Targets         MonitoringRuleTargets               `json:"targets,omitempty"`
+	Probes          []objects.ChannelKeyHealthCheckRule `json:"probes,omitempty"`
+	KeyProfiles     []objects.FailurePolicyProfile      `json:"keyProfiles,omitempty"`
+	ChannelProfiles []objects.FailurePolicyProfile      `json:"channelProfiles,omitempty"`
+}
+
+type MonitoringRuleSchedule struct {
+	IntervalMinutes   int `json:"intervalMinutes,omitempty"`
+	HistoryLimit      int `json:"historyLimit,omitempty"`
+	MaxChannels       int `json:"maxChannels,omitempty"`
+	MaxKeysPerChannel int `json:"maxKeysPerChannel,omitempty"`
+	KeySpacingMs      int `json:"keySpacingMs,omitempty"`
+	JitterMs          int `json:"jitterMs,omitempty"`
+}
+
+type MonitoringRuleTargets struct {
+	ChannelIDs      []int                      `json:"channelIDs,omitempty"`
+	ChannelStatuses []string                   `json:"channelStatuses,omitempty"`
+	KeyStatuses     []objects.ChannelKeyStatus `json:"keyStatuses,omitempty"`
+	IncludeBackoff  bool                       `json:"includeBackoff,omitempty"`
 }
 
 // BackupFrequency represents how often automatic backups should run.
@@ -1761,6 +1800,237 @@ func normalizeSecuritySettings(settings *SecuritySettings) {
 	}
 
 	settings.BlockedIPs = blockedIPs
+}
+
+// MonitoringSettings retrieves global channel-key monitoring settings.
+func (s *SystemService) MonitoringSettings(ctx context.Context) (*MonitoringSettings, error) {
+	value, err := s.getSystemValue(ctx, SystemKeyMonitoringSettings)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			settings := defaultMonitoringSettings
+			normalizeMonitoringSettings(&settings)
+
+			return &settings, nil
+		}
+
+		return nil, fmt.Errorf("failed to get monitoring settings: %w", err)
+	}
+
+	var settings MonitoringSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal monitoring settings: %w", err)
+	}
+
+	normalizeMonitoringSettings(&settings)
+
+	return &settings, nil
+}
+
+func (s *SystemService) MonitoringSettingsOrDefault(ctx context.Context) *MonitoringSettings {
+	settings, err := s.MonitoringSettings(ctx)
+	if err != nil {
+		log.Warn(ctx, "failed to get monitoring settings", log.Cause(err))
+
+		settings := defaultMonitoringSettings
+		normalizeMonitoringSettings(&settings)
+
+		return &settings
+	}
+
+	return settings
+}
+
+// SetMonitoringSettings validates and stores global channel-key monitoring settings.
+func (s *SystemService) SetMonitoringSettings(ctx context.Context, settings MonitoringSettings) error {
+	normalizeMonitoringSettings(&settings)
+	if err := validateMonitoringSettings(&settings); err != nil {
+		return err
+	}
+
+	jsonBytes, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("failed to marshal monitoring settings: %w", err)
+	}
+
+	return s.setSystemValue(ctx, SystemKeyMonitoringSettings, string(jsonBytes))
+}
+
+func normalizeMonitoringSettings(settings *MonitoringSettings) {
+	if settings == nil {
+		return
+	}
+
+	if settings.HistoryRetentionDays <= 0 {
+		settings.HistoryRetentionDays = defaultMonitoringSettings.HistoryRetentionDays
+	}
+	settings.HistoryRetentionDays = clampInt(settings.HistoryRetentionDays, 1, 3650)
+	if settings.Rules == nil {
+		settings.Rules = []MonitoringRule{}
+	}
+
+	seenIDs := make(map[string]int, len(settings.Rules))
+	for i := range settings.Rules {
+		rule := &settings.Rules[i]
+		rule.ID = strings.TrimSpace(rule.ID)
+		rule.Name = strings.TrimSpace(rule.Name)
+		rule.Description = strings.TrimSpace(rule.Description)
+		if rule.Enabled == nil {
+			rule.Enabled = lo.ToPtr(true)
+		}
+
+		normalizeMonitoringRuleSchedule(&rule.Schedule)
+		normalizeMonitoringRuleTargets(&rule.Targets)
+		if rule.Probes == nil {
+			rule.Probes = []objects.ChannelKeyHealthCheckRule{}
+		}
+		if rule.KeyProfiles == nil {
+			rule.KeyProfiles = []objects.FailurePolicyProfile{}
+		}
+		if rule.ChannelProfiles == nil {
+			rule.ChannelProfiles = []objects.FailurePolicyProfile{}
+		}
+
+		if rule.ID != "" {
+			seenIDs[rule.ID]++
+		}
+	}
+}
+
+func normalizeMonitoringRuleSchedule(schedule *MonitoringRuleSchedule) {
+	if schedule.IntervalMinutes <= 0 {
+		schedule.IntervalMinutes = defaultMonitoringRuleSchedule.IntervalMinutes
+	}
+	schedule.IntervalMinutes = clampInt(schedule.IntervalMinutes, 1, 10080)
+
+	if schedule.HistoryLimit <= 0 {
+		schedule.HistoryLimit = defaultMonitoringRuleSchedule.HistoryLimit
+	}
+	schedule.HistoryLimit = clampInt(schedule.HistoryLimit, 1, 500)
+
+	if schedule.MaxChannels <= 0 {
+		schedule.MaxChannels = defaultMonitoringRuleSchedule.MaxChannels
+	}
+	schedule.MaxChannels = clampInt(schedule.MaxChannels, 1, 64)
+
+	if schedule.MaxKeysPerChannel <= 0 {
+		schedule.MaxKeysPerChannel = defaultMonitoringRuleSchedule.MaxKeysPerChannel
+	}
+	schedule.MaxKeysPerChannel = clampInt(schedule.MaxKeysPerChannel, 1, 64)
+
+	if schedule.KeySpacingMs <= 0 {
+		schedule.KeySpacingMs = defaultMonitoringRuleSchedule.KeySpacingMs
+	}
+	schedule.KeySpacingMs = clampInt(schedule.KeySpacingMs, 0, 60000)
+
+	if schedule.JitterMs < 0 {
+		schedule.JitterMs = 0
+	}
+	if schedule.JitterMs == 0 {
+		schedule.JitterMs = defaultMonitoringRuleSchedule.JitterMs
+	}
+	schedule.JitterMs = clampInt(schedule.JitterMs, 0, 60000)
+}
+
+func normalizeMonitoringRuleTargets(targets *MonitoringRuleTargets) {
+	targets.ChannelIDs = uniquePositiveInts(targets.ChannelIDs)
+	targets.ChannelStatuses = normalizeMonitoringChannelStatuses(targets.ChannelStatuses)
+	targets.KeyStatuses = normalizeMonitoringKeyStatuses(targets.KeyStatuses)
+}
+
+func normalizeMonitoringChannelStatuses(statuses []string) []string {
+	if len(statuses) == 0 {
+		return append([]string(nil), defaultMonitoringRuleTargets.ChannelStatuses...)
+	}
+
+	seen := make(map[string]struct{}, len(statuses))
+	next := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		status = strings.ToLower(strings.TrimSpace(status))
+		switch status {
+		case "enabled", "disabled", "archived":
+		default:
+			continue
+		}
+		if _, ok := seen[status]; ok {
+			continue
+		}
+		seen[status] = struct{}{}
+		next = append(next, status)
+	}
+	if len(next) == 0 {
+		return append([]string(nil), defaultMonitoringRuleTargets.ChannelStatuses...)
+	}
+
+	return next
+}
+
+func normalizeMonitoringKeyStatuses(statuses []objects.ChannelKeyStatus) []objects.ChannelKeyStatus {
+	if len(statuses) == 0 {
+		return append([]objects.ChannelKeyStatus(nil), defaultMonitoringRuleTargets.KeyStatuses...)
+	}
+
+	seen := make(map[objects.ChannelKeyStatus]struct{}, len(statuses))
+	next := make([]objects.ChannelKeyStatus, 0, len(statuses))
+	for _, status := range statuses {
+		switch status {
+		case objects.ChannelKeyStatusActive, objects.ChannelKeyStatusDisabled, objects.ChannelKeyStatusArchived:
+		default:
+			continue
+		}
+		if _, ok := seen[status]; ok {
+			continue
+		}
+		seen[status] = struct{}{}
+		next = append(next, status)
+	}
+	if len(next) == 0 {
+		return append([]objects.ChannelKeyStatus(nil), defaultMonitoringRuleTargets.KeyStatuses...)
+	}
+
+	return next
+}
+
+func uniquePositiveInts(values []int) []int {
+	if len(values) == 0 {
+		return []int{}
+	}
+
+	seen := make(map[int]struct{}, len(values))
+	next := make([]int, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		next = append(next, value)
+	}
+
+	return next
+}
+
+func validateMonitoringSettings(settings *MonitoringSettings) error {
+	if settings == nil {
+		return fmt.Errorf("monitoring settings cannot be nil")
+	}
+
+	ids := make(map[string]struct{}, len(settings.Rules))
+	for i, rule := range settings.Rules {
+		if rule.ID == "" {
+			return fmt.Errorf("monitoring rule %d id is required", i)
+		}
+		if _, ok := ids[rule.ID]; ok {
+			return fmt.Errorf("monitoring rule id %q is duplicated", rule.ID)
+		}
+		ids[rule.ID] = struct{}{}
+		if rule.Name == "" {
+			return fmt.Errorf("monitoring rule %q name is required", rule.ID)
+		}
+	}
+
+	return nil
 }
 
 // UpdateAutoBackupLastRun updates the last backup timestamp and error status.

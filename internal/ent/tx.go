@@ -18,6 +18,8 @@ type Tx struct {
 	APIKeyProfileTemplate *APIKeyProfileTemplateClient
 	// Channel is the client for interacting with the Channel builders.
 	Channel *ChannelClient
+	// ChannelKeyMonitoringEvent is the client for interacting with the ChannelKeyMonitoringEvent builders.
+	ChannelKeyMonitoringEvent *ChannelKeyMonitoringEventClient
 	// ChannelModelPrice is the client for interacting with the ChannelModelPrice builders.
 	ChannelModelPrice *ChannelModelPriceClient
 	// ChannelModelPriceVersion is the client for interacting with the ChannelModelPriceVersion builders.
@@ -194,6 +196,7 @@ func (tx *Tx) init() {
 	tx.APIKey = NewAPIKeyClient(tx.config)
 	tx.APIKeyProfileTemplate = NewAPIKeyProfileTemplateClient(tx.config)
 	tx.Channel = NewChannelClient(tx.config)
+	tx.ChannelKeyMonitoringEvent = NewChannelKeyMonitoringEventClient(tx.config)
 	tx.ChannelModelPrice = NewChannelModelPriceClient(tx.config)
 	tx.ChannelModelPriceVersion = NewChannelModelPriceVersionClient(tx.config)
 	tx.ChannelOverrideTemplate = NewChannelOverrideTemplateClient(tx.config)

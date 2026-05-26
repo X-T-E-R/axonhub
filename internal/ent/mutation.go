@@ -14,6 +14,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -48,30 +49,31 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeAPIKey                   = "APIKey"
-	TypeAPIKeyProfileTemplate    = "APIKeyProfileTemplate"
-	TypeChannel                  = "Channel"
-	TypeChannelModelPrice        = "ChannelModelPrice"
-	TypeChannelModelPriceVersion = "ChannelModelPriceVersion"
-	TypeChannelOverrideTemplate  = "ChannelOverrideTemplate"
-	TypeChannelProbe             = "ChannelProbe"
-	TypeDataStorage              = "DataStorage"
-	TypeModel                    = "Model"
-	TypeOIDCIdentity             = "OIDCIdentity"
-	TypeProject                  = "Project"
-	TypePrompt                   = "Prompt"
-	TypePromptProtectionRule     = "PromptProtectionRule"
-	TypeProviderQuotaStatus      = "ProviderQuotaStatus"
-	TypeRequest                  = "Request"
-	TypeRequestExecution         = "RequestExecution"
-	TypeRole                     = "Role"
-	TypeSystem                   = "System"
-	TypeThread                   = "Thread"
-	TypeTrace                    = "Trace"
-	TypeUsageLog                 = "UsageLog"
-	TypeUser                     = "User"
-	TypeUserProject              = "UserProject"
-	TypeUserRole                 = "UserRole"
+	TypeAPIKey                    = "APIKey"
+	TypeAPIKeyProfileTemplate     = "APIKeyProfileTemplate"
+	TypeChannel                   = "Channel"
+	TypeChannelKeyMonitoringEvent = "ChannelKeyMonitoringEvent"
+	TypeChannelModelPrice         = "ChannelModelPrice"
+	TypeChannelModelPriceVersion  = "ChannelModelPriceVersion"
+	TypeChannelOverrideTemplate   = "ChannelOverrideTemplate"
+	TypeChannelProbe              = "ChannelProbe"
+	TypeDataStorage               = "DataStorage"
+	TypeModel                     = "Model"
+	TypeOIDCIdentity              = "OIDCIdentity"
+	TypeProject                   = "Project"
+	TypePrompt                    = "Prompt"
+	TypePromptProtectionRule      = "PromptProtectionRule"
+	TypeProviderQuotaStatus       = "ProviderQuotaStatus"
+	TypeRequest                   = "Request"
+	TypeRequestExecution          = "RequestExecution"
+	TypeRole                      = "Role"
+	TypeSystem                    = "System"
+	TypeThread                    = "Thread"
+	TypeTrace                     = "Trace"
+	TypeUsageLog                  = "UsageLog"
+	TypeUser                      = "User"
+	TypeUserProject               = "UserProject"
+	TypeUserRole                  = "UserRole"
 )
 
 // APIKeyMutation represents an operation that mutates the APIKey nodes in the graph.
@@ -2047,6 +2049,9 @@ type ChannelMutation struct {
 	channel_probes               map[int]struct{}
 	removedchannel_probes        map[int]struct{}
 	clearedchannel_probes        bool
+	monitoring_events            map[int]struct{}
+	removedmonitoring_events     map[int]struct{}
+	clearedmonitoring_events     bool
 	channel_model_prices         map[int]struct{}
 	removedchannel_model_prices  map[int]struct{}
 	clearedchannel_model_prices  bool
@@ -3376,6 +3381,60 @@ func (m *ChannelMutation) ResetChannelProbes() {
 	m.removedchannel_probes = nil
 }
 
+// AddMonitoringEventIDs adds the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity by ids.
+func (m *ChannelMutation) AddMonitoringEventIDs(ids ...int) {
+	if m.monitoring_events == nil {
+		m.monitoring_events = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.monitoring_events[ids[i]] = struct{}{}
+	}
+}
+
+// ClearMonitoringEvents clears the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity.
+func (m *ChannelMutation) ClearMonitoringEvents() {
+	m.clearedmonitoring_events = true
+}
+
+// MonitoringEventsCleared reports if the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity was cleared.
+func (m *ChannelMutation) MonitoringEventsCleared() bool {
+	return m.clearedmonitoring_events
+}
+
+// RemoveMonitoringEventIDs removes the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity by IDs.
+func (m *ChannelMutation) RemoveMonitoringEventIDs(ids ...int) {
+	if m.removedmonitoring_events == nil {
+		m.removedmonitoring_events = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.monitoring_events, ids[i])
+		m.removedmonitoring_events[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedMonitoringEvents returns the removed IDs of the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity.
+func (m *ChannelMutation) RemovedMonitoringEventsIDs() (ids []int) {
+	for id := range m.removedmonitoring_events {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// MonitoringEventsIDs returns the "monitoring_events" edge IDs in the mutation.
+func (m *ChannelMutation) MonitoringEventsIDs() (ids []int) {
+	for id := range m.monitoring_events {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetMonitoringEvents resets all changes to the "monitoring_events" edge.
+func (m *ChannelMutation) ResetMonitoringEvents() {
+	m.monitoring_events = nil
+	m.clearedmonitoring_events = false
+	m.removedmonitoring_events = nil
+}
+
 // AddChannelModelPriceIDs adds the "channel_model_prices" edge to the ChannelModelPrice entity by ids.
 func (m *ChannelMutation) AddChannelModelPriceIDs(ids ...int) {
 	if m.channel_model_prices == nil {
@@ -4032,7 +4091,7 @@ func (m *ChannelMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ChannelMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.requests != nil {
 		edges = append(edges, channel.EdgeRequests)
 	}
@@ -4044,6 +4103,9 @@ func (m *ChannelMutation) AddedEdges() []string {
 	}
 	if m.channel_probes != nil {
 		edges = append(edges, channel.EdgeChannelProbes)
+	}
+	if m.monitoring_events != nil {
+		edges = append(edges, channel.EdgeMonitoringEvents)
 	}
 	if m.channel_model_prices != nil {
 		edges = append(edges, channel.EdgeChannelModelPrices)
@@ -4082,6 +4144,12 @@ func (m *ChannelMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case channel.EdgeMonitoringEvents:
+		ids := make([]ent.Value, 0, len(m.monitoring_events))
+		for id := range m.monitoring_events {
+			ids = append(ids, id)
+		}
+		return ids
 	case channel.EdgeChannelModelPrices:
 		ids := make([]ent.Value, 0, len(m.channel_model_prices))
 		for id := range m.channel_model_prices {
@@ -4098,7 +4166,7 @@ func (m *ChannelMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ChannelMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.removedrequests != nil {
 		edges = append(edges, channel.EdgeRequests)
 	}
@@ -4110,6 +4178,9 @@ func (m *ChannelMutation) RemovedEdges() []string {
 	}
 	if m.removedchannel_probes != nil {
 		edges = append(edges, channel.EdgeChannelProbes)
+	}
+	if m.removedmonitoring_events != nil {
+		edges = append(edges, channel.EdgeMonitoringEvents)
 	}
 	if m.removedchannel_model_prices != nil {
 		edges = append(edges, channel.EdgeChannelModelPrices)
@@ -4145,6 +4216,12 @@ func (m *ChannelMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case channel.EdgeMonitoringEvents:
+		ids := make([]ent.Value, 0, len(m.removedmonitoring_events))
+		for id := range m.removedmonitoring_events {
+			ids = append(ids, id)
+		}
+		return ids
 	case channel.EdgeChannelModelPrices:
 		ids := make([]ent.Value, 0, len(m.removedchannel_model_prices))
 		for id := range m.removedchannel_model_prices {
@@ -4157,7 +4234,7 @@ func (m *ChannelMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ChannelMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.clearedrequests {
 		edges = append(edges, channel.EdgeRequests)
 	}
@@ -4169,6 +4246,9 @@ func (m *ChannelMutation) ClearedEdges() []string {
 	}
 	if m.clearedchannel_probes {
 		edges = append(edges, channel.EdgeChannelProbes)
+	}
+	if m.clearedmonitoring_events {
+		edges = append(edges, channel.EdgeMonitoringEvents)
 	}
 	if m.clearedchannel_model_prices {
 		edges = append(edges, channel.EdgeChannelModelPrices)
@@ -4191,6 +4271,8 @@ func (m *ChannelMutation) EdgeCleared(name string) bool {
 		return m.clearedusage_logs
 	case channel.EdgeChannelProbes:
 		return m.clearedchannel_probes
+	case channel.EdgeMonitoringEvents:
+		return m.clearedmonitoring_events
 	case channel.EdgeChannelModelPrices:
 		return m.clearedchannel_model_prices
 	case channel.EdgeProviderQuotaStatus:
@@ -4226,6 +4308,9 @@ func (m *ChannelMutation) ResetEdge(name string) error {
 	case channel.EdgeChannelProbes:
 		m.ResetChannelProbes()
 		return nil
+	case channel.EdgeMonitoringEvents:
+		m.ResetMonitoringEvents()
+		return nil
 	case channel.EdgeChannelModelPrices:
 		m.ResetChannelModelPrices()
 		return nil
@@ -4234,6 +4319,1969 @@ func (m *ChannelMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Channel edge %s", name)
+}
+
+// ChannelKeyMonitoringEventMutation represents an operation that mutates the ChannelKeyMonitoringEvent nodes in the graph.
+type ChannelKeyMonitoringEventMutation struct {
+	config
+	op                 Op
+	typ                string
+	id                 *int
+	created_at         *time.Time
+	updated_at         *time.Time
+	channel_name       *string
+	key_id             *string
+	masked_key         *string
+	rule_id            *string
+	rule_name          *string
+	trigger            *string
+	source             *string
+	success            *bool
+	skipped            *bool
+	reason             *string
+	status_code        *int
+	addstatus_code     *int
+	balance            *objects.JSONRawMessage
+	appendbalance      objects.JSONRawMessage
+	currency           *string
+	available          *bool
+	probe              *string
+	matched_policy     *string
+	action             *string
+	next_check_at      *time.Time
+	backoff_attempt    *int
+	addbackoff_attempt *int
+	checked_at         *time.Time
+	clearedFields      map[string]struct{}
+	channel            *int
+	clearedchannel     bool
+	done               bool
+	oldValue           func(context.Context) (*ChannelKeyMonitoringEvent, error)
+	predicates         []predicate.ChannelKeyMonitoringEvent
+}
+
+var _ ent.Mutation = (*ChannelKeyMonitoringEventMutation)(nil)
+
+// channelkeymonitoringeventOption allows management of the mutation configuration using functional options.
+type channelkeymonitoringeventOption func(*ChannelKeyMonitoringEventMutation)
+
+// newChannelKeyMonitoringEventMutation creates new mutation for the ChannelKeyMonitoringEvent entity.
+func newChannelKeyMonitoringEventMutation(c config, op Op, opts ...channelkeymonitoringeventOption) *ChannelKeyMonitoringEventMutation {
+	m := &ChannelKeyMonitoringEventMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeChannelKeyMonitoringEvent,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withChannelKeyMonitoringEventID sets the ID field of the mutation.
+func withChannelKeyMonitoringEventID(id int) channelkeymonitoringeventOption {
+	return func(m *ChannelKeyMonitoringEventMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ChannelKeyMonitoringEvent
+		)
+		m.oldValue = func(ctx context.Context) (*ChannelKeyMonitoringEvent, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ChannelKeyMonitoringEvent.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withChannelKeyMonitoringEvent sets the old ChannelKeyMonitoringEvent of the mutation.
+func withChannelKeyMonitoringEvent(node *ChannelKeyMonitoringEvent) channelkeymonitoringeventOption {
+	return func(m *ChannelKeyMonitoringEventMutation) {
+		m.oldValue = func(context.Context) (*ChannelKeyMonitoringEvent, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ChannelKeyMonitoringEventMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ChannelKeyMonitoringEventMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ChannelKeyMonitoringEventMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ChannelKeyMonitoringEventMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ChannelKeyMonitoringEvent.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ChannelKeyMonitoringEventMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ChannelKeyMonitoringEventMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetChannelID sets the "channel_id" field.
+func (m *ChannelKeyMonitoringEventMutation) SetChannelID(i int) {
+	m.channel = &i
+}
+
+// ChannelID returns the value of the "channel_id" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) ChannelID() (r int, exists bool) {
+	v := m.channel
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChannelID returns the old "channel_id" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldChannelID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChannelID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChannelID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChannelID: %w", err)
+	}
+	return oldValue.ChannelID, nil
+}
+
+// ResetChannelID resets all changes to the "channel_id" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetChannelID() {
+	m.channel = nil
+}
+
+// SetChannelName sets the "channel_name" field.
+func (m *ChannelKeyMonitoringEventMutation) SetChannelName(s string) {
+	m.channel_name = &s
+}
+
+// ChannelName returns the value of the "channel_name" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) ChannelName() (r string, exists bool) {
+	v := m.channel_name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChannelName returns the old "channel_name" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldChannelName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChannelName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChannelName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChannelName: %w", err)
+	}
+	return oldValue.ChannelName, nil
+}
+
+// ClearChannelName clears the value of the "channel_name" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearChannelName() {
+	m.channel_name = nil
+	m.clearedFields[channelkeymonitoringevent.FieldChannelName] = struct{}{}
+}
+
+// ChannelNameCleared returns if the "channel_name" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) ChannelNameCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldChannelName]
+	return ok
+}
+
+// ResetChannelName resets all changes to the "channel_name" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetChannelName() {
+	m.channel_name = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldChannelName)
+}
+
+// SetKeyID sets the "key_id" field.
+func (m *ChannelKeyMonitoringEventMutation) SetKeyID(s string) {
+	m.key_id = &s
+}
+
+// KeyID returns the value of the "key_id" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) KeyID() (r string, exists bool) {
+	v := m.key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKeyID returns the old "key_id" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldKeyID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKeyID: %w", err)
+	}
+	return oldValue.KeyID, nil
+}
+
+// ClearKeyID clears the value of the "key_id" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearKeyID() {
+	m.key_id = nil
+	m.clearedFields[channelkeymonitoringevent.FieldKeyID] = struct{}{}
+}
+
+// KeyIDCleared returns if the "key_id" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) KeyIDCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldKeyID]
+	return ok
+}
+
+// ResetKeyID resets all changes to the "key_id" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetKeyID() {
+	m.key_id = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldKeyID)
+}
+
+// SetMaskedKey sets the "masked_key" field.
+func (m *ChannelKeyMonitoringEventMutation) SetMaskedKey(s string) {
+	m.masked_key = &s
+}
+
+// MaskedKey returns the value of the "masked_key" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) MaskedKey() (r string, exists bool) {
+	v := m.masked_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaskedKey returns the old "masked_key" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldMaskedKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaskedKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaskedKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaskedKey: %w", err)
+	}
+	return oldValue.MaskedKey, nil
+}
+
+// ClearMaskedKey clears the value of the "masked_key" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearMaskedKey() {
+	m.masked_key = nil
+	m.clearedFields[channelkeymonitoringevent.FieldMaskedKey] = struct{}{}
+}
+
+// MaskedKeyCleared returns if the "masked_key" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) MaskedKeyCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldMaskedKey]
+	return ok
+}
+
+// ResetMaskedKey resets all changes to the "masked_key" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetMaskedKey() {
+	m.masked_key = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldMaskedKey)
+}
+
+// SetRuleID sets the "rule_id" field.
+func (m *ChannelKeyMonitoringEventMutation) SetRuleID(s string) {
+	m.rule_id = &s
+}
+
+// RuleID returns the value of the "rule_id" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) RuleID() (r string, exists bool) {
+	v := m.rule_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRuleID returns the old "rule_id" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldRuleID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRuleID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRuleID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRuleID: %w", err)
+	}
+	return oldValue.RuleID, nil
+}
+
+// ClearRuleID clears the value of the "rule_id" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearRuleID() {
+	m.rule_id = nil
+	m.clearedFields[channelkeymonitoringevent.FieldRuleID] = struct{}{}
+}
+
+// RuleIDCleared returns if the "rule_id" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) RuleIDCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldRuleID]
+	return ok
+}
+
+// ResetRuleID resets all changes to the "rule_id" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetRuleID() {
+	m.rule_id = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldRuleID)
+}
+
+// SetRuleName sets the "rule_name" field.
+func (m *ChannelKeyMonitoringEventMutation) SetRuleName(s string) {
+	m.rule_name = &s
+}
+
+// RuleName returns the value of the "rule_name" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) RuleName() (r string, exists bool) {
+	v := m.rule_name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRuleName returns the old "rule_name" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldRuleName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRuleName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRuleName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRuleName: %w", err)
+	}
+	return oldValue.RuleName, nil
+}
+
+// ClearRuleName clears the value of the "rule_name" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearRuleName() {
+	m.rule_name = nil
+	m.clearedFields[channelkeymonitoringevent.FieldRuleName] = struct{}{}
+}
+
+// RuleNameCleared returns if the "rule_name" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) RuleNameCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldRuleName]
+	return ok
+}
+
+// ResetRuleName resets all changes to the "rule_name" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetRuleName() {
+	m.rule_name = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldRuleName)
+}
+
+// SetTrigger sets the "trigger" field.
+func (m *ChannelKeyMonitoringEventMutation) SetTrigger(s string) {
+	m.trigger = &s
+}
+
+// Trigger returns the value of the "trigger" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Trigger() (r string, exists bool) {
+	v := m.trigger
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTrigger returns the old "trigger" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldTrigger(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTrigger is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTrigger requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTrigger: %w", err)
+	}
+	return oldValue.Trigger, nil
+}
+
+// ResetTrigger resets all changes to the "trigger" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetTrigger() {
+	m.trigger = nil
+}
+
+// SetSource sets the "source" field.
+func (m *ChannelKeyMonitoringEventMutation) SetSource(s string) {
+	m.source = &s
+}
+
+// Source returns the value of the "source" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Source() (r string, exists bool) {
+	v := m.source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSource returns the old "source" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSource: %w", err)
+	}
+	return oldValue.Source, nil
+}
+
+// ClearSource clears the value of the "source" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearSource() {
+	m.source = nil
+	m.clearedFields[channelkeymonitoringevent.FieldSource] = struct{}{}
+}
+
+// SourceCleared returns if the "source" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) SourceCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldSource]
+	return ok
+}
+
+// ResetSource resets all changes to the "source" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetSource() {
+	m.source = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldSource)
+}
+
+// SetSuccess sets the "success" field.
+func (m *ChannelKeyMonitoringEventMutation) SetSuccess(b bool) {
+	m.success = &b
+}
+
+// Success returns the value of the "success" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Success() (r bool, exists bool) {
+	v := m.success
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSuccess returns the old "success" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldSuccess(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSuccess is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSuccess requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSuccess: %w", err)
+	}
+	return oldValue.Success, nil
+}
+
+// ResetSuccess resets all changes to the "success" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetSuccess() {
+	m.success = nil
+}
+
+// SetSkipped sets the "skipped" field.
+func (m *ChannelKeyMonitoringEventMutation) SetSkipped(b bool) {
+	m.skipped = &b
+}
+
+// Skipped returns the value of the "skipped" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Skipped() (r bool, exists bool) {
+	v := m.skipped
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSkipped returns the old "skipped" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldSkipped(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSkipped is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSkipped requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSkipped: %w", err)
+	}
+	return oldValue.Skipped, nil
+}
+
+// ResetSkipped resets all changes to the "skipped" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetSkipped() {
+	m.skipped = nil
+}
+
+// SetReason sets the "reason" field.
+func (m *ChannelKeyMonitoringEventMutation) SetReason(s string) {
+	m.reason = &s
+}
+
+// Reason returns the value of the "reason" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Reason() (r string, exists bool) {
+	v := m.reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReason returns the old "reason" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReason: %w", err)
+	}
+	return oldValue.Reason, nil
+}
+
+// ClearReason clears the value of the "reason" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearReason() {
+	m.reason = nil
+	m.clearedFields[channelkeymonitoringevent.FieldReason] = struct{}{}
+}
+
+// ReasonCleared returns if the "reason" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) ReasonCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldReason]
+	return ok
+}
+
+// ResetReason resets all changes to the "reason" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetReason() {
+	m.reason = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldReason)
+}
+
+// SetStatusCode sets the "status_code" field.
+func (m *ChannelKeyMonitoringEventMutation) SetStatusCode(i int) {
+	m.status_code = &i
+	m.addstatus_code = nil
+}
+
+// StatusCode returns the value of the "status_code" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) StatusCode() (r int, exists bool) {
+	v := m.status_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatusCode returns the old "status_code" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldStatusCode(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatusCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatusCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatusCode: %w", err)
+	}
+	return oldValue.StatusCode, nil
+}
+
+// AddStatusCode adds i to the "status_code" field.
+func (m *ChannelKeyMonitoringEventMutation) AddStatusCode(i int) {
+	if m.addstatus_code != nil {
+		*m.addstatus_code += i
+	} else {
+		m.addstatus_code = &i
+	}
+}
+
+// AddedStatusCode returns the value that was added to the "status_code" field in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) AddedStatusCode() (r int, exists bool) {
+	v := m.addstatus_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearStatusCode clears the value of the "status_code" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearStatusCode() {
+	m.status_code = nil
+	m.addstatus_code = nil
+	m.clearedFields[channelkeymonitoringevent.FieldStatusCode] = struct{}{}
+}
+
+// StatusCodeCleared returns if the "status_code" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) StatusCodeCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldStatusCode]
+	return ok
+}
+
+// ResetStatusCode resets all changes to the "status_code" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetStatusCode() {
+	m.status_code = nil
+	m.addstatus_code = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldStatusCode)
+}
+
+// SetBalance sets the "balance" field.
+func (m *ChannelKeyMonitoringEventMutation) SetBalance(orm objects.JSONRawMessage) {
+	m.balance = &orm
+	m.appendbalance = nil
+}
+
+// Balance returns the value of the "balance" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Balance() (r objects.JSONRawMessage, exists bool) {
+	v := m.balance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBalance returns the old "balance" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldBalance(ctx context.Context) (v objects.JSONRawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBalance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBalance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBalance: %w", err)
+	}
+	return oldValue.Balance, nil
+}
+
+// AppendBalance adds orm to the "balance" field.
+func (m *ChannelKeyMonitoringEventMutation) AppendBalance(orm objects.JSONRawMessage) {
+	m.appendbalance = append(m.appendbalance, orm...)
+}
+
+// AppendedBalance returns the list of values that were appended to the "balance" field in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) AppendedBalance() (objects.JSONRawMessage, bool) {
+	if len(m.appendbalance) == 0 {
+		return nil, false
+	}
+	return m.appendbalance, true
+}
+
+// ClearBalance clears the value of the "balance" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearBalance() {
+	m.balance = nil
+	m.appendbalance = nil
+	m.clearedFields[channelkeymonitoringevent.FieldBalance] = struct{}{}
+}
+
+// BalanceCleared returns if the "balance" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) BalanceCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldBalance]
+	return ok
+}
+
+// ResetBalance resets all changes to the "balance" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetBalance() {
+	m.balance = nil
+	m.appendbalance = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldBalance)
+}
+
+// SetCurrency sets the "currency" field.
+func (m *ChannelKeyMonitoringEventMutation) SetCurrency(s string) {
+	m.currency = &s
+}
+
+// Currency returns the value of the "currency" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Currency() (r string, exists bool) {
+	v := m.currency
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCurrency returns the old "currency" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldCurrency(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCurrency is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCurrency requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCurrency: %w", err)
+	}
+	return oldValue.Currency, nil
+}
+
+// ClearCurrency clears the value of the "currency" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearCurrency() {
+	m.currency = nil
+	m.clearedFields[channelkeymonitoringevent.FieldCurrency] = struct{}{}
+}
+
+// CurrencyCleared returns if the "currency" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) CurrencyCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldCurrency]
+	return ok
+}
+
+// ResetCurrency resets all changes to the "currency" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetCurrency() {
+	m.currency = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldCurrency)
+}
+
+// SetAvailable sets the "available" field.
+func (m *ChannelKeyMonitoringEventMutation) SetAvailable(b bool) {
+	m.available = &b
+}
+
+// Available returns the value of the "available" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Available() (r bool, exists bool) {
+	v := m.available
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAvailable returns the old "available" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldAvailable(ctx context.Context) (v *bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAvailable is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAvailable requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAvailable: %w", err)
+	}
+	return oldValue.Available, nil
+}
+
+// ClearAvailable clears the value of the "available" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearAvailable() {
+	m.available = nil
+	m.clearedFields[channelkeymonitoringevent.FieldAvailable] = struct{}{}
+}
+
+// AvailableCleared returns if the "available" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) AvailableCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldAvailable]
+	return ok
+}
+
+// ResetAvailable resets all changes to the "available" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetAvailable() {
+	m.available = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldAvailable)
+}
+
+// SetProbe sets the "probe" field.
+func (m *ChannelKeyMonitoringEventMutation) SetProbe(s string) {
+	m.probe = &s
+}
+
+// Probe returns the value of the "probe" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Probe() (r string, exists bool) {
+	v := m.probe
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProbe returns the old "probe" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldProbe(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProbe is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProbe requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProbe: %w", err)
+	}
+	return oldValue.Probe, nil
+}
+
+// ClearProbe clears the value of the "probe" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearProbe() {
+	m.probe = nil
+	m.clearedFields[channelkeymonitoringevent.FieldProbe] = struct{}{}
+}
+
+// ProbeCleared returns if the "probe" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) ProbeCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldProbe]
+	return ok
+}
+
+// ResetProbe resets all changes to the "probe" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetProbe() {
+	m.probe = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldProbe)
+}
+
+// SetMatchedPolicy sets the "matched_policy" field.
+func (m *ChannelKeyMonitoringEventMutation) SetMatchedPolicy(s string) {
+	m.matched_policy = &s
+}
+
+// MatchedPolicy returns the value of the "matched_policy" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) MatchedPolicy() (r string, exists bool) {
+	v := m.matched_policy
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMatchedPolicy returns the old "matched_policy" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldMatchedPolicy(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMatchedPolicy is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMatchedPolicy requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMatchedPolicy: %w", err)
+	}
+	return oldValue.MatchedPolicy, nil
+}
+
+// ClearMatchedPolicy clears the value of the "matched_policy" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearMatchedPolicy() {
+	m.matched_policy = nil
+	m.clearedFields[channelkeymonitoringevent.FieldMatchedPolicy] = struct{}{}
+}
+
+// MatchedPolicyCleared returns if the "matched_policy" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) MatchedPolicyCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldMatchedPolicy]
+	return ok
+}
+
+// ResetMatchedPolicy resets all changes to the "matched_policy" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetMatchedPolicy() {
+	m.matched_policy = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldMatchedPolicy)
+}
+
+// SetAction sets the "action" field.
+func (m *ChannelKeyMonitoringEventMutation) SetAction(s string) {
+	m.action = &s
+}
+
+// Action returns the value of the "action" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) Action() (r string, exists bool) {
+	v := m.action
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAction returns the old "action" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldAction(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAction is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAction requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAction: %w", err)
+	}
+	return oldValue.Action, nil
+}
+
+// ClearAction clears the value of the "action" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearAction() {
+	m.action = nil
+	m.clearedFields[channelkeymonitoringevent.FieldAction] = struct{}{}
+}
+
+// ActionCleared returns if the "action" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) ActionCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldAction]
+	return ok
+}
+
+// ResetAction resets all changes to the "action" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetAction() {
+	m.action = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldAction)
+}
+
+// SetNextCheckAt sets the "next_check_at" field.
+func (m *ChannelKeyMonitoringEventMutation) SetNextCheckAt(t time.Time) {
+	m.next_check_at = &t
+}
+
+// NextCheckAt returns the value of the "next_check_at" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) NextCheckAt() (r time.Time, exists bool) {
+	v := m.next_check_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNextCheckAt returns the old "next_check_at" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldNextCheckAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNextCheckAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNextCheckAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNextCheckAt: %w", err)
+	}
+	return oldValue.NextCheckAt, nil
+}
+
+// ClearNextCheckAt clears the value of the "next_check_at" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearNextCheckAt() {
+	m.next_check_at = nil
+	m.clearedFields[channelkeymonitoringevent.FieldNextCheckAt] = struct{}{}
+}
+
+// NextCheckAtCleared returns if the "next_check_at" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) NextCheckAtCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldNextCheckAt]
+	return ok
+}
+
+// ResetNextCheckAt resets all changes to the "next_check_at" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetNextCheckAt() {
+	m.next_check_at = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldNextCheckAt)
+}
+
+// SetBackoffAttempt sets the "backoff_attempt" field.
+func (m *ChannelKeyMonitoringEventMutation) SetBackoffAttempt(i int) {
+	m.backoff_attempt = &i
+	m.addbackoff_attempt = nil
+}
+
+// BackoffAttempt returns the value of the "backoff_attempt" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) BackoffAttempt() (r int, exists bool) {
+	v := m.backoff_attempt
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBackoffAttempt returns the old "backoff_attempt" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldBackoffAttempt(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBackoffAttempt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBackoffAttempt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBackoffAttempt: %w", err)
+	}
+	return oldValue.BackoffAttempt, nil
+}
+
+// AddBackoffAttempt adds i to the "backoff_attempt" field.
+func (m *ChannelKeyMonitoringEventMutation) AddBackoffAttempt(i int) {
+	if m.addbackoff_attempt != nil {
+		*m.addbackoff_attempt += i
+	} else {
+		m.addbackoff_attempt = &i
+	}
+}
+
+// AddedBackoffAttempt returns the value that was added to the "backoff_attempt" field in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) AddedBackoffAttempt() (r int, exists bool) {
+	v := m.addbackoff_attempt
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearBackoffAttempt clears the value of the "backoff_attempt" field.
+func (m *ChannelKeyMonitoringEventMutation) ClearBackoffAttempt() {
+	m.backoff_attempt = nil
+	m.addbackoff_attempt = nil
+	m.clearedFields[channelkeymonitoringevent.FieldBackoffAttempt] = struct{}{}
+}
+
+// BackoffAttemptCleared returns if the "backoff_attempt" field was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) BackoffAttemptCleared() bool {
+	_, ok := m.clearedFields[channelkeymonitoringevent.FieldBackoffAttempt]
+	return ok
+}
+
+// ResetBackoffAttempt resets all changes to the "backoff_attempt" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetBackoffAttempt() {
+	m.backoff_attempt = nil
+	m.addbackoff_attempt = nil
+	delete(m.clearedFields, channelkeymonitoringevent.FieldBackoffAttempt)
+}
+
+// SetCheckedAt sets the "checked_at" field.
+func (m *ChannelKeyMonitoringEventMutation) SetCheckedAt(t time.Time) {
+	m.checked_at = &t
+}
+
+// CheckedAt returns the value of the "checked_at" field in the mutation.
+func (m *ChannelKeyMonitoringEventMutation) CheckedAt() (r time.Time, exists bool) {
+	v := m.checked_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCheckedAt returns the old "checked_at" field's value of the ChannelKeyMonitoringEvent entity.
+// If the ChannelKeyMonitoringEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelKeyMonitoringEventMutation) OldCheckedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCheckedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCheckedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCheckedAt: %w", err)
+	}
+	return oldValue.CheckedAt, nil
+}
+
+// ResetCheckedAt resets all changes to the "checked_at" field.
+func (m *ChannelKeyMonitoringEventMutation) ResetCheckedAt() {
+	m.checked_at = nil
+}
+
+// ClearChannel clears the "channel" edge to the Channel entity.
+func (m *ChannelKeyMonitoringEventMutation) ClearChannel() {
+	m.clearedchannel = true
+	m.clearedFields[channelkeymonitoringevent.FieldChannelID] = struct{}{}
+}
+
+// ChannelCleared reports if the "channel" edge to the Channel entity was cleared.
+func (m *ChannelKeyMonitoringEventMutation) ChannelCleared() bool {
+	return m.clearedchannel
+}
+
+// ChannelIDs returns the "channel" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ChannelID instead. It exists only for internal usage by the builders.
+func (m *ChannelKeyMonitoringEventMutation) ChannelIDs() (ids []int) {
+	if id := m.channel; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetChannel resets all changes to the "channel" edge.
+func (m *ChannelKeyMonitoringEventMutation) ResetChannel() {
+	m.channel = nil
+	m.clearedchannel = false
+}
+
+// Where appends a list predicates to the ChannelKeyMonitoringEventMutation builder.
+func (m *ChannelKeyMonitoringEventMutation) Where(ps ...predicate.ChannelKeyMonitoringEvent) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ChannelKeyMonitoringEventMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ChannelKeyMonitoringEventMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ChannelKeyMonitoringEvent, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ChannelKeyMonitoringEventMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ChannelKeyMonitoringEventMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ChannelKeyMonitoringEvent).
+func (m *ChannelKeyMonitoringEventMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ChannelKeyMonitoringEventMutation) Fields() []string {
+	fields := make([]string, 0, 23)
+	if m.created_at != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldUpdatedAt)
+	}
+	if m.channel != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldChannelID)
+	}
+	if m.channel_name != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldChannelName)
+	}
+	if m.key_id != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldKeyID)
+	}
+	if m.masked_key != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldMaskedKey)
+	}
+	if m.rule_id != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldRuleID)
+	}
+	if m.rule_name != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldRuleName)
+	}
+	if m.trigger != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldTrigger)
+	}
+	if m.source != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldSource)
+	}
+	if m.success != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldSuccess)
+	}
+	if m.skipped != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldSkipped)
+	}
+	if m.reason != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldReason)
+	}
+	if m.status_code != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldStatusCode)
+	}
+	if m.balance != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldBalance)
+	}
+	if m.currency != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldCurrency)
+	}
+	if m.available != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldAvailable)
+	}
+	if m.probe != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldProbe)
+	}
+	if m.matched_policy != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldMatchedPolicy)
+	}
+	if m.action != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldAction)
+	}
+	if m.next_check_at != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldNextCheckAt)
+	}
+	if m.backoff_attempt != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldBackoffAttempt)
+	}
+	if m.checked_at != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldCheckedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ChannelKeyMonitoringEventMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case channelkeymonitoringevent.FieldCreatedAt:
+		return m.CreatedAt()
+	case channelkeymonitoringevent.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case channelkeymonitoringevent.FieldChannelID:
+		return m.ChannelID()
+	case channelkeymonitoringevent.FieldChannelName:
+		return m.ChannelName()
+	case channelkeymonitoringevent.FieldKeyID:
+		return m.KeyID()
+	case channelkeymonitoringevent.FieldMaskedKey:
+		return m.MaskedKey()
+	case channelkeymonitoringevent.FieldRuleID:
+		return m.RuleID()
+	case channelkeymonitoringevent.FieldRuleName:
+		return m.RuleName()
+	case channelkeymonitoringevent.FieldTrigger:
+		return m.Trigger()
+	case channelkeymonitoringevent.FieldSource:
+		return m.Source()
+	case channelkeymonitoringevent.FieldSuccess:
+		return m.Success()
+	case channelkeymonitoringevent.FieldSkipped:
+		return m.Skipped()
+	case channelkeymonitoringevent.FieldReason:
+		return m.Reason()
+	case channelkeymonitoringevent.FieldStatusCode:
+		return m.StatusCode()
+	case channelkeymonitoringevent.FieldBalance:
+		return m.Balance()
+	case channelkeymonitoringevent.FieldCurrency:
+		return m.Currency()
+	case channelkeymonitoringevent.FieldAvailable:
+		return m.Available()
+	case channelkeymonitoringevent.FieldProbe:
+		return m.Probe()
+	case channelkeymonitoringevent.FieldMatchedPolicy:
+		return m.MatchedPolicy()
+	case channelkeymonitoringevent.FieldAction:
+		return m.Action()
+	case channelkeymonitoringevent.FieldNextCheckAt:
+		return m.NextCheckAt()
+	case channelkeymonitoringevent.FieldBackoffAttempt:
+		return m.BackoffAttempt()
+	case channelkeymonitoringevent.FieldCheckedAt:
+		return m.CheckedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ChannelKeyMonitoringEventMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case channelkeymonitoringevent.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case channelkeymonitoringevent.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case channelkeymonitoringevent.FieldChannelID:
+		return m.OldChannelID(ctx)
+	case channelkeymonitoringevent.FieldChannelName:
+		return m.OldChannelName(ctx)
+	case channelkeymonitoringevent.FieldKeyID:
+		return m.OldKeyID(ctx)
+	case channelkeymonitoringevent.FieldMaskedKey:
+		return m.OldMaskedKey(ctx)
+	case channelkeymonitoringevent.FieldRuleID:
+		return m.OldRuleID(ctx)
+	case channelkeymonitoringevent.FieldRuleName:
+		return m.OldRuleName(ctx)
+	case channelkeymonitoringevent.FieldTrigger:
+		return m.OldTrigger(ctx)
+	case channelkeymonitoringevent.FieldSource:
+		return m.OldSource(ctx)
+	case channelkeymonitoringevent.FieldSuccess:
+		return m.OldSuccess(ctx)
+	case channelkeymonitoringevent.FieldSkipped:
+		return m.OldSkipped(ctx)
+	case channelkeymonitoringevent.FieldReason:
+		return m.OldReason(ctx)
+	case channelkeymonitoringevent.FieldStatusCode:
+		return m.OldStatusCode(ctx)
+	case channelkeymonitoringevent.FieldBalance:
+		return m.OldBalance(ctx)
+	case channelkeymonitoringevent.FieldCurrency:
+		return m.OldCurrency(ctx)
+	case channelkeymonitoringevent.FieldAvailable:
+		return m.OldAvailable(ctx)
+	case channelkeymonitoringevent.FieldProbe:
+		return m.OldProbe(ctx)
+	case channelkeymonitoringevent.FieldMatchedPolicy:
+		return m.OldMatchedPolicy(ctx)
+	case channelkeymonitoringevent.FieldAction:
+		return m.OldAction(ctx)
+	case channelkeymonitoringevent.FieldNextCheckAt:
+		return m.OldNextCheckAt(ctx)
+	case channelkeymonitoringevent.FieldBackoffAttempt:
+		return m.OldBackoffAttempt(ctx)
+	case channelkeymonitoringevent.FieldCheckedAt:
+		return m.OldCheckedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown ChannelKeyMonitoringEvent field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ChannelKeyMonitoringEventMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case channelkeymonitoringevent.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case channelkeymonitoringevent.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case channelkeymonitoringevent.FieldChannelID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChannelID(v)
+		return nil
+	case channelkeymonitoringevent.FieldChannelName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChannelName(v)
+		return nil
+	case channelkeymonitoringevent.FieldKeyID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKeyID(v)
+		return nil
+	case channelkeymonitoringevent.FieldMaskedKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaskedKey(v)
+		return nil
+	case channelkeymonitoringevent.FieldRuleID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRuleID(v)
+		return nil
+	case channelkeymonitoringevent.FieldRuleName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRuleName(v)
+		return nil
+	case channelkeymonitoringevent.FieldTrigger:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTrigger(v)
+		return nil
+	case channelkeymonitoringevent.FieldSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSource(v)
+		return nil
+	case channelkeymonitoringevent.FieldSuccess:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSuccess(v)
+		return nil
+	case channelkeymonitoringevent.FieldSkipped:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSkipped(v)
+		return nil
+	case channelkeymonitoringevent.FieldReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReason(v)
+		return nil
+	case channelkeymonitoringevent.FieldStatusCode:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatusCode(v)
+		return nil
+	case channelkeymonitoringevent.FieldBalance:
+		v, ok := value.(objects.JSONRawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBalance(v)
+		return nil
+	case channelkeymonitoringevent.FieldCurrency:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCurrency(v)
+		return nil
+	case channelkeymonitoringevent.FieldAvailable:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAvailable(v)
+		return nil
+	case channelkeymonitoringevent.FieldProbe:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProbe(v)
+		return nil
+	case channelkeymonitoringevent.FieldMatchedPolicy:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMatchedPolicy(v)
+		return nil
+	case channelkeymonitoringevent.FieldAction:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAction(v)
+		return nil
+	case channelkeymonitoringevent.FieldNextCheckAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNextCheckAt(v)
+		return nil
+	case channelkeymonitoringevent.FieldBackoffAttempt:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBackoffAttempt(v)
+		return nil
+	case channelkeymonitoringevent.FieldCheckedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCheckedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ChannelKeyMonitoringEvent field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ChannelKeyMonitoringEventMutation) AddedFields() []string {
+	var fields []string
+	if m.addstatus_code != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldStatusCode)
+	}
+	if m.addbackoff_attempt != nil {
+		fields = append(fields, channelkeymonitoringevent.FieldBackoffAttempt)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ChannelKeyMonitoringEventMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case channelkeymonitoringevent.FieldStatusCode:
+		return m.AddedStatusCode()
+	case channelkeymonitoringevent.FieldBackoffAttempt:
+		return m.AddedBackoffAttempt()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ChannelKeyMonitoringEventMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case channelkeymonitoringevent.FieldStatusCode:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddStatusCode(v)
+		return nil
+	case channelkeymonitoringevent.FieldBackoffAttempt:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBackoffAttempt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ChannelKeyMonitoringEvent numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ChannelKeyMonitoringEventMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(channelkeymonitoringevent.FieldChannelName) {
+		fields = append(fields, channelkeymonitoringevent.FieldChannelName)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldKeyID) {
+		fields = append(fields, channelkeymonitoringevent.FieldKeyID)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldMaskedKey) {
+		fields = append(fields, channelkeymonitoringevent.FieldMaskedKey)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldRuleID) {
+		fields = append(fields, channelkeymonitoringevent.FieldRuleID)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldRuleName) {
+		fields = append(fields, channelkeymonitoringevent.FieldRuleName)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldSource) {
+		fields = append(fields, channelkeymonitoringevent.FieldSource)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldReason) {
+		fields = append(fields, channelkeymonitoringevent.FieldReason)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldStatusCode) {
+		fields = append(fields, channelkeymonitoringevent.FieldStatusCode)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldBalance) {
+		fields = append(fields, channelkeymonitoringevent.FieldBalance)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldCurrency) {
+		fields = append(fields, channelkeymonitoringevent.FieldCurrency)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldAvailable) {
+		fields = append(fields, channelkeymonitoringevent.FieldAvailable)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldProbe) {
+		fields = append(fields, channelkeymonitoringevent.FieldProbe)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldMatchedPolicy) {
+		fields = append(fields, channelkeymonitoringevent.FieldMatchedPolicy)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldAction) {
+		fields = append(fields, channelkeymonitoringevent.FieldAction)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldNextCheckAt) {
+		fields = append(fields, channelkeymonitoringevent.FieldNextCheckAt)
+	}
+	if m.FieldCleared(channelkeymonitoringevent.FieldBackoffAttempt) {
+		fields = append(fields, channelkeymonitoringevent.FieldBackoffAttempt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ChannelKeyMonitoringEventMutation) ClearField(name string) error {
+	switch name {
+	case channelkeymonitoringevent.FieldChannelName:
+		m.ClearChannelName()
+		return nil
+	case channelkeymonitoringevent.FieldKeyID:
+		m.ClearKeyID()
+		return nil
+	case channelkeymonitoringevent.FieldMaskedKey:
+		m.ClearMaskedKey()
+		return nil
+	case channelkeymonitoringevent.FieldRuleID:
+		m.ClearRuleID()
+		return nil
+	case channelkeymonitoringevent.FieldRuleName:
+		m.ClearRuleName()
+		return nil
+	case channelkeymonitoringevent.FieldSource:
+		m.ClearSource()
+		return nil
+	case channelkeymonitoringevent.FieldReason:
+		m.ClearReason()
+		return nil
+	case channelkeymonitoringevent.FieldStatusCode:
+		m.ClearStatusCode()
+		return nil
+	case channelkeymonitoringevent.FieldBalance:
+		m.ClearBalance()
+		return nil
+	case channelkeymonitoringevent.FieldCurrency:
+		m.ClearCurrency()
+		return nil
+	case channelkeymonitoringevent.FieldAvailable:
+		m.ClearAvailable()
+		return nil
+	case channelkeymonitoringevent.FieldProbe:
+		m.ClearProbe()
+		return nil
+	case channelkeymonitoringevent.FieldMatchedPolicy:
+		m.ClearMatchedPolicy()
+		return nil
+	case channelkeymonitoringevent.FieldAction:
+		m.ClearAction()
+		return nil
+	case channelkeymonitoringevent.FieldNextCheckAt:
+		m.ClearNextCheckAt()
+		return nil
+	case channelkeymonitoringevent.FieldBackoffAttempt:
+		m.ClearBackoffAttempt()
+		return nil
+	}
+	return fmt.Errorf("unknown ChannelKeyMonitoringEvent nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ChannelKeyMonitoringEventMutation) ResetField(name string) error {
+	switch name {
+	case channelkeymonitoringevent.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case channelkeymonitoringevent.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case channelkeymonitoringevent.FieldChannelID:
+		m.ResetChannelID()
+		return nil
+	case channelkeymonitoringevent.FieldChannelName:
+		m.ResetChannelName()
+		return nil
+	case channelkeymonitoringevent.FieldKeyID:
+		m.ResetKeyID()
+		return nil
+	case channelkeymonitoringevent.FieldMaskedKey:
+		m.ResetMaskedKey()
+		return nil
+	case channelkeymonitoringevent.FieldRuleID:
+		m.ResetRuleID()
+		return nil
+	case channelkeymonitoringevent.FieldRuleName:
+		m.ResetRuleName()
+		return nil
+	case channelkeymonitoringevent.FieldTrigger:
+		m.ResetTrigger()
+		return nil
+	case channelkeymonitoringevent.FieldSource:
+		m.ResetSource()
+		return nil
+	case channelkeymonitoringevent.FieldSuccess:
+		m.ResetSuccess()
+		return nil
+	case channelkeymonitoringevent.FieldSkipped:
+		m.ResetSkipped()
+		return nil
+	case channelkeymonitoringevent.FieldReason:
+		m.ResetReason()
+		return nil
+	case channelkeymonitoringevent.FieldStatusCode:
+		m.ResetStatusCode()
+		return nil
+	case channelkeymonitoringevent.FieldBalance:
+		m.ResetBalance()
+		return nil
+	case channelkeymonitoringevent.FieldCurrency:
+		m.ResetCurrency()
+		return nil
+	case channelkeymonitoringevent.FieldAvailable:
+		m.ResetAvailable()
+		return nil
+	case channelkeymonitoringevent.FieldProbe:
+		m.ResetProbe()
+		return nil
+	case channelkeymonitoringevent.FieldMatchedPolicy:
+		m.ResetMatchedPolicy()
+		return nil
+	case channelkeymonitoringevent.FieldAction:
+		m.ResetAction()
+		return nil
+	case channelkeymonitoringevent.FieldNextCheckAt:
+		m.ResetNextCheckAt()
+		return nil
+	case channelkeymonitoringevent.FieldBackoffAttempt:
+		m.ResetBackoffAttempt()
+		return nil
+	case channelkeymonitoringevent.FieldCheckedAt:
+		m.ResetCheckedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ChannelKeyMonitoringEvent field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.channel != nil {
+		edges = append(edges, channelkeymonitoringevent.EdgeChannel)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case channelkeymonitoringevent.EdgeChannel:
+		if id := m.channel; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedchannel {
+		edges = append(edges, channelkeymonitoringevent.EdgeChannel)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ChannelKeyMonitoringEventMutation) EdgeCleared(name string) bool {
+	switch name {
+	case channelkeymonitoringevent.EdgeChannel:
+		return m.clearedchannel
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ChannelKeyMonitoringEventMutation) ClearEdge(name string) error {
+	switch name {
+	case channelkeymonitoringevent.EdgeChannel:
+		m.ClearChannel()
+		return nil
+	}
+	return fmt.Errorf("unknown ChannelKeyMonitoringEvent unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ChannelKeyMonitoringEventMutation) ResetEdge(name string) error {
+	switch name {
+	case channelkeymonitoringevent.EdgeChannel:
+		m.ResetChannel()
+		return nil
+	}
+	return fmt.Errorf("unknown ChannelKeyMonitoringEvent edge %s", name)
 }
 
 // ChannelModelPriceMutation represents an operation that mutates the ChannelModelPrice nodes in the graph.

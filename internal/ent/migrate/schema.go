@@ -130,6 +130,74 @@ var (
 			},
 		},
 	}
+	// ChannelKeyMonitoringEventsColumns holds the columns for the "channel_key_monitoring_events" table.
+	ChannelKeyMonitoringEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "channel_name", Type: field.TypeString, Nullable: true},
+		{Name: "key_id", Type: field.TypeString, Nullable: true},
+		{Name: "masked_key", Type: field.TypeString, Nullable: true},
+		{Name: "rule_id", Type: field.TypeString, Nullable: true},
+		{Name: "rule_name", Type: field.TypeString, Nullable: true},
+		{Name: "trigger", Type: field.TypeString, Default: "scheduled"},
+		{Name: "source", Type: field.TypeString, Nullable: true},
+		{Name: "success", Type: field.TypeBool, Default: false},
+		{Name: "skipped", Type: field.TypeBool, Default: false},
+		{Name: "reason", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "status_code", Type: field.TypeInt, Nullable: true},
+		{Name: "balance", Type: field.TypeJSON, Nullable: true},
+		{Name: "currency", Type: field.TypeString, Nullable: true},
+		{Name: "available", Type: field.TypeBool, Nullable: true},
+		{Name: "probe", Type: field.TypeString, Nullable: true},
+		{Name: "matched_policy", Type: field.TypeString, Nullable: true},
+		{Name: "action", Type: field.TypeString, Nullable: true},
+		{Name: "next_check_at", Type: field.TypeTime, Nullable: true},
+		{Name: "backoff_attempt", Type: field.TypeInt, Nullable: true},
+		{Name: "checked_at", Type: field.TypeTime},
+		{Name: "channel_id", Type: field.TypeInt},
+	}
+	// ChannelKeyMonitoringEventsTable holds the schema information for the "channel_key_monitoring_events" table.
+	ChannelKeyMonitoringEventsTable = &schema.Table{
+		Name:       "channel_key_monitoring_events",
+		Columns:    ChannelKeyMonitoringEventsColumns,
+		PrimaryKey: []*schema.Column{ChannelKeyMonitoringEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "channel_key_monitoring_events_channels_monitoring_events",
+				Columns:    []*schema.Column{ChannelKeyMonitoringEventsColumns[23]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "monitoring_events_by_channel_checked",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelKeyMonitoringEventsColumns[23], ChannelKeyMonitoringEventsColumns[22]},
+			},
+			{
+				Name:    "monitoring_events_by_key_checked",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelKeyMonitoringEventsColumns[4], ChannelKeyMonitoringEventsColumns[22]},
+			},
+			{
+				Name:    "monitoring_events_by_rule_checked",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelKeyMonitoringEventsColumns[6], ChannelKeyMonitoringEventsColumns[22]},
+			},
+			{
+				Name:    "monitoring_events_by_success_checked",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelKeyMonitoringEventsColumns[10], ChannelKeyMonitoringEventsColumns[22]},
+			},
+			{
+				Name:    "monitoring_events_by_trigger_checked",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelKeyMonitoringEventsColumns[8], ChannelKeyMonitoringEventsColumns[22]},
+			},
+		},
+	}
 	// ChannelModelPricesColumns holds the columns for the "channel_model_prices" table.
 	ChannelModelPricesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -1013,6 +1081,7 @@ var (
 		APIKeysTable,
 		APIKeyProfileTemplatesTable,
 		ChannelsTable,
+		ChannelKeyMonitoringEventsTable,
 		ChannelModelPricesTable,
 		ChannelModelPriceVersionsTable,
 		ChannelOverrideTemplatesTable,
@@ -1042,6 +1111,7 @@ func init() {
 	APIKeysTable.ForeignKeys[0].RefTable = ProjectsTable
 	APIKeysTable.ForeignKeys[1].RefTable = UsersTable
 	APIKeyProfileTemplatesTable.ForeignKeys[0].RefTable = ProjectsTable
+	ChannelKeyMonitoringEventsTable.ForeignKeys[0].RefTable = ChannelsTable
 	ChannelModelPricesTable.ForeignKeys[0].RefTable = ChannelsTable
 	ChannelModelPriceVersionsTable.ForeignKeys[0].RefTable = ChannelModelPricesTable
 	ChannelOverrideTemplatesTable.ForeignKeys[0].RefTable = UsersTable

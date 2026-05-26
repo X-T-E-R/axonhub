@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
@@ -301,6 +302,21 @@ func (_c *ChannelCreate) AddChannelProbes(v ...*ChannelProbe) *ChannelCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddChannelProbeIDs(ids...)
+}
+
+// AddMonitoringEventIDs adds the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity by IDs.
+func (_c *ChannelCreate) AddMonitoringEventIDs(ids ...int) *ChannelCreate {
+	_c.mutation.AddMonitoringEventIDs(ids...)
+	return _c
+}
+
+// AddMonitoringEvents adds the "monitoring_events" edges to the ChannelKeyMonitoringEvent entity.
+func (_c *ChannelCreate) AddMonitoringEvents(v ...*ChannelKeyMonitoringEvent) *ChannelCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMonitoringEventIDs(ids...)
 }
 
 // AddChannelModelPriceIDs adds the "channel_model_prices" edge to the ChannelModelPrice entity by IDs.
@@ -642,6 +658,22 @@ func (_c *ChannelCreate) createSpec() (*Channel, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(channelprobe.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MonitoringEventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   channel.MonitoringEventsTable,
+			Columns: []string{channel.MonitoringEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelkeymonitoringevent.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

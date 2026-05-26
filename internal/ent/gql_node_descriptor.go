@@ -9,6 +9,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -249,7 +250,7 @@ func (_m *Channel) Node(ctx context.Context) (node *Node, err error) {
 		ID:     _m.ID,
 		Type:   "Channel",
 		Fields: make([]*Field, 20),
-		Edges:  make([]*Edge, 6),
+		Edges:  make([]*Edge, 7),
 	}
 	var buf []byte
 	if buf, err = json.Marshal(_m.CreatedAt); err != nil {
@@ -453,22 +454,238 @@ func (_m *Channel) Node(ctx context.Context) (node *Node, err error) {
 		return nil, err
 	}
 	node.Edges[4] = &Edge{
-		Type: "ChannelModelPrice",
-		Name: "channel_model_prices",
+		Type: "ChannelKeyMonitoringEvent",
+		Name: "monitoring_events",
 	}
-	err = _m.QueryChannelModelPrices().
-		Select(channelmodelprice.FieldID).
+	err = _m.QueryMonitoringEvents().
+		Select(channelkeymonitoringevent.FieldID).
 		Scan(ctx, &node.Edges[4].IDs)
 	if err != nil {
 		return nil, err
 	}
 	node.Edges[5] = &Edge{
+		Type: "ChannelModelPrice",
+		Name: "channel_model_prices",
+	}
+	err = _m.QueryChannelModelPrices().
+		Select(channelmodelprice.FieldID).
+		Scan(ctx, &node.Edges[5].IDs)
+	if err != nil {
+		return nil, err
+	}
+	node.Edges[6] = &Edge{
 		Type: "ProviderQuotaStatus",
 		Name: "provider_quota_status",
 	}
 	err = _m.QueryProviderQuotaStatus().
 		Select(providerquotastatus.FieldID).
-		Scan(ctx, &node.Edges[5].IDs)
+		Scan(ctx, &node.Edges[6].IDs)
+	if err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+// Node implements Noder interface
+func (_m *ChannelKeyMonitoringEvent) Node(ctx context.Context) (node *Node, err error) {
+	node = &Node{
+		ID:     _m.ID,
+		Type:   "ChannelKeyMonitoringEvent",
+		Fields: make([]*Field, 23),
+		Edges:  make([]*Edge, 1),
+	}
+	var buf []byte
+	if buf, err = json.Marshal(_m.CreatedAt); err != nil {
+		return nil, err
+	}
+	node.Fields[0] = &Field{
+		Type:  "time.Time",
+		Name:  "created_at",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.UpdatedAt); err != nil {
+		return nil, err
+	}
+	node.Fields[1] = &Field{
+		Type:  "time.Time",
+		Name:  "updated_at",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.ChannelID); err != nil {
+		return nil, err
+	}
+	node.Fields[2] = &Field{
+		Type:  "int",
+		Name:  "channel_id",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.ChannelName); err != nil {
+		return nil, err
+	}
+	node.Fields[3] = &Field{
+		Type:  "string",
+		Name:  "channel_name",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.KeyID); err != nil {
+		return nil, err
+	}
+	node.Fields[4] = &Field{
+		Type:  "string",
+		Name:  "key_id",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.MaskedKey); err != nil {
+		return nil, err
+	}
+	node.Fields[5] = &Field{
+		Type:  "string",
+		Name:  "masked_key",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.RuleID); err != nil {
+		return nil, err
+	}
+	node.Fields[6] = &Field{
+		Type:  "string",
+		Name:  "rule_id",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.RuleName); err != nil {
+		return nil, err
+	}
+	node.Fields[7] = &Field{
+		Type:  "string",
+		Name:  "rule_name",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Trigger); err != nil {
+		return nil, err
+	}
+	node.Fields[8] = &Field{
+		Type:  "string",
+		Name:  "trigger",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Source); err != nil {
+		return nil, err
+	}
+	node.Fields[9] = &Field{
+		Type:  "string",
+		Name:  "source",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Success); err != nil {
+		return nil, err
+	}
+	node.Fields[10] = &Field{
+		Type:  "bool",
+		Name:  "success",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Skipped); err != nil {
+		return nil, err
+	}
+	node.Fields[11] = &Field{
+		Type:  "bool",
+		Name:  "skipped",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Reason); err != nil {
+		return nil, err
+	}
+	node.Fields[12] = &Field{
+		Type:  "string",
+		Name:  "reason",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.StatusCode); err != nil {
+		return nil, err
+	}
+	node.Fields[13] = &Field{
+		Type:  "int",
+		Name:  "status_code",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Balance); err != nil {
+		return nil, err
+	}
+	node.Fields[14] = &Field{
+		Type:  "objects.JSONRawMessage",
+		Name:  "balance",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Currency); err != nil {
+		return nil, err
+	}
+	node.Fields[15] = &Field{
+		Type:  "string",
+		Name:  "currency",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Available); err != nil {
+		return nil, err
+	}
+	node.Fields[16] = &Field{
+		Type:  "bool",
+		Name:  "available",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Probe); err != nil {
+		return nil, err
+	}
+	node.Fields[17] = &Field{
+		Type:  "string",
+		Name:  "probe",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.MatchedPolicy); err != nil {
+		return nil, err
+	}
+	node.Fields[18] = &Field{
+		Type:  "string",
+		Name:  "matched_policy",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.Action); err != nil {
+		return nil, err
+	}
+	node.Fields[19] = &Field{
+		Type:  "string",
+		Name:  "action",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.NextCheckAt); err != nil {
+		return nil, err
+	}
+	node.Fields[20] = &Field{
+		Type:  "time.Time",
+		Name:  "next_check_at",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.BackoffAttempt); err != nil {
+		return nil, err
+	}
+	node.Fields[21] = &Field{
+		Type:  "int",
+		Name:  "backoff_attempt",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.CheckedAt); err != nil {
+		return nil, err
+	}
+	node.Fields[22] = &Field{
+		Type:  "time.Time",
+		Name:  "checked_at",
+		Value: string(buf),
+	}
+	node.Edges[0] = &Edge{
+		Type: "Channel",
+		Name: "channel",
+	}
+	err = _m.QueryChannel().
+		Select(channel.FieldID).
+		Scan(ctx, &node.Edges[0].IDs)
 	if err != nil {
 		return nil, err
 	}

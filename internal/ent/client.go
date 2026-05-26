@@ -18,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -52,6 +53,8 @@ type Client struct {
 	APIKeyProfileTemplate *APIKeyProfileTemplateClient
 	// Channel is the client for interacting with the Channel builders.
 	Channel *ChannelClient
+	// ChannelKeyMonitoringEvent is the client for interacting with the ChannelKeyMonitoringEvent builders.
+	ChannelKeyMonitoringEvent *ChannelKeyMonitoringEventClient
 	// ChannelModelPrice is the client for interacting with the ChannelModelPrice builders.
 	ChannelModelPrice *ChannelModelPriceClient
 	// ChannelModelPriceVersion is the client for interacting with the ChannelModelPriceVersion builders.
@@ -110,6 +113,7 @@ func (c *Client) init() {
 	c.APIKey = NewAPIKeyClient(c.config)
 	c.APIKeyProfileTemplate = NewAPIKeyProfileTemplateClient(c.config)
 	c.Channel = NewChannelClient(c.config)
+	c.ChannelKeyMonitoringEvent = NewChannelKeyMonitoringEventClient(c.config)
 	c.ChannelModelPrice = NewChannelModelPriceClient(c.config)
 	c.ChannelModelPriceVersion = NewChannelModelPriceVersionClient(c.config)
 	c.ChannelOverrideTemplate = NewChannelOverrideTemplateClient(c.config)
@@ -221,32 +225,33 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                      ctx,
-		config:                   cfg,
-		APIKey:                   NewAPIKeyClient(cfg),
-		APIKeyProfileTemplate:    NewAPIKeyProfileTemplateClient(cfg),
-		Channel:                  NewChannelClient(cfg),
-		ChannelModelPrice:        NewChannelModelPriceClient(cfg),
-		ChannelModelPriceVersion: NewChannelModelPriceVersionClient(cfg),
-		ChannelOverrideTemplate:  NewChannelOverrideTemplateClient(cfg),
-		ChannelProbe:             NewChannelProbeClient(cfg),
-		DataStorage:              NewDataStorageClient(cfg),
-		Model:                    NewModelClient(cfg),
-		OIDCIdentity:             NewOIDCIdentityClient(cfg),
-		Project:                  NewProjectClient(cfg),
-		Prompt:                   NewPromptClient(cfg),
-		PromptProtectionRule:     NewPromptProtectionRuleClient(cfg),
-		ProviderQuotaStatus:      NewProviderQuotaStatusClient(cfg),
-		Request:                  NewRequestClient(cfg),
-		RequestExecution:         NewRequestExecutionClient(cfg),
-		Role:                     NewRoleClient(cfg),
-		System:                   NewSystemClient(cfg),
-		Thread:                   NewThreadClient(cfg),
-		Trace:                    NewTraceClient(cfg),
-		UsageLog:                 NewUsageLogClient(cfg),
-		User:                     NewUserClient(cfg),
-		UserProject:              NewUserProjectClient(cfg),
-		UserRole:                 NewUserRoleClient(cfg),
+		ctx:                       ctx,
+		config:                    cfg,
+		APIKey:                    NewAPIKeyClient(cfg),
+		APIKeyProfileTemplate:     NewAPIKeyProfileTemplateClient(cfg),
+		Channel:                   NewChannelClient(cfg),
+		ChannelKeyMonitoringEvent: NewChannelKeyMonitoringEventClient(cfg),
+		ChannelModelPrice:         NewChannelModelPriceClient(cfg),
+		ChannelModelPriceVersion:  NewChannelModelPriceVersionClient(cfg),
+		ChannelOverrideTemplate:   NewChannelOverrideTemplateClient(cfg),
+		ChannelProbe:              NewChannelProbeClient(cfg),
+		DataStorage:               NewDataStorageClient(cfg),
+		Model:                     NewModelClient(cfg),
+		OIDCIdentity:              NewOIDCIdentityClient(cfg),
+		Project:                   NewProjectClient(cfg),
+		Prompt:                    NewPromptClient(cfg),
+		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
+		ProviderQuotaStatus:       NewProviderQuotaStatusClient(cfg),
+		Request:                   NewRequestClient(cfg),
+		RequestExecution:          NewRequestExecutionClient(cfg),
+		Role:                      NewRoleClient(cfg),
+		System:                    NewSystemClient(cfg),
+		Thread:                    NewThreadClient(cfg),
+		Trace:                     NewTraceClient(cfg),
+		UsageLog:                  NewUsageLogClient(cfg),
+		User:                      NewUserClient(cfg),
+		UserProject:               NewUserProjectClient(cfg),
+		UserRole:                  NewUserRoleClient(cfg),
 	}, nil
 }
 
@@ -264,32 +269,33 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                      ctx,
-		config:                   cfg,
-		APIKey:                   NewAPIKeyClient(cfg),
-		APIKeyProfileTemplate:    NewAPIKeyProfileTemplateClient(cfg),
-		Channel:                  NewChannelClient(cfg),
-		ChannelModelPrice:        NewChannelModelPriceClient(cfg),
-		ChannelModelPriceVersion: NewChannelModelPriceVersionClient(cfg),
-		ChannelOverrideTemplate:  NewChannelOverrideTemplateClient(cfg),
-		ChannelProbe:             NewChannelProbeClient(cfg),
-		DataStorage:              NewDataStorageClient(cfg),
-		Model:                    NewModelClient(cfg),
-		OIDCIdentity:             NewOIDCIdentityClient(cfg),
-		Project:                  NewProjectClient(cfg),
-		Prompt:                   NewPromptClient(cfg),
-		PromptProtectionRule:     NewPromptProtectionRuleClient(cfg),
-		ProviderQuotaStatus:      NewProviderQuotaStatusClient(cfg),
-		Request:                  NewRequestClient(cfg),
-		RequestExecution:         NewRequestExecutionClient(cfg),
-		Role:                     NewRoleClient(cfg),
-		System:                   NewSystemClient(cfg),
-		Thread:                   NewThreadClient(cfg),
-		Trace:                    NewTraceClient(cfg),
-		UsageLog:                 NewUsageLogClient(cfg),
-		User:                     NewUserClient(cfg),
-		UserProject:              NewUserProjectClient(cfg),
-		UserRole:                 NewUserRoleClient(cfg),
+		ctx:                       ctx,
+		config:                    cfg,
+		APIKey:                    NewAPIKeyClient(cfg),
+		APIKeyProfileTemplate:     NewAPIKeyProfileTemplateClient(cfg),
+		Channel:                   NewChannelClient(cfg),
+		ChannelKeyMonitoringEvent: NewChannelKeyMonitoringEventClient(cfg),
+		ChannelModelPrice:         NewChannelModelPriceClient(cfg),
+		ChannelModelPriceVersion:  NewChannelModelPriceVersionClient(cfg),
+		ChannelOverrideTemplate:   NewChannelOverrideTemplateClient(cfg),
+		ChannelProbe:              NewChannelProbeClient(cfg),
+		DataStorage:               NewDataStorageClient(cfg),
+		Model:                     NewModelClient(cfg),
+		OIDCIdentity:              NewOIDCIdentityClient(cfg),
+		Project:                   NewProjectClient(cfg),
+		Prompt:                    NewPromptClient(cfg),
+		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
+		ProviderQuotaStatus:       NewProviderQuotaStatusClient(cfg),
+		Request:                   NewRequestClient(cfg),
+		RequestExecution:          NewRequestExecutionClient(cfg),
+		Role:                      NewRoleClient(cfg),
+		System:                    NewSystemClient(cfg),
+		Thread:                    NewThreadClient(cfg),
+		Trace:                     NewTraceClient(cfg),
+		UsageLog:                  NewUsageLogClient(cfg),
+		User:                      NewUserClient(cfg),
+		UserProject:               NewUserProjectClient(cfg),
+		UserRole:                  NewUserRoleClient(cfg),
 	}, nil
 }
 
@@ -319,9 +325,9 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelModelPrice,
-		c.ChannelModelPriceVersion, c.ChannelOverrideTemplate, c.ChannelProbe,
-		c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
+		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
+		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
+		c.ChannelProbe, c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -334,9 +340,9 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelModelPrice,
-		c.ChannelModelPriceVersion, c.ChannelOverrideTemplate, c.ChannelProbe,
-		c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
+		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
+		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
+		c.ChannelProbe, c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -354,6 +360,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.APIKeyProfileTemplate.mutate(ctx, m)
 	case *ChannelMutation:
 		return c.Channel.mutate(ctx, m)
+	case *ChannelKeyMonitoringEventMutation:
+		return c.ChannelKeyMonitoringEvent.mutate(ctx, m)
 	case *ChannelModelPriceMutation:
 		return c.ChannelModelPrice.mutate(ctx, m)
 	case *ChannelModelPriceVersionMutation:
@@ -907,6 +915,22 @@ func (c *ChannelClient) QueryChannelProbes(_m *Channel) *ChannelProbeQuery {
 	return query
 }
 
+// QueryMonitoringEvents queries the monitoring_events edge of a Channel.
+func (c *ChannelClient) QueryMonitoringEvents(_m *Channel) *ChannelKeyMonitoringEventQuery {
+	query := (&ChannelKeyMonitoringEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(channel.Table, channel.FieldID, id),
+			sqlgraph.To(channelkeymonitoringevent.Table, channelkeymonitoringevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, channel.MonitoringEventsTable, channel.MonitoringEventsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryChannelModelPrices queries the channel_model_prices edge of a Channel.
 func (c *ChannelClient) QueryChannelModelPrices(_m *Channel) *ChannelModelPriceQuery {
 	query := (&ChannelModelPriceClient{config: c.config}).Query()
@@ -963,6 +987,156 @@ func (c *ChannelClient) mutate(ctx context.Context, m *ChannelMutation) (Value, 
 		return (&ChannelDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Channel mutation op: %q", m.Op())
+	}
+}
+
+// ChannelKeyMonitoringEventClient is a client for the ChannelKeyMonitoringEvent schema.
+type ChannelKeyMonitoringEventClient struct {
+	config
+}
+
+// NewChannelKeyMonitoringEventClient returns a client for the ChannelKeyMonitoringEvent from the given config.
+func NewChannelKeyMonitoringEventClient(c config) *ChannelKeyMonitoringEventClient {
+	return &ChannelKeyMonitoringEventClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `channelkeymonitoringevent.Hooks(f(g(h())))`.
+func (c *ChannelKeyMonitoringEventClient) Use(hooks ...Hook) {
+	c.hooks.ChannelKeyMonitoringEvent = append(c.hooks.ChannelKeyMonitoringEvent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `channelkeymonitoringevent.Intercept(f(g(h())))`.
+func (c *ChannelKeyMonitoringEventClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ChannelKeyMonitoringEvent = append(c.inters.ChannelKeyMonitoringEvent, interceptors...)
+}
+
+// Create returns a builder for creating a ChannelKeyMonitoringEvent entity.
+func (c *ChannelKeyMonitoringEventClient) Create() *ChannelKeyMonitoringEventCreate {
+	mutation := newChannelKeyMonitoringEventMutation(c.config, OpCreate)
+	return &ChannelKeyMonitoringEventCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ChannelKeyMonitoringEvent entities.
+func (c *ChannelKeyMonitoringEventClient) CreateBulk(builders ...*ChannelKeyMonitoringEventCreate) *ChannelKeyMonitoringEventCreateBulk {
+	return &ChannelKeyMonitoringEventCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ChannelKeyMonitoringEventClient) MapCreateBulk(slice any, setFunc func(*ChannelKeyMonitoringEventCreate, int)) *ChannelKeyMonitoringEventCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ChannelKeyMonitoringEventCreateBulk{err: fmt.Errorf("calling to ChannelKeyMonitoringEventClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ChannelKeyMonitoringEventCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ChannelKeyMonitoringEventCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ChannelKeyMonitoringEvent.
+func (c *ChannelKeyMonitoringEventClient) Update() *ChannelKeyMonitoringEventUpdate {
+	mutation := newChannelKeyMonitoringEventMutation(c.config, OpUpdate)
+	return &ChannelKeyMonitoringEventUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ChannelKeyMonitoringEventClient) UpdateOne(_m *ChannelKeyMonitoringEvent) *ChannelKeyMonitoringEventUpdateOne {
+	mutation := newChannelKeyMonitoringEventMutation(c.config, OpUpdateOne, withChannelKeyMonitoringEvent(_m))
+	return &ChannelKeyMonitoringEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ChannelKeyMonitoringEventClient) UpdateOneID(id int) *ChannelKeyMonitoringEventUpdateOne {
+	mutation := newChannelKeyMonitoringEventMutation(c.config, OpUpdateOne, withChannelKeyMonitoringEventID(id))
+	return &ChannelKeyMonitoringEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ChannelKeyMonitoringEvent.
+func (c *ChannelKeyMonitoringEventClient) Delete() *ChannelKeyMonitoringEventDelete {
+	mutation := newChannelKeyMonitoringEventMutation(c.config, OpDelete)
+	return &ChannelKeyMonitoringEventDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ChannelKeyMonitoringEventClient) DeleteOne(_m *ChannelKeyMonitoringEvent) *ChannelKeyMonitoringEventDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ChannelKeyMonitoringEventClient) DeleteOneID(id int) *ChannelKeyMonitoringEventDeleteOne {
+	builder := c.Delete().Where(channelkeymonitoringevent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ChannelKeyMonitoringEventDeleteOne{builder}
+}
+
+// Query returns a query builder for ChannelKeyMonitoringEvent.
+func (c *ChannelKeyMonitoringEventClient) Query() *ChannelKeyMonitoringEventQuery {
+	return &ChannelKeyMonitoringEventQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeChannelKeyMonitoringEvent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ChannelKeyMonitoringEvent entity by its id.
+func (c *ChannelKeyMonitoringEventClient) Get(ctx context.Context, id int) (*ChannelKeyMonitoringEvent, error) {
+	return c.Query().Where(channelkeymonitoringevent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ChannelKeyMonitoringEventClient) GetX(ctx context.Context, id int) *ChannelKeyMonitoringEvent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryChannel queries the channel edge of a ChannelKeyMonitoringEvent.
+func (c *ChannelKeyMonitoringEventClient) QueryChannel(_m *ChannelKeyMonitoringEvent) *ChannelQuery {
+	query := (&ChannelClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(channelkeymonitoringevent.Table, channelkeymonitoringevent.FieldID, id),
+			sqlgraph.To(channel.Table, channel.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, channelkeymonitoringevent.ChannelTable, channelkeymonitoringevent.ChannelColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ChannelKeyMonitoringEventClient) Hooks() []Hook {
+	hooks := c.hooks.ChannelKeyMonitoringEvent
+	return append(hooks[:len(hooks):len(hooks)], channelkeymonitoringevent.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *ChannelKeyMonitoringEventClient) Interceptors() []Interceptor {
+	return c.inters.ChannelKeyMonitoringEvent
+}
+
+func (c *ChannelKeyMonitoringEventClient) mutate(ctx context.Context, m *ChannelKeyMonitoringEventMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ChannelKeyMonitoringEventCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ChannelKeyMonitoringEventUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ChannelKeyMonitoringEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ChannelKeyMonitoringEventDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ChannelKeyMonitoringEvent mutation op: %q", m.Op())
 	}
 }
 
@@ -4624,17 +4798,17 @@ func (c *UserRoleClient) mutate(ctx context.Context, m *UserRoleMutation) (Value
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		APIKey, APIKeyProfileTemplate, Channel, ChannelModelPrice,
-		ChannelModelPriceVersion, ChannelOverrideTemplate, ChannelProbe, DataStorage,
-		Model, OIDCIdentity, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
-		UsageLog, User, UserProject, UserRole []ent.Hook
+		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
+		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
+		ChannelProbe, DataStorage, Model, OIDCIdentity, Project, Prompt,
+		PromptProtectionRule, ProviderQuotaStatus, Request, RequestExecution, Role,
+		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Hook
 	}
 	inters struct {
-		APIKey, APIKeyProfileTemplate, Channel, ChannelModelPrice,
-		ChannelModelPriceVersion, ChannelOverrideTemplate, ChannelProbe, DataStorage,
-		Model, OIDCIdentity, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
-		UsageLog, User, UserProject, UserRole []ent.Interceptor
+		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
+		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
+		ChannelProbe, DataStorage, Model, OIDCIdentity, Project, Prompt,
+		PromptProtectionRule, ProviderQuotaStatus, Request, RequestExecution, Role,
+		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Interceptor
 	}
 )

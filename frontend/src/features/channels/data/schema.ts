@@ -239,13 +239,21 @@ export const channelKeyHealthCheckPolicyActionTypeSchema = z.enum([
   'delete_key',
   'disable_channel',
   'backoff',
+  'enable_key',
+  'restore_key',
 ]);
 export type ChannelKeyHealthCheckPolicyActionType = z.infer<typeof channelKeyHealthCheckPolicyActionTypeSchema>;
 
 export const channelFailurePolicyModeSchema = z.enum(['inherit', 'override', 'merge', 'disabled']);
 export type ChannelFailurePolicyMode = z.infer<typeof channelFailurePolicyModeSchema>;
 
-export const failurePolicyEventSourceSchema = z.enum(['request_failure', 'scheduled_health_check_failure', 'manual_health_check_failure']);
+export const failurePolicyEventSourceSchema = z.enum([
+  'request_failure',
+  'scheduled_health_check_failure',
+  'manual_health_check_failure',
+  'scheduled_health_check',
+  'manual_health_check',
+]);
 export type FailurePolicyEventSource = z.infer<typeof failurePolicyEventSourceSchema>;
 
 export const failurePolicyActionTypeSchema = z.enum([
@@ -255,6 +263,8 @@ export const failurePolicyActionTypeSchema = z.enum([
   'archive_key',
   'delete_key',
   'disable_channel',
+  'enable_key',
+  'restore_key',
 ]);
 export type FailurePolicyActionType = z.infer<typeof failurePolicyActionTypeSchema>;
 
@@ -314,11 +324,14 @@ export type ChannelKeyHealthCheckBackoff = z.infer<typeof channelKeyHealthCheckB
 
 export const channelKeyHealthCheckPolicyConditionSchema = z.object({
   minFailureCount: z.number().int().positive().optional().nullable(),
+  success: z.boolean().optional().nullable(),
   statusCodes: z.array(z.number().int()).optional().nullable(),
   available: z.boolean().optional().nullable(),
   balanceLTE: z.number().optional().nullable(),
+  balanceGTE: z.number().optional().nullable(),
   reasonContains: z.string().optional().nullable(),
   allCheckedKeysFailed: z.boolean().optional().nullable(),
+  keyStatuses: z.array(channelKeyStatusSchema).optional().nullable(),
   expr: z.string().optional().nullable(),
 });
 export type ChannelKeyHealthCheckPolicyCondition = z.infer<typeof channelKeyHealthCheckPolicyConditionSchema>;

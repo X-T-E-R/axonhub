@@ -1,5 +1,7 @@
 package biz
 
+import "github.com/looplj/axonhub/internal/objects"
+
 var defaultStoragePolicy = StoragePolicy{
 	StoreChunks:       false,
 	LivePreview:       false,
@@ -88,4 +90,26 @@ var defaultQuotaEnforcementSettings = QuotaEnforcementSettings{
 var defaultSecuritySettings = SecuritySettings{
 	BlockedIPs:              []string{},
 	ShowRequestLogIPBanIcon: true,
+}
+
+var defaultMonitoringSettings = MonitoringSettings{
+	Enabled:              false,
+	HistoryRetentionDays: 30,
+	Rules:                []MonitoringRule{},
+}
+
+var defaultMonitoringRuleSchedule = MonitoringRuleSchedule{
+	IntervalMinutes:   60,
+	HistoryLimit:      100,
+	MaxChannels:       4,
+	MaxKeysPerChannel: 8,
+	KeySpacingMs:      1000,
+	JitterMs:          250,
+}
+
+var defaultMonitoringRuleTargets = MonitoringRuleTargets{
+	ChannelStatuses: []string{"enabled"},
+	KeyStatuses:     []objects.ChannelKeyStatus{objects.ChannelKeyStatusActive},
+	ChannelIDs:      []int{},
+	IncludeBackoff:  false,
 }

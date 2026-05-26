@@ -94,11 +94,23 @@ func (svc *ChannelService) runChannelKeyHealthChecksScheduled(ctx context.Contex
 }
 
 func (svc *ChannelService) RunDueChannelKeyHealthChecks(ctx context.Context, now time.Time) error {
+	monitoringChecked, monitoringFailed, err := svc.runDueMonitoringRules(ctx, now)
+	if err != nil {
+		return err
+	}
+
 	channels, err := svc.dueChannelKeyHealthCheckChannels(ctx, now)
 	if err != nil {
 		return err
 	}
 	if len(channels) == 0 {
+		if monitoringChecked > 0 || monitoringFailed > 0 {
+			log.Info(ctx, "channel key monitoring task completed",
+				log.Int("checked_keys", monitoringChecked),
+				log.Int("failed_keys", monitoringFailed),
+			)
+		}
+
 		return nil
 	}
 
@@ -135,8 +147,10 @@ func (svc *ChannelService) RunDueChannelKeyHealthChecks(ctx context.Context, now
 
 	log.Info(ctx, "channel key health check task completed",
 		log.Int("channels", len(channels)),
-		log.Int32("checked_keys", checked.Load()),
-		log.Int32("failed_keys", failed.Load()),
+		log.Int("monitoring_checked_keys", monitoringChecked),
+		log.Int("monitoring_failed_keys", monitoringFailed),
+		log.Int32("legacy_checked_keys", checked.Load()),
+		log.Int32("legacy_failed_keys", failed.Load()),
 	)
 
 	return nil
@@ -379,6 +393,20 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 	results = svc.applyFailurePolicyToHealthCheckResults(ctx, ch, settings, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerScheduled, allCheckedKeysFailed)
 	for i, key := range targetKeys {
 		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerScheduled, settings.KeyHealthCheck.HistoryLimitOrDefault())
+		if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
+			Channel: ch,
+			Target: monitoringTargetKey{
+				RawKey:    key,
+				ID:        objects.ChannelAPIKeyFingerprint(key),
+				MaskedKey: objects.MaskChannelAPIKey(key),
+				Status:    objects.ChannelKeyStatusActive,
+			},
+			Result:    results[i],
+			Trigger:   objects.ChannelKeyHealthCheckTriggerScheduled,
+			CheckedAt: now,
+		}); err != nil {
+			return channelKeyHealthCheckChannelResult{}, err
+		}
 	}
 	mergeChannelKeyOperationalStatus(ch, settings.KeyHealthCheck)
 
@@ -1218,11 +1246,14 @@ func matchingChannelKeyHealthCheckPolicies(
 
 func channelKeyHealthCheckPolicyHasCondition(condition objects.ChannelKeyHealthCheckPolicyCondition) bool {
 	return condition.MinFailureCount != nil ||
+		condition.Success != nil ||
 		len(condition.StatusCodes) > 0 ||
 		condition.Available != nil ||
 		condition.BalanceLTE != nil ||
+		condition.BalanceGTE != nil ||
 		strings.TrimSpace(condition.ReasonContains) != "" ||
 		condition.AllCheckedKeysFailed != nil ||
+		len(condition.KeyStatuses) > 0 ||
 		strings.TrimSpace(condition.Expr) != ""
 }
 
@@ -1235,6 +1266,9 @@ func channelKeyHealthCheckPolicyMatches(
 ) bool {
 	condition := policy.Conditions
 	if condition.MinFailureCount != nil && failureCount < *condition.MinFailureCount {
+		return false
+	}
+	if condition.Success != nil && result.Success != *condition.Success {
 		return false
 	}
 	if len(condition.StatusCodes) > 0 && !slices.Contains(condition.StatusCodes, result.StatusCode) {
@@ -1251,11 +1285,20 @@ func channelKeyHealthCheckPolicyMatches(
 			return false
 		}
 	}
+	if condition.BalanceGTE != nil {
+		balance, ok := channelKeyHealthCheckNumericBalance(result.Balance)
+		if !ok || balance < *condition.BalanceGTE {
+			return false
+		}
+	}
 	reasonContains := strings.TrimSpace(condition.ReasonContains)
 	if reasonContains != "" && !strings.Contains(strings.ToLower(result.Reason), strings.ToLower(reasonContains)) {
 		return false
 	}
 	if condition.AllCheckedKeysFailed != nil && allCheckedKeysFailed != *condition.AllCheckedKeysFailed {
+		return false
+	}
+	if len(condition.KeyStatuses) > 0 && !slices.Contains(condition.KeyStatuses, objects.ChannelKeyStatusActive) {
 		return false
 	}
 	if strings.TrimSpace(condition.Expr) != "" {
@@ -1492,6 +1535,20 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	results = svc.applyFailurePolicyToHealthCheckResults(ctx, ch, settings, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerManual, allCheckedKeysFailed)
 	for i, key := range targetKeys {
 		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerManual, settings.KeyHealthCheck.HistoryLimitOrDefault())
+		if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
+			Channel: ch,
+			Target: monitoringTargetKey{
+				RawKey:    key,
+				ID:        objects.ChannelAPIKeyFingerprint(key),
+				MaskedKey: objects.MaskChannelAPIKey(key),
+				Status:    objects.ChannelKeyStatusActive,
+			},
+			Result:    results[i],
+			Trigger:   objects.ChannelKeyHealthCheckTriggerManual,
+			CheckedAt: now,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	mergeChannelKeyOperationalStatus(ch, settings.KeyHealthCheck)
 
@@ -1645,13 +1702,16 @@ func (svc *ChannelService) applyChannelKeyHealthCheckPolicyActions(
 		if i >= len(results) {
 			continue
 		}
+		if key == "" {
+			continue
+		}
 
 		result := results[i]
 		if result.MatchedPolicy == "" || result.Action == "" {
 			continue
 		}
 
-		for _, action := range strings.Split(result.Action, ",") {
+		for _, action := range orderedKeyHealthCheckActionNames(result.Action) {
 			action = strings.TrimSpace(action)
 			if action == "" {
 				continue
@@ -1672,6 +1732,14 @@ func (svc *ChannelService) applyChannelKeyHealthCheckPolicyActions(
 				reason = fmt.Sprintf("%s: %s", result.MatchedPolicy, reason)
 			}
 			switch objects.ChannelKeyHealthCheckPolicyActionType(action) {
+			case objects.ChannelKeyHealthCheckPolicyActionRestoreKey:
+				if err := svc.RestoreChannelAPIKey(ctx, channelID, key); err != nil {
+					return err
+				}
+			case objects.ChannelKeyHealthCheckPolicyActionEnableKey:
+				if err := svc.EnableAPIKey(ctx, channelID, key); err != nil {
+					return err
+				}
 			case objects.ChannelKeyHealthCheckPolicyActionDisableKey:
 				if err := svc.DisableAPIKey(ctx, channelID, key, channelKeyHealthCheckFailureCode, reason); err != nil {
 					return err
@@ -1699,6 +1767,14 @@ func (svc *ChannelService) applyChannelKeyHealthCheckPolicyActions(
 				channelDisabled = true
 			default:
 				switch objects.FailurePolicyActionType(action) {
+				case objects.FailurePolicyActionRestoreKey:
+					if err := svc.RestoreChannelAPIKey(ctx, channelID, key); err != nil {
+						return err
+					}
+				case objects.FailurePolicyActionEnableKey:
+					if err := svc.EnableAPIKey(ctx, channelID, key); err != nil {
+						return err
+					}
 				case objects.FailurePolicyActionDisableKey:
 					if err := svc.DisableAPIKey(ctx, channelID, key, channelKeyHealthCheckFailureCode, reason); err != nil {
 						return err
@@ -1732,6 +1808,40 @@ func (svc *ChannelService) applyChannelKeyHealthCheckPolicyActions(
 	}
 
 	return nil
+}
+
+func orderedKeyHealthCheckActionNames(summary string) []string {
+	if summary == "" {
+		return nil
+	}
+
+	actions := strings.Split(summary, ",")
+	if len(actions) <= 1 {
+		return actions
+	}
+
+	ordered := make([]string, 0, len(actions))
+	appendMatching := func(matches func(string) bool) {
+		for _, action := range actions {
+			action = strings.TrimSpace(action)
+			if !matches(action) {
+				continue
+			}
+
+			ordered = append(ordered, action)
+		}
+	}
+
+	appendMatching(func(action string) bool {
+		return action == string(objects.ChannelKeyHealthCheckPolicyActionRestoreKey) ||
+			action == string(objects.FailurePolicyActionRestoreKey)
+	})
+	appendMatching(func(action string) bool {
+		return action != string(objects.ChannelKeyHealthCheckPolicyActionRestoreKey) &&
+			action != string(objects.FailurePolicyActionRestoreKey)
+	})
+
+	return ordered
 }
 
 func legacyChannelKeyHealthCheckPolicyActions(action objects.ChannelKeyHealthCheckFailureAction) string {

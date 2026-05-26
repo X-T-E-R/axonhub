@@ -19,6 +19,8 @@ type failurePolicyEvent struct {
 	Key                  string
 	StatusCode           int
 	FailureCount         int
+	Success              bool
+	KeyStatus            objects.ChannelKeyStatus
 	Available            *bool
 	Balance              any
 	Currency             string
@@ -245,6 +247,10 @@ func failureActionFromLegacyHealthPolicyAction(action objects.ChannelKeyHealthCh
 		return objects.FailurePolicyActionDisableChannel
 	case objects.ChannelKeyHealthCheckPolicyActionBackoff:
 		return objects.FailurePolicyActionBackoffKey
+	case objects.ChannelKeyHealthCheckPolicyActionEnableKey:
+		return objects.FailurePolicyActionEnableKey
+	case objects.ChannelKeyHealthCheckPolicyActionRestoreKey:
+		return objects.FailurePolicyActionRestoreKey
 	default:
 		return objects.FailurePolicyActionReportOnly
 	}
@@ -278,7 +284,7 @@ func evaluateFailurePolicyProfiles(profiles []objects.FailurePolicyProfile, even
 
 func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event failurePolicyEvent) bool {
 	result := ChannelKeyHealthCheckResult{
-		Success:    false,
+		Success:    event.Success,
 		Reason:     event.Reason,
 		Balance:    event.Balance,
 		Currency:   event.Currency,
@@ -293,7 +299,7 @@ func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event fai
 		trigger = objects.ChannelKeyHealthCheckTriggerManual
 	}
 
-	return failurePolicyConditionMatches(profile.Conditions, result, event.FailureCount, trigger, event.AllCheckedKeysFailed)
+	return failurePolicyConditionMatches(profile.Conditions, result, event.FailureCount, trigger, event.AllCheckedKeysFailed, event.KeyStatus)
 }
 
 func failurePolicyConditionMatches(
@@ -302,8 +308,12 @@ func failurePolicyConditionMatches(
 	failureCount int,
 	trigger objects.ChannelKeyHealthCheckTrigger,
 	allCheckedKeysFailed bool,
+	keyStatus objects.ChannelKeyStatus,
 ) bool {
 	if condition.MinFailureCount != nil && failureCount < *condition.MinFailureCount {
+		return false
+	}
+	if condition.Success != nil && result.Success != *condition.Success {
 		return false
 	}
 	if len(condition.StatusCodes) > 0 && !slices.Contains(condition.StatusCodes, result.StatusCode) {
@@ -320,11 +330,20 @@ func failurePolicyConditionMatches(
 			return false
 		}
 	}
+	if condition.BalanceGTE != nil {
+		balance, ok := channelKeyHealthCheckNumericBalance(result.Balance)
+		if !ok || balance < *condition.BalanceGTE {
+			return false
+		}
+	}
 	reasonContains := strings.TrimSpace(condition.ReasonContains)
 	if reasonContains != "" && !strings.Contains(strings.ToLower(result.Reason), strings.ToLower(reasonContains)) {
 		return false
 	}
 	if condition.AllCheckedKeysFailed != nil && allCheckedKeysFailed != *condition.AllCheckedKeysFailed {
+		return false
+	}
+	if len(condition.KeyStatuses) > 0 && !slices.Contains(condition.KeyStatuses, keyStatus) {
 		return false
 	}
 	if strings.TrimSpace(condition.Expr) != "" {
@@ -384,7 +403,8 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 		}
 	}
 
-	for _, action := range actions {
+	orderedActions := orderFailurePolicyActions(actions)
+	for _, action := range orderedActions {
 		reason := event.Reason
 		if reason == "" {
 			reason = "failure policy matched"
@@ -411,6 +431,22 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 				continue
 			}
 			if err := svc.DisableAPIKey(ctx, event.ChannelID, event.Key, event.StatusCode, reason); err != nil {
+				return routingChanged, err
+			}
+			routingChanged = true
+		case objects.FailurePolicyActionRestoreKey:
+			if event.Key == "" {
+				continue
+			}
+			if err := svc.RestoreChannelAPIKey(ctx, event.ChannelID, event.Key); err != nil {
+				return routingChanged, err
+			}
+			routingChanged = true
+		case objects.FailurePolicyActionEnableKey:
+			if event.Key == "" {
+				continue
+			}
+			if err := svc.EnableAPIKey(ctx, event.ChannelID, event.Key); err != nil {
 				return routingChanged, err
 			}
 			routingChanged = true
@@ -451,6 +487,26 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 	return routingChanged, nil
 }
 
+func orderFailurePolicyActions(actions []objects.FailurePolicyAction) []objects.FailurePolicyAction {
+	if len(actions) <= 1 {
+		return actions
+	}
+
+	ordered := make([]objects.FailurePolicyAction, 0, len(actions))
+	for _, action := range actions {
+		if action.Type == objects.FailurePolicyActionRestoreKey {
+			ordered = append(ordered, action)
+		}
+	}
+	for _, action := range actions {
+		if action.Type != objects.FailurePolicyActionRestoreKey {
+			ordered = append(ordered, action)
+		}
+	}
+
+	return ordered
+}
+
 func (svc *ChannelService) recordRequestFailurePolicyHistory(ctx context.Context, event failurePolicyEvent, matchedPolicy string, actions []objects.FailurePolicyAction) error {
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, event.ChannelID)
 	if err != nil {
@@ -471,6 +527,29 @@ func (svc *ChannelService) recordRequestFailurePolicyHistory(ctx context.Context
 
 	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(event.ChannelID).SetSettings(settings).Save(ctx); err != nil {
 		return fmt.Errorf("failed to save request failure policy history: %w", err)
+	}
+	if event.Target == objects.FailurePolicyTargetKey && event.Key != "" {
+		if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
+			Channel: ch,
+			Target: monitoringTargetKey{
+				RawKey:    event.Key,
+				ID:        objects.ChannelAPIKeyFingerprint(event.Key),
+				MaskedKey: objects.MaskChannelAPIKey(event.Key),
+				Status:    event.KeyStatus,
+			},
+			Result: ChannelKeyHealthCheckResult{
+				Success:        false,
+				Reason:         event.Reason,
+				StatusCode:     event.StatusCode,
+				MatchedPolicy:  matchedPolicy,
+				Action:         actionSummary,
+				BackoffAttempt: event.FailureCount,
+			},
+			Trigger:   objects.ChannelKeyHealthCheckTriggerRequest,
+			CheckedAt: now,
+		}); err != nil {
+			return err
+		}
 	}
 
 	return nil
