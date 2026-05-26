@@ -1625,7 +1625,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     [statusFilter, t]
   );
   const selectedHealthCheckKeyIDs = useMemo(
-    () => selectedRows.filter((item) => item.status !== 'archived').map((item) => item.id),
+    () => selectedRows.map((item) => item.id),
     [selectedRows]
   );
   const selectedActiveKeyIDs = useMemo(
@@ -2185,17 +2185,15 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                     </TableCell>
                                     <TableCell>
                                       <div className='flex justify-end gap-1'>
-                                        {item.status !== 'archived' ? (
-                                          <Button
-                                            type='button'
-                                            size='sm'
-                                            variant='ghost'
-                                            onClick={() => handleRunChecks([item.id])}
-                                            disabled={isPending}
-                                          >
-                                            <IconPlayerPlay className='h-4 w-4' />
-                                          </Button>
-                                        ) : null}
+                                        <Button
+                                          type='button'
+                                          size='sm'
+                                          variant='ghost'
+                                          onClick={() => handleRunChecks([item.id])}
+                                          disabled={isPending}
+                                        >
+                                          <IconPlayerPlay className='h-4 w-4' />
+                                        </Button>
                                         <Button
                                           type='button'
                                           size='sm'
@@ -2407,7 +2405,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
           <DialogFooter className='gap-2 sm:justify-between'>
             <div className='flex items-center gap-2'>
-              <Button type='button' variant='outline' onClick={() => handleRunChecks()} disabled={isPending || activeKeys.length === 0}>
+              <Button type='button' variant='outline' onClick={() => handleRunChecks()} disabled={isPending || inventory.length === 0}>
                 {runHealthCheck.isPending ? (
                   <IconLoader2 className='mr-2 h-4 w-4 animate-spin' />
                 ) : (

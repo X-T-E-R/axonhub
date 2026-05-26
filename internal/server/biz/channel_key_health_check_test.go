@@ -705,7 +705,7 @@ func TestChannelKeyHealthCheckBackoffDueScheduling(t *testing.T) {
 	require.Equal(t, []string{"backoff-key"}, filterChannelKeyHealthCheckDueKeys(ch, []string{"backoff-key"}, nextCheck))
 }
 
-func TestSelectedChannelKeyHealthCheckTargetsExcludeArchivedAndDefaultDisabled(t *testing.T) {
+func TestSelectedChannelKeyHealthCheckTargetsDefaultRoutableButAllowsExplicitArchived(t *testing.T) {
 	disabledAt := time.Date(2026, 5, 24, 4, 0, 0, 0, time.UTC)
 	ch := &ent.Channel{
 		Credentials: objects.ChannelCredentials{APIKeys: []string{"active-key", "disabled-key", "archived-key"}},
@@ -725,11 +725,16 @@ func TestSelectedChannelKeyHealthCheckTargetsExcludeArchivedAndDefaultDisabled(t
 	}
 
 	require.Equal(t, []string{"active-key"}, selectedChannelKeyHealthCheckTargets(ch, nil))
-	require.Equal(t, []string{"disabled-key"}, selectedChannelKeyHealthCheckTargets(ch, []string{
+	require.Equal(t, []string{"disabled-key", "archived-key"}, selectedChannelKeyHealthCheckTargets(ch, []string{
 		objects.ChannelAPIKeyFingerprint("disabled-key"),
 		objects.ChannelAPIKeyFingerprint("archived-key"),
 		objects.ChannelAPIKeyFingerprint("disabled-key"),
 	}))
+
+	statuses := selectedChannelKeyHealthCheckTargetStatuses(ch, []string{"active-key", "disabled-key", "archived-key"})
+	require.Equal(t, objects.ChannelKeyStatusActive, statuses[objects.ChannelAPIKeyFingerprint("active-key")])
+	require.Equal(t, objects.ChannelKeyStatusDisabled, statuses[objects.ChannelAPIKeyFingerprint("disabled-key")])
+	require.Equal(t, objects.ChannelKeyStatusArchived, statuses[objects.ChannelAPIKeyFingerprint("archived-key")])
 }
 
 func TestChannelService_RunManualHealthCheckPersistsBalanceAndHistory(t *testing.T) {
