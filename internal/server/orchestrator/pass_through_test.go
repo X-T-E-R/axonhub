@@ -15,6 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/ent"
+	entchannel "github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
@@ -1356,6 +1357,164 @@ func TestMergePassThroughBodySkipsFormatsWithoutTopLevelModel(t *testing.T) {
 	merged, err := mergePassThroughRequestBody(rawBody, llm.APIFormatGeminiContents, "gemini-2.5-pro")
 	require.NoError(t, err)
 	require.Equal(t, string(rawBody), string(merged))
+}
+
+func TestMergePassThroughBodyPatchesOpenAICompletionModel(t *testing.T) {
+	rawBody := []byte(`{"model":"client-completion-model","prompt":"hi"}`)
+
+	merged, err := mergePassThroughRequestBody(rawBody, llm.APIFormatOpenAICompletion, "mapped-completion-model")
+	require.NoError(t, err)
+	require.Equal(t, "mapped-completion-model", gjson.GetBytes(merged, "model").String())
+	require.Equal(t, "hi", gjson.GetBytes(merged, "prompt").String())
+}
+
+func TestMergePassThroughBodyPatchesOpenAIImageGenerationModel(t *testing.T) {
+	rawBody := []byte(`{"model":"client-image-model","prompt":"draw a cat"}`)
+
+	merged, err := mergePassThroughRequestBody(rawBody, llm.APIFormatOpenAIImageGeneration, "mapped-image-model")
+	require.NoError(t, err)
+	require.Equal(t, "mapped-image-model", gjson.GetBytes(merged, "model").String())
+	require.Equal(t, "draw a cat", gjson.GetBytes(merged, "prompt").String())
+}
+
+func TestApplyAxonHubFullPassThroughRequest_ChatPreservesPathQueryBodyAndAuth(t *testing.T) {
+	ctx := context.Background()
+	rawHTTPReq, err := http.NewRequest(http.MethodPost, "http://gateway.local/v1/chat/completions?trace=abc&debug=1", nil)
+	require.NoError(t, err)
+	rawHTTPReq.Header.Set("Authorization", "Bearer client-secret")
+	rawHTTPReq.Header.Set("Cookie", "session=client")
+	rawHTTPReq.Header.Set("Content-Type", "application/json")
+
+	outbound := &PersistentOutboundTransformer{
+		state: &PersistenceState{
+			CurrentCandidate: &ChannelModelsCandidate{
+				Channel: &biz.Channel{
+					Channel: &ent.Channel{
+						ID:      1,
+						Name:    "upstream axonhub",
+						Type:    entchannel.TypeAxonhub,
+						BaseURL: "http://upstream.local:8090",
+						Settings: &objects.ChannelSettings{
+							FullPassThrough: true,
+						},
+					},
+				},
+			},
+			LlmRequest: &llm.Request{
+				Model:     "mapped-model",
+				APIFormat: llm.APIFormatOpenAIChatCompletion,
+				RawRequest: &httpclient.Request{
+					Method:     http.MethodPost,
+					Path:       "/v1/chat/completions",
+					Headers:    rawHTTPReq.Header,
+					Body:       []byte(`{"model":"client-model","messages":[{"role":"user","content":"hi"}]}`),
+					RawRequest: rawHTTPReq,
+				},
+			},
+		},
+	}
+
+	request := &httpclient.Request{
+		Method:  http.MethodPost,
+		URL:     "http://upstream.local:8090/v1/chat/completions",
+		Headers: http.Header{"Authorization": []string{"Bearer upstream-secret"}},
+		Body:    []byte(`{"model":"transformed-model"}`),
+	}
+
+	processed, err := applyAxonHubFullPassThroughRequest(outbound).OnOutboundRawRequest(ctx, request)
+	require.NoError(t, err)
+	require.Equal(t, http.MethodPost, processed.Method)
+	require.Equal(t, "http://upstream.local:8090/v1/chat/completions?trace=abc&debug=1", processed.URL)
+	require.Nil(t, processed.Query)
+	require.Equal(t, "mapped-model", gjson.GetBytes(processed.Body, "model").String())
+	require.Equal(t, "Bearer upstream-secret", processed.Headers.Get("Authorization"))
+	require.Empty(t, processed.Headers.Get("Cookie"))
+	require.Equal(t, "application/json", processed.Headers.Get("Content-Type"))
+	require.Equal(t, string(llm.APIFormatOpenAIChatCompletion), processed.APIFormat)
+}
+
+func TestApplyAxonHubFullPassThroughRequest_ResponsesPath(t *testing.T) {
+	ctx := context.Background()
+	rawHTTPReq, err := http.NewRequest(http.MethodPost, "http://gateway.local/v1/responses?include%5B%5D=reasoning", nil)
+	require.NoError(t, err)
+	rawHTTPReq.Header.Set("Content-Type", "application/json")
+
+	outbound := &PersistentOutboundTransformer{
+		state: &PersistenceState{
+			CurrentCandidate: &ChannelModelsCandidate{
+				Channel: &biz.Channel{
+					Channel: &ent.Channel{
+						ID:      1,
+						Name:    "upstream axonhub",
+						Type:    entchannel.TypeAxonhub,
+						BaseURL: "http://upstream.local:8090",
+						Settings: &objects.ChannelSettings{
+							FullPassThrough: true,
+						},
+					},
+				},
+			},
+			LlmRequest: &llm.Request{
+				Model:     "mapped-response-model",
+				APIFormat: llm.APIFormatOpenAIResponse,
+				RawRequest: &httpclient.Request{
+					Method:     http.MethodPost,
+					Path:       "/v1/responses",
+					Headers:    rawHTTPReq.Header,
+					Body:       []byte(`{"model":"client-response-model","input":"hi"}`),
+					RawRequest: rawHTTPReq,
+				},
+			},
+		},
+	}
+
+	processed, err := applyAxonHubFullPassThroughRequest(outbound).OnOutboundRawRequest(ctx, &httpclient.Request{
+		Method:  http.MethodPost,
+		URL:     "http://upstream.local:8090/v1/responses",
+		Headers: http.Header{"Authorization": []string{"Bearer upstream-secret"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "http://upstream.local:8090/v1/responses?include%5B%5D=reasoning", processed.URL)
+	require.Equal(t, "mapped-response-model", gjson.GetBytes(processed.Body, "model").String())
+	require.Equal(t, string(llm.APIFormatOpenAIResponse), processed.APIFormat)
+}
+
+func TestApplyAxonHubFullPassThroughRequest_RejectsUnsupportedPath(t *testing.T) {
+	ctx := context.Background()
+	rawHTTPReq, err := http.NewRequest(http.MethodPost, "http://gateway.local/admin/graphql", nil)
+	require.NoError(t, err)
+
+	outbound := &PersistentOutboundTransformer{
+		state: &PersistenceState{
+			CurrentCandidate: &ChannelModelsCandidate{
+				Channel: &biz.Channel{
+					Channel: &ent.Channel{
+						ID:      1,
+						Name:    "upstream axonhub",
+						Type:    entchannel.TypeAxonhub,
+						BaseURL: "http://upstream.local:8090",
+						Settings: &objects.ChannelSettings{
+							FullPassThrough: true,
+						},
+					},
+				},
+			},
+			LlmRequest: &llm.Request{
+				APIFormat: llm.APIFormatOpenAIChatCompletion,
+				RawRequest: &httpclient.Request{
+					Method:     http.MethodPost,
+					Path:       "/admin/graphql",
+					Headers:    rawHTTPReq.Header,
+					Body:       []byte(`{"query":"{__typename}"}`),
+					RawRequest: rawHTTPReq,
+				},
+			},
+		},
+	}
+
+	_, err = applyAxonHubFullPassThroughRequest(outbound).OnOutboundRawRequest(ctx, &httpclient.Request{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "path is not allowed")
 }
 
 // TestApplyUserAgentPassThrough tests the User-Agent pass-through middleware.

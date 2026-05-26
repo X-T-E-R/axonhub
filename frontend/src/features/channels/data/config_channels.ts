@@ -34,6 +34,7 @@ import {
 } from '@lobehub/icons';
 import { AtlasCloudIcon } from '../components/atlas-cloud-icon';
 import { EvolinkIcon } from '../components/evolink-icon';
+import { AxonHubIcon } from '../components/axonhub-icon';
 import { NanoGPTIcon } from '../components/nanogpt-icon';
 import { BURNCLOUD_DEFAULT_MODELS } from './burncloud-models';
 import { ApiFormat, ChannelType } from './schema';
@@ -86,6 +87,14 @@ export const CHANNEL_CONFIGS: Record<ChannelType, ChannelConfig> = {
     apiFormat: OPENAI_CHAT_COMPLETIONS,
     color: 'bg-sky-100 text-sky-800 border-sky-200',
     icon: AtlasCloudIcon,
+  },
+  axonhub: {
+    channelType: 'axonhub',
+    baseURL: 'http://localhost:8090',
+    defaultModels: ['gpt-4o', 'claude-sonnet-4-5', 'deepseek-chat'],
+    apiFormat: OPENAI_CHAT_COMPLETIONS,
+    color: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+    icon: AxonHubIcon,
   },
   openai_responses: {
     channelType: 'openai_responses',
@@ -759,6 +768,7 @@ export type Provider =
   | 'openai'
   | 'atlascloud'
   | 'cline'
+  | 'axonhub'
   | 'anthropic'
   | 'claudecode'
   | 'deepseek'
@@ -802,6 +812,7 @@ export const CHANNEL_TYPE_TO_PROVIDER: Record<ChannelType, Provider> = {
   openai_responses: 'openai',
   atlascloud: 'atlascloud',
   cline: 'cline',
+  axonhub: 'axonhub',
   openai_fake: 'openai',
   anthropic: 'anthropic',
   anthropic_aws: 'anthropic',

@@ -16,6 +16,7 @@ import (
 	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer"
+	"github.com/looplj/axonhub/llm/transformer/anthropic"
 	"github.com/looplj/axonhub/llm/transformer/openai"
 	"github.com/looplj/axonhub/llm/transformer/openai/codex"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
@@ -270,4 +271,46 @@ func TestOnEnabledChannelsSwapDoesNotWaitForOldCleanup(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("old channel cleanup did not finish")
 	}
+}
+
+func TestAxonHubChannel_BuildChannelWithOutbounds_UsesEndpointSpecificTransformers(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(context.Background())
+
+	entChannel := client.Channel.Create().
+		SetName("AxonHub Channel").
+		SetType(channel.TypeAxonhub).
+		SetBaseURL("http://localhost:8090").
+		SetCredentials(objects.ChannelCredentials{APIKey: "test-key"}).
+		SetSupportedModels([]string{"gpt-4o-mini"}).
+		SetDefaultTestModel("gpt-4o-mini").
+		SaveX(ctx)
+
+	channelSvc := NewChannelServiceForTest(client)
+
+	built, err := channelSvc.buildChannelWithOutbounds(entChannel)
+	require.NoError(t, err)
+	require.NotNil(t, built)
+	require.NotNil(t, built.Outbound)
+	require.Len(t, built.Outbounds, 14)
+
+	require.Equal(t, llm.APIFormatOpenAIChatCompletion, built.Outbound.APIFormat())
+
+	responseOutbound, err := BuildOutboundByAPIFormat(built, llm.APIFormatOpenAIResponse.String())
+	require.NoError(t, err)
+	require.NotNil(t, responseOutbound)
+	_, ok := responseOutbound.(*responses.OutboundTransformer)
+	require.True(t, ok, "responses endpoints should use responses outbound")
+
+	anthropicOutbound, err := BuildOutboundByAPIFormat(built, llm.APIFormatAnthropicMessage.String())
+	require.NoError(t, err)
+	require.NotNil(t, anthropicOutbound)
+	_, ok = anthropicOutbound.(*anthropic.OutboundTransformer)
+	require.True(t, ok, "anthropic endpoints should use anthropic outbound")
+
+	imageVariationOutbound, err := BuildOutboundByAPIFormat(built, llm.APIFormatOpenAIImageVariation.String())
+	require.Error(t, err)
+	require.Nil(t, imageVariationOutbound)
 }

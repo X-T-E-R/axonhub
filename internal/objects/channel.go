@@ -197,6 +197,14 @@ type ChannelSettings struct {
 	// When set to true/false, it overrides the global setting.
 	PassThroughBody *bool `json:"passThroughBody,omitempty"`
 
+	// DisableRetries disables both same-channel retries and fallback to the next
+	// channel for failures on this channel. Upstream is responsible for retrying.
+	DisableRetries bool `json:"disableRetries,omitempty"`
+
+	// FullPassThrough preserves the inbound AxonHub request path/query/method/body
+	// and raw response for trusted AxonHub-to-AxonHub upstream boundaries.
+	FullPassThrough bool `json:"fullPassThrough,omitempty"`
+
 	// RateLimit configures the upstream rate limit for the channel.
 	// When configured, the load balancer will skip channels that have exceeded their rate limits.
 	RateLimit *ChannelRateLimit `json:"rateLimit,omitempty"`

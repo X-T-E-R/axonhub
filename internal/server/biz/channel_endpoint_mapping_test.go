@@ -133,6 +133,26 @@ func TestDefaultEndpointsForChannelType_UseLLMAPIFormatValues(t *testing.T) {
 				llm.APIFormatSeedanceVideo.String(),
 			},
 		},
+		{
+			name: "axonhub exposes actual routed formats without image variation",
+			typ:  channel.TypeAxonhub,
+			expected: []string{
+				llm.APIFormatOpenAIChatCompletion.String(),
+				llm.APIFormatOpenAICompletion.String(),
+				llm.APIFormatOpenAIResponse.String(),
+				llm.APIFormatOpenAIResponseCompact.String(),
+				llm.APIFormatOpenAIEmbedding.String(),
+				llm.APIFormatOpenAIImageGeneration.String(),
+				llm.APIFormatOpenAIImageEdit.String(),
+				llm.APIFormatOpenAIVideo.String(),
+				llm.APIFormatAnthropicMessage.String(),
+				llm.APIFormatJinaRerank.String(),
+				llm.APIFormatJinaEmbedding.String(),
+				llm.APIFormatGeminiContents.String(),
+				llm.APIFormatGeminiEmbedding.String(),
+				llm.APIFormatSeedanceVideo.String(),
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -290,6 +310,7 @@ func TestSupportedAPIFormats_UsesLLMAPIFormatValues(t *testing.T) {
 		llm.APIFormatGeminiEmbedding.String(),
 		llm.APIFormatJinaRerank.String(),
 		llm.APIFormatJinaEmbedding.String(),
+		llm.APIFormatSeedanceVideo.String(),
 	}
 
 	for _, format := range formats {

@@ -228,6 +228,18 @@ func (svc *ChannelService) buildChannelWithOutbounds(c *ent.Channel, apiKeyOverr
 			continue
 		}
 
+		if c.Type == channel.TypeAxonhub {
+			out, err := svc.buildNonDefaultEndpointOutbound(c, ch, ep)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build default outbound for api_format %q on channel %s: %w", ep.APIFormat, c.Name, err)
+			}
+			if len(outbounds) == 0 {
+				ch.Outbound = out
+			}
+			outbounds[ep.APIFormat] = out
+			continue
+		}
+
 		outbounds[ep.APIFormat] = ch.Outbound
 	}
 
@@ -458,6 +470,11 @@ func (svc *ChannelService) buildNonDefaultEndpointOutbound(
 			BaseURL:        baseURL,
 			APIKeyProvider: apiKeyProvider(),
 			EndpointPath:   ep.Path,
+		})
+	case llm.APIFormatSeedanceVideo.String():
+		return doubao.NewOutboundTransformerWithConfig(&doubao.Config{
+			BaseURL:        baseURL,
+			APIKeyProvider: apiKeyProvider,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported api_format %q", ep.APIFormat)
@@ -990,7 +1007,7 @@ func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel, apiKeyOve
 		})
 
 		return ch, nil
-	case channel.TypeOpenai, channel.TypeAtlascloud, channel.TypeDeepinfra, channel.TypeQiniu, channel.TypeMinimax,
+	case channel.TypeOpenai, channel.TypeAtlascloud, channel.TypeAxonhub, channel.TypeDeepinfra, channel.TypeQiniu, channel.TypeMinimax,
 		channel.TypePpio, channel.TypeSiliconflow,
 		channel.TypeVercel, channel.TypeAihubmix, channel.TypeBurncloud, channel.TypeGithub,
 		channel.TypeOpencodeGo, channel.TypeEvolink:

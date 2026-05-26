@@ -314,6 +314,8 @@ const CREATE_CHANNEL_MUTATION = `
         }
         passThroughUserAgent
         passThroughBody
+        disableRetries
+        fullPassThrough
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -393,6 +395,8 @@ const DUPLICATE_CHANNEL_MUTATION = `
         }
         passThroughUserAgent
         passThroughBody
+        disableRetries
+        fullPassThrough
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -472,6 +476,8 @@ const BULK_CREATE_CHANNELS_MUTATION = `
         }
         passThroughUserAgent
         passThroughBody
+        disableRetries
+        fullPassThrough
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -551,6 +557,8 @@ const UPDATE_CHANNEL_MUTATION = `
         }
         passThroughUserAgent
         passThroughBody
+        disableRetries
+        fullPassThrough
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -747,6 +755,8 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
           retryableStatusCodes
           retryableErrorPatterns {
             pattern
@@ -758,6 +768,8 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
               authCookie
             }
           }
+          disableRetries
+          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -994,6 +1006,8 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
           retryableStatusCodes
           retryableErrorPatterns {
             pattern
@@ -1005,6 +1019,8 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
               authCookie
             }
           }
+          disableRetries
+          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -1150,6 +1166,8 @@ const QUERY_CHANNELS_QUERY = `
             }
             passThroughUserAgent
             passThroughBody
+            disableRetries
+            fullPassThrough
             rateLimit {
               rpm
               tpm

@@ -561,6 +561,35 @@ func TestShouldForceStreamingForCandidate(t *testing.T) {
 	})
 }
 
+func TestPersistentOutboundTransformer_HasMoreChannels_DisableRetries(t *testing.T) {
+	currentChannel := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:       1,
+			Name:     "retry-disabled-channel",
+			Settings: &objects.ChannelSettings{DisableRetries: true},
+		},
+		Outbound: &mockTransformer{},
+	}
+	nextChannel := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:   2,
+			Name: "fallback-channel",
+		},
+		Outbound: &mockTransformer{},
+	}
+
+	outbound := &PersistentOutboundTransformer{
+		wrapped: &mockTransformer{},
+		state: &PersistenceState{
+			CurrentCandidate:        &ChannelModelsCandidate{Channel: currentChannel},
+			ChannelModelsCandidates: []*ChannelModelsCandidate{{Channel: currentChannel}, {Channel: nextChannel}},
+			CurrentCandidateIndex:   0,
+		},
+	}
+
+	require.False(t, outbound.HasMoreChannels())
+}
+
 func TestIsCompletedAggregatedOutboundResponse(t *testing.T) {
 	t.Run("usage with completion tokens means completed", func(t *testing.T) {
 		require.True(t, isCompletedAggregated(llm.ResponseMeta{Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}}))

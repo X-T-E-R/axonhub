@@ -29,6 +29,7 @@ var SupportedAPIFormats = map[string]struct{}{
 	llm.APIFormatGeminiEmbedding.String():       {},
 	llm.APIFormatJinaRerank.String():            {},
 	llm.APIFormatJinaEmbedding.String():         {},
+	llm.APIFormatSeedanceVideo.String():         {},
 }
 
 // ValidateEndpoints validates channel endpoint configurations.
@@ -100,6 +101,23 @@ var openAIChatOnlyDefaultEndpoints = []objects.ChannelEndpoint{
 	{APIFormat: llm.APIFormatOpenAIChatCompletion.String()},
 }
 
+var axonhubDefaultEndpoints = []objects.ChannelEndpoint{
+	{APIFormat: llm.APIFormatOpenAIChatCompletion.String()},
+	{APIFormat: llm.APIFormatOpenAICompletion.String()},
+	{APIFormat: llm.APIFormatOpenAIResponse.String()},
+	{APIFormat: llm.APIFormatOpenAIResponseCompact.String()},
+	{APIFormat: llm.APIFormatOpenAIEmbedding.String()},
+	{APIFormat: llm.APIFormatOpenAIImageGeneration.String()},
+	{APIFormat: llm.APIFormatOpenAIImageEdit.String()},
+	{APIFormat: llm.APIFormatOpenAIVideo.String()},
+	{APIFormat: llm.APIFormatAnthropicMessage.String()},
+	{APIFormat: llm.APIFormatJinaRerank.String()},
+	{APIFormat: llm.APIFormatJinaEmbedding.String()},
+	{APIFormat: llm.APIFormatGeminiContents.String()},
+	{APIFormat: llm.APIFormatGeminiEmbedding.String()},
+	{APIFormat: llm.APIFormatSeedanceVideo.String()},
+}
+
 // defaultEndpointsForChannelType defines the built-in default endpoints for
 // each channel type.
 //
@@ -117,6 +135,7 @@ var defaultEndpointsForChannelType = map[channel.Type][]objects.ChannelEndpoint{
 	channel.TypeOpenaiResponses: {{APIFormat: llm.APIFormatOpenAIResponse.String()}},
 	channel.TypeAtlascloud:      openAICompatibleDefaultEndpoints,
 	channel.TypeCline:           openAIChatOnlyDefaultEndpoints,
+	channel.TypeAxonhub:         axonhubDefaultEndpoints,
 	channel.TypeCodex: {
 		{APIFormat: llm.APIFormatOpenAIResponse.String()},
 		{APIFormat: llm.APIFormatOpenAIImageGeneration.String()},

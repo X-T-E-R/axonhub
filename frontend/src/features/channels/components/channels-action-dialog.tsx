@@ -74,6 +74,11 @@ interface Props {
 const MAX_MODELS_DISPLAY = 2;
 
 const duplicateNameRegex = /^(.*) \((\d+)\)$/;
+const AXONHUB_CHANNEL_TYPES: ChannelType[] = ['axonhub'];
+
+const isAxonHubChannelType = (channelType?: ChannelType | null) => {
+  return !!channelType && AXONHUB_CHANNEL_TYPES.includes(channelType);
+};
 
 type ApiFormatOption = ApiFormat | 'openai/responses:websocket';
 type ResponsesTransport = 'http' | 'websocket';
@@ -393,6 +398,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const [retryableErrorPatternsText, setRetryableErrorPatternsText] = useState(() =>
     formatRetryableErrorPatterns(initialRow?.settings?.retryableErrorPatterns)
   );
+  const [disableRetries, setDisableRetries] = useState(() => initialRow?.settings?.disableRetries ?? false);
+  const [fullPassThrough, setFullPassThrough] = useState(() => initialRow?.settings?.fullPassThrough ?? false);
 
   // Memoized proxy config for OAuth exchange
   const proxyConfig: ProxyConfig | undefined = useMemo(() => {
@@ -490,6 +497,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     setUseGeminiVertex(initialRow.type === 'gemini_vertex');
     setUseAnthropicAws(initialRow.type === 'anthropic_aws');
     setUseKimiCoding(initialRow.type === 'moonshot_coding');
+    setPassThroughUserAgent(initialRow.settings?.passThroughUserAgent ?? null);
+    setPassThroughBody(initialRow.settings?.passThroughBody ?? null);
+    setDisableRetries(initialRow.settings?.disableRetries ?? false);
+    setFullPassThrough(initialRow.settings?.fullPassThrough ?? false);
 
     // Detect authMode for codex and claudecode
     if (initialRow.type === 'codex') {
@@ -762,6 +773,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const isClaudeCodeType = activeChannelType === 'claudecode';
   const isCopilotType = activeChannelType === 'github_copilot';
   const isOpenCodeGoType = isOpenCodeGoChannelType(activeChannelType);
+  const isAxonHubType = isAxonHubChannelType(activeChannelType);
 
   // OAuth providers cannot have their provider/API format changed during edit.
   // Derived from currentRow credentials so it stays stable across re-renders
@@ -874,6 +886,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       if (newChannelType) {
         form.setValue('type', newChannelType);
         if (!isEdit) {
+          if (isAxonHubChannelType(newChannelType) && passThroughBody === null) {
+            setPassThroughBody(true);
+          }
           if (!isDuplicate) {
             const baseURL = getDefaultBaseURL(newChannelType);
             if (baseURL) {
@@ -885,7 +900,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, selectedApiFormat, isOAuthChannel, responsesTransport]
+    [form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, selectedApiFormat, isOAuthChannel, passThroughBody, responsesTransport]
   );
 
   const handleApiFormatChange = useCallback(
@@ -922,6 +937,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         form.setValue('type', newChannelType);
 
         if (!isEdit) {
+          if (isAxonHubChannelType(newChannelType) && passThroughBody === null) {
+            setPassThroughBody(true);
+          }
           const baseURLFieldState = form.getFieldState('baseURL', form.formState);
           if (nextResponsesTransport === 'websocket') {
             const baseURL = getResponsesWebSocketBaseURL(newChannelType);
@@ -937,7 +955,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [selectedProvider, form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, isOAuthChannel]
+    [selectedProvider, form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, isOAuthChannel, passThroughBody]
   );
 
   const handleResponsesTransportChange = useCallback(
@@ -1220,6 +1238,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           passThroughBody,
           retryableStatusCodes,
           retryableErrorPatterns,
+          disableRetries,
+          fullPassThrough: isAxonHubChannelType(values.type) ? fullPassThrough : false,
         });
 
         const updateInput = {
@@ -1264,6 +1284,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           passThroughBody,
           retryableStatusCodes,
           retryableErrorPatterns,
+          disableRetries,
+          fullPassThrough: isAxonHubChannelType(values.type) ? fullPassThrough : false,
         });
 
         const createInput = {
@@ -1695,6 +1717,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             setPassThroughBody(initialRow?.settings?.passThroughBody ?? null);
             setRetryableStatusCodesText(formatRetryableStatusCodes(initialRow?.settings?.retryableStatusCodes));
             setRetryableErrorPatternsText(formatRetryableErrorPatterns(initialRow?.settings?.retryableErrorPatterns));
+            setDisableRetries(initialRow?.settings?.disableRetries ?? false);
+            setFullPassThrough(initialRow?.settings?.fullPassThrough ?? false);
             // Reset provider and API format state
             if (initialRow) {
               setSelectedProvider(getProviderFromChannelType(initialRow.type) || 'openai');
@@ -2753,6 +2777,40 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                             placeholder={t('channels.dialogs.retryableErrorPatterns.placeholder')}
                             className='min-h-[88px] resize-y font-mono text-sm'
                           />
+                        </div>
+                      </FormItem>
+
+                      {isAxonHubType && (
+                        <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                          <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                            {t('channels.dialogs.fullPassThrough.label')}
+                          </FormLabel>
+                          <div className='flex items-start gap-2 md:col-span-6'>
+                            <Checkbox
+                              checked={fullPassThrough}
+                              onCheckedChange={(checked) => setFullPassThrough(checked === true)}
+                              className='mt-1'
+                            />
+                            <p className='text-muted-foreground text-sm'>
+                              {t('channels.dialogs.fullPassThrough.description')}
+                            </p>
+                          </div>
+                        </FormItem>
+                      )}
+
+                      <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                        <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                          {t('channels.dialogs.disableRetries.label')}
+                        </FormLabel>
+                        <div className='flex items-start gap-2 md:col-span-6'>
+                          <Checkbox
+                            checked={disableRetries}
+                            onCheckedChange={(checked) => setDisableRetries(checked === true)}
+                            className='mt-1'
+                          />
+                          <p className='text-muted-foreground text-sm'>
+                            {t('channels.dialogs.disableRetries.description')}
+                          </p>
                         </div>
                       </FormItem>
 

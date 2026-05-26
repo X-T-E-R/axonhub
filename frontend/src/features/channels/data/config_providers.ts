@@ -34,6 +34,7 @@ import {
 } from '@lobehub/icons';
 import { AtlasCloudIcon } from '../components/atlas-cloud-icon';
 import { EvolinkIcon } from '../components/evolink-icon';
+import { AxonHubIcon } from '../components/axonhub-icon';
 import { NanoGPTIcon } from '../components/nanogpt-icon';
 import { CHANNEL_CONFIGS } from './config_channels';
 import { ApiFormat, ChannelType } from './schema';
@@ -45,6 +46,23 @@ export interface ProviderConfig {
   /** Channel types supported by this provider, ordered by API format preference */
   channelTypes: ChannelType[];
 }
+
+const AXONHUB_PROVIDER_API_FORMATS: ApiFormat[] = [
+  'openai/chat_completions',
+  'openai/completions',
+  'openai/responses',
+  'openai/responses_compact',
+  'openai/image_generation',
+  'openai/image_edit',
+  'openai/embeddings',
+  'openai/video',
+  'anthropic/messages',
+  'gemini/contents',
+  'gemini/embeddings',
+  'jina/rerank',
+  'jina/embeddings',
+  'seedance/video',
+];
 
 /**
  * Provider configurations - groups channel types by provider
@@ -62,6 +80,12 @@ export const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
     icon: AtlasCloudIcon,
     color: 'bg-sky-100 text-sky-800 border-sky-200',
     channelTypes: ['atlascloud'],
+  },
+  axonhub: {
+    provider: 'axonhub',
+    icon: AxonHubIcon,
+    color: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+    channelTypes: ['axonhub'],
   },
   deepseek: {
     provider: 'deepseek',
@@ -294,6 +318,10 @@ export const getChannelTypeForApiFormat = (provider: string, apiFormat: ApiForma
   const providerConfig = PROVIDER_CONFIGS[provider];
   if (!providerConfig) return undefined;
 
+  if (provider === 'axonhub' && AXONHUB_PROVIDER_API_FORMATS.includes(apiFormat)) {
+    return 'axonhub';
+  }
+
   for (const channelType of providerConfig.channelTypes) {
     const channelConfig = CHANNEL_CONFIGS[channelType];
     if (channelConfig?.apiFormat === apiFormat) {
@@ -309,6 +337,10 @@ export const getChannelTypeForApiFormat = (provider: string, apiFormat: ApiForma
 export const getApiFormatsForProvider = (provider: string): ApiFormat[] => {
   const providerConfig = PROVIDER_CONFIGS[provider];
   if (!providerConfig) return [];
+
+  if (provider === 'axonhub') {
+    return [...AXONHUB_PROVIDER_API_FORMATS];
+  }
 
   const formats: ApiFormat[] = [];
   for (const channelType of providerConfig.channelTypes) {
