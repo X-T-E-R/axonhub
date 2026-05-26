@@ -210,6 +210,7 @@ type MonitoringRule {
   name: String!
   description: String
   enabled: Boolean
+  probeType: String
   schedule: MonitoringRuleSchedule!
   targets: MonitoringRuleTargets!
   probes: [ChannelKeyHealthCheckRule!]!
@@ -222,6 +223,7 @@ input MonitoringRuleInput {
   name: String!
   description: String
   enabled: Boolean
+  probeType: String
   schedule: MonitoringRuleScheduleInput
   targets: MonitoringRuleTargetsInput
   probes: [ChannelKeyHealthCheckRuleInput!]

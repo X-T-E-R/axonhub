@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { IconCircleCheck, IconCircleX, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Header } from '@/components/layout/header';
-import { Main } from '@/components/layout/main';
+import { extractNumberID, extractNumberIDAsNumber } from '@/lib/utils';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +16,8 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Header } from '@/components/layout/header';
+import { Main } from '@/components/layout/main';
 import { useAllChannelSummarys } from '@/features/channels/data/channels';
 import type {
   ChannelKeyHealthCheckRule,
@@ -24,8 +26,6 @@ import type {
   FailurePolicyEventSource,
   FailurePolicyProfile,
 } from '@/features/channels/data/schema';
-import { usePermissions } from '@/hooks/usePermissions';
-import { extractNumberID, extractNumberIDAsNumber } from '@/lib/utils';
 import {
   useMonitoringEvents,
   useMonitoringSettings,
@@ -44,6 +44,10 @@ const PROFILE_SOURCES: FailurePolicyEventSource[] = [
   'manual_health_check',
   'scheduled_health_check_failure',
   'manual_health_check_failure',
+  'scheduled_balance_probe',
+  'scheduled_balance_probe_failure',
+  'manual_balance_probe',
+  'manual_balance_probe_failure',
 ];
 const KEY_ACTIONS: FailurePolicyActionType[] = [
   'report_only',
@@ -69,43 +73,14 @@ function createBuiltinProbe(index = 0) {
   };
 }
 
-function createHTTPProbe(index = 0): ChannelKeyHealthCheckRule {
+function createChannelBalanceProbe(index = 0): ChannelKeyHealthCheckRule {
   return {
-    id: `http-probe-${Date.now()}-${index + 1}`,
-    name: 'HTTP balance check',
-    type: 'http',
+    id: `channel-balance-probe-${Date.now()}-${index + 1}`,
+    name: 'Channel balance probe',
+    type: 'channel_balance_probe',
     enabled: true,
     builtin: null,
-    http: {
-      method: 'GET',
-      urlMode: 'provider_base_url',
-      path: '/user/balance',
-      url: null,
-      timeoutMs: 10000,
-      headers: [],
-      keyInjection: {
-        location: 'authorization_bearer',
-        headerName: null,
-      },
-      expectedStatuses: [200],
-      passWhen: '',
-    },
-  };
-}
-
-function createDeepSeekBalanceProbe(index = 0): ChannelKeyHealthCheckRule {
-  const probe = createHTTPProbe(index);
-  return {
-    ...probe,
-    id: `deepseek-balance-${Date.now()}-${index + 1}`,
-    name: 'DeepSeek balance',
-    http: {
-      ...probe.http,
-      urlMode: 'absolute_url',
-      path: null,
-      url: 'https://api.deepseek.com/user/balance',
-      passWhen: 'json.is_available == true',
-    },
+    http: null,
   };
 }
 
@@ -114,9 +89,17 @@ function createProfile(target: ProfileTarget, kind: 'failure' | 'recovery', inde
 
   return {
     id: `${target}-${kind}-${Date.now()}-${index + 1}`,
-    name: isRecovery ? (target === 'key' ? 'Recover healthy key' : 'Recover channel') : target === 'key' ? 'Disable failed key' : 'Disable failed channel',
+    name: isRecovery
+      ? target === 'key'
+        ? 'Recover healthy key'
+        : 'Recover channel'
+      : target === 'key'
+        ? 'Disable failed key'
+        : 'Disable failed channel',
     enabled: true,
-    sources: isRecovery ? ['scheduled_health_check', 'manual_health_check'] : ['scheduled_health_check_failure', 'manual_health_check_failure'],
+    sources: isRecovery
+      ? ['scheduled_balance_probe', 'manual_balance_probe']
+      : ['scheduled_balance_probe_failure', 'manual_balance_probe_failure'],
     conditions: {
       minFailureCount: isRecovery ? null : 3,
       success: isRecovery ? true : false,
@@ -174,7 +157,7 @@ function createRule(index = 0): MonitoringRule {
       keyStatuses: ['active'],
       includeBackoff: false,
     },
-    probes: [createBuiltinProbe(index)],
+    probes: [createChannelBalanceProbe(index)],
     keyProfiles: [createProfile('key', 'failure', index), createProfile('key', 'recovery', index)],
     channelProfiles: [],
   };
@@ -199,13 +182,6 @@ function numericValue(value: string): number | null {
   if (value.trim() === '') return null;
   const next = Number(value);
   return Number.isFinite(next) ? next : null;
-}
-
-function parseStatusCodes(value: string): number[] {
-  return value
-    .split(',')
-    .map((item) => Number(item.trim()))
-    .filter((item) => Number.isInteger(item) && item >= 100 && item <= 599);
 }
 
 function formatActionLabel(action: string) {
@@ -305,7 +281,7 @@ function MonitoringManagement() {
         <div className='flex flex-1 items-center justify-between gap-4'>
           <div>
             <h2 className='text-xl font-bold tracking-tight'>{t('monitoring.title')}</h2>
-            <p className='text-sm text-muted-foreground'>{t('monitoring.description')}</p>
+            <p className='text-muted-foreground text-sm'>{t('monitoring.description')}</p>
           </div>
           <div className='flex items-center gap-2'>
             <Button variant='outline' onClick={() => refetch()} disabled={isLoading}>
@@ -330,7 +306,7 @@ function MonitoringManagement() {
               <div className='flex items-center justify-between rounded-lg border p-4'>
                 <div>
                   <Label>{t('monitoring.global.enabled')}</Label>
-                  <p className='text-sm text-muted-foreground'>{t('monitoring.global.enabledHint')}</p>
+                  <p className='text-muted-foreground text-sm'>{t('monitoring.global.enabledHint')}</p>
                 </div>
                 <Switch
                   checked={draft.enabled}
@@ -370,7 +346,7 @@ function MonitoringManagement() {
               </CardHeader>
               <CardContent className='space-y-2'>
                 {draft.rules.length === 0 ? (
-                  <div className='rounded-lg border border-dashed p-4 text-sm text-muted-foreground'>{t('monitoring.rules.empty')}</div>
+                  <div className='text-muted-foreground rounded-lg border border-dashed p-4 text-sm'>{t('monitoring.rules.empty')}</div>
                 ) : (
                   draft.rules.map((rule) => (
                     <button
@@ -384,7 +360,7 @@ function MonitoringManagement() {
                       <div className='flex items-start justify-between gap-2'>
                         <div className='min-w-0'>
                           <div className='truncate font-medium'>{rule.name}</div>
-                          <div className='mt-1 text-xs text-muted-foreground'>
+                          <div className='text-muted-foreground mt-1 text-xs'>
                             {t('monitoring.rules.intervalSummary', { minutes: rule.schedule.intervalMinutes })}
                           </div>
                         </div>
@@ -409,7 +385,9 @@ function MonitoringManagement() {
               <CardHeader className='flex flex-row items-start justify-between gap-2 space-y-0'>
                 <div>
                   <CardTitle>{selectedRule ? t('monitoring.editor.title') : t('monitoring.editor.noRuleTitle')}</CardTitle>
-                  <CardDescription>{selectedRule ? t('monitoring.editor.description') : t('monitoring.editor.noRuleDescription')}</CardDescription>
+                  <CardDescription>
+                    {selectedRule ? t('monitoring.editor.description') : t('monitoring.editor.noRuleDescription')}
+                  </CardDescription>
                 </div>
                 {selectedRule ? (
                   <Button variant='destructive' size='sm' onClick={deleteSelectedRule} disabled={!canWrite}>
@@ -438,7 +416,13 @@ function MonitoringManagement() {
                       <RuleProbes rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
                     </TabsContent>
                     <TabsContent value='keyProfiles' className='mt-0'>
-                      <ProfilesEditor title={t('monitoring.profiles.keyTitle')} target='key' rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
+                      <ProfilesEditor
+                        title={t('monitoring.profiles.keyTitle')}
+                        target='key'
+                        rule={selectedRule}
+                        canWrite={canWrite}
+                        onChange={patchSelectedRule}
+                      />
                     </TabsContent>
                     <TabsContent value='channelProfiles' className='mt-0'>
                       <ProfilesEditor
@@ -451,7 +435,9 @@ function MonitoringManagement() {
                     </TabsContent>
                   </Tabs>
                 ) : (
-                  <div className='rounded-lg border border-dashed p-8 text-center text-muted-foreground'>{t('monitoring.editor.empty')}</div>
+                  <div className='text-muted-foreground rounded-lg border border-dashed p-8 text-center'>
+                    {t('monitoring.editor.empty')}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -460,8 +446,8 @@ function MonitoringManagement() {
           <MonitoringHistory rules={draft.rules} channels={channels} />
 
           {dirty ? (
-            <div className='sticky bottom-4 ml-auto flex w-fit items-center gap-2 rounded-lg border bg-background p-2 shadow-lg'>
-              <span className='px-2 text-sm text-muted-foreground'>{t('common.unsavedChanges')}</span>
+            <div className='bg-background sticky bottom-4 ml-auto flex w-fit items-center gap-2 rounded-lg border p-2 shadow-lg'>
+              <span className='text-muted-foreground px-2 text-sm'>{t('common.unsavedChanges')}</span>
               <Button variant='outline' size='sm' onClick={resetDraft}>
                 {t('common.buttons.cancel')}
               </Button>
@@ -492,14 +478,22 @@ function RuleBasics({
       <div className='flex items-center justify-between gap-4'>
         <div>
           <h3 className='font-semibold'>{t('monitoring.editor.basics')}</h3>
-          <p className='text-sm text-muted-foreground'>{t('monitoring.editor.basicsHint')}</p>
+          <p className='text-muted-foreground text-sm'>{t('monitoring.editor.basicsHint')}</p>
         </div>
-        <Switch checked={rule.enabled !== false} disabled={!canWrite} onCheckedChange={(checked) => onChange((current) => ({ ...current, enabled: checked }))} />
+        <Switch
+          checked={rule.enabled !== false}
+          disabled={!canWrite}
+          onCheckedChange={(checked) => onChange((current) => ({ ...current, enabled: checked }))}
+        />
       </div>
       <div className='grid gap-4 md:grid-cols-2'>
         <div className='space-y-2'>
           <Label>{t('common.columns.name')}</Label>
-          <Input value={rule.name} disabled={!canWrite} onChange={(event) => onChange((current) => ({ ...current, name: event.target.value }))} />
+          <Input
+            value={rule.name}
+            disabled={!canWrite}
+            onChange={(event) => onChange((current) => ({ ...current, name: event.target.value }))}
+          />
         </div>
         <div className='space-y-2'>
           <Label>{t('monitoring.schedule.intervalMinutes')}</Label>
@@ -557,7 +551,17 @@ function RuleBasics({
   );
 }
 
-function NumberField({ label, value, disabled, onChange }: { label: string; value: number; disabled?: boolean; onChange: (value: number) => void }) {
+function NumberField({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
   return (
     <div className='space-y-2'>
       <Label>{label}</Label>
@@ -589,13 +593,14 @@ function RuleTargets({
   const { t } = useTranslation();
   const selectedChannelIDs = new Set(rule.targets.channelIDs);
 
-  const toggleTarget = <T,>(values: T[], value: T, checked: boolean) => (checked ? [...values, value] : values.filter((item) => item !== value));
+  const toggleTarget = <T,>(values: T[], value: T, checked: boolean) =>
+    checked ? [...values, value] : values.filter((item) => item !== value);
 
   return (
     <section className='space-y-4'>
       <div>
         <h3 className='font-semibold'>{t('monitoring.targets.title')}</h3>
-        <p className='text-sm text-muted-foreground'>{t('monitoring.targets.description')}</p>
+        <p className='text-muted-foreground text-sm'>{t('monitoring.targets.description')}</p>
       </div>
       <div className='grid gap-4 lg:grid-cols-3'>
         <div className='space-y-3 rounded-lg border p-3'>
@@ -636,10 +641,10 @@ function RuleTargets({
                 </label>
               );
             })}
-            {channels.length === 0 ? <div className='text-sm text-muted-foreground'>{t('monitoring.targets.noChannels')}</div> : null}
+            {channels.length === 0 ? <div className='text-muted-foreground text-sm'>{t('monitoring.targets.noChannels')}</div> : null}
           </div>
           {rule.targets.channelIDs.length === 0 ? (
-            <p className='text-xs text-muted-foreground'>{t('monitoring.targets.allChannelsHint')}</p>
+            <p className='text-muted-foreground text-xs'>{t('monitoring.targets.allChannelsHint')}</p>
           ) : null}
         </div>
 
@@ -691,7 +696,9 @@ function RuleTargets({
             <Switch
               checked={rule.targets.includeBackoff}
               disabled={!canWrite}
-              onCheckedChange={(checked) => onChange((current) => ({ ...current, targets: { ...current.targets, includeBackoff: checked } }))}
+              onCheckedChange={(checked) =>
+                onChange((current) => ({ ...current, targets: { ...current.targets, includeBackoff: checked } }))
+              }
             />
           </label>
         </div>
@@ -717,39 +724,12 @@ function RuleProbes({
     }));
   };
 
-  const updateHTTPProbe = (id: string, patch: Partial<NonNullable<ChannelKeyHealthCheckRule['http']>>) => {
-    onChange((current) => ({
-      ...current,
-      probes: current.probes.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              type: 'http',
-              builtin: null,
-              http: {
-                method: item.http?.method ?? 'GET',
-                urlMode: item.http?.urlMode ?? 'provider_base_url',
-                path: item.http?.path ?? '/user/balance',
-                url: item.http?.url ?? '',
-                timeoutMs: item.http?.timeoutMs ?? 10000,
-                headers: item.http?.headers ?? [],
-                keyInjection: item.http?.keyInjection ?? { location: 'authorization_bearer', headerName: null },
-                expectedStatuses: item.http?.expectedStatuses ?? [200],
-                passWhen: item.http?.passWhen ?? '',
-                ...patch,
-              },
-            }
-          : item
-      ),
-    }));
-  };
-
   return (
     <section className='space-y-4'>
       <div className='flex items-center justify-between gap-2'>
         <div>
           <h3 className='font-semibold'>{t('monitoring.probes.title')}</h3>
-          <p className='text-sm text-muted-foreground'>{t('monitoring.probes.description')}</p>
+          <p className='text-muted-foreground text-sm'>{t('monitoring.probes.description')}</p>
         </div>
         <div className='flex flex-wrap gap-2'>
           <Button
@@ -767,20 +747,12 @@ function RuleProbes({
             variant='outline'
             size='sm'
             disabled={!canWrite}
-            onClick={() => onChange((current) => ({ ...current, probes: [...current.probes, createDeepSeekBalanceProbe(current.probes.length)] }))}
+            onClick={() =>
+              onChange((current) => ({ ...current, probes: [...current.probes, createChannelBalanceProbe(current.probes.length)] }))
+            }
           >
             <IconPlus className='mr-1 h-4 w-4' />
-            {t('monitoring.probes.addDeepSeek')}
-          </Button>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            disabled={!canWrite}
-            onClick={() => onChange((current) => ({ ...current, probes: [...current.probes, createHTTPProbe(current.probes.length)] }))}
-          >
-            <IconPlus className='mr-1 h-4 w-4' />
-            {t('monitoring.probes.addHttp')}
+            {t('monitoring.probes.addChannelBalance')}
           </Button>
         </div>
       </div>
@@ -788,7 +760,11 @@ function RuleProbes({
         {rule.probes.map((probe) => (
           <div key={probe.id} className='space-y-3 rounded-lg border p-3'>
             <div className='grid gap-2 md:grid-cols-[auto_minmax(0,1fr)_180px_auto] md:items-center'>
-              <Switch checked={probe.enabled !== false} disabled={!canWrite} onCheckedChange={(checked) => updateProbe(probe.id, { enabled: checked })} />
+              <Switch
+                checked={probe.enabled !== false}
+                disabled={!canWrite}
+                onCheckedChange={(checked) => updateProbe(probe.id, { enabled: checked })}
+              />
               <Input value={probe.name} disabled={!canWrite} onChange={(event) => updateProbe(probe.id, { name: event.target.value })} />
               <Select
                 value={probe.type}
@@ -803,7 +779,7 @@ function RuleProbes({
                           http: null,
                         }
                       : {
-                          ...createHTTPProbe(0),
+                          ...createChannelBalanceProbe(0),
                           id: probe.id,
                           name: probe.name,
                           enabled: probe.enabled,
@@ -816,7 +792,8 @@ function RuleProbes({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='builtin_test'>{t('monitoring.probes.types.builtin')}</SelectItem>
-                  <SelectItem value='http'>{t('monitoring.probes.types.http')}</SelectItem>
+                  <SelectItem value='channel_balance_probe'>{t('monitoring.probes.types.channelBalance')}</SelectItem>
+                  {probe.type === 'http' ? <SelectItem value='http'>{t('monitoring.probes.types.legacyHttp')}</SelectItem> : null}
                 </SelectContent>
               </Select>
               <div className='flex items-center justify-end gap-2'>
@@ -832,76 +809,11 @@ function RuleProbes({
                 </Button>
               </div>
             </div>
+            {probe.type === 'channel_balance_probe' ? (
+              <div className='bg-muted/30 text-muted-foreground rounded-md p-3 text-sm'>{t('monitoring.probes.channelBalance.hint')}</div>
+            ) : null}
             {probe.type === 'http' ? (
-              <div className='grid gap-3 rounded-md bg-muted/30 p-3 md:grid-cols-2'>
-                <div className='space-y-1'>
-                  <Label>{t('monitoring.probes.http.urlMode')}</Label>
-                  <Select
-                    value={probe.http?.urlMode ?? 'provider_base_url'}
-                    disabled={!canWrite}
-                    onValueChange={(value) =>
-                      updateHTTPProbe(probe.id, {
-                        urlMode: value as NonNullable<ChannelKeyHealthCheckRule['http']>['urlMode'],
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='provider_base_url'>{t('monitoring.probes.http.providerBaseUrl')}</SelectItem>
-                      <SelectItem value='absolute_url'>{t('monitoring.probes.http.absoluteUrl')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className='space-y-1'>
-                  <Label>{probe.http?.urlMode === 'absolute_url' ? t('monitoring.probes.http.url') : t('monitoring.probes.http.path')}</Label>
-                  <Input
-                    value={probe.http?.urlMode === 'absolute_url' ? (probe.http?.url ?? '') : (probe.http?.path ?? '')}
-                    disabled={!canWrite}
-                    placeholder={probe.http?.urlMode === 'absolute_url' ? 'https://api.deepseek.com/user/balance' : '/user/balance'}
-                    onChange={(event) =>
-                      updateHTTPProbe(
-                        probe.id,
-                        probe.http?.urlMode === 'absolute_url'
-                          ? { url: event.target.value, path: null }
-                          : { path: event.target.value, url: null }
-                      )
-                    }
-                  />
-                </div>
-                <div className='space-y-1'>
-                  <Label>{t('monitoring.probes.http.expectedStatuses')}</Label>
-                  <Input
-                    value={(probe.http?.expectedStatuses ?? [200]).join(', ')}
-                    disabled={!canWrite}
-                    placeholder='200, 204'
-                    onChange={(event) => updateHTTPProbe(probe.id, { expectedStatuses: parseStatusCodes(event.target.value) })}
-                  />
-                </div>
-                <div className='space-y-1'>
-                  <Label>{t('monitoring.probes.http.timeoutMs')}</Label>
-                  <Input
-                    type='number'
-                    min={100}
-                    max={30000}
-                    value={probe.http?.timeoutMs ?? 10000}
-                    disabled={!canWrite}
-                    onChange={(event) => updateHTTPProbe(probe.id, { timeoutMs: Math.max(100, Number(event.target.value) || 10000) })}
-                  />
-                </div>
-                <div className='space-y-1 md:col-span-2'>
-                  <Label>{t('monitoring.probes.http.passWhen')}</Label>
-                  <Textarea
-                    rows={2}
-                    value={probe.http?.passWhen ?? ''}
-                    disabled={!canWrite}
-                    placeholder='json.is_available == true'
-                    onChange={(event) => updateHTTPProbe(probe.id, { passWhen: event.target.value })}
-                  />
-                </div>
-                <p className='text-xs text-muted-foreground md:col-span-2'>{t('monitoring.probes.http.hint')}</p>
-              </div>
+              <div className='bg-muted/30 text-muted-foreground rounded-md p-3 text-sm'>{t('monitoring.probes.legacyHttp.hint')}</div>
             ) : null}
           </div>
         ))}
@@ -939,7 +851,7 @@ function ProfilesEditor({
       <div className='flex items-center justify-between gap-2'>
         <div>
           <h3 className='font-semibold'>{title}</h3>
-          <p className='text-sm text-muted-foreground'>{t('monitoring.profiles.description')}</p>
+          <p className='text-muted-foreground text-sm'>{t('monitoring.profiles.description')}</p>
         </div>
         <div className='flex gap-2'>
           <Button
@@ -947,7 +859,12 @@ function ProfilesEditor({
             variant='outline'
             size='sm'
             disabled={!canWrite}
-            onClick={() => onChange((current) => ({ ...current, [profileKey]: [...current[profileKey], createProfile(target, 'failure', profiles.length)] }))}
+            onClick={() =>
+              onChange((current) => ({
+                ...current,
+                [profileKey]: [...current[profileKey], createProfile(target, 'failure', profiles.length)],
+              }))
+            }
           >
             {t('monitoring.profiles.addFailure')}
           </Button>
@@ -956,28 +873,45 @@ function ProfilesEditor({
             variant='outline'
             size='sm'
             disabled={!canWrite}
-            onClick={() => onChange((current) => ({ ...current, [profileKey]: [...current[profileKey], createProfile(target, 'recovery', profiles.length)] }))}
+            onClick={() =>
+              onChange((current) => ({
+                ...current,
+                [profileKey]: [...current[profileKey], createProfile(target, 'recovery', profiles.length)],
+              }))
+            }
           >
             {t('monitoring.profiles.addRecovery')}
           </Button>
         </div>
       </div>
 
-      {profiles.length === 0 ? <div className='rounded-lg border border-dashed p-4 text-sm text-muted-foreground'>{t('monitoring.profiles.empty')}</div> : null}
+      {profiles.length === 0 ? (
+        <div className='text-muted-foreground rounded-lg border border-dashed p-4 text-sm'>{t('monitoring.profiles.empty')}</div>
+      ) : null}
 
       {profiles.map((profile) => (
         <div key={profile.id} className='space-y-4 rounded-lg border p-4'>
           <div className='flex flex-wrap items-center justify-between gap-3'>
             <div className='flex min-w-64 flex-1 items-center gap-2'>
-              <Switch checked={profile.enabled !== false} disabled={!canWrite} onCheckedChange={(checked) => updateProfile(profile.id, (current) => ({ ...current, enabled: checked }))} />
-              <Input value={profile.name} disabled={!canWrite} onChange={(event) => updateProfile(profile.id, (current) => ({ ...current, name: event.target.value }))} />
+              <Switch
+                checked={profile.enabled !== false}
+                disabled={!canWrite}
+                onCheckedChange={(checked) => updateProfile(profile.id, (current) => ({ ...current, enabled: checked }))}
+              />
+              <Input
+                value={profile.name}
+                disabled={!canWrite}
+                onChange={(event) => updateProfile(profile.id, (current) => ({ ...current, name: event.target.value }))}
+              />
             </div>
             <Button
               type='button'
               variant='ghost'
               size='icon'
               disabled={!canWrite}
-              onClick={() => onChange((current) => ({ ...current, [profileKey]: current[profileKey].filter((item) => item.id !== profile.id) }))}
+              onClick={() =>
+                onChange((current) => ({ ...current, [profileKey]: current[profileKey].filter((item) => item.id !== profile.id) }))
+              }
             >
               <IconTrash className='h-4 w-4' />
             </Button>
@@ -995,7 +929,9 @@ function ProfilesEditor({
                       onCheckedChange={(checked) =>
                         updateProfile(profile.id, (current) => ({
                           ...current,
-                          sources: checked ? [...(current.sources ?? []), source] : (current.sources ?? []).filter((item) => item !== source),
+                          sources: checked
+                            ? [...(current.sources ?? []), source]
+                            : (current.sources ?? []).filter((item) => item !== source),
                         }))
                       }
                     />
@@ -1348,7 +1284,7 @@ function MonitoringHistory({ rules, channels }: { rules: MonitoringRule[]; chann
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className='whitespace-nowrap text-xs'>{formatDate(row.checkedAt)}</TableCell>
+                  <TableCell className='text-xs whitespace-nowrap'>{formatDate(row.checkedAt)}</TableCell>
                   <TableCell>
                     <Badge variant={row.skipped ? 'secondary' : row.success ? 'default' : 'destructive'} className='gap-1'>
                       {row.skipped ? (
@@ -1368,15 +1304,15 @@ function MonitoringHistory({ rules, channels }: { rules: MonitoringRule[]; chann
                   </TableCell>
                   <TableCell>
                     <div className='max-w-44 truncate'>{row.ruleName || row.ruleID || '-'}</div>
-                    <div className='text-xs text-muted-foreground'>{row.trigger}</div>
+                    <div className='text-muted-foreground text-xs'>{row.trigger}</div>
                   </TableCell>
                   <TableCell>
                     <div className='max-w-44 truncate'>{row.channelName || '-'}</div>
-                    <div className='font-mono text-xs text-muted-foreground'>#{extractNumberID(row.channelID)}</div>
+                    <div className='text-muted-foreground font-mono text-xs'>#{extractNumberID(row.channelID)}</div>
                   </TableCell>
                   <TableCell>
                     <div className='font-mono text-xs'>{row.maskedKey || '-'}</div>
-                    <div className='max-w-36 truncate font-mono text-xs text-muted-foreground'>{row.keyID || '-'}</div>
+                    <div className='text-muted-foreground max-w-36 truncate font-mono text-xs'>{row.keyID || '-'}</div>
                   </TableCell>
                   <TableCell>{row.probe || '-'}</TableCell>
                   <TableCell>{row.action ? formatActionLabel(row.action) : '-'}</TableCell>
@@ -1389,7 +1325,7 @@ function MonitoringHistory({ rules, channels }: { rules: MonitoringRule[]; chann
               ))}
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className='h-24 text-center text-muted-foreground'>
+                  <TableCell colSpan={8} className='text-muted-foreground h-24 text-center'>
                     {isFetching ? t('common.loading') : t('monitoring.history.empty')}
                   </TableCell>
                 </TableRow>
@@ -1399,7 +1335,15 @@ function MonitoringHistory({ rules, channels }: { rules: MonitoringRule[]; chann
         </div>
 
         <div className='flex items-center justify-between'>
-          <div className='text-sm text-muted-foreground'>{isFetching ? t('common.loading') : t('pagination.selectedInfoWithTotal', { selectedRows: rows.length, dataLength: pageSize, totalCount: data?.totalCount ?? 0 })}</div>
+          <div className='text-muted-foreground text-sm'>
+            {isFetching
+              ? t('common.loading')
+              : t('pagination.selectedInfoWithTotal', {
+                  selectedRows: rows.length,
+                  dataLength: pageSize,
+                  totalCount: data?.totalCount ?? 0,
+                })}
+          </div>
           <div className='flex gap-2'>
             <Button
               variant='outline'

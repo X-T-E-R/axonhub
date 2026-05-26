@@ -232,6 +232,21 @@ models:
   ChannelKeyHealthCheckTrigger:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckTrigger
+  ChannelBalanceProbePreset:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelBalanceProbePreset
+  ChannelBalancePrimarySelection:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelBalancePrimarySelection
+  BalanceAmountKind:
+    model:
+      - github.com/looplj/axonhub/internal/objects.BalanceAmountKind
+  ChannelBalanceProbe:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelBalanceProbe
+  ChannelBalanceProbeInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelBalanceProbe
   ChannelKeyHealthCheck:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheck
@@ -286,6 +301,18 @@ models:
   ChannelKeyHealthCheckKeyInjectionInput:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckKeyInjection
+  ChannelKeyBalanceSnapshot:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyBalanceSnapshot
+  ChannelKeyBalanceSnapshotInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelKeyBalanceSnapshot
+  BalanceAmount:
+    model:
+      - github.com/looplj/axonhub/internal/objects.BalanceAmount
+  BalanceAmountInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.BalanceAmount
   ChannelKeyMetadata:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyMetadata

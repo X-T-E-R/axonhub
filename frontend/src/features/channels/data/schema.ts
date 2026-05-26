@@ -237,6 +237,42 @@ export type ChannelKeySelection = z.infer<typeof channelKeySelectionSchema>;
 export const channelKeyStatusSchema = z.enum(['active', 'disabled', 'archived']);
 export type ChannelKeyStatus = z.infer<typeof channelKeyStatusSchema>;
 
+export const balanceAmountKindSchema = z.enum([
+  'available',
+  'total',
+  'cash',
+  'voucher',
+  'granted',
+  'topped_up',
+  'used',
+  'limit',
+  'remaining',
+]);
+export type BalanceAmountKind = z.infer<typeof balanceAmountKindSchema>;
+
+export const balanceAmountSchema = z.object({
+  amount: z.number(),
+  currency: z.string(),
+  kind: balanceAmountKindSchema,
+  label: z.string().optional().nullable(),
+  expiresAt: z.string().optional().nullable(),
+});
+export type BalanceAmount = z.infer<typeof balanceAmountSchema>;
+
+export const channelKeyBalanceSnapshotSchema = z.object({
+  provider: z.string().optional().nullable(),
+  checkedAt: z.string(),
+  success: z.boolean(),
+  available: z.boolean().optional().nullable(),
+  statusCode: z.number().int().optional().nullable(),
+  accountStatus: z.string().optional().nullable(),
+  accountID: z.string().optional().nullable(),
+  primaryBalance: balanceAmountSchema.optional().nullable(),
+  components: z.preprocess((value) => value ?? [], z.array(balanceAmountSchema)),
+  rawSummary: z.record(z.string(), z.unknown()).optional().nullable(),
+});
+export type ChannelKeyBalanceSnapshot = z.infer<typeof channelKeyBalanceSnapshotSchema>;
+
 export const channelKeyHealthCheckFailureActionSchema = z.enum(['report_only', 'disable', 'archive', 'delete']);
 export type ChannelKeyHealthCheckFailureAction = z.infer<typeof channelKeyHealthCheckFailureActionSchema>;
 
@@ -261,6 +297,10 @@ export const failurePolicyEventSourceSchema = z.enum([
   'manual_health_check_failure',
   'scheduled_health_check',
   'manual_health_check',
+  'scheduled_balance_probe',
+  'scheduled_balance_probe_failure',
+  'manual_balance_probe',
+  'manual_balance_probe_failure',
 ]);
 export type FailurePolicyEventSource = z.infer<typeof failurePolicyEventSourceSchema>;
 
@@ -279,7 +319,7 @@ export type FailurePolicyActionType = z.infer<typeof failurePolicyActionTypeSche
 export const channelKeyHealthCheckBackoffModeSchema = z.enum(['fixed', 'exponential']);
 export type ChannelKeyHealthCheckBackoffMode = z.infer<typeof channelKeyHealthCheckBackoffModeSchema>;
 
-export const channelKeyHealthCheckRuleTypeSchema = z.enum(['builtin_test', 'http']);
+export const channelKeyHealthCheckRuleTypeSchema = z.enum(['builtin_test', 'http', 'channel_balance_probe']);
 export type ChannelKeyHealthCheckRuleType = z.infer<typeof channelKeyHealthCheckRuleTypeSchema>;
 
 export const channelKeyHealthCheckHeaderSchema = z.object({
@@ -306,6 +346,21 @@ export const channelKeyHealthCheckHTTPRuleSchema = z.object({
   passWhen: z.string().optional().nullable(),
 });
 export type ChannelKeyHealthCheckHTTPRule = z.infer<typeof channelKeyHealthCheckHTTPRuleSchema>;
+
+export const channelBalanceProbePrimarySelectionSchema = z.enum(['highest_amount', 'preferred_currency']);
+export type ChannelBalanceProbePrimarySelection = z.infer<typeof channelBalanceProbePrimarySelectionSchema>;
+
+export const channelBalanceProbeSchema = z.object({
+  enabled: z.preprocess((value) => value ?? false, z.boolean()),
+  preset: z.string().optional().nullable(),
+  experimental: z.boolean().optional().nullable(),
+  preferredCurrency: z.string().optional().nullable(),
+  primarySelection: channelBalanceProbePrimarySelectionSchema.optional().nullable(),
+  includeStatuses: z.array(channelKeyStatusSchema).optional().nullable(),
+  timeoutMs: z.number().int().positive().max(30000).optional().nullable(),
+  http: channelKeyHealthCheckHTTPRuleSchema.optional().nullable(),
+});
+export type ChannelBalanceProbe = z.infer<typeof channelBalanceProbeSchema>;
 
 export const channelKeyHealthCheckRuleSchema = z.object({
   id: z.string().min(1),
@@ -390,6 +445,7 @@ export const channelKeyHealthCheckHistoryEntrySchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
   trigger: z.enum(['manual', 'scheduled', 'request']).optional().nullable(),
   rule: z.string().optional().nullable(),
   statusCode: z.number().int().optional().nullable(),
@@ -411,6 +467,7 @@ export const channelKeyMetadataSchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
   statusCode: z.number().int().optional().nullable(),
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
@@ -430,6 +487,7 @@ export const channelArchivedAPIKeySchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
 });
 export type ChannelArchivedAPIKey = z.infer<typeof channelArchivedAPIKeySchema>;
 
@@ -444,6 +502,7 @@ export const channelAPIKeyInventoryItemSchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
   statusCode: z.number().int().optional().nullable(),
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
@@ -517,6 +576,7 @@ export const channelSettingsSchema = z.object({
   providerQuota: channelProviderQuotaSettingsSchema.optional().nullable(),
   keySelection: channelKeySelectionSchema.optional().nullable(),
   keyHealthCheck: channelKeyHealthCheckSchema.optional().nullable(),
+  balanceProbe: channelBalanceProbeSchema.optional().nullable(),
   failurePolicy: channelFailurePolicySchema.optional().nullable(),
 });
 

@@ -169,6 +169,7 @@ type ChannelSettings {
   providerQuota: ChannelProviderQuotaSettings
   keySelection: ChannelKeySelection
   keyHealthCheck: ChannelKeyHealthCheck
+  balanceProbe: ChannelBalanceProbe
   failurePolicy: ChannelFailurePolicy
 }
 
@@ -227,6 +228,10 @@ enum FailurePolicyEventSource {
   manual_health_check_failure
   scheduled_health_check
   manual_health_check
+  scheduled_balance_probe
+  scheduled_balance_probe_failure
+  manual_balance_probe
+  manual_balance_probe_failure
 }
 
 enum FailurePolicyActionType {
@@ -273,6 +278,31 @@ enum ChannelKeyHealthCheckTrigger {
   manual
   scheduled
   request
+}
+
+enum ChannelBalanceProbePreset {
+  deepseek_balance
+  siliconflow_user_info
+  moonshot_balance
+  openrouter_credits
+  nanogpt_check_balance
+}
+
+enum ChannelBalancePrimarySelection {
+  auto_highest
+  preferred_currency
+}
+
+enum BalanceAmountKind {
+  available
+  total
+  cash
+  voucher
+  granted
+  topped_up
+  used
+  limit
+  remaining
 }
 
 type ChannelKeyHealthCheck {
@@ -351,6 +381,28 @@ input ChannelKeyHealthCheckInput {
   keyMetadata: [ChannelKeyMetadataInput!]
   archivedKeys: [ChannelArchivedAPIKeyInput!]
   history: [ChannelKeyHealthCheckHistoryEntryInput!]
+}
+
+type ChannelBalanceProbe {
+  enabled: Boolean
+  preset: ChannelBalanceProbePreset
+  experimental: Boolean
+  preferredCurrency: String
+  primarySelection: ChannelBalancePrimarySelection
+  includeStatuses: [ChannelKeyStatus!]
+  timeoutMs: Int
+  http: ChannelKeyHealthCheckHTTPRule
+}
+
+input ChannelBalanceProbeInput {
+  enabled: Boolean
+  preset: ChannelBalanceProbePreset
+  experimental: Boolean
+  preferredCurrency: String
+  primarySelection: ChannelBalancePrimarySelection
+  includeStatuses: [ChannelKeyStatus!]
+  timeoutMs: Int
+  http: ChannelKeyHealthCheckHTTPRuleInput
 }
 
 type ChannelKeyHealthCheckPolicy {
@@ -489,6 +541,7 @@ type ChannelKeyMetadata {
   reason: String
   balance: JSONRawMessage
   currency: String
+  balanceSnapshot: ChannelKeyBalanceSnapshot
   available: Boolean
   statusCode: Int
   matchedPolicy: String
@@ -508,6 +561,7 @@ input ChannelKeyMetadataInput {
   reason: String
   balance: JSONRawMessageInput
   currency: String
+  balanceSnapshot: ChannelKeyBalanceSnapshotInput
   available: Boolean
   statusCode: Int
   matchedPolicy: String
@@ -524,6 +578,7 @@ type ChannelKeyHealthCheckHistoryEntry {
   reason: String
   balance: JSONRawMessage
   currency: String
+  balanceSnapshot: ChannelKeyBalanceSnapshot
   available: Boolean
   trigger: ChannelKeyHealthCheckTrigger
   rule: String
@@ -541,6 +596,7 @@ input ChannelKeyHealthCheckHistoryEntryInput {
   reason: String
   balance: JSONRawMessageInput
   currency: String
+  balanceSnapshot: ChannelKeyBalanceSnapshotInput
   available: Boolean
   trigger: ChannelKeyHealthCheckTrigger
   rule: String
@@ -560,6 +616,7 @@ type ChannelArchivedAPIKey {
   failureCount: Int
   balance: JSONRawMessage
   currency: String
+  balanceSnapshot: ChannelKeyBalanceSnapshot
   available: Boolean
 }
 
@@ -572,7 +629,50 @@ input ChannelArchivedAPIKeyInput {
   failureCount: Int
   balance: JSONRawMessageInput
   currency: String
+  balanceSnapshot: ChannelKeyBalanceSnapshotInput
   available: Boolean
+}
+
+type ChannelKeyBalanceSnapshot {
+  provider: String
+  checkedAt: Time!
+  success: Boolean!
+  available: Boolean
+  statusCode: Int
+  accountStatus: String
+  accountId: String
+  primaryBalance: BalanceAmount
+  components: [BalanceAmount!]
+  rawSummary: JSONRawMessage
+}
+
+input ChannelKeyBalanceSnapshotInput {
+  provider: String
+  checkedAt: Time!
+  success: Boolean!
+  available: Boolean
+  statusCode: Int
+  accountStatus: String
+  accountId: String
+  primaryBalance: BalanceAmountInput
+  components: [BalanceAmountInput!]
+  rawSummary: JSONRawMessageInput
+}
+
+type BalanceAmount {
+  amount: Float!
+  currency: String!
+  kind: BalanceAmountKind!
+  label: String
+  expiresAt: Time
+}
+
+input BalanceAmountInput {
+  amount: Float!
+  currency: String!
+  kind: BalanceAmountKind!
+  label: String
+  expiresAt: Time
 }
 
 type ChannelAPIKeyInventoryItem {
@@ -585,6 +685,7 @@ type ChannelAPIKeyInventoryItem {
   reason: String
   balance: JSONRawMessage
   currency: String
+  balanceSnapshot: ChannelKeyBalanceSnapshot
   available: Boolean
   statusCode: Int
   matchedPolicy: String
@@ -634,6 +735,7 @@ input ChannelSettingsInput {
   providerQuota: ChannelProviderQuotaSettingsInput
   keySelection: ChannelKeySelectionInput
   keyHealthCheck: ChannelKeyHealthCheckInput
+  balanceProbe: ChannelBalanceProbeInput
   failurePolicy: ChannelFailurePolicyInput
 }
 

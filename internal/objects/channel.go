@@ -231,6 +231,10 @@ type ChannelSettings struct {
 	// stores secret-safe key metadata for the channel keys panel.
 	KeyHealthCheck *ChannelKeyHealthCheck `json:"keyHealthCheck,omitempty"`
 
+	// BalanceProbe configures provider account/key balance probes separately
+	// from model/API liveness health checks.
+	BalanceProbe *ChannelBalanceProbe `json:"balanceProbe,omitempty"`
+
 	// FailurePolicy configures request-time and health-check failure reactions.
 	FailurePolicy *ChannelFailurePolicy `json:"failurePolicy,omitempty"`
 }
@@ -364,6 +368,69 @@ const (
 	ChannelKeyStatusArchived ChannelKeyStatus = "archived"
 )
 
+type ChannelBalanceProbePreset string
+
+const (
+	ChannelBalanceProbePresetDeepSeek    ChannelBalanceProbePreset = "deepseek_balance"
+	ChannelBalanceProbePresetSiliconFlow ChannelBalanceProbePreset = "siliconflow_user_info"
+	ChannelBalanceProbePresetMoonshot    ChannelBalanceProbePreset = "moonshot_balance"
+	ChannelBalanceProbePresetOpenRouter  ChannelBalanceProbePreset = "openrouter_credits"
+	ChannelBalanceProbePresetNanoGPT     ChannelBalanceProbePreset = "nanogpt_check_balance"
+)
+
+type ChannelBalancePrimarySelection string
+
+const (
+	ChannelBalancePrimarySelectionAutoHighest       ChannelBalancePrimarySelection = "auto_highest"
+	ChannelBalancePrimarySelectionPreferredCurrency ChannelBalancePrimarySelection = "preferred_currency"
+)
+
+type BalanceAmountKind string
+
+const (
+	BalanceAmountKindAvailable BalanceAmountKind = "available"
+	BalanceAmountKindTotal     BalanceAmountKind = "total"
+	BalanceAmountKindCash      BalanceAmountKind = "cash"
+	BalanceAmountKindVoucher   BalanceAmountKind = "voucher"
+	BalanceAmountKindGranted   BalanceAmountKind = "granted"
+	BalanceAmountKindToppedUp  BalanceAmountKind = "topped_up"
+	BalanceAmountKindUsed      BalanceAmountKind = "used"
+	BalanceAmountKindLimit     BalanceAmountKind = "limit"
+	BalanceAmountKindRemaining BalanceAmountKind = "remaining"
+)
+
+type ChannelBalanceProbe struct {
+	Enabled           bool                           `json:"enabled"`
+	Preset            ChannelBalanceProbePreset      `json:"preset,omitempty"`
+	Experimental      bool                           `json:"experimental,omitempty"`
+	PreferredCurrency string                         `json:"preferredCurrency,omitempty"`
+	PrimarySelection  ChannelBalancePrimarySelection `json:"primarySelection,omitempty"`
+	IncludeStatuses   []ChannelKeyStatus             `json:"includeStatuses,omitempty"`
+	TimeoutMs         int                            `json:"timeoutMs,omitempty"`
+	HTTP              *ChannelKeyHealthCheckHTTPRule `json:"http,omitempty"`
+}
+
+type ChannelKeyBalanceSnapshot struct {
+	Provider       string          `json:"provider,omitempty"`
+	CheckedAt      time.Time       `json:"checkedAt"`
+	Success        bool            `json:"success"`
+	Available      *bool           `json:"available,omitempty"`
+	StatusCode     int             `json:"statusCode,omitempty"`
+	AccountStatus  string          `json:"accountStatus,omitempty"`
+	AccountID      string          `json:"accountId,omitempty"`
+	PrimaryBalance *BalanceAmount  `json:"primaryBalance,omitempty"`
+	Components     []BalanceAmount `json:"components,omitempty"`
+	RawSummary     map[string]any  `json:"rawSummary,omitempty"`
+}
+
+type BalanceAmount struct {
+	Amount    float64           `json:"amount"`
+	Currency  string            `json:"currency"`
+	Kind      BalanceAmountKind `json:"kind"`
+	Label     string            `json:"label,omitempty"`
+	ExpiresAt *time.Time        `json:"expiresAt,omitempty"`
+}
+
 type ChannelKeyHealthCheckTrigger string
 
 const (
@@ -466,11 +533,15 @@ const (
 type FailurePolicyEventSource string
 
 const (
-	FailurePolicyEventSourceRequestFailure              FailurePolicyEventSource = "request_failure"
-	FailurePolicyEventSourceScheduledHealthCheckFailure FailurePolicyEventSource = "scheduled_health_check_failure"
-	FailurePolicyEventSourceManualHealthCheckFailure    FailurePolicyEventSource = "manual_health_check_failure"
-	FailurePolicyEventSourceScheduledHealthCheck        FailurePolicyEventSource = "scheduled_health_check"
-	FailurePolicyEventSourceManualHealthCheck           FailurePolicyEventSource = "manual_health_check"
+	FailurePolicyEventSourceRequestFailure               FailurePolicyEventSource = "request_failure"
+	FailurePolicyEventSourceScheduledHealthCheckFailure  FailurePolicyEventSource = "scheduled_health_check_failure"
+	FailurePolicyEventSourceManualHealthCheckFailure     FailurePolicyEventSource = "manual_health_check_failure"
+	FailurePolicyEventSourceScheduledHealthCheck         FailurePolicyEventSource = "scheduled_health_check"
+	FailurePolicyEventSourceManualHealthCheck            FailurePolicyEventSource = "manual_health_check"
+	FailurePolicyEventSourceScheduledBalanceProbe        FailurePolicyEventSource = "scheduled_balance_probe"
+	FailurePolicyEventSourceScheduledBalanceProbeFailure FailurePolicyEventSource = "scheduled_balance_probe_failure"
+	FailurePolicyEventSourceManualBalanceProbe           FailurePolicyEventSource = "manual_balance_probe"
+	FailurePolicyEventSourceManualBalanceProbeFailure    FailurePolicyEventSource = "manual_balance_probe_failure"
 )
 
 type FailurePolicyTarget string
@@ -549,51 +620,54 @@ type ChannelKeyHealthCheckKeyInjection struct {
 }
 
 type ChannelKeyMetadata struct {
-	ID             string                              `json:"id,omitempty"`
-	MaskedKey      string                              `json:"maskedKey,omitempty"`
-	Status         ChannelKeyStatus                    `json:"status,omitempty"`
-	LastCheckedAt  *time.Time                          `json:"lastCheckedAt,omitempty"`
-	Success        *bool                               `json:"success,omitempty"`
-	FailureCount   int                                 `json:"failureCount,omitempty"`
-	Reason         string                              `json:"reason,omitempty"`
-	Balance        any                                 `json:"balance,omitempty"`
-	Currency       string                              `json:"currency,omitempty"`
-	Available      *bool                               `json:"available,omitempty"`
-	StatusCode     int                                 `json:"statusCode,omitempty"`
-	MatchedPolicy  string                              `json:"matchedPolicy,omitempty"`
-	Action         string                              `json:"action,omitempty"`
-	NextCheckAt    *time.Time                          `json:"nextCheckAt,omitempty"`
-	BackoffAttempt int                                 `json:"backoffAttempt,omitempty"`
-	History        []ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
+	ID              string                              `json:"id,omitempty"`
+	MaskedKey       string                              `json:"maskedKey,omitempty"`
+	Status          ChannelKeyStatus                    `json:"status,omitempty"`
+	LastCheckedAt   *time.Time                          `json:"lastCheckedAt,omitempty"`
+	Success         *bool                               `json:"success,omitempty"`
+	FailureCount    int                                 `json:"failureCount,omitempty"`
+	Reason          string                              `json:"reason,omitempty"`
+	Balance         any                                 `json:"balance,omitempty"`
+	Currency        string                              `json:"currency,omitempty"`
+	BalanceSnapshot *ChannelKeyBalanceSnapshot          `json:"balanceSnapshot,omitempty"`
+	Available       *bool                               `json:"available,omitempty"`
+	StatusCode      int                                 `json:"statusCode,omitempty"`
+	MatchedPolicy   string                              `json:"matchedPolicy,omitempty"`
+	Action          string                              `json:"action,omitempty"`
+	NextCheckAt     *time.Time                          `json:"nextCheckAt,omitempty"`
+	BackoffAttempt  int                                 `json:"backoffAttempt,omitempty"`
+	History         []ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
 }
 
 type ChannelKeyHealthCheckHistoryEntry struct {
-	ID             string                       `json:"id,omitempty"`
-	CheckedAt      time.Time                    `json:"checkedAt"`
-	Success        bool                         `json:"success"`
-	Reason         string                       `json:"reason,omitempty"`
-	Balance        any                          `json:"balance,omitempty"`
-	Currency       string                       `json:"currency,omitempty"`
-	Available      *bool                        `json:"available,omitempty"`
-	Trigger        ChannelKeyHealthCheckTrigger `json:"trigger,omitempty"`
-	Rule           string                       `json:"rule,omitempty"`
-	StatusCode     int                          `json:"statusCode,omitempty"`
-	MatchedPolicy  string                       `json:"matchedPolicy,omitempty"`
-	Action         string                       `json:"action,omitempty"`
-	NextCheckAt    *time.Time                   `json:"nextCheckAt,omitempty"`
-	BackoffAttempt int                          `json:"backoffAttempt,omitempty"`
+	ID              string                       `json:"id,omitempty"`
+	CheckedAt       time.Time                    `json:"checkedAt"`
+	Success         bool                         `json:"success"`
+	Reason          string                       `json:"reason,omitempty"`
+	Balance         any                          `json:"balance,omitempty"`
+	Currency        string                       `json:"currency,omitempty"`
+	BalanceSnapshot *ChannelKeyBalanceSnapshot   `json:"balanceSnapshot,omitempty"`
+	Available       *bool                        `json:"available,omitempty"`
+	Trigger         ChannelKeyHealthCheckTrigger `json:"trigger,omitempty"`
+	Rule            string                       `json:"rule,omitempty"`
+	StatusCode      int                          `json:"statusCode,omitempty"`
+	MatchedPolicy   string                       `json:"matchedPolicy,omitempty"`
+	Action          string                       `json:"action,omitempty"`
+	NextCheckAt     *time.Time                   `json:"nextCheckAt,omitempty"`
+	BackoffAttempt  int                          `json:"backoffAttempt,omitempty"`
 }
 
 type ChannelArchivedAPIKey struct {
-	ID            string     `json:"id,omitempty"`
-	MaskedKey     string     `json:"maskedKey,omitempty"`
-	ArchivedAt    *time.Time `json:"archivedAt,omitempty"`
-	Reason        string     `json:"reason,omitempty"`
-	LastCheckedAt *time.Time `json:"lastCheckedAt,omitempty"`
-	FailureCount  int        `json:"failureCount,omitempty"`
-	Balance       any        `json:"balance,omitempty"`
-	Currency      string     `json:"currency,omitempty"`
-	Available     *bool      `json:"available,omitempty"`
+	ID              string                     `json:"id,omitempty"`
+	MaskedKey       string                     `json:"maskedKey,omitempty"`
+	ArchivedAt      *time.Time                 `json:"archivedAt,omitempty"`
+	Reason          string                     `json:"reason,omitempty"`
+	LastCheckedAt   *time.Time                 `json:"lastCheckedAt,omitempty"`
+	FailureCount    int                        `json:"failureCount,omitempty"`
+	Balance         any                        `json:"balance,omitempty"`
+	Currency        string                     `json:"currency,omitempty"`
+	BalanceSnapshot *ChannelKeyBalanceSnapshot `json:"balanceSnapshot,omitempty"`
+	Available       *bool                      `json:"available,omitempty"`
 }
 
 func ChannelAPIKeyFingerprint(key string) string {

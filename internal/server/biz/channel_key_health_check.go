@@ -67,17 +67,19 @@ type ChannelKeyHealthCheckBuiltinResult struct {
 }
 
 type ChannelKeyHealthCheckResult struct {
-	Success        bool
-	Reason         string
-	Balance        any
-	Currency       string
-	Available      *bool
-	Rule           string
-	StatusCode     int
-	MatchedPolicy  string
-	Action         string
-	NextCheckAt    *time.Time
-	BackoffAttempt int
+	Success         bool
+	Reason          string
+	Balance         any
+	Currency        string
+	BalanceSnapshot *objects.ChannelKeyBalanceSnapshot
+	Available       *bool
+	Rule            string
+	StatusCode      int
+	Source          objects.FailurePolicyEventSource
+	MatchedPolicy   string
+	Action          string
+	NextCheckAt     *time.Time
+	BackoffAttempt  int
 }
 
 func (svc *ChannelService) SetChannelKeyHealthCheckTester(tester ChannelKeyHealthCheckTester) {
@@ -1035,6 +1037,9 @@ func mergeChannelKeyHealthCheckResult(current, next ChannelKeyHealthCheckResult)
 	if next.Currency != "" {
 		current.Currency = next.Currency
 	}
+	if next.BalanceSnapshot != nil {
+		current.BalanceSnapshot = next.BalanceSnapshot
+	}
 	if next.Available != nil {
 		current.Available = next.Available
 	}
@@ -1043,6 +1048,9 @@ func mergeChannelKeyHealthCheckResult(current, next ChannelKeyHealthCheckResult)
 	}
 	if next.StatusCode != 0 {
 		current.StatusCode = next.StatusCode
+	}
+	if next.Source != "" {
+		current.Source = next.Source
 	}
 	current.Success = next.Success
 
@@ -1074,6 +1082,7 @@ func updateChannelKeyHealthCheckMetadata(meta objects.ChannelKeyMetadata, key st
 	meta.Reason = result.Reason
 	meta.Balance = result.Balance
 	meta.Currency = result.Currency
+	meta.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(result.BalanceSnapshot)
 	meta.Available = result.Available
 	meta.StatusCode = result.StatusCode
 	meta.MatchedPolicy = result.MatchedPolicy
@@ -1096,20 +1105,21 @@ func updateChannelKeyHealthCheckMetadata(meta objects.ChannelKeyMetadata, key st
 
 func appendChannelKeyHealthCheckHistory(history []objects.ChannelKeyHealthCheckHistoryEntry, keyID string, result ChannelKeyHealthCheckResult, now time.Time, trigger objects.ChannelKeyHealthCheckTrigger, historyLimit int) []objects.ChannelKeyHealthCheckHistoryEntry {
 	entry := objects.ChannelKeyHealthCheckHistoryEntry{
-		ID:             fmt.Sprintf("%s:%d:%s", keyID, now.UnixNano(), trigger),
-		CheckedAt:      now,
-		Success:        result.Success,
-		Reason:         result.Reason,
-		Balance:        result.Balance,
-		Currency:       result.Currency,
-		Available:      result.Available,
-		Trigger:        trigger,
-		Rule:           result.Rule,
-		StatusCode:     result.StatusCode,
-		MatchedPolicy:  result.MatchedPolicy,
-		Action:         result.Action,
-		NextCheckAt:    result.NextCheckAt,
-		BackoffAttempt: result.BackoffAttempt,
+		ID:              fmt.Sprintf("%s:%d:%s", keyID, now.UnixNano(), trigger),
+		CheckedAt:       now,
+		Success:         result.Success,
+		Reason:          result.Reason,
+		Balance:         result.Balance,
+		Currency:        result.Currency,
+		BalanceSnapshot: cloneChannelKeyBalanceSnapshot(result.BalanceSnapshot),
+		Available:       result.Available,
+		Trigger:         trigger,
+		Rule:            result.Rule,
+		StatusCode:      result.StatusCode,
+		MatchedPolicy:   result.MatchedPolicy,
+		Action:          result.Action,
+		NextCheckAt:     result.NextCheckAt,
+		BackoffAttempt:  result.BackoffAttempt,
 	}
 
 	if historyLimit <= 0 {
@@ -1365,6 +1375,7 @@ func buildChannelKeyHealthCheckPolicyEnv(
 		"balance":              normalizeChannelKeyHealthCheckBalance(result.Balance),
 		"currency":             result.Currency,
 		"available":            available,
+		"balanceSnapshot":      result.BalanceSnapshot,
 		"allCheckedKeysFailed": allCheckedKeysFailed,
 		"trigger":              string(trigger),
 	}
@@ -1387,6 +1398,12 @@ func channelKeyHealthCheckNumericBalance(value any) (float64, bool) {
 		number, err := strconv.ParseFloat(v, 64)
 		return number, err == nil
 	default:
+		if snapshot, ok := value.(*objects.ChannelKeyBalanceSnapshot); ok && snapshot != nil && snapshot.PrimaryBalance != nil {
+			return snapshot.PrimaryBalance.Amount, true
+		}
+		if snapshot, ok := value.(objects.ChannelKeyBalanceSnapshot); ok && snapshot.PrimaryBalance != nil {
+			return snapshot.PrimaryBalance.Amount, true
+		}
 		return 0, false
 	}
 }
@@ -1498,6 +1515,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
 	chForCheck := *ch
 	chForCheck.Settings = settings
+	_, _, hasBalanceProbe := channelBalanceProbeSpecForChannel(&chForCheck)
 
 	results := make([]ChannelKeyHealthCheckResult, len(targetKeys))
 	group, groupCtx := errgroup.WithContext(ctx)
@@ -1514,6 +1532,11 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 			return nil, err
 		}
 		group.Go(func() error {
+			if hasBalanceProbe {
+				results[index] = svc.runChannelKeyBalanceProbe(groupCtx, &chForCheck, apiKey, objects.ChannelKeyHealthCheckTriggerManual)
+				return nil
+			}
+
 			results[index] = svc.checkChannelAPIKeyHealth(groupCtx, &chForCheck, apiKey)
 
 			return nil

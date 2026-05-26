@@ -127,6 +127,19 @@ func (r *channelArchivedAPIKeyResolver) Balance(ctx context.Context, obj *object
 	return marshalChannelKeyBalance(obj.Balance)
 }
 
+// RawSummary is the resolver for the rawSummary field.
+func (r *channelKeyBalanceSnapshotResolver) RawSummary(ctx context.Context, obj *objects.ChannelKeyBalanceSnapshot) (objects.JSONRawMessage, error) {
+	if obj == nil || obj.RawSummary == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(obj.RawSummary)
+	if err != nil {
+		return nil, err
+	}
+
+	return objects.JSONRawMessage(data), nil
+}
+
 // Balance is the resolver for the balance field.
 func (r *channelKeyHealthCheckHistoryEntryResolver) Balance(ctx context.Context, obj *objects.ChannelKeyHealthCheckHistoryEntry) (objects.JSONRawMessage, error) {
 	return marshalChannelKeyBalance(obj.Balance)
@@ -1018,6 +1031,22 @@ func (r *channelArchivedAPIKeyInputResolver) Balance(ctx context.Context, obj *o
 	return unmarshalChannelKeyBalance(data, &obj.Balance)
 }
 
+// RawSummary is the resolver for the rawSummary field.
+func (r *channelKeyBalanceSnapshotInputResolver) RawSummary(ctx context.Context, obj *objects.ChannelKeyBalanceSnapshot, data objects.JSONRawMessage) error {
+	if len(data) == 0 {
+		obj.RawSummary = nil
+		return nil
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	obj.RawSummary = raw
+
+	return nil
+}
+
 // Balance is the resolver for the balance field.
 func (r *channelKeyHealthCheckHistoryEntryInputResolver) Balance(ctx context.Context, obj *objects.ChannelKeyHealthCheckHistoryEntry, data objects.JSONRawMessage) error {
 	return unmarshalChannelKeyBalance(data, &obj.Balance)
@@ -1036,6 +1065,11 @@ func (r *Resolver) ChannelAPIKeyInventoryItem() ChannelAPIKeyInventoryItemResolv
 // ChannelArchivedAPIKey returns ChannelArchivedAPIKeyResolver implementation.
 func (r *Resolver) ChannelArchivedAPIKey() ChannelArchivedAPIKeyResolver {
 	return &channelArchivedAPIKeyResolver{r}
+}
+
+// ChannelKeyBalanceSnapshot returns ChannelKeyBalanceSnapshotResolver implementation.
+func (r *Resolver) ChannelKeyBalanceSnapshot() ChannelKeyBalanceSnapshotResolver {
+	return &channelKeyBalanceSnapshotResolver{r}
 }
 
 // ChannelKeyHealthCheckHistoryEntry returns ChannelKeyHealthCheckHistoryEntryResolver implementation.
@@ -1062,6 +1096,11 @@ func (r *Resolver) ChannelArchivedAPIKeyInput() ChannelArchivedAPIKeyInputResolv
 	return &channelArchivedAPIKeyInputResolver{r}
 }
 
+// ChannelKeyBalanceSnapshotInput returns ChannelKeyBalanceSnapshotInputResolver implementation.
+func (r *Resolver) ChannelKeyBalanceSnapshotInput() ChannelKeyBalanceSnapshotInputResolver {
+	return &channelKeyBalanceSnapshotInputResolver{r}
+}
+
 // ChannelKeyHealthCheckHistoryEntryInput returns ChannelKeyHealthCheckHistoryEntryInputResolver implementation.
 func (r *Resolver) ChannelKeyHealthCheckHistoryEntryInput() ChannelKeyHealthCheckHistoryEntryInputResolver {
 	return &channelKeyHealthCheckHistoryEntryInputResolver{r}
@@ -1074,11 +1113,13 @@ func (r *Resolver) ChannelKeyMetadataInput() ChannelKeyMetadataInputResolver {
 
 type channelAPIKeyInventoryItemResolver struct{ *Resolver }
 type channelArchivedAPIKeyResolver struct{ *Resolver }
+type channelKeyBalanceSnapshotResolver struct{ *Resolver }
 type channelKeyHealthCheckHistoryEntryResolver struct{ *Resolver }
 type channelKeyMetadataResolver struct{ *Resolver }
 type channelSettingsResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
 type segmentResolver struct{ *Resolver }
 type channelArchivedAPIKeyInputResolver struct{ *Resolver }
+type channelKeyBalanceSnapshotInputResolver struct{ *Resolver }
 type channelKeyHealthCheckHistoryEntryInputResolver struct{ *Resolver }
 type channelKeyMetadataInputResolver struct{ *Resolver }

@@ -19,22 +19,23 @@ import (
 var errCannotArchiveLastUsableChannelAPIKey = errors.New("cannot archive the last usable channel api key")
 
 type ChannelAPIKeyInventoryItem struct {
-	ID             string
-	MaskedKey      string
-	Status         objects.ChannelKeyStatus
-	LastCheckedAt  *time.Time
-	Success        *bool
-	FailureCount   int
-	Reason         string
-	Balance        any
-	Currency       string
-	Available      *bool
-	StatusCode     int
-	MatchedPolicy  string
-	Action         string
-	NextCheckAt    *time.Time
-	BackoffAttempt int
-	History        []objects.ChannelKeyHealthCheckHistoryEntry
+	ID              string
+	MaskedKey       string
+	Status          objects.ChannelKeyStatus
+	LastCheckedAt   *time.Time
+	Success         *bool
+	FailureCount    int
+	Reason          string
+	Balance         any
+	Currency        string
+	BalanceSnapshot *objects.ChannelKeyBalanceSnapshot
+	Available       *bool
+	StatusCode      int
+	MatchedPolicy   string
+	Action          string
+	NextCheckAt     *time.Time
+	BackoffAttempt  int
+	History         []objects.ChannelKeyHealthCheckHistoryEntry
 }
 
 func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID int) ([]*ChannelAPIKeyInventoryItem, error) {
@@ -228,6 +229,7 @@ func (svc *ChannelService) ArchiveChannelAPIKey(ctx context.Context, channelID i
 		archivedKey.FailureCount = meta.FailureCount
 		archivedKey.Balance = meta.Balance
 		archivedKey.Currency = meta.Currency
+		archivedKey.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(meta.BalanceSnapshot)
 		archivedKey.Available = meta.Available
 		if archivedKey.Reason == "" {
 			archivedKey.Reason = meta.Reason
@@ -595,6 +597,7 @@ func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.Chann
 	item.Reason = meta.Reason
 	item.Balance = meta.Balance
 	item.Currency = meta.Currency
+	item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(meta.BalanceSnapshot)
 	item.Available = meta.Available
 	item.StatusCode = meta.StatusCode
 	item.MatchedPolicy = meta.MatchedPolicy
@@ -618,6 +621,7 @@ func mergeInventoryArchive(item *ChannelAPIKeyInventoryItem, archive objects.Cha
 	item.Reason = archive.Reason
 	item.Balance = archive.Balance
 	item.Currency = archive.Currency
+	item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(archive.BalanceSnapshot)
 	item.Available = archive.Available
 }
 
@@ -762,6 +766,21 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		keySelection := *settings.KeySelection
 		next.KeySelection = &keySelection
 	}
+	if settings.BalanceProbe != nil {
+		balanceProbe := *settings.BalanceProbe
+		balanceProbe.IncludeStatuses = slices.Clone(settings.BalanceProbe.IncludeStatuses)
+		if settings.BalanceProbe.HTTP != nil {
+			httpRule := *settings.BalanceProbe.HTTP
+			httpRule.Headers = slices.Clone(settings.BalanceProbe.HTTP.Headers)
+			httpRule.ExpectedStatuses = slices.Clone(settings.BalanceProbe.HTTP.ExpectedStatuses)
+			if settings.BalanceProbe.HTTP.KeyInjection != nil {
+				keyInjection := *settings.BalanceProbe.HTTP.KeyInjection
+				httpRule.KeyInjection = &keyInjection
+			}
+			balanceProbe.HTTP = &httpRule
+		}
+		next.BalanceProbe = &balanceProbe
+	}
 	if settings.KeyHealthCheck != nil {
 		health := *settings.KeyHealthCheck
 		health.Rules = slices.Clone(settings.KeyHealthCheck.Rules)
@@ -772,9 +791,16 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		health.KeyMetadata = slices.Clone(settings.KeyHealthCheck.KeyMetadata)
 		for i := range health.KeyMetadata {
 			health.KeyMetadata[i].History = slices.Clone(settings.KeyHealthCheck.KeyMetadata[i].History)
+			health.KeyMetadata[i].BalanceSnapshot = cloneChannelKeyBalanceSnapshot(settings.KeyHealthCheck.KeyMetadata[i].BalanceSnapshot)
 		}
 		health.ArchivedKeys = slices.Clone(settings.KeyHealthCheck.ArchivedKeys)
+		for i := range health.ArchivedKeys {
+			health.ArchivedKeys[i].BalanceSnapshot = cloneChannelKeyBalanceSnapshot(settings.KeyHealthCheck.ArchivedKeys[i].BalanceSnapshot)
+		}
 		health.History = slices.Clone(settings.KeyHealthCheck.History)
+		for i := range health.History {
+			health.History[i].BalanceSnapshot = cloneChannelKeyBalanceSnapshot(settings.KeyHealthCheck.History[i].BalanceSnapshot)
+		}
 		next.KeyHealthCheck = &health
 	}
 

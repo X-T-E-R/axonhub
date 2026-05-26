@@ -32,6 +32,9 @@ func ValidateChannelKeySettings(settings *objects.ChannelSettings) error {
 	if err := ValidateChannelFailurePolicy(settings.FailurePolicy); err != nil {
 		return err
 	}
+	if err := ValidateChannelBalanceProbe(settings.BalanceProbe); err != nil {
+		return err
+	}
 
 	return ValidateChannelKeyHealthCheck(settings.KeyHealthCheck)
 }
@@ -144,7 +147,9 @@ func validateChannelKeyHealthCheckPolicyAction(action objects.ChannelKeyHealthCh
 		objects.ChannelKeyHealthCheckPolicyActionDisableKey,
 		objects.ChannelKeyHealthCheckPolicyActionArchiveKey,
 		objects.ChannelKeyHealthCheckPolicyActionDeleteKey,
-		objects.ChannelKeyHealthCheckPolicyActionDisableChannel:
+		objects.ChannelKeyHealthCheckPolicyActionDisableChannel,
+		objects.ChannelKeyHealthCheckPolicyActionEnableKey,
+		objects.ChannelKeyHealthCheckPolicyActionRestoreKey:
 		return nil
 	case objects.ChannelKeyHealthCheckPolicyActionBackoff:
 		if action.Backoff == nil {
@@ -173,6 +178,63 @@ func validateChannelKeyHealthCheckBackoff(backoff objects.ChannelKeyHealthCheckB
 	}
 
 	return nil
+}
+
+func ValidateChannelBalanceProbe(probe *objects.ChannelBalanceProbe) error {
+	if probe == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(probe.PreferredCurrency) != "" && !isValidBalanceCurrencyCode(probe.PreferredCurrency) {
+		return fmt.Errorf("preferredCurrency must be a valid currency code")
+	}
+	switch probe.PrimarySelection {
+	case "", objects.ChannelBalancePrimarySelectionAutoHighest, objects.ChannelBalancePrimarySelectionPreferredCurrency:
+	default:
+		return fmt.Errorf("unsupported primary selection %q", probe.PrimarySelection)
+	}
+	for _, status := range probe.IncludeStatuses {
+		switch status {
+		case objects.ChannelKeyStatusActive, objects.ChannelKeyStatusDisabled, objects.ChannelKeyStatusArchived:
+		default:
+			return fmt.Errorf("unsupported balance probe key status %q", status)
+		}
+	}
+	if probe.TimeoutMs < 0 || probe.TimeoutMs > maxChannelKeyHealthCheckHTTPTimeoutMs {
+		return fmt.Errorf("balance probe timeoutMs must be between 0 and %d", maxChannelKeyHealthCheckHTTPTimeoutMs)
+	}
+	if probe.Preset != "" {
+		spec, ok := channelBalanceProbePresetByID(probe.Preset)
+		if !ok {
+			return fmt.Errorf("unsupported balance probe preset %q", probe.Preset)
+		}
+		if spec.Experimental && !probe.Experimental {
+			return fmt.Errorf("balance probe preset %q is experimental and requires explicit opt-in", probe.Preset)
+		}
+	}
+	if probe.HTTP != nil {
+		if err := validateChannelKeyHealthCheckHTTPRule(*probe.HTTP); err != nil {
+			return fmt.Errorf("invalid balance probe http override: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func isValidBalanceCurrencyCode(code string) bool {
+	code = strings.TrimSpace(code)
+	if code == "" || len(code) > 16 {
+		return false
+	}
+	for _, r := range code {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+
+		return false
+	}
+
+	return true
 }
 
 func validateChannelKeyHealthCheckRule(rule objects.ChannelKeyHealthCheckRule) error {
@@ -321,7 +383,13 @@ func validateFailurePolicyProfile(profile objects.FailurePolicyProfile) error {
 		switch source {
 		case objects.FailurePolicyEventSourceRequestFailure,
 			objects.FailurePolicyEventSourceScheduledHealthCheckFailure,
-			objects.FailurePolicyEventSourceManualHealthCheckFailure:
+			objects.FailurePolicyEventSourceManualHealthCheckFailure,
+			objects.FailurePolicyEventSourceScheduledHealthCheck,
+			objects.FailurePolicyEventSourceManualHealthCheck,
+			objects.FailurePolicyEventSourceScheduledBalanceProbe,
+			objects.FailurePolicyEventSourceScheduledBalanceProbeFailure,
+			objects.FailurePolicyEventSourceManualBalanceProbe,
+			objects.FailurePolicyEventSourceManualBalanceProbeFailure:
 		default:
 			return fmt.Errorf("unsupported source %q", source)
 		}
@@ -344,7 +412,9 @@ func validateFailurePolicyAction(action objects.FailurePolicyAction) error {
 		objects.FailurePolicyActionDisableKey,
 		objects.FailurePolicyActionArchiveKey,
 		objects.FailurePolicyActionDeleteKey,
-		objects.FailurePolicyActionDisableChannel:
+		objects.FailurePolicyActionDisableChannel,
+		objects.FailurePolicyActionEnableKey,
+		objects.FailurePolicyActionRestoreKey:
 		return nil
 	case objects.FailurePolicyActionBackoffKey:
 		if action.Backoff == nil {
@@ -357,19 +427,27 @@ func validateFailurePolicyAction(action objects.FailurePolicyAction) error {
 }
 
 func validateChannelKeyHealthCheckURLsForBaseURL(baseURL string, settings *objects.ChannelSettings) error {
-	if settings == nil || settings.KeyHealthCheck == nil {
+	if settings == nil {
 		return nil
 	}
 
-	for _, rule := range settings.KeyHealthCheck.Rules {
-		if rule.Type != objects.ChannelKeyHealthCheckRuleTypeHTTP || rule.HTTP == nil {
-			continue
-		}
-		if rule.HTTP.URLMode != objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL {
-			continue
-		}
+	if settings.KeyHealthCheck != nil {
+		for _, rule := range settings.KeyHealthCheck.Rules {
+			if rule.Type != objects.ChannelKeyHealthCheckRuleTypeHTTP || rule.HTTP == nil {
+				continue
+			}
+			if rule.HTTP.URLMode != objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL {
+				continue
+			}
 
-		if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, rule.HTTP.URL); err != nil {
+			if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, rule.HTTP.URL); err != nil {
+				return err
+			}
+		}
+	}
+	if settings.BalanceProbe != nil && settings.BalanceProbe.HTTP != nil &&
+		settings.BalanceProbe.HTTP.URLMode == objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL {
+		if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, settings.BalanceProbe.HTTP.URL); err != nil {
 			return err
 		}
 	}

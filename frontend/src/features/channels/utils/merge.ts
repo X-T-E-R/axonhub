@@ -118,6 +118,7 @@ export function mergeChannelSettingsForUpdate(
     providerQuota: pick('providerQuota', existing?.providerQuota ?? null),
     keySelection: pick('keySelection', existing?.keySelection ?? null),
     keyHealthCheck: stripKeyHealthCheckRuntimeFields(pick('keyHealthCheck', existing?.keyHealthCheck ?? null)),
+    balanceProbe: pick('balanceProbe', existing?.balanceProbe ?? null),
     failurePolicy: pick('failurePolicy', existing?.failurePolicy ?? null),
   };
 }

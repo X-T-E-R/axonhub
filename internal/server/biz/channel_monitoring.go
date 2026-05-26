@@ -171,7 +171,12 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 		return svc.recordMonitoringSkippedChannel(ctx, rule, ch, "OAuth channels do not expose raw API keys for monitoring", now)
 	}
 
-	targets := monitoringRuleTargetKeys(ch, rule.Targets.KeyStatuses)
+	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
+	keyStatuses := rule.Targets.KeyStatuses
+	if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe && settings.BalanceProbe != nil && len(settings.BalanceProbe.IncludeStatuses) > 0 {
+		keyStatuses = settings.BalanceProbe.IncludeStatuses
+	}
+	targets := monitoringRuleTargetKeys(ch, keyStatuses)
 	if len(targets) == 0 {
 		return channelKeyHealthCheckChannelResult{}, nil
 	}
@@ -185,11 +190,17 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 		return channelKeyHealthCheckChannelResult{}, nil
 	}
 
-	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
 	chForCheck := *ch
 	chForCheck.Settings = cloneChannelSettings(settings)
-	chForCheck.Settings.KeyHealthCheck.Rules = slices.Clone(rule.Probes)
+	if rule.ProbeType != MonitoringProbeTypeChannelBalanceProbe {
+		chForCheck.Settings.KeyHealthCheck.Rules = slices.Clone(rule.Probes)
+	}
 	chForCheck.Settings.KeyHealthCheck.HistoryLimit = rule.Schedule.HistoryLimit
+	if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe {
+		if _, _, ok := channelBalanceProbeSpecForChannel(&chForCheck); !ok {
+			return svc.recordMonitoringSkippedChannel(ctx, rule, ch, "channel does not have a supported balance probe", now)
+		}
+	}
 
 	results := make([]ChannelKeyHealthCheckResult, len(targets))
 	group, groupCtx := errgroup.WithContext(ctx)
@@ -209,6 +220,11 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 			return channelKeyHealthCheckChannelResult{}, err
 		}
 		group.Go(func() error {
+			if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe {
+				results[index] = svc.runChannelKeyBalanceProbe(groupCtx, &chForCheck, targetKey.RawKey, objects.ChannelKeyHealthCheckTriggerScheduled)
+				return nil
+			}
+
 			results[index] = svc.checkChannelAPIKeyHealth(groupCtx, &chForCheck, targetKey.RawKey)
 
 			return nil
@@ -318,9 +334,12 @@ func (svc *ChannelService) applyMonitoringRuleProfiles(
 		if !next[i].Success {
 			failureCount++
 		}
-		source := objects.FailurePolicyEventSourceScheduledHealthCheck
-		if !next[i].Success {
-			source = objects.FailurePolicyEventSourceScheduledHealthCheckFailure
+		source := next[i].Source
+		if source == "" {
+			source = objects.FailurePolicyEventSourceScheduledHealthCheck
+			if !next[i].Success {
+				source = objects.FailurePolicyEventSourceScheduledHealthCheckFailure
+			}
 		}
 		event := failurePolicyEvent{
 			Source:               source,
@@ -334,6 +353,7 @@ func (svc *ChannelService) applyMonitoringRuleProfiles(
 			Available:            next[i].Available,
 			Balance:              next[i].Balance,
 			Currency:             next[i].Currency,
+			BalanceSnapshot:      next[i].BalanceSnapshot,
 			Reason:               next[i].Reason,
 			AllCheckedKeysFailed: allCheckedKeysFailed,
 			CheckedAt:            now,
@@ -358,8 +378,12 @@ func (svc *ChannelService) applyMonitoringRuleProfiles(
 	}
 
 	if allCheckedKeysFailed && len(rule.ChannelProfiles) > 0 {
+		source := objects.FailurePolicyEventSourceScheduledHealthCheckFailure
+		if i := firstFailedMonitoringResult(next); i >= 0 && next[i].Source != "" {
+			source = next[i].Source
+		}
 		event := failurePolicyEvent{
-			Source:               objects.FailurePolicyEventSourceScheduledHealthCheckFailure,
+			Source:               source,
 			Target:               objects.FailurePolicyTargetChannel,
 			ChannelID:            ch.ID,
 			FailureCount:         len(targets),
@@ -519,7 +543,7 @@ func (svc *ChannelService) appendMonitoringEvent(ctx context.Context, input moni
 		SetChannelID(input.Channel.ID).
 		SetChannelName(input.Channel.Name).
 		SetTrigger(string(input.Trigger)).
-		SetSource(string(input.Trigger)).
+		SetSource(monitoringEventSource(input)).
 		SetSuccess(input.Result.Success).
 		SetSkipped(input.Skipped).
 		SetReason(sanitizeMonitoringEventText(input.Result.Reason, input.Target)).
@@ -550,6 +574,12 @@ func (svc *ChannelService) appendMonitoringEvent(ctx context.Context, input moni
 			create.SetBalance(balance)
 		}
 	}
+	if input.Result.BalanceSnapshot != nil && input.Result.Balance == nil {
+		balance, err := monitoringEventBalance(input.Result.BalanceSnapshot)
+		if err == nil && len(balance) > 0 {
+			create.SetBalance(balance)
+		}
+	}
 	if strings.TrimSpace(input.Result.Currency) != "" {
 		create.SetCurrency(input.Result.Currency)
 	}
@@ -565,6 +595,14 @@ func (svc *ChannelService) appendMonitoringEvent(ctx context.Context, input moni
 	}
 
 	return nil
+}
+
+func monitoringEventSource(input monitoringEventInput) string {
+	if input.Result.Source != "" {
+		return string(input.Result.Source)
+	}
+
+	return string(input.Trigger)
 }
 
 func sanitizeMonitoringEventText(text string, target monitoringTargetKey) string {

@@ -34,6 +34,31 @@ import {
   channelAPIKeyInventoryItemSchema,
 } from './schema';
 
+const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
+  provider
+  checkedAt
+  success
+  available
+  statusCode
+  accountStatus
+  accountID
+  primaryBalance {
+    amount
+    currency
+    kind
+    label
+    expiresAt
+  }
+  components {
+    amount
+    currency
+    kind
+    label
+    expiresAt
+  }
+  rawSummary
+`;
+
 const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
   keyHealthCheck {
     enabled
@@ -77,6 +102,7 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
         statusCodes
         available
         balanceLTE
+        balanceGTE
         reasonContains
         allCheckedKeysFailed
         expr
@@ -102,6 +128,9 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       balance
       currency
       available
+      balanceSnapshot {
+        ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
+      }
       statusCode
       matchedPolicy
       action
@@ -115,6 +144,9 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
         balance
         currency
         available
+        balanceSnapshot {
+          ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
+        }
         trigger
         rule
         statusCode
@@ -134,6 +166,9 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       balance
       currency
       available
+      balanceSnapshot {
+        ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
+      }
     }
     history {
       id
@@ -143,6 +178,9 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       balance
       currency
       available
+      balanceSnapshot {
+        ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
+      }
       trigger
       rule
       statusCode
@@ -150,6 +188,32 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       action
       nextCheckAt
       backoffAttempt
+    }
+  }
+  balanceProbe {
+    enabled
+    preset
+    experimental
+    preferredCurrency
+    primarySelection
+    includeStatuses
+    timeoutMs
+    http {
+      method
+      urlMode
+      path
+      url
+      timeoutMs
+      headers {
+        key
+        value
+      }
+      keyInjection {
+        location
+        headerName
+      }
+      expectedStatuses
+      passWhen
     }
   }
   failurePolicy {
@@ -164,6 +228,7 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
         statusCodes
         available
         balanceLTE
+        balanceGTE
         reasonContains
         allCheckedKeysFailed
         expr
@@ -188,6 +253,7 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
         statusCodes
         available
         balanceLTE
+        balanceGTE
         reasonContains
         allCheckedKeysFailed
         expr
@@ -216,6 +282,9 @@ const CHANNEL_API_KEY_INVENTORY_FIELDS = `
   balance
   currency
   available
+  balanceSnapshot {
+    ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
+  }
   statusCode
   matchedPolicy
   action
@@ -229,6 +298,9 @@ const CHANNEL_API_KEY_INVENTORY_FIELDS = `
     balance
     currency
     available
+    balanceSnapshot {
+      ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
+    }
     trigger
     rule
     statusCode

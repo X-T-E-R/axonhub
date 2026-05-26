@@ -58,13 +58,16 @@ import {
 import {
   Channel,
   ChannelAPIKeyInventoryItem,
+  ChannelBalanceProbe,
   ChannelFailurePolicy,
+  ChannelKeyBalanceSnapshot,
   ChannelFailurePolicyMode,
   FailurePolicyActionType,
   FailurePolicyEventSource,
   ChannelKeyHealthCheck,
   ChannelKeyHealthCheckHistoryEntry,
   channelKeySelectionStrategySchema,
+  channelKeyStatusSchema,
 } from '../data/schema';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
 
@@ -86,6 +89,7 @@ interface KeyInventoryRow {
   balance?: unknown;
   currency?: string | null;
   available?: boolean | null;
+  balanceSnapshot?: ChannelKeyBalanceSnapshot | null;
   reason?: string | null;
   statusCode?: number | null;
   matchedPolicy?: string | null;
@@ -126,7 +130,21 @@ const failureProfileFormSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   enabled: z.boolean(),
-  sources: z.array(z.enum(['request_failure', 'scheduled_health_check_failure', 'manual_health_check_failure'])).min(1),
+  sources: z
+    .array(
+      z.enum([
+        'request_failure',
+        'scheduled_health_check',
+        'manual_health_check',
+        'scheduled_health_check_failure',
+        'manual_health_check_failure',
+        'scheduled_balance_probe',
+        'scheduled_balance_probe_failure',
+        'manual_balance_probe',
+        'manual_balance_probe_failure',
+      ])
+    )
+    .min(1),
   minFailureCount: nullableIntField(1, 100),
   statusCodes: z.string().optional(),
   availability: z.enum(['any', 'available', 'unavailable']),
@@ -136,7 +154,16 @@ const failureProfileFormSchema = z.object({
   expr: z.string().optional(),
   actions: z.array(
     z.object({
-      type: z.enum(['report_only', 'backoff_key', 'disable_key', 'archive_key', 'delete_key', 'disable_channel']),
+      type: z.enum([
+        'report_only',
+        'backoff_key',
+        'disable_key',
+        'archive_key',
+        'delete_key',
+        'disable_channel',
+        'enable_key',
+        'restore_key',
+      ]),
       backoffMode: z.enum(['fixed', 'exponential']),
       intervalMinutes: z.coerce.number().int().min(1).max(10080),
       maxIntervalMinutes: z.coerce.number().int().min(1).max(10080),
@@ -162,6 +189,15 @@ const keysFormSchema = z.object({
     deepseekExpectedStatuses: z.string(),
     deepseekPassWhen: z.string(),
   }),
+  balanceProbe: z.object({
+    enabled: z.boolean(),
+    preset: z.string().min(1),
+    experimental: z.boolean(),
+    preferredCurrency: z.string().optional(),
+    primarySelection: z.enum(['highest_amount', 'preferred_currency']),
+    includeStatuses: z.array(channelKeyStatusSchema),
+    timeoutMs: z.coerce.number().int().min(100).max(30000),
+  }),
   failurePolicy: z.object({
     mode: z.enum(['inherit', 'override', 'merge', 'disabled']),
     keyProfiles: z.array(failureProfileFormSchema),
@@ -181,11 +217,43 @@ const STRATEGIES: KeysFormValues['strategy'][] = ['trace_sticky', 'cache_affinit
 const FAILURE_POLICY_MODES: ChannelFailurePolicyMode[] = ['inherit', 'override', 'merge', 'disabled'];
 const FAILURE_EVENT_SOURCES: FailurePolicyEventSource[] = [
   'request_failure',
+  'scheduled_health_check',
+  'manual_health_check',
   'scheduled_health_check_failure',
   'manual_health_check_failure',
+  'scheduled_balance_probe',
+  'scheduled_balance_probe_failure',
+  'manual_balance_probe',
+  'manual_balance_probe_failure',
 ];
-const KEY_FAILURE_ACTIONS: FailurePolicyActionType[] = ['report_only', 'backoff_key', 'disable_key', 'archive_key', 'delete_key'];
+const KEY_FAILURE_ACTIONS: FailurePolicyActionType[] = [
+  'report_only',
+  'backoff_key',
+  'disable_key',
+  'archive_key',
+  'delete_key',
+  'enable_key',
+  'restore_key',
+];
 const CHANNEL_FAILURE_ACTIONS: FailurePolicyActionType[] = ['report_only', 'disable_channel'];
+const BALANCE_PROBE_PRESETS = [
+  'deepseek_balance',
+  'siliconflow_user_info',
+  'moonshot_balance',
+  'openrouter_credits',
+  'nanogpt_check_balance',
+] as const;
+const BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE: Partial<Record<Channel['type'], (typeof BALANCE_PROBE_PRESETS)[number]>> = {
+  deepseek: 'deepseek_balance',
+  deepseek_anthropic: 'deepseek_balance',
+  siliconflow: 'siliconflow_user_info',
+  moonshot: 'moonshot_balance',
+  moonshot_anthropic: 'moonshot_balance',
+  moonshot_coding: 'moonshot_balance',
+  openrouter: 'openrouter_credits',
+  nanogpt: 'nanogpt_check_balance',
+  nanogpt_responses: 'nanogpt_check_balance',
+};
 const BALANCE_VALUE_KEYS = [
   'total_balance',
   'totalBalance',
@@ -210,8 +278,25 @@ const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
   deepseekPassWhen: 'json.is_available == true',
 };
 
+const DEFAULT_BALANCE_PROBE: KeysFormValues['balanceProbe'] = {
+  enabled: false,
+  preset: 'deepseek_balance',
+  experimental: false,
+  preferredCurrency: '',
+  primarySelection: 'highest_amount',
+  includeStatuses: ['active', 'disabled'],
+  timeoutMs: 10000,
+};
+
 function positiveOrDefault(value: number | null | undefined, fallback: number): number {
   return typeof value === 'number' && value > 0 ? value : fallback;
+}
+
+function defaultBalanceProbeForChannel(type: Channel['type']): KeysFormValues['balanceProbe'] {
+  return {
+    ...DEFAULT_BALANCE_PROBE,
+    preset: BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[type] ?? DEFAULT_BALANCE_PROBE.preset,
+  };
 }
 
 function createDefaultProfile(index: number, target: FailurePolicyTarget): FailureProfileFormValue {
@@ -219,7 +304,8 @@ function createDefaultProfile(index: number, target: FailurePolicyTarget): Failu
     id: `${target}-policy-${Date.now()}-${index + 1}`,
     name: `${target === 'key' ? 'Key' : 'Channel'} policy ${index + 1}`,
     enabled: true,
-    sources: target === 'key' ? ['request_failure', 'scheduled_health_check_failure'] : ['request_failure'],
+    sources:
+      target === 'key' ? ['request_failure', 'scheduled_health_check_failure', 'scheduled_balance_probe_failure'] : ['request_failure'],
     minFailureCount: 3,
     statusCodes: '',
     availability: 'any',
@@ -379,6 +465,8 @@ function failurePolicyValuesFromLegacyHealth(health?: ChannelKeyHealthCheck | nu
 
 function valuesFromChannel(currentRow: Channel): KeysFormValues {
   const health = currentRow.settings?.keyHealthCheck;
+  const balanceProbe = currentRow.settings?.balanceProbe;
+  const defaultBalanceProbe = defaultBalanceProbeForChannel(currentRow.type);
   const rules = health?.rules ?? [];
   const builtinRule = rules.find((rule) => rule.type === 'builtin_test');
   const deepseekRule = rules.find(
@@ -405,9 +493,31 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
       deepseekExpectedStatuses: (deepseekRule?.http?.expectedStatuses ?? [200]).join(', '),
       deepseekPassWhen: deepseekRule?.http?.passWhen || DEFAULT_HEALTH_CHECK.deepseekPassWhen,
     },
+    balanceProbe: {
+      enabled: balanceProbe?.enabled ?? defaultBalanceProbe.enabled,
+      preset: balanceProbe?.preset || defaultBalanceProbe.preset,
+      experimental: balanceProbe?.experimental ?? defaultBalanceProbe.experimental,
+      preferredCurrency: balanceProbe?.preferredCurrency ?? defaultBalanceProbe.preferredCurrency,
+      primarySelection: balanceProbe?.primarySelection ?? defaultBalanceProbe.primarySelection,
+      includeStatuses: balanceProbe?.includeStatuses?.length ? balanceProbe.includeStatuses : defaultBalanceProbe.includeStatuses,
+      timeoutMs: positiveOrDefault(balanceProbe?.timeoutMs, defaultBalanceProbe.timeoutMs),
+    },
     failurePolicy: currentRow.settings?.failurePolicy
       ? failurePolicyValuesFromStored(currentRow.settings.failurePolicy)
       : failurePolicyValuesFromLegacyHealth(health),
+  };
+}
+
+function balanceProbeFromValues(values: KeysFormValues, existing?: ChannelBalanceProbe | null): ChannelBalanceProbe {
+  return {
+    enabled: values.balanceProbe.enabled,
+    preset: values.balanceProbe.preset,
+    experimental: values.balanceProbe.experimental,
+    preferredCurrency: values.balanceProbe.preferredCurrency?.trim() || null,
+    primarySelection: values.balanceProbe.primarySelection,
+    includeStatuses: values.balanceProbe.includeStatuses,
+    timeoutMs: values.balanceProbe.timeoutMs,
+    http: existing?.http ?? null,
   };
 }
 
@@ -520,6 +630,7 @@ function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInve
     balance: item.balance,
     currency: item.currency,
     available: item.available,
+    balanceSnapshot: item.balanceSnapshot,
     reason: item.reason,
     statusCode: item.statusCode,
     matchedPolicy: item.matchedPolicy,
@@ -595,14 +706,48 @@ function preferredBalance(value: unknown, currency?: string | null): BalanceCand
     return null;
   }
 
-  return (
-    candidates.find((candidate) => isCnyBalanceCurrency(candidate.currency)) ??
-    candidates.reduce((best, candidate) => (candidate.amount > best.amount ? candidate : best))
-  );
+  return candidates.reduce((best, candidate) => (candidate.amount > best.amount ? candidate : best));
 }
 
-function numericBalance(value: unknown): number | null {
-  return preferredBalance(value)?.amount ?? null;
+function preferredSnapshotBalance(snapshot?: ChannelKeyBalanceSnapshot | null, preferredCurrency?: string | null): BalanceCandidate | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const candidates = [snapshot.primaryBalance, ...(snapshot.components ?? [])]
+    .filter((item): item is NonNullable<typeof item> => item != null && Number.isFinite(item.amount))
+    .map((item) => ({ amount: item.amount, currency: normalizeBalanceCurrency(item.currency) }));
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const preferred = normalizeBalanceCurrency(preferredCurrency);
+  const preferredCandidates = preferred ? candidates.filter((candidate) => normalizeBalanceCurrency(candidate.currency) === preferred) : [];
+  if (preferredCandidates.length > 0) {
+    return preferredCandidates.reduce((best, candidate) => (candidate.amount > best.amount ? candidate : best));
+  }
+
+  if (snapshot.primaryBalance && Number.isFinite(snapshot.primaryBalance.amount)) {
+    return {
+      amount: snapshot.primaryBalance.amount,
+      currency: normalizeBalanceCurrency(snapshot.primaryBalance.currency),
+    };
+  }
+
+  return candidates.reduce((best, candidate) => (candidate.amount > best.amount ? candidate : best));
+}
+
+function preferredRowBalance(row: {
+  balance?: unknown;
+  currency?: string | null;
+  balanceSnapshot?: ChannelKeyBalanceSnapshot | null;
+}): BalanceCandidate | null {
+  return preferredSnapshotBalance(row.balanceSnapshot) ?? preferredBalance(row.balance, row.currency);
+}
+
+function numericBalance(value: unknown, snapshot?: ChannelKeyBalanceSnapshot | null): number | null {
+  return (snapshot ? preferredSnapshotBalance(snapshot)?.amount : null) ?? preferredBalance(value)?.amount ?? null;
 }
 
 function currencyForIntl(currency?: string | null): string | null {
@@ -661,20 +806,37 @@ function formatBalance(value: unknown, currency: string | null | undefined, t: T
   return JSON.stringify(value);
 }
 
+function formatBalanceSnapshot(snapshot: ChannelKeyBalanceSnapshot, t: TFunction, language: string): string {
+  const selected = preferredSnapshotBalance(snapshot);
+  if (selected) {
+    return formatBalanceAmount(selected.amount, selected.currency, t, language);
+  }
+  if (snapshot.available != null) {
+    return t(`channels.dialogs.keys.availability.${snapshot.available ? 'available' : 'unavailable'}`);
+  }
+  return snapshot.accountStatus || '-';
+}
+
+function formatRowBalance(
+  row: { balance?: unknown; currency?: string | null; balanceSnapshot?: ChannelKeyBalanceSnapshot | null },
+  t: TFunction,
+  language: string
+): string {
+  return row.balanceSnapshot
+    ? formatBalanceSnapshot(row.balanceSnapshot, t, language)
+    : formatBalance(row.balance, row.currency, t, language);
+}
+
 function summarizeActiveBalances(rows: KeyInventoryRow[], t: TFunction, language: string): BalanceSummary | null {
-  const balances = rows
-    .map((row) => preferredBalance(row.balance, row.currency))
-    .filter((balance): balance is BalanceCandidate => balance != null);
+  const balances = rows.map((row) => preferredRowBalance(row)).filter((balance): balance is BalanceCandidate => balance != null);
 
   if (balances.length === 0) {
     return null;
   }
 
-  const cnyBalances = balances.filter((balance) => isCnyBalanceCurrency(balance.currency));
-  const balancesToSummarize = cnyBalances.length > 0 ? cnyBalances : balances;
   const totalsByCurrency = new Map<string, number>();
 
-  for (const balance of balancesToSummarize) {
+  for (const balance of balances) {
     const currency = normalizeBalanceCurrency(balance.currency) ?? '';
     totalsByCurrency.set(currency, (totalsByCurrency.get(currency) ?? 0) + balance.amount);
   }
@@ -693,7 +855,7 @@ function summarizeActiveBalances(rows: KeyInventoryRow[], t: TFunction, language
 
   return {
     display: parts.join(' · '),
-    keyCount: balancesToSummarize.length,
+    keyCount: balances.length,
   };
 }
 
@@ -740,7 +902,7 @@ function KeyHistoryCharts({ history }: { history: ChannelKeyHealthCheckHistoryEn
         name: format(new Date(entry.checkedAt), 'MM-dd HH:mm'),
         success: entry.success ? 1 : 0,
         failure: entry.success ? 0 : 1,
-        balance: numericBalance(entry.balance),
+        balance: numericBalance(entry.balance, entry.balanceSnapshot),
         index: index + 1,
       })),
     [history]
@@ -1362,10 +1524,22 @@ function KeyDetailsDialog({
             </div>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.balance')}</div>
-              <div className='mt-1 text-sm font-medium'>{formatBalance(row.balance, row.currency, t, i18n.language)}</div>
-              {row.available != null ? (
+              <div className='mt-1 text-sm font-medium'>{formatRowBalance(row, t, i18n.language)}</div>
+              {row.balanceSnapshot?.components?.length ? (
+                <div className='text-muted-foreground mt-2 space-y-1 text-xs'>
+                  {row.balanceSnapshot.components.map((component, index) => (
+                    <div key={`${component.kind}-${component.currency}-${index}`}>
+                      {component.label || t(`channels.dialogs.keys.balanceKinds.${component.kind}`)}:{' '}
+                      {formatBalanceAmount(component.amount, component.currency, t, i18n.language)}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {(row.balanceSnapshot?.available ?? row.available) != null ? (
                 <Badge variant='outline' className='mt-2'>
-                  {t(`channels.dialogs.keys.availability.${row.available ? 'available' : 'unavailable'}`)}
+                  {t(
+                    `channels.dialogs.keys.availability.${(row.balanceSnapshot?.available ?? row.available) ? 'available' : 'unavailable'}`
+                  )}
                 </Badge>
               ) : null}
             </div>
@@ -1432,9 +1606,9 @@ function KeyDetailsDialog({
                         <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt)}</div>
                         <div className='text-sm'>{entry.reason || '-'}</div>
                         <div className='text-muted-foreground text-xs'>
-                          {formatBalance(entry.balance, entry.currency, t, i18n.language)}
-                          {entry.available != null
-                            ? ` · ${t(`channels.dialogs.keys.availability.${entry.available ? 'available' : 'unavailable'}`)}`
+                          {formatRowBalance(entry, t, i18n.language)}
+                          {(entry.balanceSnapshot?.available ?? entry.available) != null
+                            ? ` · ${t(`channels.dialogs.keys.availability.${(entry.balanceSnapshot?.available ?? entry.available) ? 'available' : 'unavailable'}`)}`
                             : ''}
                           {entry.action ? ` · ${formatPolicyAction(entry.action)}` : ''}
                           {entry.nextCheckAt
@@ -1604,11 +1778,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const disabledKeys = useMemo(() => inventory.filter((item) => item.status === 'disabled'), [inventory]);
   const archivedKeys = useMemo(() => inventory.filter((item) => item.status === 'archived'), [inventory]);
   const channelHistory = useMemo(() => currentRow.settings?.keyHealthCheck?.history ?? [], [currentRow.settings?.keyHealthCheck?.history]);
-  const isDeepSeekChannel = currentRow.type === 'deepseek' || currentRow.type === 'deepseek_anthropic';
-  const deepSeekActiveBalanceSummary = useMemo(
-    () => (isDeepSeekChannel ? summarizeActiveBalances(activeKeys, t, i18n.language) : null),
-    [activeKeys, i18n.language, isDeepSeekChannel, t]
-  );
+  const activeBalanceSummary = useMemo(() => summarizeActiveBalances(activeKeys, t, i18n.language), [activeKeys, i18n.language, t]);
   const visibleInventory = useMemo(() => inventory.filter((item) => statusFilter.has(item.status)), [inventory, statusFilter]);
   const selectedRows = useMemo(() => visibleInventory.filter((item) => selectedKeys.has(item.id)), [visibleInventory, selectedKeys]);
   const visibleSelectedCount = useMemo(
@@ -1624,10 +1794,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         .join(', '),
     [statusFilter, t]
   );
-  const selectedHealthCheckKeyIDs = useMemo(
-    () => selectedRows.map((item) => item.id),
-    [selectedRows]
-  );
+  const selectedHealthCheckKeyIDs = useMemo(() => selectedRows.map((item) => item.id), [selectedRows]);
   const selectedActiveKeyIDs = useMemo(
     () => selectedRows.filter((item) => item.status === 'active').map((item) => item.id),
     [selectedRows]
@@ -1646,6 +1813,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     [visibleInventory]
   );
   const selectedStrategy = form.watch('strategy');
+  const selectedBalanceProbePrimarySelection = form.watch('balanceProbe.primarySelection');
   const isPending =
     keyInventory.isFetching ||
     addAPIKey.isPending ||
@@ -1711,6 +1879,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
       },
       keyHealthCheck: healthCheckFromValues(values),
+      balanceProbe: balanceProbeFromValues(values, currentRow.settings?.balanceProbe),
       failurePolicy: failurePolicyFromValues(values),
     });
 
@@ -1853,7 +2022,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
               <ScrollArea className='mt-4 h-[58vh] pr-3'>
                 <TabsContent value='inventory' className='mt-0 space-y-4'>
-                  <div className={`grid gap-3 ${isDeepSeekChannel ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+                  <div className='grid gap-3 md:grid-cols-4'>
                     <Card>
                       <CardHeader className='pb-2'>
                         <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.active')}</CardTitle>
@@ -1872,24 +2041,177 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                       </CardHeader>
                       <CardContent className='text-2xl font-semibold'>{archivedKeys.length}</CardContent>
                     </Card>
-                    {isDeepSeekChannel ? (
-                      <Card>
-                        <CardHeader className='pb-2'>
-                          <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.activeBalance')}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className='text-2xl font-semibold'>{deepSeekActiveBalanceSummary?.display ?? '-'}</div>
-                          <div className='text-muted-foreground mt-1 text-xs'>
-                            {deepSeekActiveBalanceSummary
-                              ? t('channels.dialogs.keys.summary.activeBalanceKeys', {
-                                  count: deepSeekActiveBalanceSummary.keyCount,
-                                })
-                              : t('channels.dialogs.keys.summary.activeBalanceEmpty')}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ) : null}
+                    <Card>
+                      <CardHeader className='pb-2'>
+                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.activeBalance')}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className='text-2xl font-semibold'>{activeBalanceSummary?.display ?? '-'}</div>
+                        <div className='text-muted-foreground mt-1 text-xs'>
+                          {activeBalanceSummary
+                            ? t('channels.dialogs.keys.summary.activeBalanceKeys', {
+                                count: activeBalanceSummary.keyCount,
+                              })
+                            : t('channels.dialogs.keys.summary.activeBalanceEmpty')}
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{t('channels.dialogs.keys.balanceProbe.title')}</CardTitle>
+                      <CardDescription>{t('channels.dialogs.keys.balanceProbe.description')}</CardDescription>
+                    </CardHeader>
+                    <CardContent className='space-y-4'>
+                      <div className='grid gap-4 md:grid-cols-2'>
+                        <FormField
+                          control={form.control}
+                          name='balanceProbe.enabled'
+                          render={({ field }) => (
+                            <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+                              <div>
+                                <FormLabel>{t('channels.dialogs.keys.balanceProbe.enabled.label')}</FormLabel>
+                                <FormDescription>{t('channels.dialogs.keys.balanceProbe.enabled.description')}</FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch checked={field.value} onCheckedChange={field.onChange} disabled={isPending} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='balanceProbe.preset'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.preset.label')}</FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange} disabled={isPending}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {BALANCE_PROBE_PRESETS.map((preset) => (
+                                    <SelectItem key={preset} value={preset}>
+                                      {t(`channels.dialogs.keys.balanceProbe.presets.${preset}`)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>{t('channels.dialogs.keys.balanceProbe.preset.description')}</FormDescription>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='balanceProbe.primarySelection'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.primarySelection.label')}</FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange} disabled={isPending}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='highest_amount'>
+                                    {t('channels.dialogs.keys.balanceProbe.primarySelection.highest_amount')}
+                                  </SelectItem>
+                                  <SelectItem value='preferred_currency'>
+                                    {t('channels.dialogs.keys.balanceProbe.primarySelection.preferred_currency')}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='balanceProbe.preferredCurrency'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.preferredCurrency.label')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  value={field.value ?? ''}
+                                  onChange={field.onChange}
+                                  placeholder='USD'
+                                  disabled={isPending || selectedBalanceProbePrimarySelection !== 'preferred_currency'}
+                                />
+                              </FormControl>
+                              <FormDescription>{t('channels.dialogs.keys.balanceProbe.preferredCurrency.description')}</FormDescription>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='balanceProbe.timeoutMs'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.timeoutMs.label')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  ref={field.ref}
+                                  name={field.name}
+                                  type='number'
+                                  min={100}
+                                  max={30000}
+                                  value={field.value}
+                                  onBlur={field.onBlur}
+                                  onChange={(event) => field.onChange(event.target.value)}
+                                  disabled={isPending}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='balanceProbe.experimental'
+                          render={({ field }) => (
+                            <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+                              <div>
+                                <FormLabel>{t('channels.dialogs.keys.balanceProbe.experimental.label')}</FormLabel>
+                                <FormDescription>{t('channels.dialogs.keys.balanceProbe.experimental.description')}</FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch checked={field.value} onCheckedChange={field.onChange} disabled={isPending} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <FormField
+                        control={form.control}
+                        name='balanceProbe.includeStatuses'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('channels.dialogs.keys.balanceProbe.includeStatuses.label')}</FormLabel>
+                            <div className='flex flex-wrap gap-3 rounded-lg border p-3'>
+                              {KEY_STATUS_FILTERS.map((status) => (
+                                <label key={status} className='flex items-center gap-2 text-sm'>
+                                  <Checkbox
+                                    checked={(field.value ?? []).includes(status)}
+                                    onCheckedChange={(checked) =>
+                                      field.onChange(
+                                        checked ? [...(field.value ?? []), status] : (field.value ?? []).filter((item) => item !== status)
+                                      )
+                                    }
+                                    disabled={isPending}
+                                  />
+                                  <span>{t(`channels.dialogs.keys.status.${status}`)}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <FormDescription>{t('channels.dialogs.keys.balanceProbe.includeStatuses.description')}</FormDescription>
+                          </FormItem>
+                        )}
+                      />
+                    </CardContent>
+                  </Card>
 
                   <Card>
                     <CardHeader>
@@ -2175,10 +2497,12 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                     <TableCell className='text-muted-foreground text-sm'>{formatDateTime(item.lastCheckedAt)}</TableCell>
                                     <TableCell>
                                       <div className='text-sm'>
-                                        {formatBalance(item.balance, item.currency, t, i18n.language)}
-                                        {item.available != null ? (
+                                        {formatRowBalance(item, t, i18n.language)}
+                                        {(item.balanceSnapshot?.available ?? item.available) != null ? (
                                           <Badge variant='outline' className='ml-2'>
-                                            {t(`channels.dialogs.keys.availability.${item.available ? 'available' : 'unavailable'}`)}
+                                            {t(
+                                              `channels.dialogs.keys.availability.${(item.balanceSnapshot?.available ?? item.available) ? 'available' : 'unavailable'}`
+                                            )}
                                           </Badge>
                                         ) : null}
                                       </div>

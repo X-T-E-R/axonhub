@@ -1,11 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { toast } from 'sonner';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { graphqlRequest } from '@/gql/graphql';
-import { useErrorHandler } from '@/hooks/use-error-handler';
+import { toast } from 'sonner';
 import i18n from '@/lib/i18n';
+import { useErrorHandler } from '@/hooks/use-error-handler';
 import {
   channelKeyHealthCheckRuleSchema,
+  channelKeyBalanceSnapshotSchema,
   channelKeyStatusSchema,
   failurePolicyProfileSchema,
   type ChannelKeyHealthCheckRule,
@@ -66,6 +67,7 @@ export const monitoringEventSchema = z.object({
   balance: z.unknown().optional().nullable(),
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
+  balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
   probe: z.string().optional().nullable(),
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
@@ -258,6 +260,30 @@ const MONITORING_EVENTS_QUERY = `
           balance
           currency
           available
+          balanceSnapshot {
+            provider
+            checkedAt
+            success
+            available
+            statusCode
+            accountStatus
+            accountID
+            primaryBalance {
+              amount
+              currency
+              kind
+              label
+              expiresAt
+            }
+            components {
+              amount
+              currency
+              kind
+              label
+              expiresAt
+            }
+            rawSummary
+          }
           probe
           matchedPolicy
           action
