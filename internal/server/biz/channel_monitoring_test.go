@@ -2,6 +2,8 @@ package biz
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -209,6 +211,77 @@ func TestMonitoringRuleRestoresArchivedKey(t *testing.T) {
 	require.Len(t, events, 1)
 	require.Equal(t, archivedID, events[0].KeyID)
 	require.Equal(t, "restore_key", events[0].Action)
+}
+
+func TestMonitoringBalanceProbeUsesRuleKeyStatusesNotProbeIncludeStatuses(t *testing.T) {
+	disableChannelKeyHealthCheckDelays(t)
+
+	var gotAuthorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthorization = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"balance":"5.5","currency":"USD","available":true}`))
+	}))
+	defer server.Close()
+
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+	svc.httpClient = httpclient.NewHttpClientWithClient(server.Client())
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Monitoring Balance Targets").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL(server.URL).
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"active-key", "disabled-key"}}).
+		SetDisabledAPIKeys([]objects.DisabledAPIKey{{
+			Key:        "disabled-key",
+			DisabledAt: time.Now().Add(-time.Hour),
+			Reason:     "previous failure",
+		}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{},
+			BalanceProbe: &objects.ChannelBalanceProbe{
+				Preset:          objects.ChannelBalanceProbePresetCustom,
+				IncludeStatuses: []objects.ChannelKeyStatus{objects.ChannelKeyStatusDisabled},
+				HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+					Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+					URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+					Path:             "/balance",
+					ExpectedStatuses: []int{http.StatusOK},
+				},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	err = svc.SystemService.SetMonitoringSettings(ctx, MonitoringSettings{
+		Enabled: true,
+		Rules: []MonitoringRule{{
+			ID:        "balance-active-only",
+			Name:      "Balance active only",
+			ProbeType: MonitoringProbeTypeChannelBalanceProbe,
+			Targets: MonitoringRuleTargets{
+				ChannelIDs:  []int{ch.ID},
+				KeyStatuses: []objects.ChannelKeyStatus{objects.ChannelKeyStatusActive},
+			},
+			Schedule: MonitoringRuleSchedule{MaxKeysPerChannel: 10},
+		}},
+	})
+	require.NoError(t, err)
+
+	err = svc.RunDueChannelKeyHealthChecks(ctx, time.Date(2026, 5, 26, 13, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.Equal(t, "Bearer active-key", gotAuthorization)
+
+	events, err := client.ChannelKeyMonitoringEvent.Query().
+		Where(channelkeymonitoringevent.RuleIDEQ("balance-active-only")).
+		All(ctx)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, objects.ChannelAPIKeyFingerprint("active-key"), events[0].KeyID)
 }
 
 func TestOrderedKeyHealthCheckActionNamesRestoresBeforeEnable(t *testing.T) {

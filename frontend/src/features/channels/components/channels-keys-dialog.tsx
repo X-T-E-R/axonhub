@@ -65,9 +65,9 @@ import {
   FailurePolicyActionType,
   FailurePolicyEventSource,
   ChannelKeyHealthCheck,
+  ChannelKeyHealthCheckHTTPRule,
   ChannelKeyHealthCheckHistoryEntry,
   channelKeySelectionStrategySchema,
-  channelKeyStatusSchema,
 } from '../data/schema';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
 
@@ -194,9 +194,15 @@ const keysFormSchema = z.object({
     preset: z.string().min(1),
     experimental: z.boolean(),
     preferredCurrency: z.string().optional(),
-    primarySelection: z.enum(['highest_amount', 'preferred_currency']),
-    includeStatuses: z.array(channelKeyStatusSchema),
+    primarySelection: z.enum(['auto_highest', 'preferred_currency']),
     timeoutMs: z.coerce.number().int().min(100).max(30000),
+    sameAsChannelBaseURL: z.boolean(),
+    baseURL: z.string().optional(),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+    path: z.string().optional(),
+    expectedStatuses: z.string().optional(),
+    keyInjectionLocation: z.enum(['authorization_bearer', 'header']),
+    keyInjectionHeaderName: z.string().optional(),
   }),
   failurePolicy: z.object({
     mode: z.enum(['inherit', 'override', 'merge', 'disabled']),
@@ -243,6 +249,9 @@ const BALANCE_PROBE_PRESETS = [
   'openrouter_credits',
   'nanogpt_check_balance',
 ] as const;
+const CUSTOM_BALANCE_PROBE_PRESET = 'custom';
+const BALANCE_PROBE_PRESET_OPTIONS = [...BALANCE_PROBE_PRESETS, CUSTOM_BALANCE_PROBE_PRESET] as const;
+type BalanceProbePresetOption = (typeof BALANCE_PROBE_PRESET_OPTIONS)[number];
 const BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE: Partial<Record<Channel['type'], (typeof BALANCE_PROBE_PRESETS)[number]>> = {
   deepseek: 'deepseek_balance',
   deepseek_anthropic: 'deepseek_balance',
@@ -253,6 +262,60 @@ const BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE: Partial<Record<Channel['type'], (typ
   openrouter: 'openrouter_credits',
   nanogpt: 'nanogpt_check_balance',
   nanogpt_responses: 'nanogpt_check_balance',
+};
+const BALANCE_PROBE_PRESET_HTTP_DEFAULTS: Record<
+  BalanceProbePresetOption,
+  Required<Pick<ChannelKeyHealthCheckHTTPRule, 'method' | 'urlMode'>> &
+    Pick<ChannelKeyHealthCheckHTTPRule, 'path' | 'url' | 'expectedStatuses' | 'keyInjection'>
+> = {
+  deepseek_balance: {
+    method: 'GET',
+    urlMode: 'absolute_url',
+    path: '/user/balance',
+    url: 'https://api.deepseek.com/user/balance',
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  siliconflow_user_info: {
+    method: 'GET',
+    urlMode: 'provider_base_url',
+    path: '/user/info',
+    url: null,
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  moonshot_balance: {
+    method: 'GET',
+    urlMode: 'provider_base_url',
+    path: '/users/me/balance',
+    url: null,
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  openrouter_credits: {
+    method: 'GET',
+    urlMode: 'provider_base_url',
+    path: '/credits',
+    url: null,
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  nanogpt_check_balance: {
+    method: 'POST',
+    urlMode: 'absolute_url',
+    path: '/api/check-balance',
+    url: 'https://nano-gpt.com/api/check-balance',
+    expectedStatuses: [200],
+    keyInjection: { location: 'header', headerName: 'x-api-key' },
+  },
+  custom: {
+    method: 'GET',
+    urlMode: 'provider_base_url',
+    path: '/balance',
+    url: null,
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
 };
 const BALANCE_VALUE_KEYS = [
   'total_balance',
@@ -283,19 +346,135 @@ const DEFAULT_BALANCE_PROBE: KeysFormValues['balanceProbe'] = {
   preset: 'deepseek_balance',
   experimental: false,
   preferredCurrency: '',
-  primarySelection: 'highest_amount',
-  includeStatuses: ['active', 'disabled'],
+  primarySelection: 'auto_highest',
   timeoutMs: 10000,
+  sameAsChannelBaseURL: true,
+  baseURL: '',
+  method: 'GET',
+  path: '/user/balance',
+  expectedStatuses: '200',
+  keyInjectionLocation: 'authorization_bearer',
+  keyInjectionHeaderName: '',
 };
 
 function positiveOrDefault(value: number | null | undefined, fallback: number): number {
   return typeof value === 'number' && value > 0 ? value : fallback;
 }
 
+function isBuiltInBalanceProbePreset(value: string | null | undefined): value is (typeof BALANCE_PROBE_PRESETS)[number] {
+  return BALANCE_PROBE_PRESETS.includes(value as (typeof BALANCE_PROBE_PRESETS)[number]);
+}
+
+function balanceProbePresetHTTPDefaults(
+  preset: string | null | undefined
+): (typeof BALANCE_PROBE_PRESET_HTTP_DEFAULTS)[keyof typeof BALANCE_PROBE_PRESET_HTTP_DEFAULTS] {
+  return preset === CUSTOM_BALANCE_PROBE_PRESET || isBuiltInBalanceProbePreset(preset)
+    ? BALANCE_PROBE_PRESET_HTTP_DEFAULTS[preset]
+    : BALANCE_PROBE_PRESET_HTTP_DEFAULTS.custom;
+}
+
+function parseURLOrNull(value: string | null | undefined): URL | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function baseURLFromAbsoluteURL(url: string | null | undefined, fallback: string): string {
+  const parsed = parseURLOrNull(url);
+  if (!parsed) {
+    return fallback;
+  }
+
+  parsed.pathname = parsed.pathname.replace(/\/[^/]*$/, '') || '/';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString().replace(/\/$/, '');
+}
+
+function baseURLFromAbsoluteURLAndPath(url: string | null | undefined, path: string | null | undefined, fallback: string): string {
+  const parsed = parseURLOrNull(url);
+  const trimmedPath = path?.trim();
+  if (!parsed || !trimmedPath) {
+    return baseURLFromAbsoluteURL(url, fallback);
+  }
+
+  const normalizedPath = `/${trimmedPath.replace(/^\//, '')}`;
+  if (parsed.pathname.endsWith(normalizedPath)) {
+    parsed.pathname = parsed.pathname.slice(0, -normalizedPath.length) || '/';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/, '');
+  }
+
+  return baseURLFromAbsoluteURL(url, fallback);
+}
+
+function pathFromAbsoluteURL(url: string | null | undefined, fallback: string): string {
+  const parsed = parseURLOrNull(url);
+  if (!parsed) {
+    return fallback;
+  }
+
+  return `${parsed.pathname || '/'}${parsed.search}`;
+}
+
+function composeAbsoluteProbeURL(baseURL: string | null | undefined, path: string | null | undefined): string | null {
+  const base = parseURLOrNull(baseURL);
+  const trimmedPath = path?.trim();
+  if (!base || !trimmedPath) {
+    return null;
+  }
+
+  base.pathname = `${base.pathname.replace(/\/$/, '')}/${trimmedPath.replace(/^\//, '')}`;
+  base.search = '';
+  base.hash = '';
+  return base.toString();
+}
+
+function balanceProbeHTTPValuesFromStored(
+  probe: ChannelBalanceProbe | null | undefined,
+  preset: BalanceProbePresetOption,
+  channelBaseURL: string
+): Pick<
+  KeysFormValues['balanceProbe'],
+  'sameAsChannelBaseURL' | 'baseURL' | 'method' | 'path' | 'expectedStatuses' | 'keyInjectionLocation' | 'keyInjectionHeaderName'
+> {
+  const presetDefaults = balanceProbePresetHTTPDefaults(preset);
+  const http = probe?.http;
+  const method = http?.method ?? presetDefaults.method;
+  const sameAsChannelBaseURL = http?.urlMode ? http.urlMode !== 'absolute_url' : presetDefaults.urlMode !== 'absolute_url';
+  const fallbackPath = presetDefaults.path ?? pathFromAbsoluteURL(presetDefaults.url, '');
+  const path = http?.urlMode === 'absolute_url' ? pathFromAbsoluteURL(http.url, fallbackPath) : (http?.path ?? fallbackPath);
+  const baseURL =
+    http?.urlMode === 'absolute_url'
+      ? baseURLFromAbsoluteURLAndPath(http.url, path, channelBaseURL || baseURLFromAbsoluteURLAndPath(presetDefaults.url, fallbackPath, ''))
+      : channelBaseURL || baseURLFromAbsoluteURLAndPath(presetDefaults.url, fallbackPath, '');
+  const expectedStatuses = (http?.expectedStatuses ?? presetDefaults.expectedStatuses ?? [200]).join(', ');
+  const keyInjection = http?.keyInjection ?? presetDefaults.keyInjection ?? { location: 'authorization_bearer' as const };
+
+  return {
+    sameAsChannelBaseURL,
+    baseURL,
+    method,
+    path,
+    expectedStatuses,
+    keyInjectionLocation: keyInjection.location ?? 'authorization_bearer',
+    keyInjectionHeaderName: keyInjection.headerName ?? '',
+  };
+}
+
 function defaultBalanceProbeForChannel(type: Channel['type']): KeysFormValues['balanceProbe'] {
+  const preset = BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[type] ?? DEFAULT_BALANCE_PROBE.preset;
   return {
     ...DEFAULT_BALANCE_PROBE,
-    preset: BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[type] ?? DEFAULT_BALANCE_PROBE.preset,
+    preset,
+    ...balanceProbeHTTPValuesFromStored(null, preset, ''),
   };
 }
 
@@ -467,6 +646,14 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
   const health = currentRow.settings?.keyHealthCheck;
   const balanceProbe = currentRow.settings?.balanceProbe;
   const defaultBalanceProbe = defaultBalanceProbeForChannel(currentRow.type);
+  const balanceProbePreset: BalanceProbePresetOption =
+    balanceProbe?.preset === CUSTOM_BALANCE_PROBE_PRESET
+      ? CUSTOM_BALANCE_PROBE_PRESET
+      : balanceProbe?.preset && isBuiltInBalanceProbePreset(balanceProbe.preset)
+        ? balanceProbe.preset
+        : balanceProbe?.http
+          ? CUSTOM_BALANCE_PROBE_PRESET
+          : defaultBalanceProbe.preset;
   const rules = health?.rules ?? [];
   const builtinRule = rules.find((rule) => rule.type === 'builtin_test');
   const deepseekRule = rules.find(
@@ -495,12 +682,13 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
     },
     balanceProbe: {
       enabled: balanceProbe?.enabled ?? defaultBalanceProbe.enabled,
-      preset: balanceProbe?.preset || defaultBalanceProbe.preset,
+      preset: balanceProbePreset,
       experimental: balanceProbe?.experimental ?? defaultBalanceProbe.experimental,
       preferredCurrency: balanceProbe?.preferredCurrency ?? defaultBalanceProbe.preferredCurrency,
-      primarySelection: balanceProbe?.primarySelection ?? defaultBalanceProbe.primarySelection,
-      includeStatuses: balanceProbe?.includeStatuses?.length ? balanceProbe.includeStatuses : defaultBalanceProbe.includeStatuses,
+      primarySelection:
+        balanceProbe?.primarySelection === 'preferred_currency' ? 'preferred_currency' : defaultBalanceProbe.primarySelection,
       timeoutMs: positiveOrDefault(balanceProbe?.timeoutMs, defaultBalanceProbe.timeoutMs),
+      ...balanceProbeHTTPValuesFromStored(balanceProbe, balanceProbePreset, currentRow.baseURL ?? ''),
     },
     failurePolicy: currentRow.settings?.failurePolicy
       ? failurePolicyValuesFromStored(currentRow.settings.failurePolicy)
@@ -509,15 +697,49 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
 }
 
 function balanceProbeFromValues(values: KeysFormValues, existing?: ChannelBalanceProbe | null): ChannelBalanceProbe {
+  const keyInjection =
+    values.balanceProbe.keyInjectionLocation === 'header'
+      ? {
+          location: 'header' as const,
+          headerName: values.balanceProbe.keyInjectionHeaderName?.trim() || 'Authorization',
+        }
+      : {
+          location: 'authorization_bearer' as const,
+          headerName: null,
+        };
+  const path = values.balanceProbe.path?.trim() || balanceProbePresetHTTPDefaults(values.balanceProbe.preset).path || '';
+  const http: ChannelKeyHealthCheckHTTPRule | null = values.balanceProbe.sameAsChannelBaseURL
+    ? {
+        method: values.balanceProbe.method,
+        urlMode: 'provider_base_url',
+        path,
+        url: null,
+        timeoutMs: values.balanceProbe.timeoutMs,
+        headers: [],
+        keyInjection,
+        expectedStatuses: parseStatusList(values.balanceProbe.expectedStatuses || '200'),
+        passWhen: null,
+      }
+    : {
+        method: values.balanceProbe.method,
+        urlMode: 'absolute_url',
+        path: null,
+        url: composeAbsoluteProbeURL(values.balanceProbe.baseURL, path),
+        timeoutMs: values.balanceProbe.timeoutMs,
+        headers: [],
+        keyInjection,
+        expectedStatuses: parseStatusList(values.balanceProbe.expectedStatuses || '200'),
+        passWhen: null,
+      };
+
   return {
     enabled: values.balanceProbe.enabled,
     preset: values.balanceProbe.preset,
     experimental: values.balanceProbe.experimental,
     preferredCurrency: values.balanceProbe.preferredCurrency?.trim() || null,
     primarySelection: values.balanceProbe.primarySelection,
-    includeStatuses: values.balanceProbe.includeStatuses,
     timeoutMs: values.balanceProbe.timeoutMs,
-    http: existing?.http ?? null,
+    http: http.urlMode === 'absolute_url' && !http.url ? (existing?.http ?? null) : http,
   };
 }
 
@@ -956,6 +1178,322 @@ function KeyHistoryCharts({ history }: { history: ChannelKeyHealthCheckHistoryEn
         )}
       </div>
     </div>
+  );
+}
+
+function BalanceProbeEditor({
+  form,
+  disabled,
+  channelBaseURL,
+}: {
+  form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>;
+  disabled: boolean;
+  channelBaseURL: string;
+}) {
+  const { t } = useTranslation();
+  const selectedPrimarySelection = form.watch('balanceProbe.primarySelection');
+  const sameAsChannelBaseURL = form.watch('balanceProbe.sameAsChannelBaseURL');
+  const keyInjectionLocation = form.watch('balanceProbe.keyInjectionLocation');
+
+  const applyPresetDefaults = (preset: string) => {
+    form.setValue('balanceProbe.preset', preset, { shouldDirty: true, shouldValidate: true });
+    const defaults = balanceProbePresetHTTPDefaults(preset);
+    const fallbackPath = defaults.path ?? pathFromAbsoluteURL(defaults.url, '');
+    const defaultSameAsChannelBaseURL = defaults.urlMode !== 'absolute_url';
+
+    form.setValue('balanceProbe.sameAsChannelBaseURL', defaultSameAsChannelBaseURL, { shouldDirty: true, shouldValidate: true });
+    form.setValue('balanceProbe.method', defaults.method, { shouldDirty: true, shouldValidate: true });
+    form.setValue('balanceProbe.path', fallbackPath, { shouldDirty: true, shouldValidate: true });
+    form.setValue('balanceProbe.expectedStatuses', (defaults.expectedStatuses ?? [200]).join(', '), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue('balanceProbe.keyInjectionLocation', defaults.keyInjection?.location ?? 'authorization_bearer', {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue('balanceProbe.keyInjectionHeaderName', defaults.keyInjection?.headerName ?? '', {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+
+    form.setValue(
+      'balanceProbe.baseURL',
+      defaultSameAsChannelBaseURL ? channelBaseURL : baseURLFromAbsoluteURLAndPath(defaults.url, fallbackPath, channelBaseURL),
+      {
+        shouldDirty: true,
+        shouldValidate: true,
+      }
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('channels.dialogs.keys.balanceProbe.title')}</CardTitle>
+        <CardDescription>{t('channels.dialogs.keys.balanceProbe.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className='space-y-5'>
+        <div className='grid gap-4 md:grid-cols-2'>
+          <FormField
+            control={form.control}
+            name='balanceProbe.enabled'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+                <div>
+                  <FormLabel>{t('channels.dialogs.keys.balanceProbe.enabled.label')}</FormLabel>
+                  <FormDescription>{t('channels.dialogs.keys.balanceProbe.enabled.description')}</FormDescription>
+                </div>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.experimental'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+                <div>
+                  <FormLabel>{t('channels.dialogs.keys.balanceProbe.experimental.label')}</FormLabel>
+                  <FormDescription>{t('channels.dialogs.keys.balanceProbe.experimental.description')}</FormDescription>
+                </div>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className='grid gap-4 md:grid-cols-2'>
+          <FormField
+            control={form.control}
+            name='balanceProbe.preset'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.preset.label')}</FormLabel>
+                <Select value={field.value} onValueChange={applyPresetDefaults} disabled={disabled}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {BALANCE_PROBE_PRESET_OPTIONS.map((preset) => (
+                      <SelectItem key={preset} value={preset}>
+                        {t(`channels.dialogs.keys.balanceProbe.presets.${preset}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription>{t('channels.dialogs.keys.balanceProbe.preset.description')}</FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.sameAsChannelBaseURL'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+                <div>
+                  <FormLabel>{t('channels.dialogs.keys.balanceProbe.sameAsChannelBaseURL.label')}</FormLabel>
+                  <FormDescription>
+                    {t('channels.dialogs.keys.balanceProbe.sameAsChannelBaseURL.description', { baseURL: channelBaseURL || '-' })}
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={(checked) => {
+                      field.onChange(checked);
+                      if (checked) {
+                        form.setValue('balanceProbe.baseURL', channelBaseURL, { shouldDirty: true, shouldValidate: true });
+                      }
+                    }}
+                    disabled={disabled}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.baseURL'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.baseURL.label')}</FormLabel>
+                <FormControl>
+                  <Input
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder='https://api.provider.example'
+                    disabled={disabled || sameAsChannelBaseURL}
+                  />
+                </FormControl>
+                <FormDescription>{t('channels.dialogs.keys.balanceProbe.baseURL.description')}</FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.path'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.path.label')}</FormLabel>
+                <FormControl>
+                  <Input value={field.value ?? ''} onChange={field.onChange} placeholder='/credits' disabled={disabled} />
+                </FormControl>
+                <FormDescription>{t('channels.dialogs.keys.balanceProbe.path.description')}</FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.method'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.method.label')}</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const).map((method) => (
+                      <SelectItem key={method} value={method}>
+                        {method}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.expectedStatuses'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.expectedStatuses.label')}</FormLabel>
+                <FormControl>
+                  <Input value={field.value ?? ''} onChange={field.onChange} placeholder='200' disabled={disabled} />
+                </FormControl>
+                <FormDescription>{t('channels.dialogs.keys.balanceProbe.expectedStatuses.description')}</FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.keyInjectionLocation'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.keyInjection.label')}</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='authorization_bearer'>
+                      {t('channels.dialogs.keys.balanceProbe.keyInjection.authorization_bearer')}
+                    </SelectItem>
+                    <SelectItem value='header'>{t('channels.dialogs.keys.balanceProbe.keyInjection.header')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.keyInjectionHeaderName'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.keyInjection.headerName')}</FormLabel>
+                <FormControl>
+                  <Input
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder='x-api-key'
+                    disabled={disabled || keyInjectionLocation !== 'header'}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.primarySelection'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.primarySelection.label')}</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='auto_highest'>{t('channels.dialogs.keys.balanceProbe.primarySelection.auto_highest')}</SelectItem>
+                    <SelectItem value='preferred_currency'>
+                      {t('channels.dialogs.keys.balanceProbe.primarySelection.preferred_currency')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.preferredCurrency'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.preferredCurrency.label')}</FormLabel>
+                <FormControl>
+                  <Input
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder='USD'
+                    disabled={disabled || selectedPrimarySelection !== 'preferred_currency'}
+                  />
+                </FormControl>
+                <FormDescription>{t('channels.dialogs.keys.balanceProbe.preferredCurrency.description')}</FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.timeoutMs'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('channels.dialogs.keys.balanceProbe.timeoutMs.label')}</FormLabel>
+                <FormControl>
+                  <Input
+                    ref={field.ref}
+                    name={field.name}
+                    type='number'
+                    min={100}
+                    max={30000}
+                    value={field.value}
+                    onBlur={field.onBlur}
+                    onChange={(event) => field.onChange(event.target.value)}
+                    disabled={disabled}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <Alert>
+          <IconAlertTriangle className='h-4 w-4' />
+          <AlertDescription>{t('channels.dialogs.keys.balanceProbe.monitoringOwnership')}</AlertDescription>
+        </Alert>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1813,7 +2351,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     [visibleInventory]
   );
   const selectedStrategy = form.watch('strategy');
-  const selectedBalanceProbePrimarySelection = form.watch('balanceProbe.primarySelection');
   const isPending =
     keyInventory.isFetching ||
     addAPIKey.isPending ||
@@ -2015,9 +2552,11 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
           <Form {...form}>
             <Tabs defaultValue='inventory' className='min-h-0 flex-1'>
-              <TabsList className='grid w-full grid-cols-2'>
+              <TabsList className='grid w-full grid-cols-4'>
                 <TabsTrigger value='inventory'>{t('channels.dialogs.keys.tabs.inventory')}</TabsTrigger>
                 <TabsTrigger value='routing'>{t('channels.dialogs.keys.tabs.routing')}</TabsTrigger>
+                <TabsTrigger value='balanceProbe'>{t('channels.dialogs.keys.tabs.balanceProbe')}</TabsTrigger>
+                <TabsTrigger value='failurePolicy'>{t('channels.dialogs.keys.tabs.failurePolicy')}</TabsTrigger>
               </TabsList>
 
               <ScrollArea className='mt-4 h-[58vh] pr-3'>
@@ -2057,161 +2596,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                       </CardContent>
                     </Card>
                   </div>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>{t('channels.dialogs.keys.balanceProbe.title')}</CardTitle>
-                      <CardDescription>{t('channels.dialogs.keys.balanceProbe.description')}</CardDescription>
-                    </CardHeader>
-                    <CardContent className='space-y-4'>
-                      <div className='grid gap-4 md:grid-cols-2'>
-                        <FormField
-                          control={form.control}
-                          name='balanceProbe.enabled'
-                          render={({ field }) => (
-                            <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
-                              <div>
-                                <FormLabel>{t('channels.dialogs.keys.balanceProbe.enabled.label')}</FormLabel>
-                                <FormDescription>{t('channels.dialogs.keys.balanceProbe.enabled.description')}</FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch checked={field.value} onCheckedChange={field.onChange} disabled={isPending} />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name='balanceProbe.preset'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.preset.label')}</FormLabel>
-                              <Select value={field.value} onValueChange={field.onChange} disabled={isPending}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {BALANCE_PROBE_PRESETS.map((preset) => (
-                                    <SelectItem key={preset} value={preset}>
-                                      {t(`channels.dialogs.keys.balanceProbe.presets.${preset}`)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormDescription>{t('channels.dialogs.keys.balanceProbe.preset.description')}</FormDescription>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name='balanceProbe.primarySelection'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.primarySelection.label')}</FormLabel>
-                              <Select value={field.value} onValueChange={field.onChange} disabled={isPending}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value='highest_amount'>
-                                    {t('channels.dialogs.keys.balanceProbe.primarySelection.highest_amount')}
-                                  </SelectItem>
-                                  <SelectItem value='preferred_currency'>
-                                    {t('channels.dialogs.keys.balanceProbe.primarySelection.preferred_currency')}
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name='balanceProbe.preferredCurrency'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.preferredCurrency.label')}</FormLabel>
-                              <FormControl>
-                                <Input
-                                  value={field.value ?? ''}
-                                  onChange={field.onChange}
-                                  placeholder='USD'
-                                  disabled={isPending || selectedBalanceProbePrimarySelection !== 'preferred_currency'}
-                                />
-                              </FormControl>
-                              <FormDescription>{t('channels.dialogs.keys.balanceProbe.preferredCurrency.description')}</FormDescription>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name='balanceProbe.timeoutMs'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.balanceProbe.timeoutMs.label')}</FormLabel>
-                              <FormControl>
-                                <Input
-                                  ref={field.ref}
-                                  name={field.name}
-                                  type='number'
-                                  min={100}
-                                  max={30000}
-                                  value={field.value}
-                                  onBlur={field.onBlur}
-                                  onChange={(event) => field.onChange(event.target.value)}
-                                  disabled={isPending}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name='balanceProbe.experimental'
-                          render={({ field }) => (
-                            <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
-                              <div>
-                                <FormLabel>{t('channels.dialogs.keys.balanceProbe.experimental.label')}</FormLabel>
-                                <FormDescription>{t('channels.dialogs.keys.balanceProbe.experimental.description')}</FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch checked={field.value} onCheckedChange={field.onChange} disabled={isPending} />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      <FormField
-                        control={form.control}
-                        name='balanceProbe.includeStatuses'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('channels.dialogs.keys.balanceProbe.includeStatuses.label')}</FormLabel>
-                            <div className='flex flex-wrap gap-3 rounded-lg border p-3'>
-                              {KEY_STATUS_FILTERS.map((status) => (
-                                <label key={status} className='flex items-center gap-2 text-sm'>
-                                  <Checkbox
-                                    checked={(field.value ?? []).includes(status)}
-                                    onCheckedChange={(checked) =>
-                                      field.onChange(
-                                        checked ? [...(field.value ?? []), status] : (field.value ?? []).filter((item) => item !== status)
-                                      )
-                                    }
-                                    disabled={isPending}
-                                  />
-                                  <span>{t(`channels.dialogs.keys.status.${status}`)}</span>
-                                </label>
-                              ))}
-                            </div>
-                            <FormDescription>{t('channels.dialogs.keys.balanceProbe.includeStatuses.description')}</FormDescription>
-                          </FormItem>
-                        )}
-                      />
-                    </CardContent>
-                  </Card>
 
                   <Card>
                     <CardHeader>
@@ -2616,16 +3000,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                       </div>
                     </CardContent>
                   </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>{t('channels.dialogs.keys.failureStrategy.title')}</CardTitle>
-                      <CardDescription>{t('channels.dialogs.keys.failureStrategy.description')}</CardDescription>
-                    </CardHeader>
-                    <CardContent className='space-y-5'>
-                      <FailurePolicyEditor form={form} disabled={isPending} />
-                    </CardContent>
-                  </Card>
                 </TabsContent>
 
                 <TabsContent value='routing' className='mt-0 space-y-4'>
@@ -2720,6 +3094,22 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                           <div className='mt-1 text-sm'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.description`)}</div>
                         </AlertDescription>
                       </Alert>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value='balanceProbe' className='mt-0 space-y-4'>
+                  <BalanceProbeEditor form={form} disabled={isPending} channelBaseURL={currentRow.baseURL ?? ''} />
+                </TabsContent>
+
+                <TabsContent value='failurePolicy' className='mt-0 space-y-4'>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{t('channels.dialogs.keys.failureStrategy.title')}</CardTitle>
+                      <CardDescription>{t('channels.dialogs.keys.failureStrategy.description')}</CardDescription>
+                    </CardHeader>
+                    <CardContent className='space-y-5'>
+                      <FailurePolicyEditor form={form} disabled={isPending} />
                     </CardContent>
                   </Card>
                 </TabsContent>

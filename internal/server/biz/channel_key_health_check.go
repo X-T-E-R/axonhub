@@ -630,9 +630,19 @@ func (svc *ChannelService) runHTTPChannelKeyHealthCheck(ctx context.Context, ch 
 }
 
 func buildChannelKeyHealthCheckHTTPURL(ctx context.Context, baseURL string, rule objects.ChannelKeyHealthCheckHTTPRule) (string, error) {
+	return buildChannelKeyHealthCheckHTTPURLWithOriginPolicy(ctx, baseURL, rule, true)
+}
+
+func buildBalanceProbeHTTPURL(ctx context.Context, baseURL string, rule objects.ChannelKeyHealthCheckHTTPRule) (string, error) {
+	return buildChannelKeyHealthCheckHTTPURLWithOriginPolicy(ctx, baseURL, rule, false)
+}
+
+func buildChannelKeyHealthCheckHTTPURLWithOriginPolicy(ctx context.Context, baseURL string, rule objects.ChannelKeyHealthCheckHTTPRule, requireBaseOrigin bool) (string, error) {
 	if rule.URLMode == objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL {
-		if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, rule.URL); err != nil {
-			return "", err
+		if requireBaseOrigin {
+			if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, rule.URL); err != nil {
+				return "", err
+			}
 		}
 		u, err := validateChannelKeyHealthCheckAbsoluteURL(ctx, rule.URL)
 		if err != nil {
@@ -1497,6 +1507,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	if err := authz.RequireScope(ctx, scopes.ScopeWriteChannels); err != nil {
 		return nil, err
 	}
+	ctx = authz.WithScopeDecision(ctx, scopes.ScopeWriteChannels)
 
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
 	if err != nil {

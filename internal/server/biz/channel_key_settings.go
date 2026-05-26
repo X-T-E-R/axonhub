@@ -204,12 +204,14 @@ func ValidateChannelBalanceProbe(probe *objects.ChannelBalanceProbe) error {
 		return fmt.Errorf("balance probe timeoutMs must be between 0 and %d", maxChannelKeyHealthCheckHTTPTimeoutMs)
 	}
 	if probe.Preset != "" {
-		spec, ok := channelBalanceProbePresetByID(probe.Preset)
-		if !ok {
-			return fmt.Errorf("unsupported balance probe preset %q", probe.Preset)
-		}
-		if spec.Experimental && !probe.Experimental {
-			return fmt.Errorf("balance probe preset %q is experimental and requires explicit opt-in", probe.Preset)
+		if probe.Preset != objects.ChannelBalanceProbePresetCustom {
+			spec, ok := channelBalanceProbePresetByID(probe.Preset)
+			if !ok {
+				return fmt.Errorf("unsupported balance probe preset %q", probe.Preset)
+			}
+			if spec.Experimental && !probe.Experimental {
+				return fmt.Errorf("balance probe preset %q is experimental and requires explicit opt-in", probe.Preset)
+			}
 		}
 	}
 	if probe.HTTP != nil {
@@ -445,13 +447,6 @@ func validateChannelKeyHealthCheckURLsForBaseURL(baseURL string, settings *objec
 			}
 		}
 	}
-	if settings.BalanceProbe != nil && settings.BalanceProbe.HTTP != nil &&
-		settings.BalanceProbe.HTTP.URLMode == objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL {
-		if err := validateChannelKeyHealthCheckAbsoluteURLMatchesBaseURL(baseURL, settings.BalanceProbe.HTTP.URL); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 

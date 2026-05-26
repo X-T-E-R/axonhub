@@ -376,6 +376,7 @@ const (
 	ChannelBalanceProbePresetMoonshot    ChannelBalanceProbePreset = "moonshot_balance"
 	ChannelBalanceProbePresetOpenRouter  ChannelBalanceProbePreset = "openrouter_credits"
 	ChannelBalanceProbePresetNanoGPT     ChannelBalanceProbePreset = "nanogpt_check_balance"
+	ChannelBalanceProbePresetCustom      ChannelBalanceProbePreset = "custom"
 )
 
 type ChannelBalancePrimarySelection string

@@ -196,7 +196,6 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
     experimental
     preferredCurrency
     primarySelection
-    includeStatuses
     timeoutMs
     http {
       method

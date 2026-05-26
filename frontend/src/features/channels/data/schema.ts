@@ -347,7 +347,7 @@ export const channelKeyHealthCheckHTTPRuleSchema = z.object({
 });
 export type ChannelKeyHealthCheckHTTPRule = z.infer<typeof channelKeyHealthCheckHTTPRuleSchema>;
 
-export const channelBalanceProbePrimarySelectionSchema = z.enum(['highest_amount', 'preferred_currency']);
+export const channelBalanceProbePrimarySelectionSchema = z.enum(['auto_highest', 'preferred_currency']);
 export type ChannelBalanceProbePrimarySelection = z.infer<typeof channelBalanceProbePrimarySelectionSchema>;
 
 export const channelBalanceProbeSchema = z.object({
