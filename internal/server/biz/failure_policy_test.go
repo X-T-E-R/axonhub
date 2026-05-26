@@ -179,6 +179,68 @@ func TestRequestFailurePolicyReportOnlyRecordsKeyHistory(t *testing.T) {
 	require.NotContains(t, string(rawHistory), apiKey)
 }
 
+func TestRequestFailurePolicyDisableKeyUpdatesInventoryState(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	apiKey := "sk-disable-secret"
+	minFailures := 1
+	ch := client.Channel.Create().
+		SetName("Request Disable Policy").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{apiKey, "sk-spare-secret"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{HistoryLimit: 10},
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				KeyProfiles: []objects.FailurePolicyProfile{{
+					ID:      "request-disable",
+					Name:    "Request disable",
+					Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						MinFailureCount: &minFailures,
+						StatusCodes:     []int{http.StatusUnauthorized},
+					},
+					Actions: []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDisableKey}},
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	svc := NewChannelServiceForTest(client)
+	changed := svc.handleRequestFailurePolicy(ctx, &PerformanceRecord{
+		ChannelID:          ch.ID,
+		APIKey:             apiKey,
+		ResponseStatusCode: http.StatusUnauthorized,
+		Success:            false,
+	}, &RetryPolicy{})
+	require.True(t, changed)
+
+	updated := client.Channel.GetX(ctx, ch.ID)
+	require.Len(t, updated.DisabledAPIKeys, 1)
+	require.Equal(t, apiKey, updated.DisabledAPIKeys[0].Key)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 1)
+	require.Equal(t, string(objects.FailurePolicyActionDisableKey), updated.Settings.KeyHealthCheck.KeyMetadata[0].Action)
+
+	items, err := svc.ChannelAPIKeyInventory(ctx, ch.ID)
+	require.NoError(t, err)
+	var disabled *ChannelAPIKeyInventoryItem
+	for _, item := range items {
+		if item.ID == objects.ChannelAPIKeyFingerprint(apiKey) {
+			disabled = item
+			break
+		}
+	}
+	require.NotNil(t, disabled)
+	require.Equal(t, objects.ChannelKeyStatusDisabled, disabled.Status)
+	require.Equal(t, "Request disable", disabled.MatchedPolicy)
+	require.Equal(t, string(objects.FailurePolicyActionDisableKey), disabled.Action)
+}
+
 func TestRequestFailurePolicyBackoffRecordsHistoryAndNextCheckAt(t *testing.T) {
 	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
 	defer client.Close()

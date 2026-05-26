@@ -588,7 +588,7 @@ func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.Chann
 	if meta.MaskedKey != "" {
 		item.MaskedKey = meta.MaskedKey
 	}
-	if meta.Status != "" {
+	if item.Status == "" && meta.Status != "" {
 		item.Status = meta.Status
 	}
 	item.LastCheckedAt = meta.LastCheckedAt

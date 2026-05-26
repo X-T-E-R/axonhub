@@ -130,7 +130,23 @@ func channelBalanceProbeSpecForChannel(ch *ent.Channel) (balanceProbePresetSpec,
 	if ch.Settings != nil {
 		probe = ch.Settings.BalanceProbe
 	}
+	customSpec := func() (balanceProbePresetSpec, *objects.ChannelBalanceProbe, bool) {
+		if probe == nil || probe.HTTP == nil {
+			return balanceProbePresetSpec{}, probe, false
+		}
+
+		return balanceProbePresetSpec{
+			ID:       objects.ChannelBalanceProbePresetCustom,
+			Provider: ch.Type,
+			Name:     "Custom balance probe",
+			HTTP:     *probe.HTTP,
+			Parse:    parseGenericBalanceSnapshot,
+		}, probe, true
+	}
 	if probe != nil && probe.Preset != "" {
+		if probe.Preset == objects.ChannelBalanceProbePresetCustom {
+			return customSpec()
+		}
 		spec, ok := channelBalanceProbePresetByID(probe.Preset)
 		if !ok || (spec.Experimental && !probe.Experimental) {
 			return balanceProbePresetSpec{}, probe, false
@@ -140,7 +156,11 @@ func channelBalanceProbeSpecForChannel(ch *ent.Channel) (balanceProbePresetSpec,
 	}
 
 	spec, ok := channelBalanceProbePresetForChannelType(ch.Type)
-	return spec, probe, ok
+	if ok {
+		return spec, probe, true
+	}
+
+	return customSpec()
 }
 
 func (svc *ChannelService) runChannelKeyBalanceProbe(ctx context.Context, ch *ent.Channel, key string, trigger objects.ChannelKeyHealthCheckTrigger) ChannelKeyHealthCheckResult {
@@ -197,7 +217,7 @@ func (svc *ChannelService) runChannelKeyBalanceProbe(ctx context.Context, ch *en
 }
 
 func (svc *ChannelService) executeChannelKeyProbeHTTP(ctx context.Context, ch *ent.Channel, key string, rule objects.ChannelKeyHealthCheckHTTPRule) (*httpclient.Response, ChannelKeyHealthCheckResult) {
-	targetURL, err := buildChannelKeyHealthCheckHTTPURL(ctx, ch.BaseURL, rule)
+	targetURL, err := buildBalanceProbeHTTPURL(ctx, ch.BaseURL, rule)
 	if err != nil {
 		return nil, ChannelKeyHealthCheckResult{Success: false, Reason: err.Error()}
 	}
@@ -399,6 +419,45 @@ func parseNanoGPTBalanceSnapshot(body []byte, statusCode int) objects.ChannelKey
 	snapshot.RawSummary = safeSummary(payload, "usd_balance", "nano_balance")
 	addBalanceAmount(&snapshot.Components, payload, "usd_balance", "USD", objects.BalanceAmountKindAvailable, "USD balance")
 	addBalanceAmount(&snapshot.Components, payload, "nano_balance", "NANO", objects.BalanceAmountKindAvailable, "NANO balance")
+
+	return snapshot
+}
+
+func parseGenericBalanceSnapshot(body []byte, statusCode int) objects.ChannelKeyBalanceSnapshot {
+	payload := decodeBalanceProbeJSON(body)
+	data := mapAt(payload, "data")
+	if len(data) == 0 {
+		data = payload
+	}
+	currency := firstString(
+		stringAt(data, "currency"),
+		stringAt(data, "balance_currency"),
+		stringAt(data, "credit_currency"),
+		stringAt(payload, "currency"),
+	)
+
+	snapshot := baseBalanceSnapshot(statusCode)
+	snapshot.Available = boolFromAny(firstNonNil(
+		valueAt(data, "available"),
+		valueAt(data, "is_available"),
+		valueAt(data, "enabled"),
+		valueAt(payload, "available"),
+		valueAt(payload, "is_available"),
+	))
+	snapshot.AccountID = firstString(stringAt(data, "id"), stringAt(data, "account_id"))
+	snapshot.AccountStatus = firstString(stringAt(data, "status"), stringAt(data, "account_status"))
+	snapshot.RawSummary = safeSummary(data, "id", "account_id", "status", "account_status", "currency")
+	addBalanceAmount(&snapshot.Components, data, "balance", currency, objects.BalanceAmountKindAvailable, "balance")
+	addBalanceAmount(&snapshot.Components, data, "available_balance", currency, objects.BalanceAmountKindAvailable, "available")
+	addBalanceAmount(&snapshot.Components, data, "available", currency, objects.BalanceAmountKindAvailable, "available")
+	addBalanceAmount(&snapshot.Components, data, "credits", currency, objects.BalanceAmountKindAvailable, "credits")
+	addBalanceAmount(&snapshot.Components, data, "credit", currency, objects.BalanceAmountKindAvailable, "credit")
+	addBalanceAmount(&snapshot.Components, data, "total_balance", currency, objects.BalanceAmountKindTotal, "total")
+	addBalanceAmount(&snapshot.Components, data, "total", currency, objects.BalanceAmountKindTotal, "total")
+	addBalanceAmount(&snapshot.Components, data, "remaining", currency, objects.BalanceAmountKindRemaining, "remaining")
+	if snapshot.Available != nil && !*snapshot.Available {
+		snapshot.Success = false
+	}
 
 	return snapshot
 }

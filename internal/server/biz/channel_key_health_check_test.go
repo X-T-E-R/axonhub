@@ -859,6 +859,19 @@ func TestChannelService_RunManualHealthCheckRequiresWriteBeforeOutbound(t *testi
 	_, err = svc.RunChannelAPIKeyHealthCheck(runCtx, ch.ID, nil)
 	require.ErrorContains(t, err, string(scopes.ScopeWriteChannels))
 	require.Equal(t, int32(0), hits.Load())
+
+	writeOnlyUser := &ent.User{
+		ID:     12346,
+		Scopes: []string{string(scopes.ScopeWriteChannels)},
+	}
+	writeCtx := ent.NewContext(context.Background(), client)
+	writeCtx = contexts.WithUser(writeCtx, writeOnlyUser)
+	writeCtx = authz.NewUserContext(writeCtx, writeOnlyUser.ID)
+
+	items, err := svc.RunChannelAPIKeyHealthCheck(writeCtx, ch.ID, nil)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, int32(1), hits.Load())
 }
 
 func TestChannelService_HealthCheckFailureActionPreservesLastKeyOnDelete(t *testing.T) {

@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -91,6 +93,36 @@ func TestBalanceProbeProviderParsersNormalizeKnownShapes(t *testing.T) {
 	}
 }
 
+func TestBalanceProbeCustomPresetUsesHTTPOverrideAndGenericParser(t *testing.T) {
+	spec, probe, ok := channelBalanceProbeSpecForChannel(&ent.Channel{
+		Type:    channel.TypeOpenai,
+		BaseURL: "https://api.example.com/v1",
+		Settings: &objects.ChannelSettings{BalanceProbe: &objects.ChannelBalanceProbe{
+			Preset: objects.ChannelBalanceProbePresetCustom,
+			HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+				Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+				URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+				Path:             "/billing/balance",
+				ExpectedStatuses: []int{http.StatusOK},
+			},
+		}},
+	})
+	require.True(t, ok)
+	require.NotNil(t, probe)
+	require.Equal(t, objects.ChannelBalanceProbePresetCustom, spec.ID)
+	require.Equal(t, "/billing/balance", spec.HTTP.Path)
+
+	snapshot := spec.Parse([]byte(`{"data":{"balance":"12.75","currency":"USD","available":true}}`), http.StatusOK)
+	selectChannelBalancePrimary(&snapshot, "")
+	require.True(t, snapshot.Success)
+	require.NotNil(t, snapshot.Available)
+	require.True(t, *snapshot.Available)
+	require.NotNil(t, snapshot.PrimaryBalance)
+	require.Equal(t, 12.75, snapshot.PrimaryBalance.Amount)
+	require.Equal(t, "USD", snapshot.PrimaryBalance.Currency)
+	require.NoError(t, ValidateChannelBalanceProbe(probe))
+}
+
 func TestBalanceProbePresetURLStrategiesUseProviderBaseWhenEndpointIsUnderBasePath(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -165,6 +197,17 @@ func TestBalanceProbePresetsKeepRootPathEndpointsAbsolute(t *testing.T) {
 	}
 }
 
+func TestBalanceProbeAbsoluteURLAllowsProviderOwnedExternalBase(t *testing.T) {
+	rule := objects.ChannelKeyHealthCheckHTTPRule{
+		URLMode: objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+		URL:     "https://93.184.216.34/custom/balance",
+	}
+
+	got, err := buildBalanceProbeHTTPURL(context.Background(), "https://api.example.com/v1", rule)
+	require.NoError(t, err)
+	require.Equal(t, "https://93.184.216.34/custom/balance", got)
+}
+
 func TestRunChannelAPIKeyHealthCheckPrefersBalanceProbeAndStoresSnapshot(t *testing.T) {
 	disableChannelKeyHealthCheckDelays(t)
 
@@ -220,6 +263,53 @@ func TestRunChannelAPIKeyHealthCheckPrefersBalanceProbeAndStoresSnapshot(t *test
 	require.Equal(t, "USD", items[0].BalanceSnapshot.PrimaryBalance.Currency)
 	require.Equal(t, 42.0, items[0].Balance)
 	require.Equal(t, "USD", items[0].Currency)
+}
+
+func TestUpdateChannelAllowsWriteOnlyAdminToSaveCustomBalanceProbe(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	setupCtx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Custom Balance Save").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://api.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"sk-custom-save"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{KeyHealthCheck: &objects.ChannelKeyHealthCheck{}}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	writeOnlyUser := &ent.User{
+		ID:     45678,
+		Scopes: []string{string(scopes.ScopeWriteChannels)},
+	}
+	writeCtx := ent.NewContext(context.Background(), client)
+	writeCtx = contexts.WithUser(writeCtx, writeOnlyUser)
+	writeCtx = authz.NewUserContext(writeCtx, writeOnlyUser.ID)
+
+	updated, err := svc.UpdateChannel(writeCtx, ch.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			BalanceProbe: &objects.ChannelBalanceProbe{
+				Enabled: true,
+				Preset:  objects.ChannelBalanceProbePresetCustom,
+				HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+					Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+					URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+					Path:             "/balance",
+					ExpectedStatuses: []int{http.StatusOK},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Settings)
+	require.NotNil(t, updated.Settings.BalanceProbe)
+	require.True(t, updated.Settings.BalanceProbe.Enabled)
+	require.Equal(t, objects.ChannelBalanceProbePresetCustom, updated.Settings.BalanceProbe.Preset)
+	require.Equal(t, "/balance", updated.Settings.BalanceProbe.HTTP.Path)
 }
 
 func TestFailurePolicyBalanceProbeSourcesAndThresholds(t *testing.T) {

@@ -229,6 +229,7 @@ enum ChannelBalanceProbePreset {
   moonshot_balance
   openrouter_credits
   nanogpt_check_balance
+  custom
 }
 
 enum ChannelBalancePrimarySelection {

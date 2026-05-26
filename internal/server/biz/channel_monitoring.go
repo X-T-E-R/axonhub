@@ -173,9 +173,6 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 
 	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
 	keyStatuses := rule.Targets.KeyStatuses
-	if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe && settings.BalanceProbe != nil && len(settings.BalanceProbe.IncludeStatuses) > 0 {
-		keyStatuses = settings.BalanceProbe.IncludeStatuses
-	}
 	targets := monitoringRuleTargetKeys(ch, keyStatuses)
 	if len(targets) == 0 {
 		return channelKeyHealthCheckChannelResult{}, nil
