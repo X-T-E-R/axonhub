@@ -102,6 +102,10 @@ func (h *RequestPreviewHandlers) PreviewRequest(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, errors.New("Project ID not found in context"))
 		return
 	}
+	if !currentUserCanReadProjectRequests(ctx, projectID) {
+		JSONError(c, http.StatusForbidden, errors.New("permission denied"))
+		return
+	}
 
 	var uri DownloadContentRequest
 	if err := c.ShouldBindUri(&uri); err != nil {

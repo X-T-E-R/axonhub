@@ -206,6 +206,32 @@ func TestRequestPreviewHandlers_FallbackToStaticFetchPreservesAnnotationChunks(t
 	require.JSONEq(t, `{"event":"","data":{"id":"chatcmpl-preview","object":"chat.completion.chunk","model":"sonar-deep-research","choices":[{"index":0,"delta":{"content":"Source","annotations":[{"type":"url_citation","start_index":0,"end_index":6,"url_citation":{"url":"https://example.com/result","title":"Example Result"}}]}}]}}`, string(body.ResponseChunks[0]))
 }
 
+func TestRequestPreviewHandlers_RejectsProjectMemberWithoutReadRequests(t *testing.T) {
+	setup := newRequestPreviewTestSetup(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		requestCtx := ent.NewContext(c.Request.Context(), setup.client)
+		requestCtx = contexts.WithUser(requestCtx, &ent.User{
+			ID: 2,
+			Edges: ent.UserEdges{
+				ProjectUsers: []*ent.UserProject{
+					{ProjectID: setup.req.ProjectID, Scopes: []string{}},
+				},
+			},
+		})
+		requestCtx = contexts.WithProjectID(requestCtx, setup.req.ProjectID)
+		c.Request = c.Request.WithContext(requestCtx)
+		c.Next()
+	})
+	router.GET("/admin/requests/:request_id/preview", (&RequestPreviewHandlers{}).PreviewRequest)
+
+	resp := performPreviewRequest(t, router, setup.req.ID)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
 type requestPreviewTestSetup struct {
 	client             *ent.Client
 	ctx                context.Context

@@ -71,6 +71,81 @@ interface Props {
 const MAX_MODELS_DISPLAY = 2;
 
 const duplicateNameRegex = /^(.*) \((\d+)\)$/;
+const AXONHUB_CHANNEL_TYPES: ChannelType[] = ['axonhub'];
+
+const isAxonHubChannelType = (channelType?: ChannelType | null) => {
+  return !!channelType && AXONHUB_CHANNEL_TYPES.includes(channelType);
+};
+
+type AxonHubBehaviorPreset = 'lowLatency' | 'standard' | 'audit' | 'fullDebug';
+
+type AxonHubBehaviorSettings = {
+  passThroughUserAgent: boolean | null;
+  passThroughBody: boolean | null;
+  disableRetries: boolean;
+  fullPassThrough: boolean;
+  storeExecutionRequestBody: boolean | null;
+  storeExecutionResponseBody: boolean | null;
+  storeExecutionStreamChunks: boolean | null;
+};
+
+const AXONHUB_BEHAVIOR_PRESETS: Record<AxonHubBehaviorPreset, AxonHubBehaviorSettings> = {
+  lowLatency: {
+    passThroughUserAgent: false,
+    passThroughBody: true,
+    disableRetries: true,
+    fullPassThrough: true,
+    storeExecutionRequestBody: false,
+    storeExecutionResponseBody: false,
+    storeExecutionStreamChunks: false,
+  },
+  standard: {
+    passThroughUserAgent: null,
+    passThroughBody: true,
+    disableRetries: false,
+    fullPassThrough: true,
+    storeExecutionRequestBody: null,
+    storeExecutionResponseBody: null,
+    storeExecutionStreamChunks: null,
+  },
+  audit: {
+    passThroughUserAgent: null,
+    passThroughBody: false,
+    disableRetries: false,
+    fullPassThrough: true,
+    storeExecutionRequestBody: true,
+    storeExecutionResponseBody: true,
+    storeExecutionStreamChunks: false,
+  },
+  fullDebug: {
+    passThroughUserAgent: true,
+    passThroughBody: true,
+    disableRetries: true,
+    fullPassThrough: true,
+    storeExecutionRequestBody: true,
+    storeExecutionResponseBody: true,
+    storeExecutionStreamChunks: true,
+  },
+};
+
+const AXONHUB_BEHAVIOR_PRESET_OPTIONS = Object.keys(AXONHUB_BEHAVIOR_PRESETS) as AxonHubBehaviorPreset[];
+
+function getAxonHubBehaviorPresetValue(settings: AxonHubBehaviorSettings): AxonHubBehaviorPreset | 'custom' {
+  const matched = AXONHUB_BEHAVIOR_PRESET_OPTIONS.find((preset) => {
+    const presetSettings = AXONHUB_BEHAVIOR_PRESETS[preset];
+    return (
+      presetSettings.passThroughUserAgent === settings.passThroughUserAgent &&
+      presetSettings.passThroughBody === settings.passThroughBody &&
+      presetSettings.disableRetries === settings.disableRetries &&
+      presetSettings.fullPassThrough === settings.fullPassThrough &&
+      presetSettings.storeExecutionRequestBody === settings.storeExecutionRequestBody &&
+      presetSettings.storeExecutionResponseBody === settings.storeExecutionResponseBody &&
+      presetSettings.storeExecutionStreamChunks === settings.storeExecutionStreamChunks
+    );
+  });
+
+  return matched ?? 'custom';
+}
 
 // Custom hook for debounced value
 function useDebounce<T>(value: T, delay: number): T {
@@ -208,16 +283,6 @@ function isOfficialCodexChannel(channel: { credentials?: { apiKey?: string } }):
   }
 }
 
-function isCodexAuthJSONChannel(channel: { credentials?: { apiKey?: string } }): boolean {
-  try {
-    const apiKey = channel.credentials?.apiKey || '';
-    const json = JSON.parse(apiKey);
-    return !!(json.tokens?.access_token && json.tokens?.refresh_token);
-  } catch {
-    return false;
-  }
-}
-
 function isOfficialClaudeCodeChannel(channel: { credentials?: { apiKey?: string }; baseURL: string }): boolean {
   const apiKey = channel.credentials?.apiKey || '';
   const defaultURL = getDefaultBaseURL('claudecode');
@@ -274,16 +339,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const [selectedKeysToRemove, setSelectedKeysToRemove] = useState<Set<string>>(new Set());
   const [confirmRemoveSelectedOpen, setConfirmRemoveSelectedOpen] = useState(false);
   const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
-  const [showGcpJsonData, setShowGcpJsonData] = useState(false);
   const [authMode, setAuthMode] = useState<'official' | 'auth-json' | 'third-party'>('official');
   const [codexAuthJSONText, setCodexAuthJSONText] = useState('');
   const [patternError, setPatternError] = useState<string | null>(null);
-  const dialogContentRef = useRef<HTMLDivElement>(null);
 
   // Debounced search values for better performance
   const debouncedFetchedModelsSearch = useDebounce(fetchedModelsSearch, 300);
   const debouncedSupportedModelsSearch = useDebounce(supportedModelsSearch, 300);
-  const debouncedApiKeysSearch = useDebounce(apiKeysSearch, 300);
 
   // Refs for virtual scrolling
   const fetchedModelsParentRef = useRef<HTMLDivElement>(null);
@@ -303,6 +365,17 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   });
   const [passThroughBody, setPassThroughBody] = useState<boolean | null>(() => {
     return initialRow?.settings?.passThroughBody ?? null;
+  });
+  const [disableRetries, setDisableRetries] = useState(() => initialRow?.settings?.disableRetries ?? false);
+  const [fullPassThrough, setFullPassThrough] = useState(() => initialRow?.settings?.fullPassThrough ?? false);
+  const [storeExecutionRequestBody, setStoreExecutionRequestBody] = useState<boolean | null>(() => {
+    return initialRow?.settings?.storeExecutionRequestBody ?? null;
+  });
+  const [storeExecutionResponseBody, setStoreExecutionResponseBody] = useState<boolean | null>(() => {
+    return initialRow?.settings?.storeExecutionResponseBody ?? null;
+  });
+  const [storeExecutionStreamChunks, setStoreExecutionStreamChunks] = useState<boolean | null>(() => {
+    return initialRow?.settings?.storeExecutionStreamChunks ?? null;
   });
 
   // Memoized proxy config for OAuth exchange
@@ -399,6 +472,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     setUseGeminiVertex(initialRow.type === 'gemini_vertex');
     setUseAnthropicAws(initialRow.type === 'anthropic_aws');
     setUseKimiCoding(initialRow.type === 'moonshot_coding');
+    setPassThroughUserAgent(initialRow.settings?.passThroughUserAgent ?? null);
+    setPassThroughBody(initialRow.settings?.passThroughBody ?? null);
+    setDisableRetries(initialRow.settings?.disableRetries ?? false);
+    setFullPassThrough(initialRow.settings?.fullPassThrough ?? false);
+    setStoreExecutionRequestBody(initialRow.settings?.storeExecutionRequestBody ?? null);
+    setStoreExecutionResponseBody(initialRow.settings?.storeExecutionResponseBody ?? null);
+    setStoreExecutionStreamChunks(initialRow.settings?.storeExecutionStreamChunks ?? null);
 
     // Detect authMode for codex and claudecode
     if (initialRow.type === 'codex') {
@@ -619,8 +699,40 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const isAntigravityType = (selectedType || derivedChannelType) === 'antigravity';
   const isClaudeCodeType = (selectedType || derivedChannelType) === 'claudecode';
   const isCopilotType = (selectedType || derivedChannelType) === 'github_copilot';
+  const isAxonHubType = isAxonHubChannelType(selectedType || derivedChannelType);
 
+  const axonHubBehaviorPresetValue = useMemo(
+    () =>
+      getAxonHubBehaviorPresetValue({
+        passThroughUserAgent,
+        passThroughBody,
+        disableRetries,
+        fullPassThrough,
+        storeExecutionRequestBody,
+        storeExecutionResponseBody,
+        storeExecutionStreamChunks,
+      }),
+    [
+      passThroughUserAgent,
+      passThroughBody,
+      disableRetries,
+      fullPassThrough,
+      storeExecutionRequestBody,
+      storeExecutionResponseBody,
+      storeExecutionStreamChunks,
+    ]
+  );
 
+  const applyAxonHubBehaviorPreset = useCallback((preset: AxonHubBehaviorPreset) => {
+    const presetSettings = AXONHUB_BEHAVIOR_PRESETS[preset];
+    setPassThroughUserAgent(presetSettings.passThroughUserAgent);
+    setPassThroughBody(presetSettings.passThroughBody);
+    setDisableRetries(presetSettings.disableRetries);
+    setFullPassThrough(presetSettings.fullPassThrough);
+    setStoreExecutionRequestBody(presetSettings.storeExecutionRequestBody);
+    setStoreExecutionResponseBody(presetSettings.storeExecutionResponseBody);
+    setStoreExecutionStreamChunks(presetSettings.storeExecutionStreamChunks);
+  }, []);
 
   // OAuth providers cannot have their provider/API format changed during edit.
   // Derived from currentRow credentials so it stays stable across re-renders
@@ -723,6 +835,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       if (newChannelType) {
         form.setValue('type', newChannelType);
         if (!isEdit) {
+          if (isAxonHubChannelType(newChannelType)) {
+            applyAxonHubBehaviorPreset('lowLatency');
+          }
           if (!isDuplicate) {
             const baseURL = getDefaultBaseURL(newChannelType);
             if (baseURL) {
@@ -734,7 +849,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, selectedApiFormat, isOAuthChannel]
+    [form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, selectedApiFormat, isOAuthChannel, applyAxonHubBehaviorPreset]
   );
 
   const handleApiFormatChange = useCallback(
@@ -767,6 +882,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         form.setValue('type', newChannelType);
 
         if (!isEdit) {
+          if (isAxonHubChannelType(newChannelType)) {
+            applyAxonHubBehaviorPreset('lowLatency');
+          }
           const baseURLFieldState = form.getFieldState('baseURL', form.formState);
           if (!baseURLFieldState.isDirty && !isDuplicate) {
             const baseURL = getDefaultBaseURL(newChannelType);
@@ -777,7 +895,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [selectedProvider, form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, isOAuthChannel]
+    [selectedProvider, form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, isOAuthChannel, applyAxonHubBehaviorPreset]
   );
 
   const handleGeminiVertexChange = useCallback(
@@ -868,7 +986,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       antigravity: 'antigravity',
     };
 
-    let channelTypeForURL: ChannelType | undefined = providerToChannelType[selectedProvider];
+    const channelTypeForURL: ChannelType | undefined = providerToChannelType[selectedProvider];
 
     if (channelTypeForURL) {
       const baseURL = getDefaultBaseURL(channelTypeForURL);
@@ -984,6 +1102,11 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         const nextSettings = mergeChannelSettingsForUpdate(values.settings, {
           passThroughUserAgent,
           passThroughBody,
+          disableRetries,
+          fullPassThrough: isAxonHubChannelType(valuesForSubmit.type) ? fullPassThrough : false,
+          storeExecutionRequestBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionRequestBody : null,
+          storeExecutionResponseBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionResponseBody : null,
+          storeExecutionStreamChunks: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionStreamChunks : null,
         });
 
         const updateInput = {
@@ -1026,6 +1149,11 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           proxy: proxyConfig,
           passThroughUserAgent,
           passThroughBody,
+          disableRetries,
+          fullPassThrough: isAxonHubChannelType(valuesForSubmit.type) ? fullPassThrough : false,
+          storeExecutionRequestBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionRequestBody : null,
+          storeExecutionResponseBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionResponseBody : null,
+          storeExecutionStreamChunks: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionStreamChunks : null,
         });
 
         await createChannel.mutateAsync({
@@ -1441,6 +1569,11 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             setProxyPassword(initialRow?.settings?.proxy?.password || '');
             setPassThroughUserAgent(initialRow?.settings?.passThroughUserAgent ?? null);
             setPassThroughBody(initialRow?.settings?.passThroughBody ?? null);
+            setDisableRetries(initialRow?.settings?.disableRetries ?? false);
+            setFullPassThrough(initialRow?.settings?.fullPassThrough ?? false);
+            setStoreExecutionRequestBody(initialRow?.settings?.storeExecutionRequestBody ?? null);
+            setStoreExecutionResponseBody(initialRow?.settings?.storeExecutionResponseBody ?? null);
+            setStoreExecutionStreamChunks(initialRow?.settings?.storeExecutionStreamChunks ?? null);
             // Reset provider and API format state
             if (initialRow) {
               setSelectedProvider(getProviderFromChannelType(initialRow.type) || 'openai');
@@ -2323,52 +2456,285 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         )}
                       />
 
-                      <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
-                        <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
-                          {t('channels.dialogs.userAgentPassThrough.label')}
-                        </FormLabel>
-                        <div className='space-y-1 md:col-span-6'>
-                          <Select
-                            value={passThroughUserAgent === null ? 'inherit' : passThroughUserAgent ? 'enabled' : 'disabled'}
-                            onValueChange={(value) => setPassThroughUserAgent(value === 'inherit' ? null : value === 'enabled')}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('channels.dialogs.userAgentPassThrough.inherit')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='inherit'>{t('channels.dialogs.userAgentPassThrough.inherit')}</SelectItem>
-                              <SelectItem value='enabled'>{t('channels.dialogs.userAgentPassThrough.enabled')}</SelectItem>
-                              <SelectItem value='disabled'>{t('channels.dialogs.userAgentPassThrough.disabled')}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </FormItem>
+                      {!isAxonHubType && (
+                        <>
+                          <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                            <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                              {t('channels.dialogs.userAgentPassThrough.label')}
+                            </FormLabel>
+                            <div className='space-y-1 md:col-span-6'>
+                              <Select
+                                value={passThroughUserAgent === null ? 'inherit' : passThroughUserAgent ? 'enabled' : 'disabled'}
+                                onValueChange={(value) => setPassThroughUserAgent(value === 'inherit' ? null : value === 'enabled')}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={t('channels.dialogs.userAgentPassThrough.inherit')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value='inherit'>{t('channels.dialogs.userAgentPassThrough.inherit')}</SelectItem>
+                                  <SelectItem value='enabled'>{t('channels.dialogs.userAgentPassThrough.enabled')}</SelectItem>
+                                  <SelectItem value='disabled'>{t('channels.dialogs.userAgentPassThrough.disabled')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </FormItem>
 
-                      <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
-                        <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
-                          {t('channels.dialogs.bodyPassThrough.label')}
-                        </FormLabel>
-                        <div className='space-y-2 md:col-span-6'>
-                          <Select
-                            value={passThroughBody === null ? 'inherit' : passThroughBody ? 'enabled' : 'disabled'}
-                            onValueChange={(value) => setPassThroughBody(value === 'inherit' ? null : value === 'enabled')}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('channels.dialogs.bodyPassThrough.inherit')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='inherit'>{t('channels.dialogs.bodyPassThrough.inherit')}</SelectItem>
-                              <SelectItem value='enabled'>{t('channels.dialogs.bodyPassThrough.enabled')}</SelectItem>
-                              <SelectItem value='disabled'>{t('channels.dialogs.bodyPassThrough.disabled')}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {passThroughBody === true && (
-                            <p className='text-amber-600 dark:text-amber-400 text-xs'>
-                              {t('channels.dialogs.bodyPassThrough.warning')}
+                          <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                            <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                              {t('channels.dialogs.bodyPassThrough.label')}
+                            </FormLabel>
+                            <div className='space-y-2 md:col-span-6'>
+                              <Select
+                                value={passThroughBody === null ? 'inherit' : passThroughBody ? 'enabled' : 'disabled'}
+                                onValueChange={(value) => setPassThroughBody(value === 'inherit' ? null : value === 'enabled')}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={t('channels.dialogs.bodyPassThrough.inherit')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value='inherit'>{t('channels.dialogs.bodyPassThrough.inherit')}</SelectItem>
+                                  <SelectItem value='enabled'>{t('channels.dialogs.bodyPassThrough.enabled')}</SelectItem>
+                                  <SelectItem value='disabled'>{t('channels.dialogs.bodyPassThrough.disabled')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {passThroughBody === true && (
+                                <p className='text-amber-600 dark:text-amber-400 text-xs'>
+                                  {t('channels.dialogs.bodyPassThrough.warning')}
+                                </p>
+                              )}
+                            </div>
+                          </FormItem>
+                        </>
+                      )}
+
+                      {isAxonHubType ? (
+                        <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                          <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                            {t('channels.dialogs.axonHubBehavior.label')}
+                          </FormLabel>
+                          <div className='md:col-span-6'>
+                            <div className='space-y-4 rounded-lg border border-cyan-200 bg-cyan-50/60 p-4 dark:border-cyan-900 dark:bg-cyan-950/20'>
+                              <div className='space-y-1'>
+                                <div className='text-sm font-medium'>{t('channels.dialogs.axonHubBehavior.title')}</div>
+                                <p className='text-muted-foreground text-sm'>{t('channels.dialogs.axonHubBehavior.description')}</p>
+                              </div>
+
+                              <div className='space-y-2'>
+                                <FormLabel className='text-sm'>{t('channels.dialogs.axonHubBehavior.preset.label')}</FormLabel>
+                                <Select
+                                  value={axonHubBehaviorPresetValue}
+                                  onValueChange={(value) => {
+                                    if (value !== 'custom') {
+                                      applyAxonHubBehaviorPreset(value as AxonHubBehaviorPreset);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {AXONHUB_BEHAVIOR_PRESET_OPTIONS.map((preset) => (
+                                      <SelectItem key={preset} value={preset}>
+                                        {t(`channels.dialogs.axonHubBehavior.presets.${preset}.label`)}
+                                      </SelectItem>
+                                    ))}
+                                    <SelectItem value='custom'>{t('channels.dialogs.axonHubBehavior.presets.custom.label')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <p className='text-muted-foreground text-xs'>
+                                  {t(`channels.dialogs.axonHubBehavior.presets.${axonHubBehaviorPresetValue}.description`)}
+                                </p>
+                              </div>
+
+                              <div className='grid gap-4 md:grid-cols-2'>
+                                <div className='space-y-2'>
+                                  <FormLabel className='text-sm'>{t('channels.dialogs.bodyPassThrough.label')}</FormLabel>
+                                  <Select
+                                    value={passThroughBody === null ? 'inherit' : passThroughBody ? 'enabled' : 'disabled'}
+                                    onValueChange={(value) => setPassThroughBody(value === 'inherit' ? null : value === 'enabled')}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder={t('channels.dialogs.bodyPassThrough.inherit')} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value='inherit'>{t('channels.dialogs.bodyPassThrough.inherit')}</SelectItem>
+                                      <SelectItem value='enabled'>{t('channels.dialogs.bodyPassThrough.enabled')}</SelectItem>
+                                      <SelectItem value='disabled'>{t('channels.dialogs.bodyPassThrough.disabled')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className='space-y-2'>
+                                  <FormLabel className='text-sm'>{t('channels.dialogs.userAgentPassThrough.label')}</FormLabel>
+                                  <Select
+                                    value={passThroughUserAgent === null ? 'inherit' : passThroughUserAgent ? 'enabled' : 'disabled'}
+                                    onValueChange={(value) => setPassThroughUserAgent(value === 'inherit' ? null : value === 'enabled')}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder={t('channels.dialogs.userAgentPassThrough.inherit')} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value='inherit'>{t('channels.dialogs.userAgentPassThrough.inherit')}</SelectItem>
+                                      <SelectItem value='enabled'>{t('channels.dialogs.userAgentPassThrough.enabled')}</SelectItem>
+                                      <SelectItem value='disabled'>{t('channels.dialogs.userAgentPassThrough.disabled')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              <div className='space-y-3 rounded-md border bg-background/70 p-3'>
+                                <div className='space-y-1'>
+                                  <div className='text-sm font-medium'>{t('channels.dialogs.axonHubBehavior.storage.title')}</div>
+                                  <p className='text-muted-foreground text-xs'>{t('channels.dialogs.axonHubBehavior.storage.description')}</p>
+                                </div>
+
+                                <div className='grid gap-3 md:grid-cols-3'>
+                                  <div className='space-y-2'>
+                                    <FormLabel className='text-xs'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.requestBody.label')}
+                                    </FormLabel>
+                                    <Select
+                                      value={
+                                        storeExecutionRequestBody === null
+                                          ? 'inherit'
+                                          : storeExecutionRequestBody
+                                            ? 'enabled'
+                                            : 'disabled'
+                                      }
+                                      onValueChange={(value) =>
+                                        setStoreExecutionRequestBody(value === 'inherit' ? null : value === 'enabled')
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value='inherit'>{t('channels.dialogs.axonHubBehavior.storage.inherit')}</SelectItem>
+                                        <SelectItem value='enabled'>{t('channels.dialogs.axonHubBehavior.storage.enabled')}</SelectItem>
+                                        <SelectItem value='disabled'>{t('channels.dialogs.axonHubBehavior.storage.disabled')}</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className='text-muted-foreground text-[11px]'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.requestBody.description')}
+                                    </p>
+                                  </div>
+
+                                  <div className='space-y-2'>
+                                    <FormLabel className='text-xs'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.responseBody.label')}
+                                    </FormLabel>
+                                    <Select
+                                      value={
+                                        storeExecutionResponseBody === null
+                                          ? 'inherit'
+                                          : storeExecutionResponseBody
+                                            ? 'enabled'
+                                            : 'disabled'
+                                      }
+                                      onValueChange={(value) =>
+                                        setStoreExecutionResponseBody(value === 'inherit' ? null : value === 'enabled')
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value='inherit'>{t('channels.dialogs.axonHubBehavior.storage.inherit')}</SelectItem>
+                                        <SelectItem value='enabled'>{t('channels.dialogs.axonHubBehavior.storage.enabled')}</SelectItem>
+                                        <SelectItem value='disabled'>{t('channels.dialogs.axonHubBehavior.storage.disabled')}</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className='text-muted-foreground text-[11px]'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.responseBody.description')}
+                                    </p>
+                                  </div>
+
+                                  <div className='space-y-2'>
+                                    <FormLabel className='text-xs'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.streamChunks.label')}
+                                    </FormLabel>
+                                    <Select
+                                      value={
+                                        storeExecutionStreamChunks === null
+                                          ? 'inherit'
+                                          : storeExecutionStreamChunks
+                                            ? 'enabled'
+                                            : 'disabled'
+                                      }
+                                      onValueChange={(value) =>
+                                        setStoreExecutionStreamChunks(value === 'inherit' ? null : value === 'enabled')
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value='inherit'>{t('channels.dialogs.axonHubBehavior.storage.inherit')}</SelectItem>
+                                        <SelectItem value='enabled'>{t('channels.dialogs.axonHubBehavior.storage.enabled')}</SelectItem>
+                                        <SelectItem value='disabled'>{t('channels.dialogs.axonHubBehavior.storage.disabled')}</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className='text-muted-foreground text-[11px]'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.streamChunks.description')}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className='space-y-3'>
+                                <label className='flex items-start gap-2'>
+                                  <Checkbox
+                                    checked={fullPassThrough}
+                                    onCheckedChange={(checked) => setFullPassThrough(checked === true)}
+                                    className='mt-1'
+                                  />
+                                  <span className='space-y-1'>
+                                    <span className='block text-sm font-medium'>{t('channels.dialogs.fullPassThrough.label')}</span>
+                                    <span className='text-muted-foreground block text-sm'>{t('channels.dialogs.fullPassThrough.description')}</span>
+                                  </span>
+                                </label>
+
+                                <label className='flex items-start gap-2'>
+                                  <Checkbox
+                                    checked={disableRetries}
+                                    onCheckedChange={(checked) => setDisableRetries(checked === true)}
+                                    className='mt-1'
+                                  />
+                                  <span className='space-y-1'>
+                                    <span className='block text-sm font-medium'>{t('channels.dialogs.disableRetries.label')}</span>
+                                    <span className='text-muted-foreground block text-sm'>{t('channels.dialogs.disableRetries.description')}</span>
+                                  </span>
+                                </label>
+                              </div>
+
+                              {passThroughBody === true && (
+                                <p className='text-amber-600 dark:text-amber-400 text-xs'>
+                                  {t('channels.dialogs.bodyPassThrough.warning')}
+                                </p>
+                              )}
+                              <p className='text-muted-foreground text-xs'>
+                                {t('channels.dialogs.axonHubBehavior.storageHint')}
+                              </p>
+                            </div>
+                          </div>
+                        </FormItem>
+                      ) : (
+                        <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                          <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                            {t('channels.dialogs.disableRetries.label')}
+                          </FormLabel>
+                          <div className='flex items-start gap-2 md:col-span-6'>
+                            <Checkbox
+                              checked={disableRetries}
+                              onCheckedChange={(checked) => setDisableRetries(checked === true)}
+                              className='mt-1'
+                            />
+                            <p className='text-muted-foreground text-sm'>
+                              {t('channels.dialogs.disableRetries.description')}
                             </p>
-                          )}
-                        </div>
-                      </FormItem>
+                          </div>
+                        </FormItem>
+                      )}
 
                       <FormField
                         control={form.control}

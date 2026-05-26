@@ -58,6 +58,7 @@ type AuthServiceParams struct {
 	UserService   *UserService
 	OIDCService   *OIDCService
 	Ent           *ent.Client
+	Registration  RegistrationConfig
 	AllowNoAuth   bool `name:"allow_no_auth"`
 }
 
@@ -70,6 +71,7 @@ func NewAuthService(params AuthServiceParams) *AuthService {
 		APIKeyService: params.APIKeyService,
 		UserService:   params.UserService,
 		OIDCService:   params.OIDCService,
+		Registration:  params.Registration,
 		AllowNoAuth:   params.AllowNoAuth,
 	}
 }
@@ -81,6 +83,7 @@ type AuthService struct {
 	APIKeyService *APIKeyService
 	UserService   *UserService
 	OIDCService   *OIDCService
+	Registration  RegistrationConfig
 	AllowNoAuth   bool
 }
 
@@ -130,6 +133,9 @@ func (s *AuthService) AuthenticateUser(
 			Where(user.EmailEQ(email)).
 			Where(user.StatusEQ(user.StatusActivated)).
 			WithRoles().
+			WithProjects().
+			WithProjectUsers().
+			WithOidcIdentities().
 			Only(bypassCtx)
 	})
 	if err != nil {

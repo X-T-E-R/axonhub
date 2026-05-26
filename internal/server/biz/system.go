@@ -106,6 +106,10 @@ const (
 	// SystemKeyQuotaEnforcementSettings is the key used to store the quota enforcement settings.
 	// The value is JSON-encoded QuotaEnforcementSettings struct.
 	SystemKeyQuotaEnforcementSettings = "quota_enforcement_settings"
+
+	// SystemKeyRegistrationPolicy is the key used to store self-service registration policy.
+	// The value is JSON-encoded RegistrationConfig struct.
+	SystemKeyRegistrationPolicy = "registration_policy"
 )
 
 // SystemGeneralSettings represents general system configuration settings.

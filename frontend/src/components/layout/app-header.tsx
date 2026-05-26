@@ -11,11 +11,15 @@ import { QuotaBadges } from '@/components/quota-badges';
 import { PermissionGuard } from '@/components/permission-guard';
 import { checkProviderQuotas } from '@/features/system/data/quotas';
 import { useBrandSettings } from '@/features/system/data/system';
+import { usePermissions } from '@/hooks/usePermissions';
 import { ProjectSwitcher } from './project-switcher';
 import { toast } from 'sonner';
 
 export function AppHeader() {
-  const { data: brandSettings } = useBrandSettings();
+  const { isOwner, hasSystemScope } = usePermissions();
+  const canReadBrandSettings = isOwner || hasSystemScope('read_settings');
+  const canViewProviderQuotas = isOwner || (hasSystemScope('read_settings') && hasSystemScope('read_channels'));
+  const { data: brandSettings } = useBrandSettings({ enabled: canReadBrandSettings });
   const { t } = useTranslation();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
@@ -80,13 +84,12 @@ export function AppHeader() {
 
         {/* 右侧控件 */}
         <div className='flex items-center gap-2 pr-6'>
-          {/* Quota Badges - always visible */}
-          <QuotaBadges onRefresh={handleRefresh} isRefreshing={isRefreshing} />
+          {canViewProviderQuotas && <QuotaBadges onRefresh={handleRefresh} isRefreshing={isRefreshing} />}
 
           {/* Desktop-only controls - hidden on mobile */}
           {!isMobile && (
             <>
-              <PermissionGuard requiredSystemScope='read_system'>
+              <PermissionGuard requiredSystemScope='read_settings'>
                 <Link to='/system'>
                   <Button variant='ghost' size='icon' className='size-8'>
                     <IconSettings className='h-4 w-4' />

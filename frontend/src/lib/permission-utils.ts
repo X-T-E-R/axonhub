@@ -1,4 +1,5 @@
 import { AuthUser } from '@/stores/authStore';
+import { normalizeEntityID } from '@/lib/utils';
 
 /**
  * 获取用户的所有权限范围（包括直接权限和角色权限）
@@ -13,7 +14,7 @@ export function getUserScopes(user: AuthUser | null, projectId?: string | null):
 
   // 如果指定了项目ID，添加项目级别的权限
   if (projectId) {
-    const project = user.projects.find((p) => p.projectID === projectId);
+    const project = user.projects.find((p) => normalizeEntityID(p.projectID) === projectId);
     if (project) {
       project.scopes.forEach((scope) => scopes.add(scope));
     }
@@ -41,7 +42,7 @@ export function isProjectOwner(user: AuthUser | null, projectId?: string | null)
   if (user.isOwner) return true; // 全局 Owner
 
   if (projectId) {
-    const project = user.projects.find((p) => p.projectID === projectId);
+    const project = user.projects.find((p) => normalizeEntityID(p.projectID) === projectId);
     return project?.isOwner || false;
   }
 

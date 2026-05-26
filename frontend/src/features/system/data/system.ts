@@ -431,7 +431,7 @@ export interface ClearCachePayload {
 }
 
 // Hooks
-export function useBrandSettings() {
+export function useBrandSettings(options: { enabled?: boolean } = {}) {
   const { handleError } = useErrorHandler();
 
   return useQuery({
@@ -445,6 +445,7 @@ export function useBrandSettings() {
         throw error;
       }
     },
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -630,7 +631,7 @@ export function useUpdateDefaultDataStorage() {
   });
 }
 
-export function useOnboardingInfo() {
+export function useOnboardingInfo(options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ['onboardingInfo'],
     queryFn: async () => {
@@ -644,6 +645,7 @@ export function useOnboardingInfo() {
         };
       }
     },
+    enabled: options.enabled ?? true,
   });
 }
 

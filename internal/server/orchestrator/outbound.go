@@ -278,12 +278,18 @@ func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Contex
 		}
 	}
 
-	err := ts.RequestService.UpdateRequestExecutionCompleted(
+	var channel *biz.Channel
+	if ts.state != nil && ts.state.CurrentCandidate != nil {
+		channel = ts.state.CurrentCandidate.Channel
+	}
+
+	err := ts.RequestService.UpdateRequestExecutionCompletedForChannel(
 		ctx,
 		ts.requestExec.ID,
 		meta.ID,
 		responseBody,
 		metrics,
+		channel,
 	)
 	if err != nil {
 		log.Warn(
@@ -294,7 +300,7 @@ func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Contex
 	}
 
 	// Save all response chunks at once
-	if err := ts.RequestService.SaveRequestExecutionChunks(ctx, ts.requestExec.ID, ts.responseChunks); err != nil {
+	if err := ts.RequestService.SaveRequestExecutionChunksForChannel(ctx, ts.requestExec.ID, ts.responseChunks, channel); err != nil {
 		log.Warn(ctx, "Failed to save request execution chunks", log.Cause(err))
 	}
 }
@@ -462,9 +468,20 @@ func (p *PersistentOutboundTransformer) GetRequestedModel() string {
 	return p.state.OriginalModel
 }
 
+func retriesDisabledForCandidate(candidate *ChannelModelsCandidate) bool {
+	return candidate != nil &&
+		candidate.Channel != nil &&
+		candidate.Channel.Settings != nil &&
+		candidate.Channel.Settings.DisableRetries
+}
+
 // HasMoreChannels returns true if there are more candidates available for retry.
 // It implements the pipeline.Retryable interface.
 func (p *PersistentOutboundTransformer) HasMoreChannels() bool {
+	if retriesDisabledForCandidate(p.state.CurrentCandidate) {
+		return false
+	}
+
 	return p.state.CurrentCandidateIndex+1 < len(p.state.ChannelModelsCandidates)
 }
 
@@ -521,6 +538,10 @@ func (p *PersistentOutboundTransformer) NextChannel(ctx context.Context) error {
 // pipeline will ensure the maxSameChannelRetries is not exceeded.
 func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 	if p.state.CurrentCandidate == nil {
+		return false
+	}
+
+	if retriesDisabledForCandidate(p.state.CurrentCandidate) {
 		return false
 	}
 

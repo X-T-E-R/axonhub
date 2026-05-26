@@ -25,6 +25,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
@@ -163,7 +164,9 @@ type OIDCConfig struct {
 type OIDCService struct {
 	*AbstractService
 
-	cfg OIDCConfig
+	cfg           OIDCConfig
+	systemService *SystemService
+	registration  RegistrationConfig
 
 	cache         xcache.Cache[[]byte]
 	mu            sync.Mutex
@@ -183,9 +186,11 @@ type oidcProvider struct {
 type OIDCServiceParams struct {
 	fx.In
 
-	Config      OIDCConfig
-	CacheConfig xcache.Config
-	DB          *ent.Client
+	Config        OIDCConfig
+	Registration  RegistrationConfig
+	SystemService *SystemService
+	CacheConfig   xcache.Config
+	DB            *ent.Client
 }
 
 func NewOIDCService(params OIDCServiceParams) (*OIDCService, error) {
@@ -193,6 +198,8 @@ func NewOIDCService(params OIDCServiceParams) (*OIDCService, error) {
 	svc := &OIDCService{
 		AbstractService: &AbstractService{db: params.DB},
 		cfg:             params.Config,
+		systemService:   params.SystemService,
+		registration:    params.Registration,
 		cache:           xcache.NewFromConfig[[]byte](params.CacheConfig),
 		mu:              sync.Mutex{},
 		providers:       make(map[string]*oidcProvider),
@@ -336,6 +343,23 @@ func resolveIconURL(raw string) (string, error) {
 
 func (s *OIDCService) CountProviders() int {
 	return len(s.cfg.Providers)
+}
+
+func (s *OIDCService) PasswordAuthDisabled() bool {
+	if s == nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, provider := range s.providers {
+		if provider != nil && provider.config.OIDCLoginOnly {
+			return true
+		}
+	}
+
+	return false
 }
 
 func findOIDCProviderConfig(providers []OIDCProvider, identifier string) (*OIDCProvider, string, bool) {
@@ -981,6 +1005,14 @@ func (s *OIDCService) resolveUser(ctx context.Context, p *oidcProvider, subject,
 	if !p.config.JITEnabled {
 		return nil, fmt.Errorf("account not found and JIT provisioning is disabled")
 	}
+	registration, err := s.registrationPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !registration.OIDCEnabled {
+		return nil, ErrOIDCRegistrationDisabled
+	}
 
 	// Check if email verification is required for new accounts
 	if p.config.RequireEmailVerified && !emailVerified {
@@ -1045,13 +1077,21 @@ func (s *OIDCService) resolveUser(ctx context.Context, p *oidcProvider, subject,
 			return fmt.Errorf("failed to create identity for new user: %w", err)
 		}
 
-		return nil
+		return attachUserToRegistrationProject(ctx, client, createdUser.ID, registration)
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return createdUser, nil
+}
+
+func (s *OIDCService) registrationPolicy(ctx context.Context) (RegistrationConfig, error) {
+	if s.systemService == nil {
+		return normalizeRegistrationConfig(s.registration), nil
+	}
+
+	return s.systemService.RegistrationConfig(ctx, s.registration)
 }
 
 func (s *OIDCService) syncUserInfo(ctx context.Context, u *ent.User, name, givenName, familyName, picture string, groups []string, cfg OIDCProvider) (*ent.User, error) {
@@ -1278,7 +1318,15 @@ func (s *OIDCService) ExchangeCode(ctx context.Context, code string) (*ent.User,
 		return nil, fmt.Errorf("invalid user ID format in cache: %w", err)
 	}
 
-	user, err := s.entFromContext(ctx).User.Get(ctx, userID)
+	user, err := authz.RunWithSystemBypass(ctx, "oidc-exchange-user", func(bypassCtx context.Context) (*ent.User, error) {
+		return s.entFromContext(bypassCtx).User.Query().
+			Where(user.IDEQ(userID)).
+			WithRoles().
+			WithProjects().
+			WithProjectUsers().
+			WithOidcIdentities().
+			Only(bypassCtx)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}

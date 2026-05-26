@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
 import { useBrandSettings } from '@/features/system/data/system';
+import { usePermissions } from '@/hooks/usePermissions';
 
 export function TeamSwitcher({
   teams,
@@ -24,7 +25,8 @@ export function TeamSwitcher({
 }) {
   const { isMobile } = useSidebar();
   const [activeTeam, setActiveTeam] = React.useState(teams[0]);
-  const { data: brandSettings } = useBrandSettings();
+  const { isOwner, hasSystemScope } = usePermissions();
+  const { data: brandSettings } = useBrandSettings({ enabled: isOwner || hasSystemScope('read_settings') });
   const { t } = useTranslation();
 
   // Use brand name if available, otherwise fall back to team name

@@ -15,10 +15,10 @@ interface OnboardingProviderProps {
 }
 
 export function OnboardingProvider({ children, showOnboarding = true, onComplete }: OnboardingProviderProps) {
-  const { data: onboardingInfo, isLoading } = useOnboardingInfo();
   const [mode, setMode] = useState<OnboardingMode>('none');
   const user = useAuthStore((state) => state.auth.user);
   const isOwner = user?.isOwner ?? false;
+  const { data: onboardingInfo, isLoading } = useOnboardingInfo({ enabled: isOwner });
 
   useEffect(() => {
     if (!isLoading && showOnboarding && isOwner) {

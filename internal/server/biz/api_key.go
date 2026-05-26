@@ -41,14 +41,20 @@ type APIKeyServiceParams struct {
 
 	CacheConfig    xcache.Config
 	Ent            *ent.Client
+	SystemService  *SystemService
 	ProjectService *ProjectService
+	ModelService   *ModelService
+	Registration   RegistrationConfig
 	KeyPrefix      string `name:"api_key_prefix"`
 }
 
 type APIKeyService struct {
 	*AbstractService
 
+	SystemService  *SystemService
 	ProjectService *ProjectService
+	ModelService   *ModelService
+	Registration   RegistrationConfig
 	APIKeyCache    *live.IndexedCache[string, *ent.APIKey]
 	apiKeyNotifier watcher.Notifier[live.CacheEvent[string]]
 	keyPrefix      string
@@ -59,7 +65,10 @@ func NewAPIKeyService(params APIKeyServiceParams) *APIKeyService {
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
+		SystemService:  params.SystemService,
 		ProjectService: params.ProjectService,
+		ModelService:   params.ModelService,
+		Registration:   params.Registration,
 		keyPrefix:      params.KeyPrefix,
 	}
 

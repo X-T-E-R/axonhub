@@ -7,6 +7,7 @@ import { AboutSettings } from './about-settings';
 import { BrandSettings } from './brand-settings';
 import { DiagnosticsSettings } from './diagnostics-settings';
 import { GeneralSettings } from './general-settings';
+import { RegistrationSettings } from './registration-settings';
 import { QuotaSettings } from './quota-settings';
 import { RetrySettings } from './retry-settings';
 import { StorageSettings } from './storage-settings';
@@ -15,7 +16,18 @@ import { ProxyPresetsSettings } from './proxy-presets-settings';
 import { WebhookSettings } from './webhook-settings';
 import { usePermissions } from '@/hooks/usePermissions';
 
-type SystemTabKey = 'general' | 'brand' | 'storage' | 'retry' | 'webhook' | 'proxy' | 'quota' | 'backup' | 'diagnostics' | 'about';
+type SystemTabKey =
+  | 'general'
+  | 'registration'
+  | 'brand'
+  | 'storage'
+  | 'retry'
+  | 'webhook'
+  | 'proxy'
+  | 'quota'
+  | 'backup'
+  | 'diagnostics'
+  | 'about';
 
 interface SystemSettingsTabsProps {
   initialTab?: SystemTabKey;
@@ -56,6 +68,9 @@ export function SystemSettingsTabs({ initialTab }: SystemSettingsTabsProps) {
         <TabsTrigger value='general' data-value='general'>
           {t('system.tabs.general')}
         </TabsTrigger>
+        <TabsTrigger value='registration' data-value='registration'>
+          {t('system.tabs.registration')}
+        </TabsTrigger>
         <TabsTrigger value='brand' data-value='brand'>
           {t('system.tabs.brand')}
         </TabsTrigger>
@@ -91,6 +106,9 @@ export function SystemSettingsTabs({ initialTab }: SystemSettingsTabsProps) {
       <div className='shadow-soft border-border bg-card mt-6 rounded-2xl border p-4 sm:p-6'>
         <TabsContent value='general' className='mt-0 p-0'>
           <GeneralSettings />
+        </TabsContent>
+        <TabsContent value='registration' className='mt-0 p-0'>
+          <RegistrationSettings />
         </TabsContent>
         <TabsContent value='brand' className='mt-0 p-0'>
           <BrandSettings />

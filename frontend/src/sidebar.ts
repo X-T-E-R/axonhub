@@ -58,6 +58,41 @@ export function useSidebarData(): SidebarData {
     return 'User';
   };
 
+  const sidebarUser = {
+    name: getDisplayName(user?.firstName, user?.lastName, user?.email),
+    email: user?.email || 'user@example.com',
+    avatar: user?.avatar || getInitials(user?.firstName, user?.lastName, user?.email),
+  };
+
+  const teams = [
+    {
+      name: t('sidebar.team.name'),
+      logo: Command,
+      description: '',
+      // DO NOT USE THIS
+      // plan: t('sidebar.team.plan'),
+    },
+  ];
+
+  if (user && !user.isOwner) {
+    return {
+      user: sidebarUser,
+      teams,
+      navGroups: [
+        {
+          title: t('sidebar.groups.selfService'),
+          items: [
+            {
+              title: t('sidebar.items.portal'),
+              url: '/self-service',
+              icon: IconKey,
+            } as NavLink,
+          ],
+        },
+      ],
+    };
+  }
+
   // 原始导航组配置
   const rawNavGroups: NavGroup[] = [
     {
@@ -67,6 +102,11 @@ export function useSidebarData(): SidebarData {
           title: t('sidebar.items.dashboard'),
           url: '/',
           icon: IconLayoutDashboard,
+        } as NavLink,
+        {
+          title: t('sidebar.items.userPortal'),
+          url: '/self-service',
+          icon: IconKey,
         } as NavLink,
         {
           title: t('sidebar.items.projects'),
@@ -193,20 +233,8 @@ export function useSidebarData(): SidebarData {
   const filteredNavGroups = filterNavGroups(rawNavGroups);
 
   return {
-    user: {
-      name: getDisplayName(user?.firstName, user?.lastName, user?.email),
-      email: user?.email || 'user@example.com',
-      avatar: user?.avatar || getInitials(user?.firstName, user?.lastName, user?.email),
-    },
-    teams: [
-      {
-        name: t('sidebar.team.name'),
-        logo: Command,
-        description: '',
-        // DO NOT USE THIS
-        // plan: t('sidebar.team.plan'),
-      },
-    ],
+    user: sidebarUser,
+    teams,
     navGroups: filteredNavGroups,
   };
 }

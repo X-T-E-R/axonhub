@@ -36,6 +36,94 @@ func TestGenerateAPIKey(t *testing.T) {
 	require.NotEqual(t, apiKey, apiKey2)
 }
 
+func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T) {
+	cacheConfig := xcache.Config{Mode: xcache.ModeMemory}
+	apiKeyService, client := setupTestAPIKeyService(t, cacheConfig)
+	defer apiKeyService.Stop()
+	defer client.Close()
+
+	setupCtx := ent.NewContext(context.Background(), client)
+	setupCtx = authz.WithTestBypass(setupCtx)
+
+	testUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("self-%d@example.com", time.Now().UnixNano())).
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	otherUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("other-%d@example.com", time.Now().UnixNano())).
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	testProject, err := client.Project.Create().
+		SetName(uuid.NewString()).
+		SetDescription("self service").
+		SetStatus(project.StatusActive).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	_, err = client.UserProject.Create().
+		SetUserID(testUser.ID).
+		SetProjectID(testProject.ID).
+		SetIsOwner(false).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	template, err := client.APIKeyProfileTemplate.Create().
+		SetName("fast").
+		SetDescription("Fast preset").
+		SetProject(testProject).
+		SetProfile(&objects.APIKeyProfile{Name: "fast", ModelIDs: []string{"gpt-4o-mini"}}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	hiddenTemplate, err := client.APIKeyProfileTemplate.Create().
+		SetName("private").
+		SetDescription("Hidden preset").
+		SetProject(testProject).
+		SetProfile(&objects.APIKeyProfile{Name: "private", ModelIDs: []string{"internal-model"}}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	ctx := ent.NewContext(authz.NewUserContext(context.Background(), testUser.ID), client)
+	ctx = contexts.WithUser(ctx, testUser)
+
+	presets, err := apiKeyService.ListMyRoutingPresets(ctx, testProject.ID)
+	require.NoError(t, err)
+	require.Len(t, presets, 1)
+	require.Equal(t, "fast", presets[0].Name)
+
+	created, err := apiKeyService.CreateMyAPIKey(ctx, MyCreateAPIKeyInput{
+		ProjectID: testProject.ID,
+		Name:      "my app",
+		PresetID:  template.ID,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, created.Key)
+	require.Equal(t, "fast", created.ActiveProfile)
+
+	keys, err := apiKeyService.ListMyAPIKeys(ctx, testProject.ID)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	require.Empty(t, keys[0].Key, "list must not reveal API key secrets")
+
+	_, err = apiKeyService.CreateMyAPIKey(ctx, MyCreateAPIKeyInput{
+		ProjectID: testProject.ID,
+		Name:      "hidden app",
+		PresetID:  hiddenTemplate.ID,
+	})
+	require.Error(t, err)
+
+	otherCtx := ent.NewContext(authz.NewUserContext(context.Background(), otherUser.ID), client)
+	otherCtx = contexts.WithUser(otherCtx, otherUser)
+	_, err = apiKeyService.RotateMyAPIKey(otherCtx, created.ID)
+	require.Error(t, err)
+}
+
 func setupTestAPIKeyService(t *testing.T, cacheConfig xcache.Config) (*APIKeyService, *ent.Client) {
 	t.Helper()
 
@@ -49,6 +137,7 @@ func setupTestAPIKeyService(t *testing.T, cacheConfig xcache.Config) (*APIKeySer
 		CacheConfig:    cacheConfig,
 		Ent:            client,
 		ProjectService: projectService,
+		Registration:   RegistrationConfig{SelfServicePresetNames: []string{"fast"}},
 		KeyPrefix:      "ah",
 	})
 

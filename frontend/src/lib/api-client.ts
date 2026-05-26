@@ -113,6 +113,19 @@ export async function apiRequest<T>(endpoint: string, options: ApiRequestOptions
   }
 }
 
+export interface AdminRegistrationPolicy {
+  enabled: boolean;
+  oidcEnabled: boolean;
+  inviteCode: string;
+  inviteCodeRequired: boolean;
+  defaultProjectId: number;
+  autoJoinFirstProject: boolean;
+  defaultProjectScopes: string[];
+  allowRequestDetails: boolean;
+  selfServicePresetNames: string[];
+  passwordSignupAllowed: boolean;
+}
+
 // System API endpoints
 export const systemApi = {
   getStatus: (): Promise<{ isInitialized: boolean }> => apiRequest('/admin/system/status'),
@@ -141,6 +154,41 @@ export const authApi = {
     token: string;
   }> =>
     apiRequest('/admin/auth/signin', {
+      method: 'POST',
+      body: data,
+    }),
+
+  signUpPolicy: (): Promise<{
+    enabled: boolean;
+    oidcSignupAllowed: boolean;
+    inviteCodeRequired: boolean;
+    passwordSignupAllowed: boolean;
+    allowRequestDetails: boolean;
+  }> => apiRequest('/admin/auth/signup-policy'),
+
+  adminRegistrationPolicy: (): Promise<{ data: AdminRegistrationPolicy }> =>
+    apiRequest('/admin/auth/registration-policy', { requireAuth: true }),
+
+  updateAdminRegistrationPolicy: (
+    data: Omit<AdminRegistrationPolicy, 'inviteCodeRequired' | 'passwordSignupAllowed'>
+  ): Promise<{ data: AdminRegistrationPolicy }> =>
+    apiRequest('/admin/auth/registration-policy', {
+      method: 'PUT',
+      requireAuth: true,
+      body: data,
+    }),
+
+  signUp: (data: {
+    email: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+    inviteCode?: string;
+  }): Promise<{
+    user: AuthUser;
+    token: string;
+  }> =>
+    apiRequest('/admin/auth/signup', {
       method: 'POST',
       body: data,
     }),
@@ -177,4 +225,82 @@ export const authApi = {
       method: 'POST',
       body: { code },
     }),
+};
+
+export interface SelfRoutingPreset {
+  id: number;
+  name: string;
+  description: string;
+  profile?: {
+    name?: string;
+    modelIDs?: string[];
+    channelTags?: string[];
+    quota?: unknown;
+  };
+}
+
+export interface SelfAPIKey {
+  id: number;
+  name: string;
+  status: string;
+  type: string;
+  createdAt: string;
+  updatedAt: string;
+  activeProfile: string;
+  key?: string;
+}
+
+export interface SelfModel {
+  id: string;
+  name: string;
+  developers?: string[];
+  groups?: string[];
+  presetId?: number;
+}
+
+export interface SelfRequest {
+  id: number;
+  createdAt: string;
+  modelId: string;
+  apiKeyId?: number;
+  status: string;
+  source: string;
+  format: string;
+  stream: boolean;
+  latencyMs?: number;
+  detailsVisible: boolean;
+}
+
+export interface SelfUsage {
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  totalCost: number;
+}
+
+const dataOf = <T>(promise: Promise<{ data: T }>) => promise.then((response) => response.data);
+
+export const selfServiceApi = {
+  routingPresets: (projectId: string): Promise<SelfRoutingPreset[]> =>
+    dataOf(apiRequest<{ data: SelfRoutingPreset[] }>(`/admin/self/routing-presets?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+  apiKeys: (projectId: string): Promise<SelfAPIKey[]> =>
+    dataOf(apiRequest<{ data: SelfAPIKey[] }>(`/admin/self/api-keys?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+  createAPIKey: (input: { projectId: string; name: string; presetId: string }): Promise<SelfAPIKey> =>
+    dataOf(apiRequest<{ data: SelfAPIKey }>('/admin/self/api-keys', { method: 'POST', requireAuth: true, body: input })),
+  rotateAPIKey: (id: number): Promise<SelfAPIKey> =>
+    dataOf(apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/rotate`, { method: 'POST', requireAuth: true })),
+  updateAPIKeyStatus: (id: number, status: string): Promise<SelfAPIKey> =>
+    dataOf(apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/status`, { method: 'PATCH', requireAuth: true, body: { status } })),
+  models: (projectId: string, presetId?: number): Promise<SelfModel[]> => {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (presetId) {
+      params.set('preset_id', String(presetId));
+    }
+    return dataOf(apiRequest<{ data: SelfModel[] }>(`/admin/self/models?${params.toString()}`, { requireAuth: true }));
+  },
+  requests: (projectId: string): Promise<SelfRequest[]> =>
+    dataOf(apiRequest<{ data: SelfRequest[] }>(`/admin/self/requests?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+  usage: (projectId: string): Promise<SelfUsage> =>
+    dataOf(apiRequest<{ data: SelfUsage }>(`/admin/self/usage?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
 };

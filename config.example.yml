@@ -155,6 +155,19 @@ provider_quota:
                                  # Warning channels are checked at check_interval / ratio
                                  # Default: 4 (warning channels checked every 20m with 5m base interval)
 
+# Registration is closed by default. These values are startup defaults; owners can manage
+# the active policy later from System Settings -> Registration, which persists an override
+# in the system settings table.
+registration:
+  enabled: false                 # Enable password signup (env: AXONHUB_REGISTRATION_ENABLED)
+  oidc_enabled: false            # Enable OIDC just-in-time onboarding for new users (env: AXONHUB_REGISTRATION_OIDC_ENABLED)
+  invite_code: ""                # Optional invite code required for signup (env: AXONHUB_REGISTRATION_INVITE_CODE)
+  default_project_id: 0          # Project to attach new password/OIDC users to; 0 means no implicit project unless auto_join_first_project is enabled
+  auto_join_first_project: true  # When registration is enabled, put new users into the first active project unless a fixed project ID is set
+  default_project_scopes: ["read_requests"] # Enough for own request summaries; self-service key/model browsing does not require project-level write_api_keys
+  allow_request_details: false   # Normal users see safe request metadata only by default
+  self_service_preset_names: ["*"] # Routing presets visible to normal users; replace with selected names if some templates are admin-only
+
 # Environment Variable Examples:
 # export AXONHUB_SERVER_PORT=8080
 # export AXONHUB_DB_DSN="postgres://user:pass@localhost/axonhub?sslmode=disable"

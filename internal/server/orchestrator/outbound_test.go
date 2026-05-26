@@ -14,6 +14,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
+	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -461,6 +462,58 @@ func TestPersistentOutboundTransformer_CanRetry(t *testing.T) {
 
 		require.True(t, outbound.CanRetry(retryableErr))
 	})
+
+	t.Run("disable retries setting blocks same-channel retry", func(t *testing.T) {
+		channelWithRetriesDisabled := &biz.Channel{
+			Channel: &ent.Channel{
+				ID:       2,
+				Name:     "retry-disabled-channel",
+				Settings: &objects.ChannelSettings{DisableRetries: true},
+			},
+			Outbound: &mockTransformer{},
+		}
+
+		outbound := &PersistentOutboundTransformer{
+			wrapped: &mockTransformer{},
+			state: &PersistenceState{
+				CurrentCandidate: &ChannelModelsCandidate{
+					Channel: channelWithRetriesDisabled,
+					Models:  []biz.ChannelModelEntry{{RequestModel: "gpt-4", ActualModel: "gpt-4"}},
+				},
+			},
+		}
+
+		require.False(t, outbound.CanRetry(retryableErr))
+	})
+}
+
+func TestPersistentOutboundTransformer_HasMoreChannels_DisableRetries(t *testing.T) {
+	currentChannel := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:       1,
+			Name:     "retry-disabled-channel",
+			Settings: &objects.ChannelSettings{DisableRetries: true},
+		},
+		Outbound: &mockTransformer{},
+	}
+	nextChannel := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:   2,
+			Name: "fallback-channel",
+		},
+		Outbound: &mockTransformer{},
+	}
+
+	outbound := &PersistentOutboundTransformer{
+		wrapped: &mockTransformer{},
+		state: &PersistenceState{
+			CurrentCandidate:        &ChannelModelsCandidate{Channel: currentChannel},
+			ChannelModelsCandidates: []*ChannelModelsCandidate{{Channel: currentChannel}, {Channel: nextChannel}},
+			CurrentCandidateIndex:   0,
+		},
+	}
+
+	require.False(t, outbound.HasMoreChannels())
 }
 
 func TestIsCompletedAggregatedOutboundResponse(t *testing.T) {

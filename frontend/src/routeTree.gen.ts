@@ -25,6 +25,7 @@ import { Route as AuthenticatedSettingsRouteRouteImport } from './routes/_authen
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedSystemIndexRouteImport } from './routes/_authenticated/system/index'
 import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
+import { Route as AuthenticatedSelfServiceIndexRouteImport } from './routes/_authenticated/self-service/index'
 import { Route as AuthenticatedRolesIndexRouteImport } from './routes/_authenticated/roles/index'
 import { Route as AuthenticatedPromptProtectionRulesIndexRouteImport } from './routes/_authenticated/prompt-protection-rules/index'
 import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects/index'
@@ -135,6 +136,12 @@ const AuthenticatedSettingsIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedSettingsRouteRoute,
+  } as any)
+const AuthenticatedSelfServiceIndexRoute =
+  AuthenticatedSelfServiceIndexRouteImport.update({
+    id: '/self-service/',
+    path: '/self-service/',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedRolesIndexRoute = AuthenticatedRolesIndexRouteImport.update({
   id: '/roles/',
@@ -332,6 +339,7 @@ export interface FileRoutesByFullPath {
   '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/prompt-protection-rules/': typeof AuthenticatedPromptProtectionRulesIndexRoute
   '/roles/': typeof AuthenticatedRolesIndexRoute
+  '/self-service/': typeof AuthenticatedSelfServiceIndexRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
   '/system/': typeof AuthenticatedSystemIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
@@ -376,6 +384,7 @@ export interface FileRoutesByTo {
   '/projects': typeof AuthenticatedProjectsIndexRoute
   '/prompt-protection-rules': typeof AuthenticatedPromptProtectionRulesIndexRoute
   '/roles': typeof AuthenticatedRolesIndexRoute
+  '/self-service': typeof AuthenticatedSelfServiceIndexRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
   '/system': typeof AuthenticatedSystemIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
@@ -423,6 +432,7 @@ export interface FileRoutesById {
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/prompt-protection-rules/': typeof AuthenticatedPromptProtectionRulesIndexRoute
   '/_authenticated/roles/': typeof AuthenticatedRolesIndexRoute
+  '/_authenticated/self-service/': typeof AuthenticatedSelfServiceIndexRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
   '/_authenticated/system/': typeof AuthenticatedSystemIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
@@ -470,6 +480,7 @@ export interface FileRouteTypes {
     | '/projects/'
     | '/prompt-protection-rules/'
     | '/roles/'
+    | '/self-service/'
     | '/settings/'
     | '/system/'
     | '/users/'
@@ -514,6 +525,7 @@ export interface FileRouteTypes {
     | '/projects'
     | '/prompt-protection-rules'
     | '/roles'
+    | '/self-service'
     | '/settings'
     | '/system'
     | '/users'
@@ -560,6 +572,7 @@ export interface FileRouteTypes {
     | '/_authenticated/projects/'
     | '/_authenticated/prompt-protection-rules/'
     | '/_authenticated/roles/'
+    | '/_authenticated/self-service/'
     | '/_authenticated/settings/'
     | '/_authenticated/system/'
     | '/_authenticated/users/'
@@ -703,6 +716,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/'
       preLoaderRoute: typeof AuthenticatedSettingsIndexRouteImport
       parentRoute: typeof AuthenticatedSettingsRouteRoute
+    }
+    '/_authenticated/self-service/': {
+      id: '/_authenticated/self-service/'
+      path: '/self-service'
+      fullPath: '/self-service/'
+      preLoaderRoute: typeof AuthenticatedSelfServiceIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/roles/': {
       id: '/_authenticated/roles/'
@@ -942,6 +962,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute
   AuthenticatedPromptProtectionRulesIndexRoute: typeof AuthenticatedPromptProtectionRulesIndexRoute
   AuthenticatedRolesIndexRoute: typeof AuthenticatedRolesIndexRoute
+  AuthenticatedSelfServiceIndexRoute: typeof AuthenticatedSelfServiceIndexRoute
   AuthenticatedSystemIndexRoute: typeof AuthenticatedSystemIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedProjectRequestsRequestIdRoute: typeof AuthenticatedProjectRequestsRequestIdRoute
@@ -975,6 +996,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPromptProtectionRulesIndexRoute:
     AuthenticatedPromptProtectionRulesIndexRoute,
   AuthenticatedRolesIndexRoute: AuthenticatedRolesIndexRoute,
+  AuthenticatedSelfServiceIndexRoute: AuthenticatedSelfServiceIndexRoute,
   AuthenticatedSystemIndexRoute: AuthenticatedSystemIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedProjectRequestsRequestIdRoute:

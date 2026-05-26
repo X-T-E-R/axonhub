@@ -18,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/db"
@@ -27,17 +28,18 @@ import (
 type Config struct {
 	fx.Out `yaml:"-" json:"-"`
 
-	DB               db.Config           `conf:"db" yaml:"db" json:"db"`
-	Log              log.Config          `conf:"log" yaml:"log" json:"log"`
-	APIServer        server.Config       `conf:"server" yaml:"server" json:"server"`
-	Metrics          metrics.Config      `conf:"metrics" yaml:"metrics" json:"metrics"`
-	GC               gc.Config           `conf:"gc" yaml:"gc" json:"gc"`
-	Cache            xcache.Config       `conf:"cache" yaml:"cache" json:"cache"`
-	ProviderQuota    providerQuotaConfig `conf:"provider_quota" yaml:"provider_quota" json:"provider_quota"`
-	OIDC             biz.OIDCConfig      `conf:"oidc" yaml:"oidc" json:"oidc"`
-	DisableSSLVerify bool                `name:"disable_ssl_verify" yaml:"-" json:"-"`
-	AllowNoAuth      bool                `name:"allow_no_auth" yaml:"-" json:"-"`
-	APIKeyPrefix     string              `name:"api_key_prefix" yaml:"-" json:"-"`
+	DB               db.Config              `conf:"db" yaml:"db" json:"db"`
+	Log              log.Config             `conf:"log" yaml:"log" json:"log"`
+	APIServer        server.Config          `conf:"server" yaml:"server" json:"server"`
+	Metrics          metrics.Config         `conf:"metrics" yaml:"metrics" json:"metrics"`
+	GC               gc.Config              `conf:"gc" yaml:"gc" json:"gc"`
+	Cache            xcache.Config          `conf:"cache" yaml:"cache" json:"cache"`
+	ProviderQuota    providerQuotaConfig    `conf:"provider_quota" yaml:"provider_quota" json:"provider_quota"`
+	OIDC             biz.OIDCConfig         `conf:"oidc" yaml:"oidc" json:"oidc"`
+	Registration     biz.RegistrationConfig `conf:"registration" yaml:"registration" json:"registration"`
+	DisableSSLVerify bool                   `name:"disable_ssl_verify" yaml:"-" json:"-"`
+	AllowNoAuth      bool                   `name:"allow_no_auth" yaml:"-" json:"-"`
+	APIKeyPrefix     string                 `name:"api_key_prefix" yaml:"-" json:"-"`
 }
 
 type providerQuotaConfig struct {
@@ -241,6 +243,18 @@ func setDefaults(v *viper.Viper) {
 
 	// OIDC defaults
 	v.SetDefault("oidc.providers", []biz.OIDCProvider{})
+
+	// Registration defaults: closed unless explicitly enabled.
+	v.SetDefault("registration.enabled", false)
+	v.SetDefault("registration.oidc_enabled", false)
+	v.SetDefault("registration.invite_code", "")
+	v.SetDefault("registration.default_project_id", 0)
+	v.SetDefault("registration.auto_join_first_project", true)
+	v.SetDefault("registration.default_project_scopes", []string{
+		string(scopes.ScopeReadRequests),
+	})
+	v.SetDefault("registration.allow_request_details", false)
+	v.SetDefault("registration.self_service_preset_names", []string{"*"})
 }
 
 // parseLogLevel converts a string log level to zapcore.Level.

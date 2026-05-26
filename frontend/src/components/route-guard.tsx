@@ -9,16 +9,19 @@ import { Button } from '@/components/ui/button';
 interface RouteGuardProps {
   children: React.ReactNode;
   requiredScopes?: string[];
+  routePath?: string;
   fallbackPath?: string;
   showForbidden?: boolean;
 }
 
-export function RouteGuard({ children, requiredScopes = [], fallbackPath = '/', showForbidden = true }: RouteGuardProps) {
+export function RouteGuard({ children, requiredScopes = [], routePath, fallbackPath = '/', showForbidden = true }: RouteGuardProps) {
   const router = useRouter();
-  const { userScopes, isOwner } = useRoutePermissions();
+  const { userScopes, isOwner, checkRouteAccess } = useRoutePermissions();
 
   // 检查用户是否有所需权限
-  const hasAccess = isOwner || requiredScopes.length === 0 || requiredScopes.some((scope) => userScopes.includes(scope));
+  const hasRequiredScopes = isOwner || requiredScopes.length === 0 || userScopes.includes('*') || requiredScopes.some((scope) => userScopes.includes(scope));
+  const hasConfiguredRouteAccess = routePath ? checkRouteAccess(routePath).hasAccess : true;
+  const hasAccess = hasRequiredScopes && hasConfiguredRouteAccess;
 
   useEffect(() => {
     if (!hasAccess && !showForbidden) {

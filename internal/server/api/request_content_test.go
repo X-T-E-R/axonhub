@@ -127,6 +127,32 @@ func TestRequestContentHandlers_DownloadRequestContent(t *testing.T) {
 		require.Contains(t, w.Header().Get("Content-Disposition"), "video.mp4")
 	})
 
+	t.Run("returns 403 without project request read scope", func(t *testing.T) {
+		routerNoScope := gin.New()
+		routerNoScope.Use(func(c *gin.Context) {
+			ctx := ent.NewContext(c.Request.Context(), client)
+			ctx = contexts.WithUser(ctx, &ent.User{
+				ID: 2,
+				Edges: ent.UserEdges{
+					ProjectUsers: []*ent.UserProject{
+						{ProjectID: project.ID, Scopes: []string{}},
+					},
+				},
+			})
+			ctx = contexts.WithProjectID(ctx, project.ID)
+			c.Request = c.Request.WithContext(ctx)
+			c.Next()
+		})
+		routerNoScope.GET("/admin/requests/:request_id/content", h.DownloadRequestContent)
+
+		path := fmt.Sprintf("/admin/requests/%s/content", url.PathEscape(requestIDStr))
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		routerNoScope.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusForbidden, w.Code)
+	})
+
 	t.Run("returns 404 for mismatched project", func(t *testing.T) {
 		router2 := gin.New()
 		router2.Use(func(c *gin.Context) {

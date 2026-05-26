@@ -73,14 +73,39 @@ export function useSignIn() {
 
       toast.success(i18n.t('common.success.signedIn'));
 
-      // Redirect based on user role
-      // Owner users go to dashboard, non-owner users go to requests page
-      const redirectPath = data.user.isOwner ? '/' : '/project/playground';
+      // Owners see the admin dashboard; normal users see the self-service portal.
+      const redirectPath = '/';
       router.navigate({ to: redirectPath });
     },
     onError: (error: any) => {
       const errorMessage = error.message || 'Failed to sign in';
       toast.error(errorMessage);
+    },
+  });
+}
+
+export function useSignUp() {
+  const { setUser, setAccessToken } = useAuthStore((state) => state.auth);
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: authApi.signUp,
+    onSuccess: (data) => {
+      const userLanguage = data.user.preferLanguage || 'en';
+
+      setTokenToStorage(data.token);
+      setAccessToken(data.token);
+      setUser(data.user);
+
+      if (userLanguage !== i18n.language) {
+        i18n.changeLanguage(userLanguage);
+      }
+
+      toast.success(i18n.t('common.success.signedIn'));
+      router.navigate({ to: '/' });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to sign up');
     },
   });
 }
@@ -162,8 +187,8 @@ export function useOIDCExchange() {
 
       toast.success(i18n.t('common.success.signedIn'));
 
-      // Redirect based on user role
-      const redirectPath = data.user.isOwner ? '/' : '/project/playground';
+      // Owners see the admin dashboard; normal users see the self-service portal.
+      const redirectPath = '/';
       router.navigate({ to: redirectPath });
     },
     onError: (error: unknown) => {

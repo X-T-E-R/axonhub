@@ -3,11 +3,14 @@ import { pageInfoSchema } from '@/gql/pagination';
 
 export const apiFormatSchema = z.enum([
   'openai/chat_completions',
+  'openai/completions',
   'openai/responses',
+  'openai/responses_compact',
   'openai/image_generation',
   'openai/image_edit',
   'openai/image_variation',
   'openai/embeddings',
+  'openai/video',
   'anthropic/messages',
   'gemini/contents',
   'gemini/embeddings',
@@ -15,6 +18,7 @@ export const apiFormatSchema = z.enum([
   'aisdk/datastream',
   'jina/rerank',
   'jina/embeddings',
+  'seedance/video',
   'ollama/chat',
 ]);
 
@@ -22,16 +26,20 @@ export type ApiFormat = z.infer<typeof apiFormatSchema>;
 
 export const configurableChannelEndpointApiFormats = [
   'openai/chat_completions',
+  'openai/completions',
   'openai/responses',
+  'openai/responses_compact',
   'openai/image_generation',
   'openai/image_edit',
   'openai/image_variation',
   'openai/embeddings',
+  'openai/video',
   'anthropic/messages',
   'gemini/contents',
   'gemini/embeddings',
   'jina/rerank',
   'jina/embeddings',
+  'seedance/video',
 ] as const;
 
 export const configurableChannelEndpointApiFormatSchema = z.enum(configurableChannelEndpointApiFormats);
@@ -49,6 +57,7 @@ export const channelTypeSchema = z.enum([
   'openai',
   'openai_responses',
   'atlascloud',
+  'axonhub',
   'codex',
   'anthropic',
   'anthropic_aws',
@@ -214,6 +223,11 @@ export const channelSettingsSchema = z.object({
   transformOptions: transformOptionsSchema.optional(),
   passThroughUserAgent: z.boolean().optional().nullable(),
   passThroughBody: z.boolean().optional().nullable(),
+  disableRetries: z.boolean().optional(),
+  fullPassThrough: z.boolean().optional(),
+  storeExecutionRequestBody: z.boolean().optional().nullable(),
+  storeExecutionResponseBody: z.boolean().optional().nullable(),
+  storeExecutionStreamChunks: z.boolean().optional().nullable(),
   rateLimit: channelRateLimitSchema.optional().nullable(),
 });
 

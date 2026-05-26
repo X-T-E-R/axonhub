@@ -28,6 +28,7 @@ type Handlers struct {
 	Playground     *api.PlaygroundHandlers
 	System         *api.SystemHandlers
 	Auth           *api.AuthHandlers
+	Self           *api.SelfServiceHandlers
 	Jina           *api.JinaHandlers
 	Codex          *api.CodexHandlers
 	ClaudeCode     *api.ClaudeCodeHandlers
@@ -85,6 +86,8 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		unSecureAdminGroup.POST("/system/initialize", handlers.System.InitializeSystem)
 		// User Login - DO NOT AUTH
 		unSecureAdminGroup.POST("/auth/signin", handlers.Auth.SignIn)
+		unSecureAdminGroup.GET("/auth/signup-policy", handlers.Auth.SignUpPolicy)
+		unSecureAdminGroup.POST("/auth/signup", handlers.Auth.SignUp)
 	}
 
 	oauthGroup := server.Group("/oauth", middleware.WithTimeout(server.Config.RequestTimeout))
@@ -101,6 +104,22 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		adminGroup.POST("/graphql", middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
 			handlers.Graphql.Graphql.ServeHTTP(c.Writer, c.Request)
 		})
+
+		selfGroup := adminGroup.Group("/self")
+		{
+			selfGroup.GET("/api-keys", handlers.Self.ListAPIKeys)
+			selfGroup.POST("/api-keys", handlers.Self.CreateAPIKey)
+			selfGroup.PATCH("/api-keys/:id", handlers.Self.UpdateAPIKey)
+			selfGroup.PATCH("/api-keys/:id/status", handlers.Self.UpdateAPIKeyStatus)
+			selfGroup.POST("/api-keys/:id/rotate", handlers.Self.RotateAPIKey)
+			selfGroup.GET("/routing-presets", handlers.Self.ListRoutingPresets)
+			selfGroup.GET("/models", handlers.Self.ListModels)
+			selfGroup.GET("/requests", handlers.Self.ListRequests)
+			selfGroup.GET("/usage", handlers.Self.Usage)
+		}
+
+		adminGroup.GET("/auth/registration-policy", handlers.Auth.AdminRegistrationPolicy)
+		adminGroup.PUT("/auth/registration-policy", handlers.Auth.UpdateRegistrationPolicy)
 
 		adminGroup.POST("/codex/oauth/start", handlers.Codex.StartOAuth)
 		adminGroup.POST("/codex/oauth/exchange", handlers.Codex.Exchange)

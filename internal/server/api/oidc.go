@@ -219,7 +219,7 @@ func (h *OIDCHandlers) Exchange(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"token": token,
-			"user":  user,
+			"user":  biz.ConvertUserToUserInfo(c.Request.Context(), user),
 		},
 	})
 }

@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useSelectedProjectId } from '@/stores/projectStore';
 import { useMe } from '@/features/auth/data/auth';
+import { normalizeEntityID } from '@/lib/utils';
 
 /**
  * Hook for checking user permissions based on scopes
@@ -22,7 +23,7 @@ export function usePermissions() {
     if (!selectedProjectId || !user?.projects) {
       return [];
     }
-    const project = user.projects.find((p) => p.projectID === selectedProjectId);
+    const project = user.projects.find((p) => normalizeEntityID(p.projectID) === selectedProjectId);
     return project?.scopes || [];
   }, [selectedProjectId, user?.projects]);
 

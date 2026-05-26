@@ -64,6 +64,58 @@ func (s *RequestService) shouldUseExternalStorage(_ context.Context, ds *ent.Dat
 	return !ds.Primary
 }
 
+func (s *RequestService) shouldStoreExecutionRequestBody(ctx context.Context, channel *Channel) bool {
+	storeRequestBody := s.SystemService.StoragePolicyOrDefault(ctx).StoreRequestBody
+	if channel != nil && channel.Settings != nil && channel.Settings.StoreExecutionRequestBody != nil {
+		return *channel.Settings.StoreExecutionRequestBody
+	}
+
+	return storeRequestBody
+}
+
+func (s *RequestService) shouldStoreExecutionResponseBody(ctx context.Context, execution *ent.RequestExecution, channel *Channel) bool {
+	storeResponseBody := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
+	settings := s.getExecutionChannelSettings(ctx, execution, channel)
+	if settings != nil && settings.StoreExecutionResponseBody != nil {
+		return *settings.StoreExecutionResponseBody
+	}
+
+	return storeResponseBody
+}
+
+func (s *RequestService) shouldStoreExecutionStreamChunks(ctx context.Context, execution *ent.RequestExecution, channel *Channel) bool {
+	storeChunks := s.SystemService.StoragePolicyOrDefault(ctx).StoreChunks
+	settings := s.getExecutionChannelSettings(ctx, execution, channel)
+	if settings != nil && settings.StoreExecutionStreamChunks != nil {
+		return *settings.StoreExecutionStreamChunks
+	}
+
+	return storeChunks
+}
+
+func (s *RequestService) getExecutionChannelSettings(ctx context.Context, execution *ent.RequestExecution, channel *Channel) *objects.ChannelSettings {
+	if channel != nil && channel.ID != 0 && channel.Settings != nil {
+		return channel.Settings
+	}
+
+	if execution == nil || execution.ChannelID == 0 {
+		return nil
+	}
+
+	bypassCtx := authz.WithSystemBypass(ctx, "request-execution-channel-storage-settings")
+	ch, err := s.entFromContext(bypassCtx).Channel.Get(bypassCtx, execution.ChannelID)
+	if err != nil {
+		log.Warn(ctx, "Failed to get execution channel storage settings",
+			log.Int("channel_id", execution.ChannelID),
+			log.Cause(err),
+		)
+
+		return nil
+	}
+
+	return ch.Settings
+}
+
 // _InvalidRequestBodyJSON returns a JSON object indicating invalid text.
 var _InvalidRequestBodyJSON = objects.JSONRawMessage(`{"message":"invalid text"}`)
 
@@ -249,12 +301,7 @@ func (s *RequestService) CreateRequestExecution(
 	format llm.APIFormat,
 ) (*ent.RequestExecution, error) {
 	// Decide whether to store the channel request body
-	storeRequestBody := true
-	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
-		storeRequestBody = policy.StoreRequestBody
-	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store request body", log.Cause(err))
-	}
+	storeRequestBody := s.shouldStoreExecutionRequestBody(ctx, channel)
 
 	var (
 		requestBodyBytes    objects.JSONRawMessage = []byte("{}")
@@ -539,14 +586,19 @@ func (s *RequestService) UpdateRequestExecutionCompleted(
 	responseBody any,
 	metrics *LatencyMetrics,
 ) error {
-	// Decide whether to store the final response body for execution
-	storeResponseBody := true
-	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
-		storeResponseBody = policy.StoreResponseBody
-	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(err))
-	}
+	return s.UpdateRequestExecutionCompletedForChannel(ctx, executionID, externalId, responseBody, metrics, nil)
+}
 
+// UpdateRequestExecutionCompletedForChannel updates request execution status to completed
+// and uses the already-selected channel settings when available to avoid an extra channel lookup.
+func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
+	ctx context.Context,
+	executionID int,
+	externalId string,
+	responseBody any,
+	metrics *LatencyMetrics,
+	channel *Channel,
+) error {
 	client := s.entFromContext(ctx)
 
 	// Get the execution to check data storage
@@ -564,6 +616,9 @@ func (s *RequestService) UpdateRequestExecutionCompleted(
 			log.Warn(ctx, "Failed to get data storage", log.Cause(err))
 		}
 	}
+
+	// Decide whether to store the final response body for this execution.
+	storeResponseBody := s.shouldStoreExecutionResponseBody(ctx, execution, channel)
 
 	upd := client.RequestExecution.UpdateOneID(executionID).
 		SetStatus(requestexecution.StatusCompleted).
@@ -690,17 +745,32 @@ func (s *RequestService) SaveRequestExecutionChunks(
 	executionID int,
 	chunks []*httpclient.StreamEvent,
 ) error {
+	return s.SaveRequestExecutionChunksForChannel(ctx, executionID, chunks, nil)
+}
+
+// SaveRequestExecutionChunksForChannel saves all response chunks to request execution at once,
+// using the selected channel settings when available to avoid an extra channel lookup.
+// Only stores chunks if the effective global/channel StoreChunks setting is enabled.
+func (s *RequestService) SaveRequestExecutionChunksForChannel(
+	ctx context.Context,
+	executionID int,
+	chunks []*httpclient.StreamEvent,
+	channel *Channel,
+) error {
 	if len(chunks) == 0 {
 		return nil
 	}
 
-	// Check if chunk storage is enabled
-	storeChunks, err := s.SystemService.StoreChunks(ctx)
-	if err != nil {
-		log.Warn(ctx, "Failed to get StoreChunks setting, defaulting to false", log.Cause(err))
+	client := s.entFromContext(ctx)
 
-		storeChunks = false
+	// Get the execution before checking chunk storage so channel-level overrides
+	// can disable heavy stream chunk persistence for latency-sensitive hub links.
+	execution, err := client.RequestExecution.Get(ctx, executionID)
+	if err != nil {
+		return fmt.Errorf("failed to get request execution: %w", err)
 	}
+
+	storeChunks := s.shouldStoreExecutionStreamChunks(ctx, execution, channel)
 
 	// Only store chunks if enabled
 	if !storeChunks {
@@ -731,14 +801,6 @@ func (s *RequestService) SaveRequestExecutionChunks(
 
 	if len(chunkBytes) == 0 {
 		return nil
-	}
-
-	client := s.entFromContext(ctx)
-
-	// Get the execution to check data storage
-	execution, err := client.RequestExecution.Get(ctx, executionID)
-	if err != nil {
-		return fmt.Errorf("failed to get request execution: %w", err)
 	}
 
 	// Get data storage if set

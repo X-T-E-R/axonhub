@@ -9,7 +9,7 @@ interface Role {
 }
 
 interface Project {
-  projectID: string;
+  projectID: string | { type: string; id: number };
   isOwner: boolean;
   scopes: string[];
   roles: Role[];

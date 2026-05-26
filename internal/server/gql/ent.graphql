@@ -1256,6 +1256,7 @@ enum ChannelType @goModel(model: "github.com/looplj/axonhub/internal/ent/channel
   openai
   openai_responses
   atlascloud
+  axonhub
   codex
   vercel
   anthropic

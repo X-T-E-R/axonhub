@@ -105,9 +105,14 @@ type ChannelSettings {
   transformOptions: TransformOptions
   headerOverrideOperations: [OverrideOperation!]! @goField(forceResolver: true)
   bodyOverrideOperations: [OverrideOperation!]! @goField(forceResolver: true)
-  passThroughUserAgent: Boolean
-  passThroughBody: Boolean
-  rateLimit: ChannelRateLimit
+    passThroughUserAgent: Boolean
+    passThroughBody: Boolean
+    disableRetries: Boolean
+    fullPassThrough: Boolean
+    storeExecutionRequestBody: Boolean
+    storeExecutionResponseBody: Boolean
+    storeExecutionStreamChunks: Boolean
+    rateLimit: ChannelRateLimit
 }
 
 enum CapabilityPolicy {
@@ -140,9 +145,14 @@ input ChannelSettingsInput {
   transformOptions: TransformOptionsInput
   headerOverrideOperations: [OverrideOperationInput!]
   bodyOverrideOperations: [OverrideOperationInput!]
-  passThroughUserAgent: Boolean
-  passThroughBody: Boolean
-  rateLimit: ChannelRateLimitInput
+    passThroughUserAgent: Boolean
+    passThroughBody: Boolean
+    disableRetries: Boolean
+    fullPassThrough: Boolean
+    storeExecutionRequestBody: Boolean
+    storeExecutionResponseBody: Boolean
+    storeExecutionStreamChunks: Boolean
+    rateLimit: ChannelRateLimitInput
 }
 
 input ChannelRateLimitInput {

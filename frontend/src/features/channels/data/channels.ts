@@ -105,6 +105,11 @@ const CREATE_CHANNEL_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
         }
       orderingWeight
       remark
@@ -164,6 +169,11 @@ const BULK_CREATE_CHANNELS_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
         }
       orderingWeight
       remark
@@ -223,6 +233,11 @@ const UPDATE_CHANNEL_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
         }
       orderingWeight
       errorMessage
@@ -383,6 +398,11 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
         }
       }
     }
@@ -567,6 +587,11 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
         }
       }
     }
@@ -696,6 +721,11 @@ const QUERY_CHANNELS_QUERY = `
             }
             passThroughUserAgent
             passThroughBody
+            disableRetries
+            fullPassThrough
+            storeExecutionRequestBody
+            storeExecutionResponseBody
+            storeExecutionStreamChunks
             rateLimit {
               rpm
               tpm

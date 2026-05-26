@@ -24,6 +24,7 @@ func setupTestOIDCService(t *testing.T) (*OIDCService, *ent.Client) {
 	cacheConfig := xcache.Config{Mode: xcache.ModeMemory}
 	svc := &OIDCService{
 		AbstractService: &AbstractService{db: client},
+		registration:    RegistrationConfig{OIDCEnabled: true},
 		cache:           xcache.NewFromConfig[[]byte](cacheConfig),
 		providers:       make(map[string]*oidcProvider),
 		lastCheck:       make(map[string]int64),

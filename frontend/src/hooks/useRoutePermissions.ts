@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useSelectedProjectId } from '@/stores/projectStore';
 import { type NavGroup, type NavItem } from '@/components/layout/types';
 import { useMe } from '@/features/auth/data/auth';
+import { normalizeEntityID } from '@/lib/utils';
 
 export function useRoutePermissions() {
   const { user: authUser } = useAuthStore((state) => state.auth);
@@ -20,7 +21,7 @@ export function useRoutePermissions() {
     if (!selectedProjectId || !user?.projects) {
       return [];
     }
-    const project = user.projects.find((p) => p.projectID === selectedProjectId);
+    const project = user.projects.find((p) => normalizeEntityID(p.projectID) === selectedProjectId);
     return project?.scopes || [];
   }, [selectedProjectId, user?.projects]);
 
