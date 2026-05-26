@@ -39,7 +39,7 @@ const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
   available
   statusCode
   accountStatus
-  accountID
+  accountId
   primaryBalance {
     amount
     currency

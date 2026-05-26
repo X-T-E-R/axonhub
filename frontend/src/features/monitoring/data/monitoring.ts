@@ -267,7 +267,7 @@ const MONITORING_EVENTS_QUERY = `
             available
             statusCode
             accountStatus
-            accountID
+            accountId
             primaryBalance {
               amount
               currency
