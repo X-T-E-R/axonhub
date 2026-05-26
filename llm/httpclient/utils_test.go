@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
@@ -258,6 +259,54 @@ func TestReadHTTPRequest_EmptyBodyWithContentEncoding(t *testing.T) {
 	got, err := ReadHTTPRequest(req)
 	require.NoError(t, err)
 	assert.Empty(t, got.Body)
+}
+
+func TestMergeInboundRequest_FiltersSensitiveAndBlockedHeaders(t *testing.T) {
+	dest := &Request{
+		Headers: http.Header{
+			"Authorization": {"Bearer upstream-secret"},
+			"X-Upstream":    {"keep"},
+		},
+		Query: url.Values{
+			"existing": {"1"},
+		},
+	}
+
+	src := &Request{
+		Headers: http.Header{
+			"Authorization":       {"Bearer client-secret"},
+			"X-Api-Key":           {"client-key"},
+			"Cookie":              {"session=client"},
+			"Proxy-Authorization": {"Basic abc123"},
+			"Connection":          {"keep-alive"},
+			"X-Forwarded-For":     {"203.0.113.10"},
+			"Content-Type":        {"application/json"},
+			"User-Agent":          {"client-agent"},
+			"X-Custom":            {"allowed"},
+		},
+		Query: url.Values{
+			"existing": {"2"},
+			"trace":    {"abc"},
+		},
+	}
+
+	merged := MergeInboundRequest(dest, src)
+	require.NotNil(t, merged)
+
+	assert.Equal(t, "Bearer upstream-secret", merged.Headers.Get("Authorization"))
+	assert.Equal(t, "keep", merged.Headers.Get("X-Upstream"))
+	assert.Equal(t, "client-agent", merged.Headers.Get("User-Agent"))
+	assert.Equal(t, "allowed", merged.Headers.Get("X-Custom"))
+
+	assert.Empty(t, merged.Headers.Get("X-Api-Key"))
+	assert.Empty(t, merged.Headers.Get("Cookie"))
+	assert.Empty(t, merged.Headers.Get("Proxy-Authorization"))
+	assert.Empty(t, merged.Headers.Get("Connection"))
+	assert.Empty(t, merged.Headers.Get("X-Forwarded-For"))
+	assert.Empty(t, merged.Headers.Get("Content-Type"))
+
+	assert.Equal(t, []string{"1"}, merged.Query["existing"])
+	assert.Equal(t, []string{"abc"}, merged.Query["trace"])
 }
 
 func TestReadHTTPRequest_RawBodyLimit(t *testing.T) {

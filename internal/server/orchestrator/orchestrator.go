@@ -249,7 +249,10 @@ func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, reques
 
 	// Add outbound middlewares (executed after outbound.TransformRequest)
 	middlewares = append(middlewares,
-		// applyPassThroughBody runs first so that override operations can still modify the pass-through body.
+		// AxonHub full pass-through preserves the original AxonHub API path/query/body
+		// before normal body/header override operations run.
+		applyAxonHubFullPassThroughRequest(outbound),
+		// applyPassThroughBody runs before override operations so overrides can still modify the pass-through body.
 		applyPassThroughRequestBody(outbound, processor.SystemService),
 		applyOverrideRequestBody(outbound),
 		// applyUserAgentPassThrough runs before header overrides to set the initial

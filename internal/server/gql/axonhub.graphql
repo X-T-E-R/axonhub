@@ -107,6 +107,8 @@ type ChannelSettings {
   bodyOverrideOperations: [OverrideOperation!]! @goField(forceResolver: true)
   passThroughUserAgent: Boolean
   passThroughBody: Boolean
+  disableRetries: Boolean
+  fullPassThrough: Boolean
   rateLimit: ChannelRateLimit
   keySelection: ChannelKeySelection
   keyHealthCheck: ChannelKeyHealthCheck
@@ -567,6 +569,8 @@ input ChannelSettingsInput {
   bodyOverrideOperations: [OverrideOperationInput!]
   passThroughUserAgent: Boolean
   passThroughBody: Boolean
+  disableRetries: Boolean
+  fullPassThrough: Boolean
   rateLimit: ChannelRateLimitInput
   keySelection: ChannelKeySelectionInput
   keyHealthCheck: ChannelKeyHealthCheckInput

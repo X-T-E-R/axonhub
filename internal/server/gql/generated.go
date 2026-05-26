@@ -699,8 +699,10 @@ type ComplexityRoot struct {
 	ChannelSettings struct {
 		AutoTrimedModelPrefixes  func(childComplexity int) int
 		BodyOverrideOperations   func(childComplexity int) int
+		DisableRetries           func(childComplexity int) int
 		ExtraModelPrefix         func(childComplexity int) int
 		FailurePolicy            func(childComplexity int) int
+		FullPassThrough          func(childComplexity int) int
 		HeaderOverrideOperations func(childComplexity int) int
 		HideMappedModels         func(childComplexity int) int
 		HideOriginalModels       func(childComplexity int) int
@@ -5003,6 +5005,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.BodyOverrideOperations(childComplexity), true
+	case "ChannelSettings.disableRetries":
+		if e.complexity.ChannelSettings.DisableRetries == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.DisableRetries(childComplexity), true
 	case "ChannelSettings.extraModelPrefix":
 		if e.complexity.ChannelSettings.ExtraModelPrefix == nil {
 			break
@@ -5015,6 +5023,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.FailurePolicy(childComplexity), true
+	case "ChannelSettings.fullPassThrough":
+		if e.complexity.ChannelSettings.FullPassThrough == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.FullPassThrough(childComplexity), true
 	case "ChannelSettings.headerOverrideOperations":
 		if e.complexity.ChannelSettings.HeaderOverrideOperations == nil {
 			break
@@ -19757,6 +19771,10 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 				return ec.fieldContext_ChannelSettings_passThroughUserAgent(ctx, field)
 			case "passThroughBody":
 				return ec.fieldContext_ChannelSettings_passThroughBody(ctx, field)
+			case "disableRetries":
+				return ec.fieldContext_ChannelSettings_disableRetries(ctx, field)
+			case "fullPassThrough":
+				return ec.fieldContext_ChannelSettings_fullPassThrough(ctx, field)
 			case "rateLimit":
 				return ec.fieldContext_ChannelSettings_rateLimit(ctx, field)
 			case "keySelection":
@@ -28715,6 +28733,64 @@ func (ec *executionContext) _ChannelSettings_passThroughBody(ctx context.Context
 }
 
 func (ec *executionContext) fieldContext_ChannelSettings_passThroughBody(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_disableRetries(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_disableRetries,
+		func(ctx context.Context) (any, error) {
+			return obj.DisableRetries, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_disableRetries(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_fullPassThrough(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_fullPassThrough,
+		func(ctx context.Context) (any, error) {
+			return obj.FullPassThrough, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_fullPassThrough(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelSettings",
 		Field:      field,
@@ -73335,7 +73411,7 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "rateLimit", "keySelection", "keyHealthCheck", "failurePolicy"}
+	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "rateLimit", "keySelection", "keyHealthCheck", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -73426,6 +73502,20 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 				return it, err
 			}
 			it.PassThroughBody = data
+		case "disableRetries":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("disableRetries"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DisableRetries = data
+		case "fullPassThrough":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("fullPassThrough"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FullPassThrough = data
 		case "rateLimit":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rateLimit"))
 			data, err := ec.unmarshalOChannelRateLimitInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRateLimit(ctx, v)
@@ -99790,6 +99880,10 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelSettings_passThroughUserAgent(ctx, field, obj)
 		case "passThroughBody":
 			out.Values[i] = ec._ChannelSettings_passThroughBody(ctx, field, obj)
+		case "disableRetries":
+			out.Values[i] = ec._ChannelSettings_disableRetries(ctx, field, obj)
+		case "fullPassThrough":
+			out.Values[i] = ec._ChannelSettings_fullPassThrough(ctx, field, obj)
 		case "rateLimit":
 			out.Values[i] = ec._ChannelSettings_rateLimit(ctx, field, obj)
 		case "keySelection":

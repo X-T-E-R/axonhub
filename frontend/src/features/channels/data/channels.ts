@@ -312,6 +312,8 @@ const CREATE_CHANNEL_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -377,6 +379,8 @@ const BULK_CREATE_CHANNELS_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -442,6 +446,8 @@ const UPDATE_CHANNEL_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -608,6 +614,8 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -841,6 +849,8 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
           }
           passThroughUserAgent
           passThroughBody
+          disableRetries
+          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -976,6 +986,8 @@ const QUERY_CHANNELS_QUERY = `
             }
             passThroughUserAgent
             passThroughBody
+            disableRetries
+            fullPassThrough
             rateLimit {
               rpm
               tpm

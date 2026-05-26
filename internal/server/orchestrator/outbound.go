@@ -462,9 +462,20 @@ func (p *PersistentOutboundTransformer) GetRequestedModel() string {
 	return p.state.OriginalModel
 }
 
+func retriesDisabledForCandidate(candidate *ChannelModelsCandidate) bool {
+	return candidate != nil &&
+		candidate.Channel != nil &&
+		candidate.Channel.Settings != nil &&
+		candidate.Channel.Settings.DisableRetries
+}
+
 // HasMoreChannels returns true if there are more candidates available for retry.
 // It implements the pipeline.Retryable interface.
 func (p *PersistentOutboundTransformer) HasMoreChannels() bool {
+	if retriesDisabledForCandidate(p.state.CurrentCandidate) {
+		return false
+	}
+
 	return p.state.CurrentCandidateIndex+1 < len(p.state.ChannelModelsCandidates)
 }
 
@@ -521,6 +532,10 @@ func (p *PersistentOutboundTransformer) NextChannel(ctx context.Context) error {
 // pipeline will ensure the maxSameChannelRetries is not exceeded.
 func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 	if p.state.CurrentCandidate == nil {
+		return false
+	}
+
+	if retriesDisabledForCandidate(p.state.CurrentCandidate) {
 		return false
 	}
 
