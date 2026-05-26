@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { X, RefreshCw, Search, ChevronLeft, ChevronRight, PanelLeft, Plus, Trash2, Eye, EyeOff, Copy, Play, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -24,6 +24,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AutoCompleteSelect } from '@/components/auto-complete-select';
 import { SelectDropdown } from '@/components/select-dropdown';
+import { useProxyPresets, useSaveProxyPreset } from '@/features/system/data/system';
 import { antigravityOAuthExchange, antigravityOAuthStart } from '../data/antigravity';
 import {
   useCreateChannel,
@@ -53,12 +54,11 @@ import {
 } from '../data/config_providers';
 import { Channel, ChannelType, ApiFormat, createChannelInputSchema, updateChannelInputSchema } from '../data/schema';
 import { ProxyConfig, useOAuthFlow } from '../hooks/use-oauth-flow';
-import { ManualModelBadge } from './manual-model-badge';
-import { CopilotDeviceFlow } from './copilot-device-flow';
-import { ProxyType } from './channels-proxy-dialog';
-import { useProxyPresets, useSaveProxyPreset } from '@/features/system/data/system';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
 import { matchesModelPattern } from '../utils/pattern';
+import { ProxyType } from './channels-proxy-dialog';
+import { CopilotDeviceFlow } from './copilot-device-flow';
+import { ManualModelBadge } from './manual-model-badge';
 
 interface Props {
   currentRow?: Channel;
@@ -76,6 +76,89 @@ const AXONHUB_CHANNEL_TYPES: ChannelType[] = ['axonhub'];
 const isAxonHubChannelType = (channelType?: ChannelType | null) => {
   return !!channelType && AXONHUB_CHANNEL_TYPES.includes(channelType);
 };
+
+type AxonHubBehaviorPreset = 'lowLatency' | 'standard' | 'audit' | 'fullDebug';
+type AxonHubBehaviorPresetValue = AxonHubBehaviorPreset | 'custom';
+
+type AxonHubBehaviorSettings = {
+  passThroughUserAgent: boolean | null;
+  passThroughBody: boolean | null;
+  disableRetries: boolean;
+  fullPassThrough: boolean;
+  storeExecutionRequestBody: boolean | null;
+  storeExecutionResponseBody: boolean | null;
+  storeExecutionStreamChunks: boolean | null;
+};
+
+const AXONHUB_BEHAVIOR_PRESETS: Record<AxonHubBehaviorPreset, AxonHubBehaviorSettings> = {
+  lowLatency: {
+    passThroughUserAgent: false,
+    passThroughBody: true,
+    disableRetries: true,
+    fullPassThrough: true,
+    storeExecutionRequestBody: false,
+    storeExecutionResponseBody: false,
+    storeExecutionStreamChunks: false,
+  },
+  standard: {
+    passThroughUserAgent: null,
+    passThroughBody: true,
+    disableRetries: false,
+    fullPassThrough: true,
+    storeExecutionRequestBody: null,
+    storeExecutionResponseBody: null,
+    storeExecutionStreamChunks: null,
+  },
+  audit: {
+    passThroughUserAgent: null,
+    passThroughBody: false,
+    disableRetries: false,
+    fullPassThrough: true,
+    storeExecutionRequestBody: true,
+    storeExecutionResponseBody: true,
+    storeExecutionStreamChunks: false,
+  },
+  fullDebug: {
+    passThroughUserAgent: true,
+    passThroughBody: true,
+    disableRetries: true,
+    fullPassThrough: true,
+    storeExecutionRequestBody: true,
+    storeExecutionResponseBody: true,
+    storeExecutionStreamChunks: true,
+  },
+};
+
+const AXONHUB_BEHAVIOR_PRESET_OPTIONS = Object.keys(AXONHUB_BEHAVIOR_PRESETS) as AxonHubBehaviorPreset[];
+
+function getAxonHubBehaviorPresetValue(settings: AxonHubBehaviorSettings): AxonHubBehaviorPresetValue {
+  const matched = AXONHUB_BEHAVIOR_PRESET_OPTIONS.find((preset) => {
+    const presetSettings = AXONHUB_BEHAVIOR_PRESETS[preset];
+    return (
+      presetSettings.passThroughUserAgent === settings.passThroughUserAgent &&
+      presetSettings.passThroughBody === settings.passThroughBody &&
+      presetSettings.disableRetries === settings.disableRetries &&
+      presetSettings.fullPassThrough === settings.fullPassThrough &&
+      presetSettings.storeExecutionRequestBody === settings.storeExecutionRequestBody &&
+      presetSettings.storeExecutionResponseBody === settings.storeExecutionResponseBody &&
+      presetSettings.storeExecutionStreamChunks === settings.storeExecutionStreamChunks
+    );
+  });
+
+  return matched ?? 'custom';
+}
+
+function getAxonHubBehaviorSettings(settings?: Channel['settings'] | null): AxonHubBehaviorSettings {
+  return {
+    passThroughUserAgent: settings?.passThroughUserAgent ?? null,
+    passThroughBody: settings?.passThroughBody ?? null,
+    disableRetries: settings?.disableRetries ?? false,
+    fullPassThrough: settings?.fullPassThrough ?? false,
+    storeExecutionRequestBody: settings?.storeExecutionRequestBody ?? null,
+    storeExecutionResponseBody: settings?.storeExecutionResponseBody ?? null,
+    storeExecutionStreamChunks: settings?.storeExecutionStreamChunks ?? null,
+  };
+}
 
 // Custom hook for debounced value
 function useDebounce<T>(value: T, delay: number): T {
@@ -95,68 +178,59 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 // Memoized FetchedModelItem component
-const FetchedModelItem = memo(({
-  model,
-  isAdded,
-  isSelected,
-  onToggle,
-  addedLabel,
-  willRemoveLabel
-}: {
-  model: string;
-  isAdded: boolean;
-  isSelected: boolean;
-  onToggle: () => void;
-  addedLabel: string;
-  willRemoveLabel: string;
-}) => (
-  <div
-    className={`flex items-center gap-2 rounded-md p-2 text-sm transition-colors ${
-      isAdded && !isSelected
-        ? 'bg-muted/50 text-muted-foreground'
-        : isSelected
-          ? 'bg-primary/10 border-primary/30 border'
-          : 'hover:bg-accent cursor-pointer'
-    }`}
-  >
-    <Checkbox checked={isSelected} onCheckedChange={onToggle} />
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className='flex-1 cursor-pointer truncate'
-          onClick={onToggle}
-        >
-          {model}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p className='max-w-xs break-all'>{model}</p>
-      </TooltipContent>
-    </Tooltip>
-    {isAdded && !isSelected && (
-      <Badge variant='secondary' className='shrink-0 text-xs'>
-        {addedLabel}
-      </Badge>
-    )}
-    {isAdded && isSelected && (
-      <Badge variant='destructive' className='shrink-0 text-xs'>
-        {willRemoveLabel}
-      </Badge>
-    )}
-  </div>
-));
+const FetchedModelItem = memo(
+  ({
+    model,
+    isAdded,
+    isSelected,
+    onToggle,
+    addedLabel,
+    willRemoveLabel,
+  }: {
+    model: string;
+    isAdded: boolean;
+    isSelected: boolean;
+    onToggle: () => void;
+    addedLabel: string;
+    willRemoveLabel: string;
+  }) => (
+    <div
+      className={`flex items-center gap-2 rounded-md p-2 text-sm transition-colors ${
+        isAdded && !isSelected
+          ? 'bg-muted/50 text-muted-foreground'
+          : isSelected
+            ? 'bg-primary/10 border-primary/30 border'
+            : 'hover:bg-accent cursor-pointer'
+      }`}
+    >
+      <Checkbox checked={isSelected} onCheckedChange={onToggle} />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className='flex-1 cursor-pointer truncate' onClick={onToggle}>
+            {model}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className='max-w-xs break-all'>{model}</p>
+        </TooltipContent>
+      </Tooltip>
+      {isAdded && !isSelected && (
+        <Badge variant='secondary' className='shrink-0 text-xs'>
+          {addedLabel}
+        </Badge>
+      )}
+      {isAdded && isSelected && (
+        <Badge variant='destructive' className='shrink-0 text-xs'>
+          {willRemoveLabel}
+        </Badge>
+      )}
+    </div>
+  )
+);
 FetchedModelItem.displayName = 'FetchedModelItem';
 
 // Memoized SupportedModelItem component
-const SupportedModelItem = memo(({
-  model,
-  isManual,
-  onRemove
-}: {
-  model: string;
-  isManual: boolean;
-  onRemove: () => void;
-}) => (
+const SupportedModelItem = memo(({ model, isManual, onRemove }: { model: string; isManual: boolean; onRemove: () => void }) => (
   <div className='hover:bg-accent flex items-center gap-2 rounded-md p-2 text-sm'>
     <Tooltip>
       <TooltipTrigger asChild>
@@ -167,13 +241,7 @@ const SupportedModelItem = memo(({
       </TooltipContent>
     </Tooltip>
     <ManualModelBadge isManual={isManual} />
-    <Button
-      type='button'
-      variant='ghost'
-      size='sm'
-      className='hover:text-destructive h-6 w-6 shrink-0 p-0'
-      onClick={onRemove}
-    >
+    <Button type='button' variant='ghost' size='sm' className='hover:text-destructive h-6 w-6 shrink-0 p-0' onClick={onRemove}>
       <X className='h-3 w-3' />
     </Button>
   </div>
@@ -203,7 +271,12 @@ function getNextDuplicateName(name: string, existingNames: Set<string>) {
 // Providers that are always OAuth (no third-party API key mode)
 const alwaysOAuthProviderKeys = ['antigravity', 'github_copilot'];
 
-function isOfficialCodexChannel(channel: { credentials?: { apiKey?: string } }): boolean {
+type OAuthDetectChannel = {
+  credentials?: { apiKey?: string | null } | null;
+  baseURL?: string | null;
+};
+
+function isOfficialCodexChannel(channel: OAuthDetectChannel): boolean {
   try {
     const apiKey = channel.credentials?.apiKey || '';
     const json = JSON.parse(apiKey);
@@ -213,24 +286,14 @@ function isOfficialCodexChannel(channel: { credentials?: { apiKey?: string } }):
   }
 }
 
-function isCodexAuthJSONChannel(channel: { credentials?: { apiKey?: string } }): boolean {
-  try {
-    const apiKey = channel.credentials?.apiKey || '';
-    const json = JSON.parse(apiKey);
-    return !!(json.tokens?.access_token && json.tokens?.refresh_token);
-  } catch {
-    return false;
-  }
-}
-
-function isOfficialClaudeCodeChannel(channel: { credentials?: { apiKey?: string }; baseURL: string }): boolean {
+function isOfficialClaudeCodeChannel(channel: OAuthDetectChannel): boolean {
   const apiKey = channel.credentials?.apiKey || '';
   const defaultURL = getDefaultBaseURL('claudecode');
   return apiKey.includes('sk-ant-oat') || apiKey.includes('sk-ant-api03') || channel.baseURL === defaultURL;
 }
 
-function extractCodexAuthJSONText(apiKey: string | undefined): string | undefined {
-  if (!apiKey) return apiKey;
+function extractCodexAuthJSONText(apiKey: string | null | undefined): string | undefined {
+  if (!apiKey) return undefined;
 
   try {
     const parsed = JSON.parse(apiKey);
@@ -279,16 +342,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const [selectedKeysToRemove, setSelectedKeysToRemove] = useState<Set<string>>(new Set());
   const [confirmRemoveSelectedOpen, setConfirmRemoveSelectedOpen] = useState(false);
   const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
-  const [showGcpJsonData, setShowGcpJsonData] = useState(false);
   const [authMode, setAuthMode] = useState<'official' | 'auth-json' | 'third-party'>('official');
   const [codexAuthJSONText, setCodexAuthJSONText] = useState('');
   const [patternError, setPatternError] = useState<string | null>(null);
-  const dialogContentRef = useRef<HTMLDivElement>(null);
 
   // Debounced search values for better performance
   const debouncedFetchedModelsSearch = useDebounce(fetchedModelsSearch, 300);
   const debouncedSupportedModelsSearch = useDebounce(supportedModelsSearch, 300);
-  const debouncedApiKeysSearch = useDebounce(apiKeysSearch, 300);
 
   // Refs for virtual scrolling
   const fetchedModelsParentRef = useRef<HTMLDivElement>(null);
@@ -304,13 +364,23 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const [proxyUsername, setProxyUsername] = useState(() => initialRow?.settings?.proxy?.username || '');
   const [proxyPassword, setProxyPassword] = useState(() => initialRow?.settings?.proxy?.password || '');
   const [passThroughUserAgent, setPassThroughUserAgent] = useState<boolean | null>(() => {
-    return initialRow?.settings?.passThroughUserAgent ?? null;
+    return getAxonHubBehaviorSettings(initialRow?.settings).passThroughUserAgent;
   });
   const [passThroughBody, setPassThroughBody] = useState<boolean | null>(() => {
-    return initialRow?.settings?.passThroughBody ?? null;
+    return getAxonHubBehaviorSettings(initialRow?.settings).passThroughBody;
   });
-  const [disableRetries, setDisableRetries] = useState(() => initialRow?.settings?.disableRetries ?? false);
-  const [fullPassThrough, setFullPassThrough] = useState(() => initialRow?.settings?.fullPassThrough ?? false);
+  const [disableRetries, setDisableRetries] = useState(() => getAxonHubBehaviorSettings(initialRow?.settings).disableRetries);
+  const [fullPassThrough, setFullPassThrough] = useState(() => getAxonHubBehaviorSettings(initialRow?.settings).fullPassThrough);
+  const [storeExecutionRequestBody, setStoreExecutionRequestBody] = useState<boolean | null>(() => {
+    return getAxonHubBehaviorSettings(initialRow?.settings).storeExecutionRequestBody;
+  });
+  const [storeExecutionResponseBody, setStoreExecutionResponseBody] = useState<boolean | null>(() => {
+    return getAxonHubBehaviorSettings(initialRow?.settings).storeExecutionResponseBody;
+  });
+  const [storeExecutionStreamChunks, setStoreExecutionStreamChunks] = useState<boolean | null>(() => {
+    return getAxonHubBehaviorSettings(initialRow?.settings).storeExecutionStreamChunks;
+  });
+  const [forceAxonHubBehaviorCustomPreset, setForceAxonHubBehaviorCustomPreset] = useState(false);
 
   // Memoized proxy config for OAuth exchange
   const proxyConfig: ProxyConfig | undefined = useMemo(() => {
@@ -406,10 +476,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     setUseGeminiVertex(initialRow.type === 'gemini_vertex');
     setUseAnthropicAws(initialRow.type === 'anthropic_aws');
     setUseKimiCoding(initialRow.type === 'moonshot_coding');
-    setPassThroughUserAgent(initialRow.settings?.passThroughUserAgent ?? null);
-    setPassThroughBody(initialRow.settings?.passThroughBody ?? null);
-    setDisableRetries(initialRow.settings?.disableRetries ?? false);
-    setFullPassThrough(initialRow.settings?.fullPassThrough ?? false);
+    const axonHubBehaviorSettings = getAxonHubBehaviorSettings(initialRow.settings);
+    setPassThroughUserAgent(axonHubBehaviorSettings.passThroughUserAgent);
+    setPassThroughBody(axonHubBehaviorSettings.passThroughBody);
+    setDisableRetries(axonHubBehaviorSettings.disableRetries);
+    setFullPassThrough(axonHubBehaviorSettings.fullPassThrough);
+    setStoreExecutionRequestBody(axonHubBehaviorSettings.storeExecutionRequestBody);
+    setStoreExecutionResponseBody(axonHubBehaviorSettings.storeExecutionResponseBody);
+    setStoreExecutionStreamChunks(axonHubBehaviorSettings.storeExecutionStreamChunks);
+    setForceAxonHubBehaviorCustomPreset(false);
 
     // Detect authMode for codex and claudecode
     if (initialRow.type === 'codex') {
@@ -631,8 +706,72 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const isClaudeCodeType = (selectedType || derivedChannelType) === 'claudecode';
   const isCopilotType = (selectedType || derivedChannelType) === 'github_copilot';
   const isAxonHubType = isAxonHubChannelType(selectedType || derivedChannelType);
+  const derivedAxonHubBehaviorPresetValue = useMemo(
+    () =>
+      getAxonHubBehaviorPresetValue({
+        passThroughUserAgent,
+        passThroughBody,
+        disableRetries,
+        fullPassThrough,
+        storeExecutionRequestBody,
+        storeExecutionResponseBody,
+        storeExecutionStreamChunks,
+      }),
+    [
+      passThroughUserAgent,
+      passThroughBody,
+      disableRetries,
+      fullPassThrough,
+      storeExecutionRequestBody,
+      storeExecutionResponseBody,
+      storeExecutionStreamChunks,
+    ]
+  );
+  const axonHubBehaviorPresetValue: AxonHubBehaviorPresetValue =
+    forceAxonHubBehaviorCustomPreset && derivedAxonHubBehaviorPresetValue !== 'custom' ? 'custom' : derivedAxonHubBehaviorPresetValue;
 
+  const applyAxonHubBehaviorPreset = useCallback((preset: AxonHubBehaviorPreset) => {
+    const presetSettings = AXONHUB_BEHAVIOR_PRESETS[preset];
+    setForceAxonHubBehaviorCustomPreset(false);
+    setPassThroughUserAgent(presetSettings.passThroughUserAgent);
+    setPassThroughBody(presetSettings.passThroughBody);
+    setDisableRetries(presetSettings.disableRetries);
+    setFullPassThrough(presetSettings.fullPassThrough);
+    setStoreExecutionRequestBody(presetSettings.storeExecutionRequestBody);
+    setStoreExecutionResponseBody(presetSettings.storeExecutionResponseBody);
+    setStoreExecutionStreamChunks(presetSettings.storeExecutionStreamChunks);
+  }, []);
 
+  const markAxonHubBehaviorCustom = useCallback(() => {
+    setForceAxonHubBehaviorCustomPreset(true);
+  }, []);
+
+  const handleAxonHubBehaviorPresetChange = useCallback(
+    (value: AxonHubBehaviorPresetValue) => {
+      if (value === 'custom') {
+        markAxonHubBehaviorCustom();
+        return;
+      }
+      applyAxonHubBehaviorPreset(value);
+    },
+    [applyAxonHubBehaviorPreset, markAxonHubBehaviorCustom]
+  );
+
+  const handleAxonHubTriStateChange = useCallback(
+    (setter: (value: boolean | null) => void, value: string) => {
+      markAxonHubBehaviorCustom();
+      setter(value === 'inherit' ? null : value === 'enabled');
+    },
+    [markAxonHubBehaviorCustom]
+  );
+
+  const handleAxonHubBooleanChange = useCallback(
+    (setter: (value: boolean) => void, checked: boolean | 'indeterminate') => {
+      markAxonHubBehaviorCustom();
+      setter(checked === true);
+    },
+    [markAxonHubBehaviorCustom]
+  );
 
   // OAuth providers cannot have their provider/API format changed during edit.
   // Derived from currentRow credentials so it stays stable across re-renders
@@ -735,8 +874,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       if (newChannelType) {
         form.setValue('type', newChannelType);
         if (!isEdit) {
-          if (isAxonHubChannelType(newChannelType) && passThroughBody === null) {
-            setPassThroughBody(true);
+          if (isAxonHubChannelType(newChannelType)) {
+            applyAxonHubBehaviorPreset('lowLatency');
           }
           if (!isDuplicate) {
             const baseURL = getDefaultBaseURL(newChannelType);
@@ -749,7 +888,17 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, selectedApiFormat, isOAuthChannel, passThroughBody]
+    [
+      form,
+      useGeminiVertex,
+      useAnthropicAws,
+      useKimiCoding,
+      isDuplicate,
+      isEdit,
+      selectedApiFormat,
+      isOAuthChannel,
+      applyAxonHubBehaviorPreset,
+    ]
   );
 
   const handleApiFormatChange = useCallback(
@@ -782,8 +931,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         form.setValue('type', newChannelType);
 
         if (!isEdit) {
-          if (isAxonHubChannelType(newChannelType) && passThroughBody === null) {
-            setPassThroughBody(true);
+          if (isAxonHubChannelType(newChannelType)) {
+            applyAxonHubBehaviorPreset('lowLatency');
           }
           const baseURLFieldState = form.getFieldState('baseURL', form.formState);
           if (!baseURLFieldState.isDirty && !isDuplicate) {
@@ -795,7 +944,17 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [selectedProvider, form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, isOAuthChannel, passThroughBody]
+    [
+      selectedProvider,
+      form,
+      useGeminiVertex,
+      useAnthropicAws,
+      useKimiCoding,
+      isDuplicate,
+      isEdit,
+      isOAuthChannel,
+      applyAxonHubBehaviorPreset,
+    ]
   );
 
   const handleGeminiVertexChange = useCallback(
@@ -886,7 +1045,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       antigravity: 'antigravity',
     };
 
-    let channelTypeForURL: ChannelType | undefined = providerToChannelType[selectedProvider];
+    const channelTypeForURL: ChannelType | undefined = providerToChannelType[selectedProvider];
 
     if (channelTypeForURL) {
       const baseURL = getDefaultBaseURL(channelTypeForURL);
@@ -942,7 +1101,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             </Button>
           </div>
 
-          <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs'>{t('channels.dialogs.proxy.oauthHint')}</p>
+          <p className='mt-2 text-xs text-amber-600 dark:text-amber-400'>{t('channels.dialogs.proxy.oauthHint')}</p>
           <p className='text-muted-foreground mt-2 text-xs'>{description}</p>
         </div>
       </div>
@@ -990,7 +1149,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         credentials: valuesForSubmit.credentials,
       };
 
-      if (((isCodexType && (authMode === 'official' || authMode === 'auth-json')) || (isClaudeCodeType && authMode === 'official')) && !isDuplicate) {
+      if (
+        ((isCodexType && (authMode === 'official' || authMode === 'auth-json')) || (isClaudeCodeType && authMode === 'official')) &&
+        !isDuplicate
+      ) {
         const currentType = selectedType || derivedChannelType;
         const baseURL = getDefaultBaseURL(currentType);
         if (baseURL) {
@@ -1003,7 +1165,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           passThroughUserAgent,
           passThroughBody,
           disableRetries,
-          fullPassThrough: isAxonHubChannelType(values.type) ? fullPassThrough : false,
+          fullPassThrough: isAxonHubChannelType(valuesForSubmit.type) ? fullPassThrough : false,
+          storeExecutionRequestBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionRequestBody : null,
+          storeExecutionResponseBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionResponseBody : null,
+          storeExecutionStreamChunks: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionStreamChunks : null,
         });
 
         const updateInput = {
@@ -1047,7 +1212,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           passThroughUserAgent,
           passThroughBody,
           disableRetries,
-          fullPassThrough: isAxonHubChannelType(values.type) ? fullPassThrough : false,
+          fullPassThrough: isAxonHubChannelType(valuesForSubmit.type) ? fullPassThrough : false,
+          storeExecutionRequestBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionRequestBody : null,
+          storeExecutionResponseBody: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionResponseBody : null,
+          storeExecutionStreamChunks: isAxonHubChannelType(valuesForSubmit.type) ? storeExecutionStreamChunks : null,
         });
 
         await createChannel.mutateAsync({
@@ -1281,7 +1449,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       models = models.filter((model) => model.toLowerCase().includes(search));
     }
     return models;
-  }, [fetchedModels, debouncedFetchedModelsSearch, showNotAddedModelsOnly, supportedModels, applyPatternFilter, watchedAutoSyncPattern, patternError]);
+  }, [
+    fetchedModels,
+    debouncedFetchedModelsSearch,
+    showNotAddedModelsOnly,
+    supportedModels,
+    applyPatternFilter,
+    watchedAutoSyncPattern,
+    patternError,
+  ]);
 
   // Toggle selection for fetched model
   const toggleFetchedModelSelection = useCallback((model: string) => {
@@ -1371,13 +1547,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     const fetchedModelsSet = new Set(fetchedModels);
     const manualModelsSet = new Set(manualModels);
     // Deprecated = not fetched AND not manual
-    const deprecatedModels = supportedModels.filter(
-      (model) => !fetchedModelsSet.has(model) && !manualModelsSet.has(model)
-    );
+    const deprecatedModels = supportedModels.filter((model) => !fetchedModelsSet.has(model) && !manualModelsSet.has(model));
     // Keep fetched models and manual models in supportedModels
-    setSupportedModels((prev) =>
-      prev.filter((model) => fetchedModelsSet.has(model) || manualModelsSet.has(model))
-    );
+    setSupportedModels((prev) => prev.filter((model) => fetchedModelsSet.has(model) || manualModelsSet.has(model)));
     // Remove deprecated models from manualModels (should be none, but for consistency)
     setManualModels((prev) => prev.filter((model) => !deprecatedModels.includes(model)));
   }, [fetchedModels, supportedModels, manualModels]);
@@ -1387,9 +1559,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     const fetchedModelsSet = new Set(fetchedModels);
     const manualModelsSet = new Set(manualModels);
     // Count only models that are neither fetched nor manual
-    return supportedModels.filter(
-      (model) => !fetchedModelsSet.has(model) && !manualModelsSet.has(model)
-    ).length;
+    return supportedModels.filter((model) => !fetchedModelsSet.has(model) && !manualModelsSet.has(model)).length;
   }, [supportedModels, fetchedModels, manualModels]);
 
   // Models to display (limited to MAX_MODELS_DISPLAY unless expanded)
@@ -1461,10 +1631,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             setProxyUrl(initialRow?.settings?.proxy?.url || '');
             setProxyUsername(initialRow?.settings?.proxy?.username || '');
             setProxyPassword(initialRow?.settings?.proxy?.password || '');
-            setPassThroughUserAgent(initialRow?.settings?.passThroughUserAgent ?? null);
-            setPassThroughBody(initialRow?.settings?.passThroughBody ?? null);
-            setDisableRetries(initialRow?.settings?.disableRetries ?? false);
-            setFullPassThrough(initialRow?.settings?.fullPassThrough ?? false);
+            const axonHubBehaviorSettings = getAxonHubBehaviorSettings(initialRow?.settings);
+            setPassThroughUserAgent(axonHubBehaviorSettings.passThroughUserAgent);
+            setPassThroughBody(axonHubBehaviorSettings.passThroughBody);
+            setDisableRetries(axonHubBehaviorSettings.disableRetries);
+            setFullPassThrough(axonHubBehaviorSettings.fullPassThrough);
+            setStoreExecutionRequestBody(axonHubBehaviorSettings.storeExecutionRequestBody);
+            setStoreExecutionResponseBody(axonHubBehaviorSettings.storeExecutionResponseBody);
+            setStoreExecutionStreamChunks(axonHubBehaviorSettings.storeExecutionStreamChunks);
+            setForceAxonHubBehaviorCustomPreset(false);
             // Reset provider and API format state
             if (initialRow) {
               setSelectedProvider(getProviderFromChannelType(initialRow.type) || 'openai');
@@ -1508,11 +1683,17 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                           ref={providerListRef}
                           className={`flex-1 overflow-y-auto pr-2 ${isOAuthChannel ? 'cursor-not-allowed opacity-60' : ''}`}
                         >
-                          <RadioGroup value={selectedProvider} onValueChange={handleProviderChange} disabled={!!isOAuthChannel} className='space-y-2'>
+                          <RadioGroup
+                            value={selectedProvider}
+                            onValueChange={handleProviderChange}
+                            disabled={!!isOAuthChannel}
+                            className='space-y-2'
+                          >
                             {availableProviders.map((provider) => {
                               const Icon = provider.icon;
                               const isSelected = provider.key === selectedProvider;
-                              const isProviderDisabled = isOAuthChannel || (isEdit && !isOAuthChannel && alwaysOAuthProviderKeys.includes(provider.key));
+                              const isProviderDisabled =
+                                isOAuthChannel || (isEdit && !isOAuthChannel && alwaysOAuthProviderKeys.includes(provider.key));
                               return (
                                 <div
                                   key={provider.key}
@@ -1705,9 +1886,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                   </Button>
                                 </div>
 
-                                <p className='text-amber-600 dark:text-amber-400 mt-2 text-xs'>
-                                  {t('channels.dialogs.proxy.oauthHint')}
-                                </p>
+                                <p className='mt-2 text-xs text-amber-600 dark:text-amber-400'>{t('channels.dialogs.proxy.oauthHint')}</p>
                                 <p className='text-muted-foreground mt-2 text-xs'>
                                   {t('channels.dialogs.fields.apiFormat.antigravity.description')}
                                 </p>
@@ -1856,9 +2035,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                               >
                                 <TabsList className={`grid w-full ${isCodexType ? 'grid-cols-3' : 'grid-cols-2'}`}>
                                   <TabsTrigger value='official'>{t('channels.dialogs.authMode.official')}</TabsTrigger>
-                                  {isCodexType && (
-                                    <TabsTrigger value='auth-json'>{t('channels.dialogs.authMode.authJson')}</TabsTrigger>
-                                  )}
+                                  {isCodexType && <TabsTrigger value='auth-json'>{t('channels.dialogs.authMode.authJson')}</TabsTrigger>}
                                   <TabsTrigger value='third-party'>{t('channels.dialogs.authMode.thirdParty')}</TabsTrigger>
                                 </TabsList>
                               </Tabs>
@@ -1866,9 +2043,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                               {isCodexType && authMode === 'auth-json' && (
                                 <div className='rounded-md border p-3'>
                                   <div className='space-y-2'>
-                                    <FormLabel className='text-sm font-medium'>
-                                      {t('channels.dialogs.codexAuthJson.label')}
-                                    </FormLabel>
+                                    <FormLabel className='text-sm font-medium'>{t('channels.dialogs.codexAuthJson.label')}</FormLabel>
                                     <Textarea
                                       value={codexAuthJSONText}
                                       onChange={(e) => setCodexAuthJSONText(e.target.value)}
@@ -1878,9 +2053,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                     <Button type='button' variant='secondary' onClick={applyCodexAuthJSON}>
                                       {t('channels.dialogs.codexAuthJson.applyButton')}
                                     </Button>
-                                    <p className='text-muted-foreground text-xs'>
-                                      {t('channels.dialogs.codexAuthJson.description')}
-                                    </p>
+                                    <p className='text-muted-foreground text-xs'>{t('channels.dialogs.codexAuthJson.description')}</p>
                                   </div>
                                 </div>
                               )}
@@ -1896,10 +2069,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                             {isClaudeCodeType && (
                               <div className='space-y-2'>
                                 {authMode === 'official' &&
-                                  renderOAuthSection(
-                                    claudecodeOAuth,
-                                    t('channels.dialogs.fields.apiFormat.claudecode.description')
-                                  )}
+                                  renderOAuthSection(claudecodeOAuth, t('channels.dialogs.fields.apiFormat.claudecode.description'))}
                               </div>
                             )}
                           </div>
@@ -1922,8 +2092,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 aria-invalid={!!fieldState.error}
                                 data-testid='channel-base-url-input'
                                 disabled={
-                                  ((isCodexType && (authMode === 'official' || authMode === 'auth-json')) ||
-                                    (isClaudeCodeType && authMode === 'official')) ||
+                                  (isCodexType && (authMode === 'official' || authMode === 'auth-json')) ||
+                                  (isClaudeCodeType && authMode === 'official') ||
                                   selectedProvider === 'antigravity'
                                 }
                                 {...field}
@@ -2158,9 +2328,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 size='sm'
                                 className='h-6 px-2 text-xs'
                                 onClick={() => {
-                                  setShowSupportedModelsPanel(true)
-                                  setShowFetchedModelsPanel(false)
-                                  setShowApiKeysPanel(false)
+                                  setShowSupportedModelsPanel(true);
+                                  setShowFetchedModelsPanel(false);
+                                  setShowApiKeysPanel(false);
                                 }}
                               >
                                 <ChevronRight className='mr-1 h-3 w-3' />
@@ -2177,7 +2347,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                               control={form.control}
                               name='autoSyncSupportedModels'
                               render={({ field }) => (
-                                <FormItem className={`flex items-center gap-2 ${isCodexType || isClaudeCodeType || isCopilotType ? 'opacity-60' : ''}`}>
+                                <FormItem
+                                  className={`flex items-center gap-2 ${isCodexType || isClaudeCodeType || isCopilotType ? 'opacity-60' : ''}`}
+                                >
                                   {wrapUnsupported(
                                     isCodexType || isClaudeCodeType || isCopilotType,
                                     <Checkbox
@@ -2267,9 +2439,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                     <p className='text-muted-foreground text-xs'>
                                       {t('channels.dialogs.fields.autoSyncModelPattern.description')}
                                     </p>
-                                    {patternError && (
-                                      <p className='text-destructive text-xs'>{patternError}</p>
-                                    )}
+                                    {patternError && <p className='text-destructive text-xs'>{patternError}</p>}
                                   </FormItem>
                                 )}
                               />
@@ -2347,86 +2517,273 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         )}
                       />
 
-                      <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
-                        <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
-                          {t('channels.dialogs.userAgentPassThrough.label')}
-                        </FormLabel>
-                        <div className='space-y-1 md:col-span-6'>
-                          <Select
-                            value={passThroughUserAgent === null ? 'inherit' : passThroughUserAgent ? 'enabled' : 'disabled'}
-                            onValueChange={(value) => setPassThroughUserAgent(value === 'inherit' ? null : value === 'enabled')}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('channels.dialogs.userAgentPassThrough.inherit')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='inherit'>{t('channels.dialogs.userAgentPassThrough.inherit')}</SelectItem>
-                              <SelectItem value='enabled'>{t('channels.dialogs.userAgentPassThrough.enabled')}</SelectItem>
-                              <SelectItem value='disabled'>{t('channels.dialogs.userAgentPassThrough.disabled')}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </FormItem>
+                      {!isAxonHubType && (
+                        <>
+                          <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                            <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                              {t('channels.dialogs.userAgentPassThrough.label')}
+                            </FormLabel>
+                            <div className='space-y-1 md:col-span-6'>
+                              <Select
+                                value={passThroughUserAgent === null ? 'inherit' : passThroughUserAgent ? 'enabled' : 'disabled'}
+                                onValueChange={(value) => setPassThroughUserAgent(value === 'inherit' ? null : value === 'enabled')}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={t('channels.dialogs.userAgentPassThrough.inherit')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value='inherit'>{t('channels.dialogs.userAgentPassThrough.inherit')}</SelectItem>
+                                  <SelectItem value='enabled'>{t('channels.dialogs.userAgentPassThrough.enabled')}</SelectItem>
+                                  <SelectItem value='disabled'>{t('channels.dialogs.userAgentPassThrough.disabled')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </FormItem>
 
-                      <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
-                        <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
-                          {t('channels.dialogs.bodyPassThrough.label')}
-                        </FormLabel>
-                        <div className='space-y-2 md:col-span-6'>
-                          <Select
-                            value={passThroughBody === null ? 'inherit' : passThroughBody ? 'enabled' : 'disabled'}
-                            onValueChange={(value) => setPassThroughBody(value === 'inherit' ? null : value === 'enabled')}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('channels.dialogs.bodyPassThrough.inherit')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='inherit'>{t('channels.dialogs.bodyPassThrough.inherit')}</SelectItem>
-                              <SelectItem value='enabled'>{t('channels.dialogs.bodyPassThrough.enabled')}</SelectItem>
-                              <SelectItem value='disabled'>{t('channels.dialogs.bodyPassThrough.disabled')}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {passThroughBody === true && (
-                            <p className='text-amber-600 dark:text-amber-400 text-xs'>
-                              {t('channels.dialogs.bodyPassThrough.warning')}
-                            </p>
-                          )}
-                        </div>
-                      </FormItem>
+                          <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                            <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                              {t('channels.dialogs.bodyPassThrough.label')}
+                            </FormLabel>
+                            <div className='space-y-2 md:col-span-6'>
+                              <Select
+                                value={passThroughBody === null ? 'inherit' : passThroughBody ? 'enabled' : 'disabled'}
+                                onValueChange={(value) => setPassThroughBody(value === 'inherit' ? null : value === 'enabled')}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={t('channels.dialogs.bodyPassThrough.inherit')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value='inherit'>{t('channels.dialogs.bodyPassThrough.inherit')}</SelectItem>
+                                  <SelectItem value='enabled'>{t('channels.dialogs.bodyPassThrough.enabled')}</SelectItem>
+                                  <SelectItem value='disabled'>{t('channels.dialogs.bodyPassThrough.disabled')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {passThroughBody === true && (
+                                <p className='text-xs text-amber-600 dark:text-amber-400'>
+                                  {t('channels.dialogs.bodyPassThrough.warning')}
+                                </p>
+                              )}
+                            </div>
+                          </FormItem>
+                        </>
+                      )}
 
-                      {isAxonHubType && (
+                      {isAxonHubType ? (
                         <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
                           <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
-                            {t('channels.dialogs.fullPassThrough.label')}
+                            {t('channels.dialogs.axonHubBehavior.label')}
+                          </FormLabel>
+                          <div className='md:col-span-6'>
+                            <div className='space-y-4 rounded-lg border border-cyan-200 bg-cyan-50/60 p-4 dark:border-cyan-900 dark:bg-cyan-950/20'>
+                              <div className='space-y-1'>
+                                <div className='text-sm font-medium'>{t('channels.dialogs.axonHubBehavior.title')}</div>
+                                <p className='text-muted-foreground text-sm'>{t('channels.dialogs.axonHubBehavior.description')}</p>
+                              </div>
+
+                              <div className='space-y-2'>
+                                <FormLabel className='text-sm'>{t('channels.dialogs.axonHubBehavior.preset.label')}</FormLabel>
+                                <Select
+                                  value={axonHubBehaviorPresetValue}
+                                  onValueChange={(value) => handleAxonHubBehaviorPresetChange(value as AxonHubBehaviorPresetValue)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {AXONHUB_BEHAVIOR_PRESET_OPTIONS.map((preset) => (
+                                      <SelectItem key={preset} value={preset}>
+                                        {t(`channels.dialogs.axonHubBehavior.presets.${preset}.label`)}
+                                      </SelectItem>
+                                    ))}
+                                    <SelectItem value='custom'>{t('channels.dialogs.axonHubBehavior.presets.custom.label')}</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <p className='text-muted-foreground text-xs'>
+                                  {t(`channels.dialogs.axonHubBehavior.presets.${axonHubBehaviorPresetValue}.description`)}
+                                </p>
+                              </div>
+
+                              <div className='grid gap-4 md:grid-cols-2'>
+                                <div className='space-y-2'>
+                                  <FormLabel className='text-sm'>{t('channels.dialogs.bodyPassThrough.label')}</FormLabel>
+                                  <Select
+                                    value={passThroughBody === null ? 'inherit' : passThroughBody ? 'enabled' : 'disabled'}
+                                    onValueChange={(value) => handleAxonHubTriStateChange(setPassThroughBody, value)}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder={t('channels.dialogs.bodyPassThrough.inherit')} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value='inherit'>{t('channels.dialogs.bodyPassThrough.inherit')}</SelectItem>
+                                      <SelectItem value='enabled'>{t('channels.dialogs.bodyPassThrough.enabled')}</SelectItem>
+                                      <SelectItem value='disabled'>{t('channels.dialogs.bodyPassThrough.disabled')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className='space-y-2'>
+                                  <FormLabel className='text-sm'>{t('channels.dialogs.userAgentPassThrough.label')}</FormLabel>
+                                  <Select
+                                    value={passThroughUserAgent === null ? 'inherit' : passThroughUserAgent ? 'enabled' : 'disabled'}
+                                    onValueChange={(value) => handleAxonHubTriStateChange(setPassThroughUserAgent, value)}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder={t('channels.dialogs.userAgentPassThrough.inherit')} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value='inherit'>{t('channels.dialogs.userAgentPassThrough.inherit')}</SelectItem>
+                                      <SelectItem value='enabled'>{t('channels.dialogs.userAgentPassThrough.enabled')}</SelectItem>
+                                      <SelectItem value='disabled'>{t('channels.dialogs.userAgentPassThrough.disabled')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              <div className='bg-background/70 space-y-3 rounded-md border p-3'>
+                                <div className='space-y-1'>
+                                  <div className='text-sm font-medium'>{t('channels.dialogs.axonHubBehavior.storage.title')}</div>
+                                  <p className='text-muted-foreground text-xs'>
+                                    {t('channels.dialogs.axonHubBehavior.storage.description')}
+                                  </p>
+                                </div>
+
+                                <div className='grid gap-3 md:grid-cols-3'>
+                                  <div className='space-y-2'>
+                                    <FormLabel className='text-xs'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.requestBody.label')}
+                                    </FormLabel>
+                                    <Select
+                                      value={
+                                        storeExecutionRequestBody === null ? 'inherit' : storeExecutionRequestBody ? 'enabled' : 'disabled'
+                                      }
+                                      onValueChange={(value) => handleAxonHubTriStateChange(setStoreExecutionRequestBody, value)}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value='inherit'>{t('channels.dialogs.axonHubBehavior.storage.inherit')}</SelectItem>
+                                        <SelectItem value='enabled'>{t('channels.dialogs.axonHubBehavior.storage.enabled')}</SelectItem>
+                                        <SelectItem value='disabled'>{t('channels.dialogs.axonHubBehavior.storage.disabled')}</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className='text-muted-foreground text-[11px]'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.requestBody.description')}
+                                    </p>
+                                  </div>
+
+                                  <div className='space-y-2'>
+                                    <FormLabel className='text-xs'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.responseBody.label')}
+                                    </FormLabel>
+                                    <Select
+                                      value={
+                                        storeExecutionResponseBody === null
+                                          ? 'inherit'
+                                          : storeExecutionResponseBody
+                                            ? 'enabled'
+                                            : 'disabled'
+                                      }
+                                      onValueChange={(value) => handleAxonHubTriStateChange(setStoreExecutionResponseBody, value)}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value='inherit'>{t('channels.dialogs.axonHubBehavior.storage.inherit')}</SelectItem>
+                                        <SelectItem value='enabled'>{t('channels.dialogs.axonHubBehavior.storage.enabled')}</SelectItem>
+                                        <SelectItem value='disabled'>{t('channels.dialogs.axonHubBehavior.storage.disabled')}</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className='text-muted-foreground text-[11px]'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.responseBody.description')}
+                                    </p>
+                                  </div>
+
+                                  <div className='space-y-2'>
+                                    <FormLabel className='text-xs'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.streamChunks.label')}
+                                    </FormLabel>
+                                    <Select
+                                      value={
+                                        storeExecutionStreamChunks === null
+                                          ? 'inherit'
+                                          : storeExecutionStreamChunks
+                                            ? 'enabled'
+                                            : 'disabled'
+                                      }
+                                      onValueChange={(value) => handleAxonHubTriStateChange(setStoreExecutionStreamChunks, value)}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value='inherit'>{t('channels.dialogs.axonHubBehavior.storage.inherit')}</SelectItem>
+                                        <SelectItem value='enabled'>{t('channels.dialogs.axonHubBehavior.storage.enabled')}</SelectItem>
+                                        <SelectItem value='disabled'>{t('channels.dialogs.axonHubBehavior.storage.disabled')}</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className='text-muted-foreground text-[11px]'>
+                                      {t('channels.dialogs.axonHubBehavior.storage.streamChunks.description')}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className='space-y-3'>
+                                <label className='flex items-start gap-2'>
+                                  <Checkbox
+                                    checked={fullPassThrough}
+                                    onCheckedChange={(checked) => handleAxonHubBooleanChange(setFullPassThrough, checked)}
+                                    className='mt-1'
+                                  />
+                                  <span className='space-y-1'>
+                                    <span className='block text-sm font-medium'>{t('channels.dialogs.fullPassThrough.label')}</span>
+                                    <span className='text-muted-foreground block text-sm'>
+                                      {t('channels.dialogs.fullPassThrough.description')}
+                                    </span>
+                                  </span>
+                                </label>
+
+                                <label className='flex items-start gap-2'>
+                                  <Checkbox
+                                    checked={disableRetries}
+                                    onCheckedChange={(checked) => handleAxonHubBooleanChange(setDisableRetries, checked)}
+                                    className='mt-1'
+                                  />
+                                  <span className='space-y-1'>
+                                    <span className='block text-sm font-medium'>{t('channels.dialogs.disableRetries.label')}</span>
+                                    <span className='text-muted-foreground block text-sm'>
+                                      {t('channels.dialogs.disableRetries.description')}
+                                    </span>
+                                  </span>
+                                </label>
+                              </div>
+
+                              {passThroughBody === true && (
+                                <p className='text-xs text-amber-600 dark:text-amber-400'>
+                                  {t('channels.dialogs.bodyPassThrough.warning')}
+                                </p>
+                              )}
+                              <p className='text-muted-foreground text-xs'>{t('channels.dialogs.axonHubBehavior.storageHint')}</p>
+                            </div>
+                          </div>
+                        </FormItem>
+                      ) : (
+                        <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                          <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                            {t('channels.dialogs.disableRetries.label')}
                           </FormLabel>
                           <div className='flex items-start gap-2 md:col-span-6'>
                             <Checkbox
-                              checked={fullPassThrough}
-                              onCheckedChange={(checked) => setFullPassThrough(checked === true)}
+                              checked={disableRetries}
+                              onCheckedChange={(checked) => setDisableRetries(checked === true)}
                               className='mt-1'
                             />
-                            <p className='text-muted-foreground text-sm'>
-                              {t('channels.dialogs.fullPassThrough.description')}
-                            </p>
+                            <p className='text-muted-foreground text-sm'>{t('channels.dialogs.disableRetries.description')}</p>
                           </div>
                         </FormItem>
                       )}
-
-                      <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
-                        <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
-                          {t('channels.dialogs.disableRetries.label')}
-                        </FormLabel>
-                        <div className='flex items-start gap-2 md:col-span-6'>
-                          <Checkbox
-                            checked={disableRetries}
-                            onCheckedChange={(checked) => setDisableRetries(checked === true)}
-                            className='mt-1'
-                          />
-                          <p className='text-muted-foreground text-sm'>
-                            {t('channels.dialogs.disableRetries.description')}
-                          </p>
-                        </div>
-                      </FormItem>
 
                       <FormField
                         control={form.control}
@@ -2513,7 +2870,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                 <div className='mb-3 flex items-center justify-between gap-2'>
                   <div className='flex flex-col gap-1.5'>
                     <label className='flex cursor-pointer items-center gap-2 text-xs'>
-                      <Checkbox checked={showNotAddedModelsOnly} onCheckedChange={(checked) => setShowNotAddedModelsOnly(checked === true)} />
+                      <Checkbox
+                        checked={showNotAddedModelsOnly}
+                        onCheckedChange={(checked) => setShowNotAddedModelsOnly(checked === true)}
+                      />
                       {t('channels.dialogs.fields.supportedModels.showNotAddedOnly')}
                     </label>
                     {watchedAutoSync && watchedAutoSyncPattern && !patternError && (
@@ -2632,89 +2992,98 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                       const validKeys = (apiKeys || []).map((k) => k.trim()).filter((k) => k.length > 0);
                       const isLastKey = validKeys.length <= 1;
                       return validKeys
-                      .filter((k) => {
-                        if (!apiKeysSearch.trim()) return true;
-                        const search = apiKeysSearch.trim().toLowerCase();
-                        return k.toLowerCase().includes(search) || k.slice(-4).toLowerCase().includes(search);
-                      })
-                      .map((key) => {
-                        const isSelected = selectedKeysToRemove.has(key);
-                        const isDisabled = disabledKeySet.has(key);
-                        const masked = key.length > 8 ? `${key.slice(0, 4)}****${key.slice(-4)}` : `****${key.slice(-4)}`;
+                        .filter((k) => {
+                          if (!apiKeysSearch.trim()) return true;
+                          const search = apiKeysSearch.trim().toLowerCase();
+                          return k.toLowerCase().includes(search) || k.slice(-4).toLowerCase().includes(search);
+                        })
+                        .map((key) => {
+                          const isSelected = selectedKeysToRemove.has(key);
+                          const isDisabled = disabledKeySet.has(key);
+                          const masked = key.length > 8 ? `${key.slice(0, 4)}****${key.slice(-4)}` : `****${key.slice(-4)}`;
 
-                        return (
-                          <div key={key} className='hover:bg-accent flex items-center justify-between gap-2 rounded-md p-2 text-sm'>
-                            <div className='flex min-w-0 items-center gap-2'>
-                              <Checkbox
-                                checked={isSelected}
-                                disabled={isLastKey}
-                                onCheckedChange={(checked) => {
-                                  setSelectedKeysToRemove((prev) => {
-                                    const next = new Set(prev);
-                                    if (checked) {
-                                      next.add(key);
-                                    } else {
-                                      next.delete(key);
-                                    }
-                                    return next;
-                                  });
-                                }}
-                                aria-label={t('common.columns.selectRow')}
-                              />
+                          return (
+                            <div key={key} className='hover:bg-accent flex items-center justify-between gap-2 rounded-md p-2 text-sm'>
+                              <div className='flex min-w-0 items-center gap-2'>
+                                <Checkbox
+                                  checked={isSelected}
+                                  disabled={isLastKey}
+                                  onCheckedChange={(checked) => {
+                                    setSelectedKeysToRemove((prev) => {
+                                      const next = new Set(prev);
+                                      if (checked) {
+                                        next.add(key);
+                                      } else {
+                                        next.delete(key);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                  aria-label={t('common.columns.selectRow')}
+                                />
 
-                              <div className='min-w-0'>
-                                <div className='flex min-w-0 items-center gap-2'>
-                                  <code className='bg-muted shrink-0 rounded px-2 py-0.5 font-mono text-xs'>{masked}</code>
+                                <div className='min-w-0'>
+                                  <div className='flex min-w-0 items-center gap-2'>
+                                    <code className='bg-muted shrink-0 rounded px-2 py-0.5 font-mono text-xs'>{masked}</code>
+                                    {isDisabled && (
+                                      <Badge variant='destructive' className='h-5 px-2 text-[10px]'>
+                                        {t('channels.dialogs.fields.apiKey.disabled')}
+                                      </Badge>
+                                    )}
+                                  </div>
                                   {isDisabled && (
-                                    <Badge variant='destructive' className='h-5 px-2 text-[10px]'>
-                                      {t('channels.dialogs.fields.apiKey.disabled')}
-                                    </Badge>
+                                    <p className='text-muted-foreground mt-1 text-xs'>{t('channels.dialogs.fields.apiKey.disabledHint')}</p>
                                   )}
                                 </div>
-                                {isDisabled && (
-                                  <p className='text-muted-foreground mt-1 text-xs'>{t('channels.dialogs.fields.apiKey.disabledHint')}</p>
-                                )}
                               </div>
-                            </div>
 
-                            {isLastKey ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className='inline-flex'>
-                                    <Button type='button' variant='ghost' size='sm' className='text-muted-foreground h-7 w-7 p-0' disabled>
+                              {isLastKey ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className='inline-flex'>
+                                      <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        className='text-muted-foreground h-7 w-7 p-0'
+                                        disabled
+                                      >
+                                        <Trash2 className='h-4 w-4' />
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{t('channels.dialogs.fields.apiKey.mustKeepOne')}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <Popover
+                                  open={confirmRemoveKey === key}
+                                  onOpenChange={(isOpen) => setConfirmRemoveKey(isOpen ? key : null)}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button type='button' variant='ghost' size='sm' className='text-destructive h-7 w-7 p-0'>
                                       <Trash2 className='h-4 w-4' />
                                     </Button>
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{t('channels.dialogs.fields.apiKey.mustKeepOne')}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <Popover open={confirmRemoveKey === key} onOpenChange={(isOpen) => setConfirmRemoveKey(isOpen ? key : null)}>
-                                <PopoverTrigger asChild>
-                                  <Button type='button' variant='ghost' size='sm' className='text-destructive h-7 w-7 p-0'>
-                                    <Trash2 className='h-4 w-4' />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className='w-72'>
-                                  <div className='flex flex-col gap-3'>
-                                    <p className='text-sm'>{t('channels.dialogs.fields.apiKey.confirmRemoveSingle')}</p>
-                                    <div className='flex justify-end gap-2'>
-                                      <Button size='sm' variant='outline' onClick={() => setConfirmRemoveKey(null)}>
-                                        {t('common.buttons.cancel')}
-                                      </Button>
-                                      <Button size='sm' variant='destructive' onClick={() => removeApiKeys([key])}>
-                                        {t('common.buttons.confirm')}
-                                      </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className='w-72'>
+                                    <div className='flex flex-col gap-3'>
+                                      <p className='text-sm'>{t('channels.dialogs.fields.apiKey.confirmRemoveSingle')}</p>
+                                      <div className='flex justify-end gap-2'>
+                                        <Button size='sm' variant='outline' onClick={() => setConfirmRemoveKey(null)}>
+                                          {t('common.buttons.cancel')}
+                                        </Button>
+                                        <Button size='sm' variant='destructive' onClick={() => removeApiKeys([key])}>
+                                          {t('common.buttons.confirm')}
+                                        </Button>
+                                      </div>
                                     </div>
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
-                            )}
-                          </div>
-                        );
-                      });
+                                  </PopoverContent>
+                                </Popover>
+                              )}
+                            </div>
+                          );
+                        });
                     })()}
                   </div>
                 </ScrollArea>
@@ -2849,11 +3218,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                             transform: `translateY(${virtualItem.start}px)`,
                           }}
                         >
-                          <SupportedModelItem
-                            model={model}
-                            isManual={isModelManual(model)}
-                            onRemove={() => removeModel(model)}
-                          />
+                          <SupportedModelItem model={model} isManual={isModelManual(model)} onRemove={() => removeModel(model)} />
                         </div>
                       );
                     })}

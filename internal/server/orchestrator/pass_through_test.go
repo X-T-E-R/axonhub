@@ -1478,6 +1478,36 @@ func TestApplyAxonHubFullPassThroughRequest_ResponsesPath(t *testing.T) {
 	require.Equal(t, string(llm.APIFormatOpenAIResponse), processed.APIFormat)
 }
 
+func TestIsPassThroughEnabled_AxonHubFullPassThroughStillHonorsBodyPassThroughSetting(t *testing.T) {
+	ctx := context.Background()
+
+	channel := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:   1,
+			Name: "upstream axonhub",
+			Type: entchannel.TypeAxonhub,
+			Settings: &objects.ChannelSettings{
+				FullPassThrough: true,
+				PassThroughBody: lo.ToPtr(false),
+			},
+		},
+	}
+
+	outbound := &PersistentOutboundTransformer{
+		state: &PersistenceState{
+			CurrentCandidate: &ChannelModelsCandidate{Channel: channel},
+			LlmRequest: &llm.Request{
+				APIFormat: llm.APIFormatOpenAIChatCompletion,
+			},
+			RawProviderRequest: &httpclient.Request{
+				APIFormat: string(llm.APIFormatOpenAIChatCompletion),
+			},
+		},
+	}
+
+	require.False(t, outbound.isPassThroughEnabled(ctx, nil))
+}
+
 func TestApplyAxonHubFullPassThroughRequest_RejectsUnsupportedPath(t *testing.T) {
 	ctx := context.Background()
 	rawHTTPReq, err := http.NewRequest(http.MethodPost, "http://gateway.local/admin/graphql", nil)

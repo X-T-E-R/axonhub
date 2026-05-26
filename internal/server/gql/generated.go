@@ -493,21 +493,24 @@ type ComplexityRoot struct {
 	}
 
 	ChannelSettings struct {
-		AutoTrimedModelPrefixes  func(childComplexity int) int
-		BodyOverrideOperations   func(childComplexity int) int
-		DisableRetries           func(childComplexity int) int
-		ExtraModelPrefix         func(childComplexity int) int
-		FullPassThrough          func(childComplexity int) int
-		HeaderOverrideOperations func(childComplexity int) int
-		HideMappedModels         func(childComplexity int) int
-		HideOriginalModels       func(childComplexity int) int
-		LowercaseModelID         func(childComplexity int) int
-		ModelMappings            func(childComplexity int) int
-		PassThroughBody          func(childComplexity int) int
-		PassThroughUserAgent     func(childComplexity int) int
-		Proxy                    func(childComplexity int) int
-		RateLimit                func(childComplexity int) int
-		TransformOptions         func(childComplexity int) int
+		AutoTrimedModelPrefixes    func(childComplexity int) int
+		BodyOverrideOperations     func(childComplexity int) int
+		DisableRetries             func(childComplexity int) int
+		ExtraModelPrefix           func(childComplexity int) int
+		FullPassThrough            func(childComplexity int) int
+		HeaderOverrideOperations   func(childComplexity int) int
+		HideMappedModels           func(childComplexity int) int
+		HideOriginalModels         func(childComplexity int) int
+		LowercaseModelID           func(childComplexity int) int
+		ModelMappings              func(childComplexity int) int
+		PassThroughBody            func(childComplexity int) int
+		PassThroughUserAgent       func(childComplexity int) int
+		Proxy                      func(childComplexity int) int
+		RateLimit                  func(childComplexity int) int
+		StoreExecutionRequestBody  func(childComplexity int) int
+		StoreExecutionResponseBody func(childComplexity int) int
+		StoreExecutionStreamChunks func(childComplexity int) int
+		TransformOptions           func(childComplexity int) int
 	}
 
 	ChannelSuccessRate struct {
@@ -3882,6 +3885,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.RateLimit(childComplexity), true
+	case "ChannelSettings.storeExecutionRequestBody":
+		if e.complexity.ChannelSettings.StoreExecutionRequestBody == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.StoreExecutionRequestBody(childComplexity), true
+	case "ChannelSettings.storeExecutionResponseBody":
+		if e.complexity.ChannelSettings.StoreExecutionResponseBody == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.StoreExecutionResponseBody(childComplexity), true
+	case "ChannelSettings.storeExecutionStreamChunks":
+		if e.complexity.ChannelSettings.StoreExecutionStreamChunks == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.StoreExecutionStreamChunks(childComplexity), true
 	case "ChannelSettings.transformOptions":
 		if e.complexity.ChannelSettings.TransformOptions == nil {
 			break
@@ -18007,6 +18028,12 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 				return ec.fieldContext_ChannelSettings_disableRetries(ctx, field)
 			case "fullPassThrough":
 				return ec.fieldContext_ChannelSettings_fullPassThrough(ctx, field)
+			case "storeExecutionRequestBody":
+				return ec.fieldContext_ChannelSettings_storeExecutionRequestBody(ctx, field)
+			case "storeExecutionResponseBody":
+				return ec.fieldContext_ChannelSettings_storeExecutionResponseBody(ctx, field)
+			case "storeExecutionStreamChunks":
+				return ec.fieldContext_ChannelSettings_storeExecutionStreamChunks(ctx, field)
 			case "rateLimit":
 				return ec.fieldContext_ChannelSettings_rateLimit(ctx, field)
 			}
@@ -22469,6 +22496,93 @@ func (ec *executionContext) _ChannelSettings_fullPassThrough(ctx context.Context
 }
 
 func (ec *executionContext) fieldContext_ChannelSettings_fullPassThrough(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_storeExecutionRequestBody(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_storeExecutionRequestBody,
+		func(ctx context.Context) (any, error) {
+			return obj.StoreExecutionRequestBody, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_storeExecutionRequestBody(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_storeExecutionResponseBody(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_storeExecutionResponseBody,
+		func(ctx context.Context) (any, error) {
+			return obj.StoreExecutionResponseBody, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_storeExecutionResponseBody(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_storeExecutionStreamChunks(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_storeExecutionStreamChunks,
+		func(ctx context.Context) (any, error) {
+			return obj.StoreExecutionStreamChunks, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_storeExecutionStreamChunks(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelSettings",
 		Field:      field,
@@ -62347,7 +62461,7 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "rateLimit"}
+	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "rateLimit"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -62452,6 +62566,27 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 				return it, err
 			}
 			it.FullPassThrough = data
+		case "storeExecutionRequestBody":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storeExecutionRequestBody"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StoreExecutionRequestBody = data
+		case "storeExecutionResponseBody":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storeExecutionResponseBody"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StoreExecutionResponseBody = data
+		case "storeExecutionStreamChunks":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storeExecutionStreamChunks"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StoreExecutionStreamChunks = data
 		case "rateLimit":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rateLimit"))
 			data, err := ec.unmarshalOChannelRateLimitInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRateLimit(ctx, v)
@@ -87163,6 +87298,12 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelSettings_disableRetries(ctx, field, obj)
 		case "fullPassThrough":
 			out.Values[i] = ec._ChannelSettings_fullPassThrough(ctx, field, obj)
+		case "storeExecutionRequestBody":
+			out.Values[i] = ec._ChannelSettings_storeExecutionRequestBody(ctx, field, obj)
+		case "storeExecutionResponseBody":
+			out.Values[i] = ec._ChannelSettings_storeExecutionResponseBody(ctx, field, obj)
+		case "storeExecutionStreamChunks":
+			out.Values[i] = ec._ChannelSettings_storeExecutionStreamChunks(ctx, field, obj)
 		case "rateLimit":
 			out.Values[i] = ec._ChannelSettings_rateLimit(ctx, field, obj)
 		default:

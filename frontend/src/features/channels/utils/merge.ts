@@ -111,6 +111,9 @@ export function mergeChannelSettingsForUpdate(
     passThroughBody: pick('passThroughBody', existing?.passThroughBody ?? null),
     disableRetries: pick('disableRetries', existing?.disableRetries ?? false),
     fullPassThrough: pick('fullPassThrough', existing?.fullPassThrough ?? false),
+    storeExecutionRequestBody: pick('storeExecutionRequestBody', existing?.storeExecutionRequestBody ?? null),
+    storeExecutionResponseBody: pick('storeExecutionResponseBody', existing?.storeExecutionResponseBody ?? null),
+    storeExecutionStreamChunks: pick('storeExecutionStreamChunks', existing?.storeExecutionStreamChunks ?? null),
     rateLimit: pick('rateLimit', existing?.rateLimit ?? null),
   };
 }
@@ -130,7 +133,7 @@ export function mergeOverrideParameters(existing: string, template: string): str
 
     // Use compact format to match backend
     return JSON.stringify(merged);
-  } catch (error) {
+  } catch {
     // If parsing fails, return template
     return template;
   }

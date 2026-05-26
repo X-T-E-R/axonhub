@@ -48,8 +48,6 @@ func (p *PersistentOutboundTransformer) isPassThroughEnabled(ctx context.Context
 	var enabled bool
 
 	switch {
-	case isAxonHubFullPassThroughChannel(channel):
-		enabled = true
 	case channel.Settings != nil && channel.Settings.PassThroughBody != nil:
 		enabled = *channel.Settings.PassThroughBody
 	case systemService != nil:
