@@ -224,12 +224,18 @@ type MonitoringRule struct {
 	Name            string                              `json:"name"`
 	Description     string                              `json:"description,omitempty"`
 	Enabled         *bool                               `json:"enabled,omitempty"`
+	ProbeType       string                              `json:"probeType,omitempty"`
 	Schedule        MonitoringRuleSchedule              `json:"schedule,omitempty"`
 	Targets         MonitoringRuleTargets               `json:"targets,omitempty"`
 	Probes          []objects.ChannelKeyHealthCheckRule `json:"probes,omitempty"`
 	KeyProfiles     []objects.FailurePolicyProfile      `json:"keyProfiles,omitempty"`
 	ChannelProfiles []objects.FailurePolicyProfile      `json:"channelProfiles,omitempty"`
 }
+
+const (
+	MonitoringProbeTypeHealthCheck         = "health_check"
+	MonitoringProbeTypeChannelBalanceProbe = "channel_balance_probe"
+)
 
 type MonitoringRuleSchedule struct {
 	IntervalMinutes   int `json:"intervalMinutes,omitempty"`
@@ -1719,6 +1725,10 @@ func normalizeMonitoringSettings(settings *MonitoringSettings) {
 		rule.ID = strings.TrimSpace(rule.ID)
 		rule.Name = strings.TrimSpace(rule.Name)
 		rule.Description = strings.TrimSpace(rule.Description)
+		rule.ProbeType = strings.TrimSpace(rule.ProbeType)
+		if rule.ProbeType == "" {
+			rule.ProbeType = MonitoringProbeTypeHealthCheck
+		}
 		if rule.Enabled == nil {
 			rule.Enabled = lo.ToPtr(true)
 		}
@@ -1872,6 +1882,11 @@ func validateMonitoringSettings(settings *MonitoringSettings) error {
 		ids[rule.ID] = struct{}{}
 		if rule.Name == "" {
 			return fmt.Errorf("monitoring rule %q name is required", rule.ID)
+		}
+		switch rule.ProbeType {
+		case "", MonitoringProbeTypeHealthCheck, MonitoringProbeTypeChannelBalanceProbe:
+		default:
+			return fmt.Errorf("monitoring rule %q has unsupported probeType %q", rule.ID, rule.ProbeType)
 		}
 	}
 

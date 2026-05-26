@@ -24,6 +24,7 @@ type failurePolicyEvent struct {
 	Available            *bool
 	Balance              any
 	Currency             string
+	BalanceSnapshot      *objects.ChannelKeyBalanceSnapshot
 	Reason               string
 	AllCheckedKeysFailed bool
 	CheckedAt            time.Time
@@ -284,18 +285,21 @@ func evaluateFailurePolicyProfiles(profiles []objects.FailurePolicyProfile, even
 
 func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event failurePolicyEvent) bool {
 	result := ChannelKeyHealthCheckResult{
-		Success:    event.Success,
-		Reason:     event.Reason,
-		Balance:    event.Balance,
-		Currency:   event.Currency,
-		Available:  event.Available,
-		StatusCode: event.StatusCode,
+		Success:         event.Success,
+		Reason:          event.Reason,
+		Balance:         event.Balance,
+		Currency:        event.Currency,
+		BalanceSnapshot: event.BalanceSnapshot,
+		Available:       event.Available,
+		StatusCode:      event.StatusCode,
 	}
 	trigger := objects.ChannelKeyHealthCheckTriggerScheduled
 	switch event.Source {
 	case objects.FailurePolicyEventSourceRequestFailure:
 		trigger = objects.ChannelKeyHealthCheckTriggerRequest
-	case objects.FailurePolicyEventSourceManualHealthCheckFailure:
+	case objects.FailurePolicyEventSourceManualHealthCheckFailure,
+		objects.FailurePolicyEventSourceManualBalanceProbe,
+		objects.FailurePolicyEventSourceManualBalanceProbeFailure:
 		trigger = objects.ChannelKeyHealthCheckTriggerManual
 	}
 
@@ -733,6 +737,26 @@ func failurePolicyEventSourceFromHealthTrigger(trigger objects.ChannelKeyHealthC
 	return objects.FailurePolicyEventSourceScheduledHealthCheckFailure
 }
 
+func failurePolicyEventSourceForResult(result ChannelKeyHealthCheckResult, trigger objects.ChannelKeyHealthCheckTrigger) objects.FailurePolicyEventSource {
+	if result.Source != "" {
+		return result.Source
+	}
+
+	return failurePolicyEventSourceFromHealthTrigger(trigger)
+}
+
+func failurePolicySourceIsBalanceProbe(source objects.FailurePolicyEventSource) bool {
+	switch source {
+	case objects.FailurePolicyEventSourceScheduledBalanceProbe,
+		objects.FailurePolicyEventSourceScheduledBalanceProbeFailure,
+		objects.FailurePolicyEventSourceManualBalanceProbe,
+		objects.FailurePolicyEventSourceManualBalanceProbeFailure:
+		return true
+	default:
+		return false
+	}
+}
+
 func (svc *ChannelService) applyFailurePolicyToHealthCheckResults(
 	ctx context.Context,
 	ch *ent.Channel,
@@ -754,16 +778,28 @@ func (svc *ChannelService) applyFailurePolicyToHealthCheckResults(
 	}
 
 	next := slices.Clone(results)
-	source := failurePolicyEventSourceFromHealthTrigger(trigger)
 	metadataByID := channelKeyMetadataByID(settings.KeyHealthCheck.KeyMetadata)
 	failedIndexes := make([]int, 0, len(keys))
 	for i, key := range keys {
-		if i >= len(next) || next[i].Success {
+		if i >= len(next) {
 			continue
+		}
+		source := failurePolicyEventSourceForResult(next[i], trigger)
+		if next[i].Success && !failurePolicySourceIsBalanceProbe(source) {
+			continue
+		}
+		if next[i].Success && source == objects.FailurePolicyEventSourceManualBalanceProbeFailure {
+			source = objects.FailurePolicyEventSourceManualBalanceProbe
+		}
+		if next[i].Success && source == objects.FailurePolicyEventSourceScheduledBalanceProbeFailure {
+			source = objects.FailurePolicyEventSourceScheduledBalanceProbe
 		}
 		failedIndexes = append(failedIndexes, i)
 		meta := metadataByID[objects.ChannelAPIKeyFingerprint(key)]
-		failureCount := meta.FailureCount + 1
+		failureCount := meta.FailureCount
+		if !next[i].Success {
+			failureCount++
+		}
 		event := failurePolicyEvent{
 			Source:               source,
 			Target:               objects.FailurePolicyTargetKey,
@@ -774,6 +810,7 @@ func (svc *ChannelService) applyFailurePolicyToHealthCheckResults(
 			Available:            next[i].Available,
 			Balance:              next[i].Balance,
 			Currency:             next[i].Currency,
+			BalanceSnapshot:      next[i].BalanceSnapshot,
 			Reason:               next[i].Reason,
 			AllCheckedKeysFailed: allCheckedKeysFailed,
 			CheckedAt:            now,
@@ -795,6 +832,10 @@ func (svc *ChannelService) applyFailurePolicyToHealthCheckResults(
 		}
 	}
 
+	source := failurePolicyEventSourceFromHealthTrigger(trigger)
+	if len(failedIndexes) > 0 {
+		source = failurePolicyEventSourceForResult(next[failedIndexes[0]], trigger)
+	}
 	if allCheckedKeysFailed && len(failedIndexes) > 0 {
 		event := failurePolicyEvent{
 			Source:               source,

@@ -68,6 +68,7 @@ type ResolverRoot interface {
 	Channel() ChannelResolver
 	ChannelAPIKeyInventoryItem() ChannelAPIKeyInventoryItemResolver
 	ChannelArchivedAPIKey() ChannelArchivedAPIKeyResolver
+	ChannelKeyBalanceSnapshot() ChannelKeyBalanceSnapshotResolver
 	ChannelKeyHealthCheckHistoryEntry() ChannelKeyHealthCheckHistoryEntryResolver
 	ChannelKeyMetadata() ChannelKeyMetadataResolver
 	ChannelKeyMonitoringEvent() ChannelKeyMonitoringEventResolver
@@ -99,6 +100,7 @@ type ResolverRoot interface {
 	UserProject() UserProjectResolver
 	UserRole() UserRoleResolver
 	ChannelArchivedAPIKeyInput() ChannelArchivedAPIKeyInputResolver
+	ChannelKeyBalanceSnapshotInput() ChannelKeyBalanceSnapshotInputResolver
 	ChannelKeyHealthCheckHistoryEntryInput() ChannelKeyHealthCheckHistoryEntryInputResolver
 	ChannelKeyMetadataInput() ChannelKeyMetadataInputResolver
 }
@@ -273,6 +275,14 @@ type ComplexityRoot struct {
 		Success func(childComplexity int) int
 	}
 
+	BalanceAmount struct {
+		Amount    func(childComplexity int) int
+		Currency  func(childComplexity int) int
+		ExpiresAt func(childComplexity int) int
+		Kind      func(childComplexity int) int
+		Label     func(childComplexity int) int
+	}
+
 	BrandSettings struct {
 		BrandLogo func(childComplexity int) int
 		BrandName func(childComplexity int) int
@@ -327,34 +337,47 @@ type ComplexityRoot struct {
 	}
 
 	ChannelAPIKeyInventoryItem struct {
-		Action         func(childComplexity int) int
-		Available      func(childComplexity int) int
-		BackoffAttempt func(childComplexity int) int
-		Balance        func(childComplexity int) int
-		Currency       func(childComplexity int) int
-		FailureCount   func(childComplexity int) int
-		History        func(childComplexity int) int
-		ID             func(childComplexity int) int
-		LastCheckedAt  func(childComplexity int) int
-		MaskedKey      func(childComplexity int) int
-		MatchedPolicy  func(childComplexity int) int
-		NextCheckAt    func(childComplexity int) int
-		Reason         func(childComplexity int) int
-		Status         func(childComplexity int) int
-		StatusCode     func(childComplexity int) int
-		Success        func(childComplexity int) int
+		Action          func(childComplexity int) int
+		Available       func(childComplexity int) int
+		BackoffAttempt  func(childComplexity int) int
+		Balance         func(childComplexity int) int
+		BalanceSnapshot func(childComplexity int) int
+		Currency        func(childComplexity int) int
+		FailureCount    func(childComplexity int) int
+		History         func(childComplexity int) int
+		ID              func(childComplexity int) int
+		LastCheckedAt   func(childComplexity int) int
+		MaskedKey       func(childComplexity int) int
+		MatchedPolicy   func(childComplexity int) int
+		NextCheckAt     func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Status          func(childComplexity int) int
+		StatusCode      func(childComplexity int) int
+		Success         func(childComplexity int) int
 	}
 
 	ChannelArchivedAPIKey struct {
-		ArchivedAt    func(childComplexity int) int
-		Available     func(childComplexity int) int
-		Balance       func(childComplexity int) int
-		Currency      func(childComplexity int) int
-		FailureCount  func(childComplexity int) int
-		ID            func(childComplexity int) int
-		LastCheckedAt func(childComplexity int) int
-		MaskedKey     func(childComplexity int) int
-		Reason        func(childComplexity int) int
+		ArchivedAt      func(childComplexity int) int
+		Available       func(childComplexity int) int
+		Balance         func(childComplexity int) int
+		BalanceSnapshot func(childComplexity int) int
+		Currency        func(childComplexity int) int
+		FailureCount    func(childComplexity int) int
+		ID              func(childComplexity int) int
+		LastCheckedAt   func(childComplexity int) int
+		MaskedKey       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+	}
+
+	ChannelBalanceProbe struct {
+		Enabled           func(childComplexity int) int
+		Experimental      func(childComplexity int) int
+		HTTP              func(childComplexity int) int
+		IncludeStatuses   func(childComplexity int) int
+		PreferredCurrency func(childComplexity int) int
+		Preset            func(childComplexity int) int
+		PrimarySelection  func(childComplexity int) int
+		TimeoutMs         func(childComplexity int) int
 	}
 
 	ChannelConnection struct {
@@ -385,6 +408,19 @@ type ComplexityRoot struct {
 		ChannelProfiles func(childComplexity int) int
 		KeyProfiles     func(childComplexity int) int
 		Mode            func(childComplexity int) int
+	}
+
+	ChannelKeyBalanceSnapshot struct {
+		AccountID      func(childComplexity int) int
+		AccountStatus  func(childComplexity int) int
+		Available      func(childComplexity int) int
+		CheckedAt      func(childComplexity int) int
+		Components     func(childComplexity int) int
+		PrimaryBalance func(childComplexity int) int
+		Provider       func(childComplexity int) int
+		RawSummary     func(childComplexity int) int
+		StatusCode     func(childComplexity int) int
+		Success        func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheck struct {
@@ -425,20 +461,21 @@ type ComplexityRoot struct {
 	}
 
 	ChannelKeyHealthCheckHistoryEntry struct {
-		Action         func(childComplexity int) int
-		Available      func(childComplexity int) int
-		BackoffAttempt func(childComplexity int) int
-		Balance        func(childComplexity int) int
-		CheckedAt      func(childComplexity int) int
-		Currency       func(childComplexity int) int
-		ID             func(childComplexity int) int
-		MatchedPolicy  func(childComplexity int) int
-		NextCheckAt    func(childComplexity int) int
-		Reason         func(childComplexity int) int
-		Rule           func(childComplexity int) int
-		StatusCode     func(childComplexity int) int
-		Success        func(childComplexity int) int
-		Trigger        func(childComplexity int) int
+		Action          func(childComplexity int) int
+		Available       func(childComplexity int) int
+		BackoffAttempt  func(childComplexity int) int
+		Balance         func(childComplexity int) int
+		BalanceSnapshot func(childComplexity int) int
+		CheckedAt       func(childComplexity int) int
+		Currency        func(childComplexity int) int
+		ID              func(childComplexity int) int
+		MatchedPolicy   func(childComplexity int) int
+		NextCheckAt     func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Rule            func(childComplexity int) int
+		StatusCode      func(childComplexity int) int
+		Success         func(childComplexity int) int
+		Trigger         func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheckKeyInjection struct {
@@ -482,22 +519,23 @@ type ComplexityRoot struct {
 	}
 
 	ChannelKeyMetadata struct {
-		Action         func(childComplexity int) int
-		Available      func(childComplexity int) int
-		BackoffAttempt func(childComplexity int) int
-		Balance        func(childComplexity int) int
-		Currency       func(childComplexity int) int
-		FailureCount   func(childComplexity int) int
-		History        func(childComplexity int) int
-		ID             func(childComplexity int) int
-		LastCheckedAt  func(childComplexity int) int
-		MaskedKey      func(childComplexity int) int
-		MatchedPolicy  func(childComplexity int) int
-		NextCheckAt    func(childComplexity int) int
-		Reason         func(childComplexity int) int
-		Status         func(childComplexity int) int
-		StatusCode     func(childComplexity int) int
-		Success        func(childComplexity int) int
+		Action          func(childComplexity int) int
+		Available       func(childComplexity int) int
+		BackoffAttempt  func(childComplexity int) int
+		Balance         func(childComplexity int) int
+		BalanceSnapshot func(childComplexity int) int
+		Currency        func(childComplexity int) int
+		FailureCount    func(childComplexity int) int
+		History         func(childComplexity int) int
+		ID              func(childComplexity int) int
+		LastCheckedAt   func(childComplexity int) int
+		MaskedKey       func(childComplexity int) int
+		MatchedPolicy   func(childComplexity int) int
+		NextCheckAt     func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Status          func(childComplexity int) int
+		StatusCode      func(childComplexity int) int
+		Success         func(childComplexity int) int
 	}
 
 	ChannelKeyMonitoringEvent struct {
@@ -698,6 +736,7 @@ type ComplexityRoot struct {
 
 	ChannelSettings struct {
 		AutoTrimedModelPrefixes  func(childComplexity int) int
+		BalanceProbe             func(childComplexity int) int
 		BodyOverrideOperations   func(childComplexity int) int
 		DisableRetries           func(childComplexity int) int
 		ExtraModelPrefix         func(childComplexity int) int
@@ -1092,6 +1131,7 @@ type ComplexityRoot struct {
 		ID              func(childComplexity int) int
 		KeyProfiles     func(childComplexity int) int
 		Name            func(childComplexity int) int
+		ProbeType       func(childComplexity int) int
 		Probes          func(childComplexity int) int
 		Schedule        func(childComplexity int) int
 		Targets         func(childComplexity int) int
@@ -2249,6 +2289,9 @@ type ChannelAPIKeyInventoryItemResolver interface {
 type ChannelArchivedAPIKeyResolver interface {
 	Balance(ctx context.Context, obj *objects.ChannelArchivedAPIKey) (objects.JSONRawMessage, error)
 }
+type ChannelKeyBalanceSnapshotResolver interface {
+	RawSummary(ctx context.Context, obj *objects.ChannelKeyBalanceSnapshot) (objects.JSONRawMessage, error)
+}
 type ChannelKeyHealthCheckHistoryEntryResolver interface {
 	Balance(ctx context.Context, obj *objects.ChannelKeyHealthCheckHistoryEntry) (objects.JSONRawMessage, error)
 }
@@ -2614,6 +2657,9 @@ type UserRoleResolver interface {
 
 type ChannelArchivedAPIKeyInputResolver interface {
 	Balance(ctx context.Context, obj *objects.ChannelArchivedAPIKey, data objects.JSONRawMessage) error
+}
+type ChannelKeyBalanceSnapshotInputResolver interface {
+	RawSummary(ctx context.Context, obj *objects.ChannelKeyBalanceSnapshot, data objects.JSONRawMessage) error
 }
 type ChannelKeyHealthCheckHistoryEntryInputResolver interface {
 	Balance(ctx context.Context, obj *objects.ChannelKeyHealthCheckHistoryEntry, data objects.JSONRawMessage) error
@@ -3234,6 +3280,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.BackupPayload.Success(childComplexity), true
 
+	case "BalanceAmount.amount":
+		if e.complexity.BalanceAmount.Amount == nil {
+			break
+		}
+
+		return e.complexity.BalanceAmount.Amount(childComplexity), true
+	case "BalanceAmount.currency":
+		if e.complexity.BalanceAmount.Currency == nil {
+			break
+		}
+
+		return e.complexity.BalanceAmount.Currency(childComplexity), true
+	case "BalanceAmount.expiresAt":
+		if e.complexity.BalanceAmount.ExpiresAt == nil {
+			break
+		}
+
+		return e.complexity.BalanceAmount.ExpiresAt(childComplexity), true
+	case "BalanceAmount.kind":
+		if e.complexity.BalanceAmount.Kind == nil {
+			break
+		}
+
+		return e.complexity.BalanceAmount.Kind(childComplexity), true
+	case "BalanceAmount.label":
+		if e.complexity.BalanceAmount.Label == nil {
+			break
+		}
+
+		return e.complexity.BalanceAmount.Label(childComplexity), true
+
 	case "BrandSettings.brandLogo":
 		if e.complexity.BrandSettings.BrandLogo == nil {
 			break
@@ -3528,6 +3605,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.Balance(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.balanceSnapshot":
+		if e.complexity.ChannelAPIKeyInventoryItem.BalanceSnapshot == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.BalanceSnapshot(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.currency":
 		if e.complexity.ChannelAPIKeyInventoryItem.Currency == nil {
 			break
@@ -3619,6 +3702,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelArchivedAPIKey.Balance(childComplexity), true
+	case "ChannelArchivedAPIKey.balanceSnapshot":
+		if e.complexity.ChannelArchivedAPIKey.BalanceSnapshot == nil {
+			break
+		}
+
+		return e.complexity.ChannelArchivedAPIKey.BalanceSnapshot(childComplexity), true
 	case "ChannelArchivedAPIKey.currency":
 		if e.complexity.ChannelArchivedAPIKey.Currency == nil {
 			break
@@ -3655,6 +3744,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelArchivedAPIKey.Reason(childComplexity), true
+
+	case "ChannelBalanceProbe.enabled":
+		if e.complexity.ChannelBalanceProbe.Enabled == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.Enabled(childComplexity), true
+	case "ChannelBalanceProbe.experimental":
+		if e.complexity.ChannelBalanceProbe.Experimental == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.Experimental(childComplexity), true
+	case "ChannelBalanceProbe.http":
+		if e.complexity.ChannelBalanceProbe.HTTP == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.HTTP(childComplexity), true
+	case "ChannelBalanceProbe.includeStatuses":
+		if e.complexity.ChannelBalanceProbe.IncludeStatuses == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.IncludeStatuses(childComplexity), true
+	case "ChannelBalanceProbe.preferredCurrency":
+		if e.complexity.ChannelBalanceProbe.PreferredCurrency == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.PreferredCurrency(childComplexity), true
+	case "ChannelBalanceProbe.preset":
+		if e.complexity.ChannelBalanceProbe.Preset == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.Preset(childComplexity), true
+	case "ChannelBalanceProbe.primarySelection":
+		if e.complexity.ChannelBalanceProbe.PrimarySelection == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.PrimarySelection(childComplexity), true
+	case "ChannelBalanceProbe.timeoutMs":
+		if e.complexity.ChannelBalanceProbe.TimeoutMs == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.TimeoutMs(childComplexity), true
 
 	case "ChannelConnection.edges":
 		if e.complexity.ChannelConnection.Edges == nil {
@@ -3750,6 +3888,67 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelFailurePolicy.Mode(childComplexity), true
+
+	case "ChannelKeyBalanceSnapshot.accountId":
+		if e.complexity.ChannelKeyBalanceSnapshot.AccountID == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.AccountID(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.accountStatus":
+		if e.complexity.ChannelKeyBalanceSnapshot.AccountStatus == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.AccountStatus(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.available":
+		if e.complexity.ChannelKeyBalanceSnapshot.Available == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Available(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.checkedAt":
+		if e.complexity.ChannelKeyBalanceSnapshot.CheckedAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.CheckedAt(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.components":
+		if e.complexity.ChannelKeyBalanceSnapshot.Components == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Components(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.primaryBalance":
+		if e.complexity.ChannelKeyBalanceSnapshot.PrimaryBalance == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.PrimaryBalance(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.provider":
+		if e.complexity.ChannelKeyBalanceSnapshot.Provider == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Provider(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.rawSummary":
+		if e.complexity.ChannelKeyBalanceSnapshot.RawSummary == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.RawSummary(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.statusCode":
+		if e.complexity.ChannelKeyBalanceSnapshot.StatusCode == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.StatusCode(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.success":
+		if e.complexity.ChannelKeyBalanceSnapshot.Success == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Success(childComplexity), true
 
 	case "ChannelKeyHealthCheck.archivedKeys":
 		if e.complexity.ChannelKeyHealthCheck.ArchivedKeys == nil {
@@ -3929,6 +4128,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheckHistoryEntry.Balance(childComplexity), true
+	case "ChannelKeyHealthCheckHistoryEntry.balanceSnapshot":
+		if e.complexity.ChannelKeyHealthCheckHistoryEntry.BalanceSnapshot == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheckHistoryEntry.BalanceSnapshot(childComplexity), true
 	case "ChannelKeyHealthCheckHistoryEntry.checkedAt":
 		if e.complexity.ChannelKeyHealthCheckHistoryEntry.CheckedAt == nil {
 			break
@@ -4169,6 +4374,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyMetadata.Balance(childComplexity), true
+	case "ChannelKeyMetadata.balanceSnapshot":
+		if e.complexity.ChannelKeyMetadata.BalanceSnapshot == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.BalanceSnapshot(childComplexity), true
 	case "ChannelKeyMetadata.currency":
 		if e.complexity.ChannelKeyMetadata.Currency == nil {
 			break
@@ -4999,6 +5210,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.AutoTrimedModelPrefixes(childComplexity), true
+	case "ChannelSettings.balanceProbe":
+		if e.complexity.ChannelSettings.BalanceProbe == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.BalanceProbe(childComplexity), true
 	case "ChannelSettings.bodyOverrideOperations":
 		if e.complexity.ChannelSettings.BodyOverrideOperations == nil {
 			break
@@ -6421,6 +6638,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.MonitoringRule.Name(childComplexity), true
+	case "MonitoringRule.probeType":
+		if e.complexity.MonitoringRule.ProbeType == nil {
+			break
+		}
+
+		return e.complexity.MonitoringRule.ProbeType(childComplexity), true
 	case "MonitoringRule.probes":
 		if e.complexity.MonitoringRule.Probes == nil {
 			break
@@ -12033,14 +12256,17 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputAutoDisableChannelInput,
 		ec.unmarshalInputAutoDisableChannelStatusInput,
 		ec.unmarshalInputBackupOptionsInput,
+		ec.unmarshalInputBalanceAmountInput,
 		ec.unmarshalInputBulkCreateChannelsInput,
 		ec.unmarshalInputBulkImportChannelItem,
 		ec.unmarshalInputBulkImportChannelsInput,
 		ec.unmarshalInputBulkUpdateChannelOrderingInput,
 		ec.unmarshalInputChannelArchivedAPIKeyInput,
+		ec.unmarshalInputChannelBalanceProbeInput,
 		ec.unmarshalInputChannelCredentialsInput,
 		ec.unmarshalInputChannelEndpointInput,
 		ec.unmarshalInputChannelFailurePolicyInput,
+		ec.unmarshalInputChannelKeyBalanceSnapshotInput,
 		ec.unmarshalInputChannelKeyHealthCheckBackoffInput,
 		ec.unmarshalInputChannelKeyHealthCheckBuiltinInput,
 		ec.unmarshalInputChannelKeyHealthCheckHTTPRuleInput,
@@ -18895,6 +19121,151 @@ func (ec *executionContext) fieldContext_BackupPayload_message(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _BalanceAmount_amount(ctx context.Context, field graphql.CollectedField, obj *objects.BalanceAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BalanceAmount_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BalanceAmount_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BalanceAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BalanceAmount_currency(ctx context.Context, field graphql.CollectedField, obj *objects.BalanceAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BalanceAmount_currency,
+		func(ctx context.Context) (any, error) {
+			return obj.Currency, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BalanceAmount_currency(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BalanceAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BalanceAmount_kind(ctx context.Context, field graphql.CollectedField, obj *objects.BalanceAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BalanceAmount_kind,
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		ec.marshalNBalanceAmountKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountKind,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BalanceAmount_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BalanceAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BalanceAmountKind does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BalanceAmount_label(ctx context.Context, field graphql.CollectedField, obj *objects.BalanceAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BalanceAmount_label,
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BalanceAmount_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BalanceAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BalanceAmount_expiresAt(ctx context.Context, field graphql.CollectedField, obj *objects.BalanceAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BalanceAmount_expiresAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ExpiresAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BalanceAmount_expiresAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BalanceAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _BrandSettings_brandName(ctx context.Context, field graphql.CollectedField, obj *BrandSettings) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -19781,6 +20152,8 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 				return ec.fieldContext_ChannelSettings_keySelection(ctx, field)
 			case "keyHealthCheck":
 				return ec.fieldContext_ChannelSettings_keyHealthCheck(ctx, field)
+			case "balanceProbe":
+				return ec.fieldContext_ChannelSettings_balanceProbe(ctx, field)
 			case "failurePolicy":
 				return ec.fieldContext_ChannelSettings_failurePolicy(ctx, field)
 			}
@@ -20711,6 +21084,57 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_currency(_ c
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_balanceSnapshot(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot,
+		func(ctx context.Context) (any, error) {
+			return obj.BalanceSnapshot, nil
+		},
+		nil,
+		ec.marshalOChannelKeyBalanceSnapshot2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "provider":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
+			case "success":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_success(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_statusCode(ctx, field)
+			case "accountStatus":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
+			case "accountId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "primaryBalance":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
+			case "components":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "rawSummary":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyBalanceSnapshot", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelAPIKeyInventoryItem_available(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20921,6 +21345,8 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_history(_ co
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balance(ctx, field)
 			case "currency":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balanceSnapshot(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_available(ctx, field)
 			case "trigger":
@@ -21176,6 +21602,57 @@ func (ec *executionContext) fieldContext_ChannelArchivedAPIKey_currency(_ contex
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelArchivedAPIKey_balanceSnapshot(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelArchivedAPIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelArchivedAPIKey_balanceSnapshot,
+		func(ctx context.Context) (any, error) {
+			return obj.BalanceSnapshot, nil
+		},
+		nil,
+		ec.marshalOChannelKeyBalanceSnapshot2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelArchivedAPIKey_balanceSnapshot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelArchivedAPIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "provider":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
+			case "success":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_success(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_statusCode(ctx, field)
+			case "accountStatus":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
+			case "accountId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "primaryBalance":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
+			case "components":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "rawSummary":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyBalanceSnapshot", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelArchivedAPIKey_available(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelArchivedAPIKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21200,6 +21677,258 @@ func (ec *executionContext) fieldContext_ChannelArchivedAPIKey_available(_ conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_enabled(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_preset(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_preset,
+		func(ctx context.Context) (any, error) {
+			return obj.Preset, nil
+		},
+		nil,
+		ec.marshalOChannelBalanceProbePreset2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbePreset,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_preset(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelBalanceProbePreset does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_experimental(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_experimental,
+		func(ctx context.Context) (any, error) {
+			return obj.Experimental, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_experimental(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_preferredCurrency(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_preferredCurrency,
+		func(ctx context.Context) (any, error) {
+			return obj.PreferredCurrency, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_preferredCurrency(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_primarySelection(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_primarySelection,
+		func(ctx context.Context) (any, error) {
+			return obj.PrimarySelection, nil
+		},
+		nil,
+		ec.marshalOChannelBalancePrimarySelection2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalancePrimarySelection,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_primarySelection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelBalancePrimarySelection does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_includeStatuses(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_includeStatuses,
+		func(ctx context.Context) (any, error) {
+			return obj.IncludeStatuses, nil
+		},
+		nil,
+		ec.marshalOChannelKeyStatus2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyStatusᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_includeStatuses(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelKeyStatus does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_timeoutMs(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_timeoutMs,
+		func(ctx context.Context) (any, error) {
+			return obj.TimeoutMs, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_timeoutMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_http(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_http,
+		func(ctx context.Context) (any, error) {
+			return obj.HTTP, nil
+		},
+		nil,
+		ec.marshalOChannelKeyHealthCheckHTTPRule2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHTTPRule,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_http(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "method":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_method(ctx, field)
+			case "urlMode":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_urlMode(ctx, field)
+			case "path":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_path(ctx, field)
+			case "url":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_url(ctx, field)
+			case "timeoutMs":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_timeoutMs(ctx, field)
+			case "headers":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_headers(ctx, field)
+			case "keyInjection":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_keyInjection(ctx, field)
+			case "expectedStatuses":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_expectedStatuses(ctx, field)
+			case "passWhen":
+				return ec.fieldContext_ChannelKeyHealthCheckHTTPRule_passWhen(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckHTTPRule", field.Name)
 		},
 	}
 	return fc, nil
@@ -21770,6 +22499,320 @@ func (ec *executionContext) fieldContext_ChannelFailurePolicy_channelProfiles(_ 
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_provider(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_provider,
+		func(ctx context.Context) (any, error) {
+			return obj.Provider, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_provider(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_checkedAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CheckedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_checkedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_success(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_success,
+		func(ctx context.Context) (any, error) {
+			return obj.Success, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_success(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_available(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_available,
+		func(ctx context.Context) (any, error) {
+			return obj.Available, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_available(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_statusCode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_statusCode,
+		func(ctx context.Context) (any, error) {
+			return obj.StatusCode, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_statusCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_accountStatus(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountStatus, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_accountStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_accountId(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_accountId,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountID, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_accountId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_primaryBalance(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance,
+		func(ctx context.Context) (any, error) {
+			return obj.PrimaryBalance, nil
+		},
+		nil,
+		ec.marshalOBalanceAmount2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "amount":
+				return ec.fieldContext_BalanceAmount_amount(ctx, field)
+			case "currency":
+				return ec.fieldContext_BalanceAmount_currency(ctx, field)
+			case "kind":
+				return ec.fieldContext_BalanceAmount_kind(ctx, field)
+			case "label":
+				return ec.fieldContext_BalanceAmount_label(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_BalanceAmount_expiresAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BalanceAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_components(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_components,
+		func(ctx context.Context) (any, error) {
+			return obj.Components, nil
+		},
+		nil,
+		ec.marshalOBalanceAmount2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_components(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "amount":
+				return ec.fieldContext_BalanceAmount_amount(ctx, field)
+			case "currency":
+				return ec.fieldContext_BalanceAmount_currency(ctx, field)
+			case "kind":
+				return ec.fieldContext_BalanceAmount_kind(ctx, field)
+			case "label":
+				return ec.fieldContext_BalanceAmount_label(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_BalanceAmount_expiresAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BalanceAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_rawSummary(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ChannelKeyBalanceSnapshot().RawSummary(ctx, obj)
+		},
+		nil,
+		ec.marshalOJSONRawMessage2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐJSONRawMessage,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_rawSummary(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSONRawMessage does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyHealthCheck_enabled(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22070,6 +23113,8 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_keyMetadata(_ con
 				return ec.fieldContext_ChannelKeyMetadata_balance(ctx, field)
 			case "currency":
 				return ec.fieldContext_ChannelKeyMetadata_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelKeyMetadata_balanceSnapshot(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelKeyMetadata_available(ctx, field)
 			case "statusCode":
@@ -22131,6 +23176,8 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_archivedKeys(_ co
 				return ec.fieldContext_ChannelArchivedAPIKey_balance(ctx, field)
 			case "currency":
 				return ec.fieldContext_ChannelArchivedAPIKey_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelArchivedAPIKey_balanceSnapshot(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelArchivedAPIKey_available(ctx, field)
 			}
@@ -22176,6 +23223,8 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_history(_ context
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balance(ctx, field)
 			case "currency":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balanceSnapshot(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_available(ctx, field)
 			case "trigger":
@@ -22786,6 +23835,57 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_curre
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry_balanceSnapshot(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheckHistoryEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balanceSnapshot,
+		func(ctx context.Context) (any, error) {
+			return obj.BalanceSnapshot, nil
+		},
+		nil,
+		ec.marshalOChannelKeyBalanceSnapshot2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_balanceSnapshot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheckHistoryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "provider":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
+			case "success":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_success(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_statusCode(ctx, field)
+			case "accountStatus":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
+			case "accountId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "primaryBalance":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
+			case "components":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "rawSummary":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyBalanceSnapshot", field.Name)
 		},
 	}
 	return fc, nil
@@ -24071,6 +25171,57 @@ func (ec *executionContext) fieldContext_ChannelKeyMetadata_currency(_ context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyMetadata_balanceSnapshot(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_balanceSnapshot,
+		func(ctx context.Context) (any, error) {
+			return obj.BalanceSnapshot, nil
+		},
+		nil,
+		ec.marshalOChannelKeyBalanceSnapshot2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_balanceSnapshot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "provider":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
+			case "success":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_success(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_statusCode(ctx, field)
+			case "accountStatus":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
+			case "accountId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "primaryBalance":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
+			case "components":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "rawSummary":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyBalanceSnapshot", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyMetadata_available(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24281,6 +25432,8 @@ func (ec *executionContext) fieldContext_ChannelKeyMetadata_history(_ context.Co
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balance(ctx, field)
 			case "currency":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_balanceSnapshot(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_available(ctx, field)
 			case "trigger":
@@ -28929,6 +30082,53 @@ func (ec *executionContext) fieldContext_ChannelSettings_keyHealthCheck(_ contex
 				return ec.fieldContext_ChannelKeyHealthCheck_history(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheck", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_balanceProbe(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_balanceProbe,
+		func(ctx context.Context) (any, error) {
+			return obj.BalanceProbe, nil
+		},
+		nil,
+		ec.marshalOChannelBalanceProbe2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbe,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_balanceProbe(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_ChannelBalanceProbe_enabled(ctx, field)
+			case "preset":
+				return ec.fieldContext_ChannelBalanceProbe_preset(ctx, field)
+			case "experimental":
+				return ec.fieldContext_ChannelBalanceProbe_experimental(ctx, field)
+			case "preferredCurrency":
+				return ec.fieldContext_ChannelBalanceProbe_preferredCurrency(ctx, field)
+			case "primarySelection":
+				return ec.fieldContext_ChannelBalanceProbe_primarySelection(ctx, field)
+			case "includeStatuses":
+				return ec.fieldContext_ChannelBalanceProbe_includeStatuses(ctx, field)
+			case "timeoutMs":
+				return ec.fieldContext_ChannelBalanceProbe_timeoutMs(ctx, field)
+			case "http":
+				return ec.fieldContext_ChannelBalanceProbe_http(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelBalanceProbe", field.Name)
 		},
 	}
 	return fc, nil
@@ -35602,6 +36802,35 @@ func (ec *executionContext) fieldContext_MonitoringRule_enabled(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _MonitoringRule_probeType(ctx context.Context, field graphql.CollectedField, obj *biz.MonitoringRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_MonitoringRule_probeType,
+		func(ctx context.Context) (any, error) {
+			return obj.ProbeType, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_MonitoringRule_probeType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "MonitoringRule",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _MonitoringRule_schedule(ctx context.Context, field graphql.CollectedField, obj *biz.MonitoringRule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -36193,6 +37422,8 @@ func (ec *executionContext) fieldContext_MonitoringSettings_rules(_ context.Cont
 				return ec.fieldContext_MonitoringRule_description(ctx, field)
 			case "enabled":
 				return ec.fieldContext_MonitoringRule_enabled(ctx, field)
+			case "probeType":
+				return ec.fieldContext_MonitoringRule_probeType(ctx, field)
 			case "schedule":
 				return ec.fieldContext_MonitoringRule_schedule(ctx, field)
 			case "targets":
@@ -37611,6 +38842,8 @@ func (ec *executionContext) fieldContext_Mutation_runChannelAPIKeyHealthCheck(ct
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_balance(ctx, field)
 			case "currency":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
 			case "statusCode":
@@ -47931,6 +49164,8 @@ func (ec *executionContext) fieldContext_Query_channelAPIKeyInventory(ctx contex
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_balance(ctx, field)
 			case "currency":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
 			case "statusCode":
@@ -67618,6 +68853,61 @@ func (ec *executionContext) unmarshalInputBackupOptionsInput(ctx context.Context
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputBalanceAmountInput(ctx context.Context, obj any) (objects.BalanceAmount, error) {
+	var it objects.BalanceAmount
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"amount", "currency", "kind", "label", "expiresAt"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "amount":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("amount"))
+			data, err := ec.unmarshalNFloat2float64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Amount = data
+		case "currency":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("currency"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Currency = data
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalNBalanceAmountKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountKind(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "label":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("label"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Label = data
+		case "expiresAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expiresAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExpiresAt = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputBulkCreateChannelsInput(ctx context.Context, obj any) (biz.BulkCreateChannelsInput, error) {
 	var it biz.BulkCreateChannelsInput
 	asMap := map[string]any{}
@@ -67845,7 +69135,7 @@ func (ec *executionContext) unmarshalInputChannelArchivedAPIKeyInput(ctx context
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "maskedKey", "archivedAt", "reason", "lastCheckedAt", "failureCount", "balance", "currency", "available"}
+	fieldsInOrder := [...]string{"id", "maskedKey", "archivedAt", "reason", "lastCheckedAt", "failureCount", "balance", "currency", "balanceSnapshot", "available"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -67910,6 +69200,13 @@ func (ec *executionContext) unmarshalInputChannelArchivedAPIKeyInput(ctx context
 				return it, err
 			}
 			it.Currency = data
+		case "balanceSnapshot":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("balanceSnapshot"))
+			data, err := ec.unmarshalOChannelKeyBalanceSnapshotInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BalanceSnapshot = data
 		case "available":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("available"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -67917,6 +69214,82 @@ func (ec *executionContext) unmarshalInputChannelArchivedAPIKeyInput(ctx context
 				return it, err
 			}
 			it.Available = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputChannelBalanceProbeInput(ctx context.Context, obj any) (objects.ChannelBalanceProbe, error) {
+	var it objects.ChannelBalanceProbe
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"enabled", "preset", "experimental", "preferredCurrency", "primarySelection", "includeStatuses", "timeoutMs", "http"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		case "preset":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("preset"))
+			data, err := ec.unmarshalOChannelBalanceProbePreset2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbePreset(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Preset = data
+		case "experimental":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("experimental"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Experimental = data
+		case "preferredCurrency":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("preferredCurrency"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PreferredCurrency = data
+		case "primarySelection":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("primarySelection"))
+			data, err := ec.unmarshalOChannelBalancePrimarySelection2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalancePrimarySelection(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PrimarySelection = data
+		case "includeStatuses":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("includeStatuses"))
+			data, err := ec.unmarshalOChannelKeyStatus2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyStatusᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.IncludeStatuses = data
+		case "timeoutMs":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("timeoutMs"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TimeoutMs = data
+		case "http":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("http"))
+			data, err := ec.unmarshalOChannelKeyHealthCheckHTTPRuleInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHTTPRule(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HTTP = data
 		}
 	}
 
@@ -68047,6 +69420,98 @@ func (ec *executionContext) unmarshalInputChannelFailurePolicyInput(ctx context.
 				return it, err
 			}
 			it.ChannelProfiles = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputChannelKeyBalanceSnapshotInput(ctx context.Context, obj any) (objects.ChannelKeyBalanceSnapshot, error) {
+	var it objects.ChannelKeyBalanceSnapshot
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"provider", "checkedAt", "success", "available", "statusCode", "accountStatus", "accountId", "primaryBalance", "components", "rawSummary"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "provider":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("provider"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Provider = data
+		case "checkedAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("checkedAt"))
+			data, err := ec.unmarshalNTime2timeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CheckedAt = data
+		case "success":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("success"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Success = data
+		case "available":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("available"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Available = data
+		case "statusCode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("statusCode"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StatusCode = data
+		case "accountStatus":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accountStatus"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccountStatus = data
+		case "accountId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accountId"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccountID = data
+		case "primaryBalance":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("primaryBalance"))
+			data, err := ec.unmarshalOBalanceAmountInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PrimaryBalance = data
+		case "components":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("components"))
+			data, err := ec.unmarshalOBalanceAmountInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Components = data
+		case "rawSummary":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rawSummary"))
+			data, err := ec.unmarshalOJSONRawMessageInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐJSONRawMessage(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			if err = ec.resolvers.ChannelKeyBalanceSnapshotInput().RawSummary(ctx, &it, data); err != nil {
+				return it, err
+			}
 		}
 	}
 
@@ -68218,7 +69683,7 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckHistoryEntryInput
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "checkedAt", "success", "reason", "balance", "currency", "available", "trigger", "rule", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt"}
+	fieldsInOrder := [...]string{"id", "checkedAt", "success", "reason", "balance", "currency", "balanceSnapshot", "available", "trigger", "rule", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -68269,6 +69734,13 @@ func (ec *executionContext) unmarshalInputChannelKeyHealthCheckHistoryEntryInput
 				return it, err
 			}
 			it.Currency = data
+		case "balanceSnapshot":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("balanceSnapshot"))
+			data, err := ec.unmarshalOChannelKeyBalanceSnapshotInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BalanceSnapshot = data
 		case "available":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("available"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -68710,7 +70182,7 @@ func (ec *executionContext) unmarshalInputChannelKeyMetadataInput(ctx context.Co
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "maskedKey", "status", "lastCheckedAt", "success", "failureCount", "reason", "balance", "currency", "available", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt", "history"}
+	fieldsInOrder := [...]string{"id", "maskedKey", "status", "lastCheckedAt", "success", "failureCount", "reason", "balance", "currency", "balanceSnapshot", "available", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt", "history"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -68782,6 +70254,13 @@ func (ec *executionContext) unmarshalInputChannelKeyMetadataInput(ctx context.Co
 				return it, err
 			}
 			it.Currency = data
+		case "balanceSnapshot":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("balanceSnapshot"))
+			data, err := ec.unmarshalOChannelKeyBalanceSnapshotInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BalanceSnapshot = data
 		case "available":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("available"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -73411,7 +74890,7 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "rateLimit", "keySelection", "keyHealthCheck", "failurePolicy"}
+	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "rateLimit", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -73537,6 +75016,13 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 				return it, err
 			}
 			it.KeyHealthCheck = data
+		case "balanceProbe":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("balanceProbe"))
+			data, err := ec.unmarshalOChannelBalanceProbeInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbe(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BalanceProbe = data
 		case "failurePolicy":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("failurePolicy"))
 			data, err := ec.unmarshalOChannelFailurePolicyInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicy(ctx, v)
@@ -78925,7 +80411,7 @@ func (ec *executionContext) unmarshalInputMonitoringRuleInput(ctx context.Contex
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "name", "description", "enabled", "schedule", "targets", "probes", "keyProfiles", "channelProfiles"}
+	fieldsInOrder := [...]string{"id", "name", "description", "enabled", "probeType", "schedule", "targets", "probes", "keyProfiles", "channelProfiles"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -78960,6 +80446,13 @@ func (ec *executionContext) unmarshalInputMonitoringRuleInput(ctx context.Contex
 				return it, err
 			}
 			it.Enabled = data
+		case "probeType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("probeType"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProbeType = data
 		case "schedule":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("schedule"))
 			data, err := ec.unmarshalOMonitoringRuleScheduleInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐMonitoringRuleSchedule(ctx, v)
@@ -96126,6 +97619,59 @@ func (ec *executionContext) _BackupPayload(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var balanceAmountImplementors = []string{"BalanceAmount"}
+
+func (ec *executionContext) _BalanceAmount(ctx context.Context, sel ast.SelectionSet, obj *objects.BalanceAmount) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, balanceAmountImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BalanceAmount")
+		case "amount":
+			out.Values[i] = ec._BalanceAmount_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "currency":
+			out.Values[i] = ec._BalanceAmount_currency(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._BalanceAmount_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._BalanceAmount_label(ctx, field, obj)
+		case "expiresAt":
+			out.Values[i] = ec._BalanceAmount_expiresAt(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var brandSettingsImplementors = []string{"BrandSettings"}
 
 func (ec *executionContext) _BrandSettings(ctx context.Context, sel ast.SelectionSet, obj *BrandSettings) graphql.Marshaler {
@@ -96916,6 +98462,8 @@ func (ec *executionContext) _ChannelAPIKeyInventoryItem(ctx context.Context, sel
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "currency":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_currency(ctx, field, obj)
+		case "balanceSnapshot":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field, obj)
 		case "available":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_available(ctx, field, obj)
 		case "statusCode":
@@ -97011,8 +98559,60 @@ func (ec *executionContext) _ChannelArchivedAPIKey(ctx context.Context, sel ast.
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "currency":
 			out.Values[i] = ec._ChannelArchivedAPIKey_currency(ctx, field, obj)
+		case "balanceSnapshot":
+			out.Values[i] = ec._ChannelArchivedAPIKey_balanceSnapshot(ctx, field, obj)
 		case "available":
 			out.Values[i] = ec._ChannelArchivedAPIKey_available(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelBalanceProbeImplementors = []string{"ChannelBalanceProbe"}
+
+func (ec *executionContext) _ChannelBalanceProbe(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelBalanceProbe) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelBalanceProbeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelBalanceProbe")
+		case "enabled":
+			out.Values[i] = ec._ChannelBalanceProbe_enabled(ctx, field, obj)
+		case "preset":
+			out.Values[i] = ec._ChannelBalanceProbe_preset(ctx, field, obj)
+		case "experimental":
+			out.Values[i] = ec._ChannelBalanceProbe_experimental(ctx, field, obj)
+		case "preferredCurrency":
+			out.Values[i] = ec._ChannelBalanceProbe_preferredCurrency(ctx, field, obj)
+		case "primarySelection":
+			out.Values[i] = ec._ChannelBalanceProbe_primarySelection(ctx, field, obj)
+		case "includeStatuses":
+			out.Values[i] = ec._ChannelBalanceProbe_includeStatuses(ctx, field, obj)
+		case "timeoutMs":
+			out.Values[i] = ec._ChannelBalanceProbe_timeoutMs(ctx, field, obj)
+		case "http":
+			out.Values[i] = ec._ChannelBalanceProbe_http(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -97225,6 +98825,97 @@ func (ec *executionContext) _ChannelFailurePolicy(ctx context.Context, sel ast.S
 			out.Values[i] = ec._ChannelFailurePolicy_keyProfiles(ctx, field, obj)
 		case "channelProfiles":
 			out.Values[i] = ec._ChannelFailurePolicy_channelProfiles(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelKeyBalanceSnapshotImplementors = []string{"ChannelKeyBalanceSnapshot"}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelKeyBalanceSnapshot) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelKeyBalanceSnapshotImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelKeyBalanceSnapshot")
+		case "provider":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_provider(ctx, field, obj)
+		case "checkedAt":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_checkedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "success":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_success(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "available":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_available(ctx, field, obj)
+		case "statusCode":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_statusCode(ctx, field, obj)
+		case "accountStatus":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_accountStatus(ctx, field, obj)
+		case "accountId":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_accountId(ctx, field, obj)
+		case "primaryBalance":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_primaryBalance(ctx, field, obj)
+		case "components":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_components(ctx, field, obj)
+		case "rawSummary":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ChannelKeyBalanceSnapshot_rawSummary(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -97497,6 +99188,8 @@ func (ec *executionContext) _ChannelKeyHealthCheckHistoryEntry(ctx context.Conte
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "currency":
 			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_currency(ctx, field, obj)
+		case "balanceSnapshot":
+			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_balanceSnapshot(ctx, field, obj)
 		case "available":
 			out.Values[i] = ec._ChannelKeyHealthCheckHistoryEntry_available(ctx, field, obj)
 		case "trigger":
@@ -97834,6 +99527,8 @@ func (ec *executionContext) _ChannelKeyMetadata(ctx context.Context, sel ast.Sel
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "currency":
 			out.Values[i] = ec._ChannelKeyMetadata_currency(ctx, field, obj)
+		case "balanceSnapshot":
+			out.Values[i] = ec._ChannelKeyMetadata_balanceSnapshot(ctx, field, obj)
 		case "available":
 			out.Values[i] = ec._ChannelKeyMetadata_available(ctx, field, obj)
 		case "statusCode":
@@ -99890,6 +101585,8 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelSettings_keySelection(ctx, field, obj)
 		case "keyHealthCheck":
 			out.Values[i] = ec._ChannelSettings_keyHealthCheck(ctx, field, obj)
+		case "balanceProbe":
+			out.Values[i] = ec._ChannelSettings_balanceProbe(ctx, field, obj)
 		case "failurePolicy":
 			out.Values[i] = ec._ChannelSettings_failurePolicy(ctx, field, obj)
 		default:
@@ -102836,6 +104533,8 @@ func (ec *executionContext) _MonitoringRule(ctx context.Context, sel ast.Selecti
 			out.Values[i] = ec._MonitoringRule_description(ctx, field, obj)
 		case "enabled":
 			out.Values[i] = ec._MonitoringRule_enabled(ctx, field, obj)
+		case "probeType":
+			out.Values[i] = ec._MonitoringRule_probeType(ctx, field, obj)
 		case "schedule":
 			out.Values[i] = ec._MonitoringRule_schedule(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -115696,6 +117395,32 @@ func (ec *executionContext) marshalNBackupPayload2ᚖgithubᚗcomᚋloopljᚋaxo
 	return ec._BackupPayload(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNBalanceAmount2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx context.Context, sel ast.SelectionSet, v objects.BalanceAmount) graphql.Marshaler {
+	return ec._BalanceAmount(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNBalanceAmountInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx context.Context, v any) (objects.BalanceAmount, error) {
+	res, err := ec.unmarshalInputBalanceAmountInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNBalanceAmountKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountKind(ctx context.Context, v any) (objects.BalanceAmountKind, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.BalanceAmountKind(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNBalanceAmountKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountKind(ctx context.Context, sel ast.SelectionSet, v objects.BalanceAmountKind) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -122317,6 +124042,86 @@ func (ec *executionContext) marshalOBackupFrequency2ᚖgithubᚗcomᚋloopljᚋa
 	return res
 }
 
+func (ec *executionContext) marshalOBalanceAmount2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.BalanceAmount) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNBalanceAmount2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalOBalanceAmount2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx context.Context, sel ast.SelectionSet, v *objects.BalanceAmount) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._BalanceAmount(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOBalanceAmountInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmountᚄ(ctx context.Context, v any) ([]objects.BalanceAmount, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.BalanceAmount, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNBalanceAmountInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalOBalanceAmountInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx context.Context, v any) (*objects.BalanceAmount, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputBalanceAmountInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalOBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -122430,6 +124235,47 @@ func (ec *executionContext) unmarshalOChannelArchivedAPIKeyInput2ᚕgithubᚗcom
 		}
 	}
 	return res, nil
+}
+
+func (ec *executionContext) unmarshalOChannelBalancePrimarySelection2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalancePrimarySelection(ctx context.Context, v any) (objects.ChannelBalancePrimarySelection, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelBalancePrimarySelection(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelBalancePrimarySelection2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalancePrimarySelection(ctx context.Context, sel ast.SelectionSet, v objects.ChannelBalancePrimarySelection) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) marshalOChannelBalanceProbe2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbe(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelBalanceProbe) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelBalanceProbe(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelBalanceProbeInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbe(ctx context.Context, v any) (*objects.ChannelBalanceProbe, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelBalanceProbeInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOChannelBalanceProbePreset2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbePreset(ctx context.Context, v any) (objects.ChannelBalanceProbePreset, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelBalanceProbePreset(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelBalanceProbePreset2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbePreset(ctx context.Context, sel ast.SelectionSet, v objects.ChannelBalanceProbePreset) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
 }
 
 func (ec *executionContext) marshalOChannelCredentials2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentials(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelCredentials) graphql.Marshaler {
@@ -122586,6 +124432,21 @@ func (ec *executionContext) marshalOChannelFailurePolicyMode2githubᚗcomᚋloop
 	_ = ctx
 	res := graphql.MarshalString(string(v))
 	return res
+}
+
+func (ec *executionContext) marshalOChannelKeyBalanceSnapshot2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelKeyBalanceSnapshot) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelKeyBalanceSnapshot(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelKeyBalanceSnapshotInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot(ctx context.Context, v any) (*objects.ChannelKeyBalanceSnapshot, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelKeyBalanceSnapshotInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalOChannelKeyHealthCheck2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheck(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelKeyHealthCheck) graphql.Marshaler {
