@@ -164,9 +164,10 @@ registration:
   invite_code: ""                # Optional invite code required for signup (env: AXONHUB_REGISTRATION_INVITE_CODE)
   default_project_id: 0          # Project to attach new password/OIDC users to; 0 means no implicit project unless auto_join_first_project is enabled
   auto_join_first_project: true  # When registration is enabled, put new users into the first active project unless a fixed project ID is set
-  default_project_scopes: ["read_requests"] # Enough for own request summaries; self-service key/model browsing does not require project-level write_api_keys
-  allow_request_details: false   # Normal users see safe request metadata only by default
-  self_service_preset_names: ["*"] # Routing presets visible to normal users; replace with selected names if some templates are admin-only
+  default_project_scopes: []     # Do not grant project-wide request/API-key scopes to newly registered users by default
+  self_service_enabled: false    # Enable normal-user /admin/self/* key/model/request/usage APIs independently from signup
+  allow_request_details: false   # Controls details only for self-service own-request surfaces; project-wide request access still needs explicit scopes
+  self_service_preset_names: []  # Preset names visible to self-service users; "*" is an advanced expose-all mode after self_service_enabled is true
 
 # Environment Variable Examples:
 # export AXONHUB_SERVER_PORT=8080

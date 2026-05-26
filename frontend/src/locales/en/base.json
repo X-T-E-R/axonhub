@@ -94,6 +94,7 @@
   "common.messages.errorMessage": "Error Message",
   "common.messages.success": "Success",
   "common.buttons.cancel": "Cancel",
+  "common.buttons.copy": "Copy",
   "common.buttons.processing": "Processing...",
   "common.buttons.confirm": "Confirm",
   "common.buttons.save": "Save",

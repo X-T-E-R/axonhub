@@ -8,7 +8,9 @@ import (
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/user"
+	"github.com/looplj/axonhub/internal/ent/userproject"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
 )
 
@@ -69,6 +71,39 @@ func TestAuthService_SignUpUsesSystemRegistrationPolicyOverride(t *testing.T) {
 	require.Equal(t, "enabled-by-system@example.com", createdUser.Email)
 	require.False(t, createdUser.IsOwner)
 	require.Equal(t, user.StatusActivated, createdUser.Status)
+}
+
+func TestAuthService_SignUpAttachesDefaultProjectWithoutBroadScopes(t *testing.T) {
+	authService, client, ctx := newRegistrationTestAuthService(t, RegistrationConfig{
+		Enabled:              true,
+		AutoJoinFirstProject: true,
+	})
+	defer client.Close()
+
+	testProject, err := client.Project.Create().
+		SetName("registration-default-project").
+		SetDescription("registration default project").
+		SetStatus(project.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	createdUser, err := authService.SignUp(ctx, SignUpInput{
+		Email:     "default-project@example.com",
+		Password:  "password123",
+		FirstName: "Default",
+		LastName:  "Project",
+	})
+	require.NoError(t, err)
+
+	membership, err := client.UserProject.Query().
+		Where(
+			userproject.UserIDEQ(createdUser.ID),
+			userproject.ProjectIDEQ(testProject.ID),
+		).
+		Only(ctx)
+	require.NoError(t, err)
+	require.False(t, membership.IsOwner)
+	require.Empty(t, membership.Scopes)
 }
 
 func TestOIDCService_ResolveUserRejectsJITWhenOIDCRegistrationDisabled(t *testing.T) {

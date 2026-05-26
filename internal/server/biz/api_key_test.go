@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/project"
+	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
@@ -96,6 +98,12 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, presets, 1)
 	require.Equal(t, "fast", presets[0].Name)
+	require.Equal(t, "fast", presets[0].ProfileLabel)
+	presetJSON, err := json.Marshal(presets[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(presetJSON), "channelIDs")
+	require.NotContains(t, string(presetJSON), "channelTags")
+	require.NotContains(t, string(presetJSON), "modelIDs")
 
 	created, err := apiKeyService.CreateMyAPIKey(ctx, MyCreateAPIKeyInput{
 		ProjectID: testProject.ID,
@@ -105,6 +113,11 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 	require.NoError(t, err)
 	require.NotEmpty(t, created.Key)
 	require.Equal(t, "fast", created.ActiveProfile)
+	createdJSON, err := json.Marshal(created)
+	require.NoError(t, err)
+	require.NotContains(t, string(createdJSON), "profiles")
+	require.NotContains(t, string(createdJSON), "channelIDs")
+	require.NotContains(t, string(createdJSON), "modelIDs")
 
 	keys, err := apiKeyService.ListMyAPIKeys(ctx, testProject.ID)
 	require.NoError(t, err)
@@ -122,6 +135,218 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 	otherCtx = contexts.WithUser(otherCtx, otherUser)
 	_, err = apiKeyService.RotateMyAPIKey(otherCtx, created.ID)
 	require.Error(t, err)
+
+	_, err = apiKeyService.CreateMyAPIKey(ctx, MyCreateAPIKeyInput{
+		ProjectID: testProject.ID,
+		Name:      "my app",
+		PresetID:  template.ID,
+	})
+	require.Error(t, err)
+
+	_, err = client.APIKey.Create().
+		SetName("other app").
+		SetKey("ah-other-app").
+		SetUserID(otherUser.ID).
+		SetProjectID(testProject.ID).
+		SetType(apikey.TypeUser).
+		SetStatus(apikey.StatusEnabled).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	duplicateRename := "other app"
+	_, err = apiKeyService.UpdateMyAPIKey(ctx, created.ID, MyUpdateAPIKeyInput{Name: &duplicateRename})
+	require.Error(t, err)
+
+	renamed := "my app renamed"
+	_, err = apiKeyService.UpdateMyAPIKey(ctx, created.ID, MyUpdateAPIKeyInput{Name: &renamed})
+	require.NoError(t, err)
+
+	_, err = apiKeyService.UpdateMyAPIKeyStatus(ctx, created.ID, apikey.StatusArchived)
+	require.NoError(t, err)
+
+	_, err = apiKeyService.RotateMyAPIKey(ctx, created.ID)
+	require.Error(t, err)
+
+	_, err = apiKeyService.UpdateMyAPIKeyStatus(ctx, created.ID, apikey.StatusEnabled)
+	require.Error(t, err)
+}
+
+func TestAPIKeyService_SelfServiceDisabledRejectsPortalOperations(t *testing.T) {
+	apiKeyService, client := setupTestAPIKeyService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer apiKeyService.Stop()
+	defer client.Close()
+
+	apiKeyService.Registration = RegistrationConfig{}
+
+	setupCtx := ent.NewContext(context.Background(), client)
+	setupCtx = authz.WithTestBypass(setupCtx)
+
+	testUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("disabled-self-%d@example.com", time.Now().UnixNano())).
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	testProject, err := client.Project.Create().
+		SetName(uuid.NewString()).
+		SetDescription("self service disabled").
+		SetStatus(project.StatusActive).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	_, err = client.UserProject.Create().
+		SetUserID(testUser.ID).
+		SetProjectID(testProject.ID).
+		SetIsOwner(false).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	ctx := ent.NewContext(authz.NewUserContext(context.Background(), testUser.ID), client)
+	ctx = contexts.WithUser(ctx, testUser)
+
+	_, err = apiKeyService.ListMyAPIKeys(ctx, testProject.ID)
+	require.ErrorIs(t, err, ErrSelfServiceDisabled)
+
+	_, err = apiKeyService.ListMyRoutingPresets(ctx, testProject.ID)
+	require.ErrorIs(t, err, ErrSelfServiceDisabled)
+
+	_, err = apiKeyService.CreateMyAPIKey(ctx, MyCreateAPIKeyInput{ProjectID: testProject.ID, Name: "my app", PresetID: 1})
+	require.ErrorIs(t, err, ErrSelfServiceDisabled)
+
+	_, err = apiKeyService.ListMyRequests(ctx, testProject.ID, 50)
+	require.ErrorIs(t, err, ErrSelfServiceDisabled)
+
+	_, err = apiKeyService.MyUsage(ctx, testProject.ID)
+	require.ErrorIs(t, err, ErrSelfServiceDisabled)
+}
+
+func TestAPIKeyService_SelfServiceRequestsAndUsageAreOwnOnly(t *testing.T) {
+	apiKeyService, client := setupTestAPIKeyService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer apiKeyService.Stop()
+	defer client.Close()
+
+	setupCtx := ent.NewContext(context.Background(), client)
+	setupCtx = authz.WithTestBypass(setupCtx)
+
+	testUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("own-requests-%d@example.com", time.Now().UnixNano())).
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	otherUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("other-requests-%d@example.com", time.Now().UnixNano())).
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	testProject, err := client.Project.Create().
+		SetName(uuid.NewString()).
+		SetDescription("own requests").
+		SetStatus(project.StatusActive).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	for _, userID := range []int{testUser.ID, otherUser.ID} {
+		_, err = client.UserProject.Create().
+			SetUserID(userID).
+			SetProjectID(testProject.ID).
+			SetIsOwner(false).
+			Save(setupCtx)
+		require.NoError(t, err)
+	}
+
+	ownKey, err := client.APIKey.Create().
+		SetName("own key").
+		SetKey("ah-own-requests").
+		SetUserID(testUser.ID).
+		SetProjectID(testProject.ID).
+		SetType(apikey.TypeUser).
+		SetStatus(apikey.StatusEnabled).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	otherKey, err := client.APIKey.Create().
+		SetName("other key").
+		SetKey("ah-other-requests").
+		SetUserID(otherUser.ID).
+		SetProjectID(testProject.ID).
+		SetType(apikey.TypeUser).
+		SetStatus(apikey.StatusEnabled).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	ownRequest, err := client.Request.Create().
+		SetProjectID(testProject.ID).
+		SetAPIKeyID(ownKey.ID).
+		SetModelID("model-own").
+		SetFormat("openai/chat_completions").
+		SetSource(request.SourceAPI).
+		SetStatus(request.StatusCompleted).
+		SetStream(false).
+		SetClientIP("").
+		SetRequestHeaders(objects.JSONRawMessage(`{}`)).
+		SetRequestBody(objects.JSONRawMessage(`{}`)).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	otherRequest, err := client.Request.Create().
+		SetProjectID(testProject.ID).
+		SetAPIKeyID(otherKey.ID).
+		SetModelID("model-other").
+		SetFormat("openai/chat_completions").
+		SetSource(request.SourceAPI).
+		SetStatus(request.StatusCompleted).
+		SetStream(false).
+		SetClientIP("").
+		SetRequestHeaders(objects.JSONRawMessage(`{}`)).
+		SetRequestBody(objects.JSONRawMessage(`{}`)).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	_, err = client.UsageLog.Create().
+		SetRequestID(ownRequest.ID).
+		SetAPIKeyID(ownKey.ID).
+		SetProjectID(testProject.ID).
+		SetModelID("model-own").
+		SetPromptTokens(7).
+		SetCompletionTokens(11).
+		SetTotalTokens(18).
+		SetTotalCost(0.25).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	_, err = client.UsageLog.Create().
+		SetRequestID(otherRequest.ID).
+		SetAPIKeyID(otherKey.ID).
+		SetProjectID(testProject.ID).
+		SetModelID("model-other").
+		SetPromptTokens(700).
+		SetCompletionTokens(1100).
+		SetTotalTokens(1800).
+		SetTotalCost(25).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	ctx := ent.NewContext(authz.NewUserContext(context.Background(), testUser.ID), client)
+	ctx = contexts.WithUser(ctx, testUser)
+
+	requests, err := apiKeyService.ListMyRequests(ctx, testProject.ID, 50)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, ownRequest.ID, requests[0].ID)
+	require.Equal(t, "model-own", requests[0].ModelID)
+
+	usage, err := apiKeyService.MyUsage(ctx, testProject.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, usage.Requests)
+	require.Equal(t, int64(7), usage.PromptTokens)
+	require.Equal(t, int64(11), usage.CompletionTokens)
+	require.Equal(t, int64(18), usage.TotalTokens)
+	require.Equal(t, 0.25, usage.TotalCost)
 }
 
 func setupTestAPIKeyService(t *testing.T, cacheConfig xcache.Config) (*APIKeyService, *ent.Client) {
@@ -137,7 +362,7 @@ func setupTestAPIKeyService(t *testing.T, cacheConfig xcache.Config) (*APIKeySer
 		CacheConfig:    cacheConfig,
 		Ent:            client,
 		ProjectService: projectService,
-		Registration:   RegistrationConfig{SelfServicePresetNames: []string{"fast"}},
+		Registration:   RegistrationConfig{SelfServiceEnabled: true, SelfServicePresetNames: []string{"fast"}},
 		KeyPrefix:      "ah",
 	})
 

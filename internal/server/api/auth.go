@@ -45,6 +45,7 @@ type SignUpPolicyResponse struct {
 	OIDCSignupAllowed     bool `json:"oidcSignupAllowed"`
 	InviteCodeRequired    bool `json:"inviteCodeRequired"`
 	PasswordSignupAllowed bool `json:"passwordSignupAllowed"`
+	SelfServiceEnabled    bool `json:"selfServiceEnabled"`
 	AllowRequestDetails   bool `json:"allowRequestDetails"`
 }
 
@@ -56,6 +57,7 @@ type AdminRegistrationPolicyResponse struct {
 	DefaultProjectID       int      `json:"defaultProjectId"`
 	AutoJoinFirstProject   bool     `json:"autoJoinFirstProject"`
 	DefaultProjectScopes   []string `json:"defaultProjectScopes"`
+	SelfServiceEnabled     bool     `json:"selfServiceEnabled"`
 	AllowRequestDetails    bool     `json:"allowRequestDetails"`
 	SelfServicePresetNames []string `json:"selfServicePresetNames"`
 	PasswordSignupAllowed  bool     `json:"passwordSignupAllowed"`
@@ -68,6 +70,7 @@ type UpdateRegistrationPolicyRequest struct {
 	DefaultProjectID       int      `json:"defaultProjectId"`
 	AutoJoinFirstProject   bool     `json:"autoJoinFirstProject"`
 	DefaultProjectScopes   []string `json:"defaultProjectScopes"`
+	SelfServiceEnabled     bool     `json:"selfServiceEnabled"`
 	AllowRequestDetails    bool     `json:"allowRequestDetails"`
 	SelfServicePresetNames []string `json:"selfServicePresetNames"`
 }
@@ -133,6 +136,7 @@ func (h *AuthHandlers) SignUpPolicy(c *gin.Context) {
 		OIDCSignupAllowed:     policy.OIDCEnabled,
 		InviteCodeRequired:    policy.InviteCode != "",
 		PasswordSignupAllowed: h.AuthService.PasswordRegistrationEnabled(),
+		SelfServiceEnabled:    policy.SelfServiceEnabled,
 		AllowRequestDetails:   policy.AllowRequestDetails,
 	})
 }
@@ -171,6 +175,7 @@ func (h *AuthHandlers) UpdateRegistrationPolicy(c *gin.Context) {
 		DefaultProjectID:       req.DefaultProjectID,
 		AutoJoinFirstProject:   req.AutoJoinFirstProject,
 		DefaultProjectScopes:   req.DefaultProjectScopes,
+		SelfServiceEnabled:     req.SelfServiceEnabled,
 		AllowRequestDetails:    req.AllowRequestDetails,
 		SelfServicePresetNames: req.SelfServicePresetNames,
 	}
@@ -239,6 +244,7 @@ func adminRegistrationPolicyResponse(policy biz.RegistrationConfig, passwordSign
 		DefaultProjectID:       policy.DefaultProjectID,
 		AutoJoinFirstProject:   policy.AutoJoinFirstProject,
 		DefaultProjectScopes:   policy.DefaultProjectScopes,
+		SelfServiceEnabled:     policy.SelfServiceEnabled,
 		AllowRequestDetails:    policy.AllowRequestDetails,
 		SelfServicePresetNames: policy.SelfServicePresetNames,
 		PasswordSignupAllowed:  passwordSignupAllowed,

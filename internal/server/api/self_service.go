@@ -49,7 +49,7 @@ func (h *SelfServiceHandlers) ListAPIKeys(c *gin.Context) {
 
 	items, err := h.APIKeyService.ListMyAPIKeys(c.Request.Context(), projectID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -64,7 +64,7 @@ func (h *SelfServiceHandlers) ListRoutingPresets(c *gin.Context) {
 
 	items, err := h.APIKeyService.ListMyRoutingPresets(c.Request.Context(), projectID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -93,7 +93,7 @@ func (h *SelfServiceHandlers) CreateAPIKey(c *gin.Context) {
 		PresetID:  presetID,
 	})
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *SelfServiceHandlers) UpdateAPIKey(c *gin.Context) {
 
 	item, err := h.APIKeyService.UpdateMyAPIKey(c.Request.Context(), id, biz.MyUpdateAPIKeyInput{Name: req.Name})
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *SelfServiceHandlers) UpdateAPIKeyStatus(c *gin.Context) {
 	status := apikey.Status(req.Status)
 	item, err := h.APIKeyService.UpdateMyAPIKeyStatus(c.Request.Context(), id, status)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -151,7 +151,7 @@ func (h *SelfServiceHandlers) RotateAPIKey(c *gin.Context) {
 
 	item, err := h.APIKeyService.RotateMyAPIKey(c.Request.Context(), id)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h *SelfServiceHandlers) ListModels(c *gin.Context) {
 
 	items, err := h.APIKeyService.ListMyModels(c.Request.Context(), projectID, presetID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -197,7 +197,7 @@ func (h *SelfServiceHandlers) ListRequests(c *gin.Context) {
 
 	items, err := h.APIKeyService.ListMyRequests(c.Request.Context(), projectID, limit)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (h *SelfServiceHandlers) Usage(c *gin.Context) {
 
 	item, err := h.APIKeyService.MyUsage(c.Request.Context(), projectID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err)
+		JSONError(c, selfServiceErrorStatus(err), err)
 		return
 	}
 
@@ -246,4 +246,12 @@ func parseEntityID(c *gin.Context, raw string, typ string) (int, bool) {
 	}
 
 	return guid.ID, true
+}
+
+func selfServiceErrorStatus(err error) int {
+	if errors.Is(err, biz.ErrSelfServiceDisabled) {
+		return http.StatusForbidden
+	}
+
+	return http.StatusForbidden
 }

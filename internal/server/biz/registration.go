@@ -22,6 +22,7 @@ type RegistrationConfig struct {
 	DefaultProjectID       int      `conf:"default_project_id" yaml:"default_project_id" json:"default_project_id"`
 	AutoJoinFirstProject   bool     `conf:"auto_join_first_project" yaml:"auto_join_first_project" json:"auto_join_first_project"`
 	DefaultProjectScopes   []string `conf:"default_project_scopes" yaml:"default_project_scopes" json:"default_project_scopes"`
+	SelfServiceEnabled     bool     `conf:"self_service_enabled" yaml:"self_service_enabled" json:"self_service_enabled"`
 	AllowRequestDetails    bool     `conf:"allow_request_details" yaml:"allow_request_details" json:"allow_request_details"`
 	SelfServicePresetNames []string `conf:"self_service_preset_names" yaml:"self_service_preset_names" json:"self_service_preset_names"`
 }
@@ -39,6 +40,7 @@ type SignUpInput struct {
 var ErrRegistrationDisabled = errors.New("registration is disabled")
 var ErrPasswordRegistrationDisabled = errors.New("password registration is disabled")
 var ErrOIDCRegistrationDisabled = errors.New("OIDC registration is disabled")
+var ErrSelfServiceDisabled = errors.New("self-service is disabled")
 
 func (s *SystemService) RegistrationConfig(ctx context.Context, fallback RegistrationConfig) (RegistrationConfig, error) {
 	fallback = normalizeRegistrationConfig(fallback)

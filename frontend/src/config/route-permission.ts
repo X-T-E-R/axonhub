@@ -143,6 +143,14 @@ export const routeConfigs: RouteGroup[] = [
       },
     ],
   },
+  {
+    title: 'Self Service',
+    routes: [
+      {
+        path: '/self-service',
+      },
+    ],
+  },
 ];
 
 // 获取路由配置的辅助函数

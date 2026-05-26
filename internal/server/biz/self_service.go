@@ -25,22 +25,33 @@ import (
 )
 
 type MyAPIKeySummary struct {
-	ID            int                     `json:"id"`
-	Name          string                  `json:"name"`
-	Status        string                  `json:"status"`
-	Type          string                  `json:"type"`
-	CreatedAt     time.Time               `json:"createdAt"`
-	UpdatedAt     time.Time               `json:"updatedAt"`
-	ActiveProfile string                  `json:"activeProfile"`
-	Profiles      *objects.APIKeyProfiles `json:"profiles,omitempty"`
-	Key           string                  `json:"key,omitempty"`
+	ID            int             `json:"id"`
+	Name          string          `json:"name"`
+	Status        string          `json:"status"`
+	Type          string          `json:"type"`
+	CreatedAt     time.Time       `json:"createdAt"`
+	UpdatedAt     time.Time       `json:"updatedAt"`
+	ActiveProfile string          `json:"activeProfile"`
+	QuotaSummary  *MyQuotaSummary `json:"quotaSummary,omitempty"`
+	Key           string          `json:"key,omitempty"`
 }
 
 type MyRoutingPreset struct {
-	ID          int                    `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Profile     *objects.APIKeyProfile `json:"profile"`
+	ID           int             `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	Enabled      bool            `json:"enabled"`
+	ProfileLabel string          `json:"profileLabel,omitempty"`
+	ModelCount   int             `json:"modelCount,omitempty"`
+	ModelPreview []string        `json:"modelPreview,omitempty"`
+	QuotaSummary *MyQuotaSummary `json:"quotaSummary,omitempty"`
+}
+
+type MyQuotaSummary struct {
+	Requests    *int64  `json:"requests,omitempty"`
+	TotalTokens *int64  `json:"totalTokens,omitempty"`
+	Cost        *string `json:"cost,omitempty"`
+	Period      string  `json:"period,omitempty"`
 }
 
 type MyCreateAPIKeyInput struct {
@@ -91,6 +102,10 @@ type myUsageAgg struct {
 }
 
 func (s *APIKeyService) ListMyAPIKeys(ctx context.Context, projectID int) ([]MyAPIKeySummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return nil, err
+	}
+
 	currentUser, err := s.requireProjectMember(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -117,6 +132,10 @@ func (s *APIKeyService) ListMyAPIKeys(ctx context.Context, projectID int) ([]MyA
 }
 
 func (s *APIKeyService) ListMyRoutingPresets(ctx context.Context, projectID int) ([]MyRoutingPreset, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return nil, err
+	}
+
 	if _, err := s.requireProjectMember(ctx, projectID); err != nil {
 		return nil, err
 	}
@@ -140,17 +159,16 @@ func (s *APIKeyService) ListMyRoutingPresets(ctx context.Context, projectID int)
 		})
 
 		return lo.Map(templates, func(tpl *ent.APIKeyProfileTemplate, _ int) MyRoutingPreset {
-			return MyRoutingPreset{
-				ID:          tpl.ID,
-				Name:        tpl.Name,
-				Description: tpl.Description,
-				Profile:     tpl.Profile,
-			}
+			return summarizeMyRoutingPreset(tpl)
 		}), nil
 	})
 }
 
 func (s *APIKeyService) CreateMyAPIKey(ctx context.Context, input MyCreateAPIKeyInput) (MyAPIKeySummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return MyAPIKeySummary{}, err
+	}
+
 	currentUser, err := s.requireProjectMember(ctx, input.ProjectID)
 	if err != nil {
 		return MyAPIKeySummary{}, err
@@ -212,7 +230,7 @@ func (s *APIKeyService) CreateMyAPIKey(ctx context.Context, input MyCreateAPIKey
 		}
 
 		exists, err := client.APIKey.Query().
-			Where(apikey.ProjectIDEQ(input.ProjectID), apikey.UserIDEQ(currentUser.ID), apikey.NameEQ(name)).
+			Where(apikey.ProjectIDEQ(input.ProjectID), apikey.NameEQ(name)).
 			Exist(bypassCtx)
 		if err != nil {
 			return MyAPIKeySummary{}, fmt.Errorf("failed to check API key name uniqueness: %w", err)
@@ -246,6 +264,10 @@ func (s *APIKeyService) CreateMyAPIKey(ctx context.Context, input MyCreateAPIKey
 }
 
 func (s *APIKeyService) UpdateMyAPIKey(ctx context.Context, id int, input MyUpdateAPIKeyInput) (MyAPIKeySummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return MyAPIKeySummary{}, err
+	}
+
 	key, err := s.getOwnedUserAPIKey(ctx, id)
 	if err != nil {
 		return MyAPIKeySummary{}, err
@@ -261,6 +283,16 @@ func (s *APIKeyService) UpdateMyAPIKey(ctx context.Context, id int, input MyUpda
 	}
 
 	return authz.RunWithSystemBypass(ctx, "self-api-key-update", func(bypassCtx context.Context) (MyAPIKeySummary, error) {
+		exists, err := s.entFromContext(bypassCtx).APIKey.Query().
+			Where(apikey.ProjectIDEQ(key.ProjectID), apikey.NameEQ(name), apikey.IDNEQ(key.ID)).
+			Exist(bypassCtx)
+		if err != nil {
+			return MyAPIKeySummary{}, fmt.Errorf("failed to check API key name uniqueness: %w", err)
+		}
+		if exists {
+			return MyAPIKeySummary{}, fmt.Errorf("API key name already exists")
+		}
+
 		updated, err := s.entFromContext(bypassCtx).APIKey.UpdateOneID(key.ID).SetName(name).Save(bypassCtx)
 		if err != nil {
 			return MyAPIKeySummary{}, fmt.Errorf("failed to update API key: %w", err)
@@ -271,6 +303,10 @@ func (s *APIKeyService) UpdateMyAPIKey(ctx context.Context, id int, input MyUpda
 }
 
 func (s *APIKeyService) UpdateMyAPIKeyStatus(ctx context.Context, id int, status apikey.Status) (MyAPIKeySummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return MyAPIKeySummary{}, err
+	}
+
 	key, err := s.getOwnedUserAPIKey(ctx, id)
 	if err != nil {
 		return MyAPIKeySummary{}, err
@@ -290,6 +326,10 @@ func (s *APIKeyService) UpdateMyAPIKeyStatus(ctx context.Context, id int, status
 }
 
 func (s *APIKeyService) RotateMyAPIKey(ctx context.Context, id int) (MyAPIKeySummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return MyAPIKeySummary{}, err
+	}
+
 	key, err := s.getOwnedUserAPIKey(ctx, id)
 	if err != nil {
 		return MyAPIKeySummary{}, err
@@ -311,6 +351,10 @@ func (s *APIKeyService) RotateMyAPIKey(ctx context.Context, id int) (MyAPIKeySum
 }
 
 func (s *APIKeyService) ListMyModels(ctx context.Context, projectID int, presetID *int) ([]MyModelSummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return nil, err
+	}
+
 	if _, err := s.requireProjectMember(ctx, projectID); err != nil {
 		return nil, err
 	}
@@ -411,6 +455,10 @@ func (s *APIKeyService) ListMyModels(ctx context.Context, projectID int, presetI
 }
 
 func (s *APIKeyService) ListMyRequests(ctx context.Context, projectID int, limit int) ([]MyRequestSummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return nil, err
+	}
+
 	currentUser, err := s.requireProjectMember(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -456,6 +504,10 @@ func (s *APIKeyService) ListMyRequests(ctx context.Context, projectID int, limit
 }
 
 func (s *APIKeyService) MyUsage(ctx context.Context, projectID int) (MyUsageSummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return MyUsageSummary{}, err
+	}
+
 	currentUser, err := s.requireProjectMember(ctx, projectID)
 	if err != nil {
 		return MyUsageSummary{}, err
@@ -512,7 +564,23 @@ func (s *APIKeyService) registrationPolicy(ctx context.Context) (RegistrationCon
 	return s.SystemService.RegistrationConfig(ctx, s.Registration)
 }
 
+func (s *APIKeyService) requireSelfServiceEnabled(ctx context.Context) (RegistrationConfig, error) {
+	policy, err := s.registrationPolicy(ctx)
+	if err != nil {
+		return RegistrationConfig{}, err
+	}
+	if !policy.SelfServiceEnabled {
+		return RegistrationConfig{}, ErrSelfServiceDisabled
+	}
+
+	return policy, nil
+}
+
 func selfServicePresetAllowed(policy RegistrationConfig, name string) bool {
+	if !policy.SelfServiceEnabled {
+		return false
+	}
+
 	allowedNames := policy.SelfServicePresetNames
 	if len(allowedNames) == 0 {
 		return false
@@ -542,6 +610,9 @@ func (s *APIKeyService) getOwnedUserAPIKey(ctx context.Context, id int) (*ent.AP
 		if err != nil {
 			return nil, fmt.Errorf("API key not found or not owned by current user: %w", err)
 		}
+		if key.Status == apikey.StatusArchived {
+			return nil, fmt.Errorf("archived API keys cannot be managed through self-service")
+		}
 		if _, err := s.requireProjectMember(ctx, key.ProjectID); err != nil {
 			return nil, err
 		}
@@ -560,7 +631,11 @@ func (s *APIKeyService) requireProjectMember(ctx context.Context, projectID int)
 
 	_, err := authz.RunWithSystemBypass(ctx, "self-project-membership", func(bypassCtx context.Context) (*ent.UserProject, error) {
 		return s.entFromContext(bypassCtx).UserProject.Query().
-			Where(userproject.UserIDEQ(currentUser.ID), userproject.ProjectIDEQ(projectID)).
+			Where(
+				userproject.UserIDEQ(currentUser.ID),
+				userproject.ProjectIDEQ(projectID),
+				userproject.HasProjectWith(project.StatusEQ(project.StatusActive)),
+			).
 			Only(bypassCtx)
 	})
 	if err != nil {
@@ -578,11 +653,65 @@ func summarizeMyAPIKey(key *ent.APIKey, revealedKey string) MyAPIKeySummary {
 		Type:      key.Type.String(),
 		CreatedAt: key.CreatedAt,
 		UpdatedAt: key.UpdatedAt,
-		Profiles:  key.Profiles,
 		Key:       revealedKey,
 	}
 	if key.Profiles != nil {
 		summary.ActiveProfile = key.Profiles.ActiveProfile
+		summary.QuotaSummary = quotaSummaryForActiveProfile(key.Profiles)
 	}
+	return summary
+}
+
+func summarizeMyRoutingPreset(tpl *ent.APIKeyProfileTemplate) MyRoutingPreset {
+	summary := MyRoutingPreset{
+		ID:          tpl.ID,
+		Name:        tpl.Name,
+		Description: tpl.Description,
+		Enabled:     true,
+	}
+	if tpl.Profile == nil {
+		return summary
+	}
+
+	summary.ProfileLabel = tpl.Profile.Name
+	summary.ModelCount = len(tpl.Profile.ModelIDs)
+	if len(tpl.Profile.ModelIDs) > 0 {
+		previewSize := min(len(tpl.Profile.ModelIDs), 5)
+		summary.ModelPreview = append([]string{}, tpl.Profile.ModelIDs[:previewSize]...)
+	}
+	summary.QuotaSummary = quotaSummary(tpl.Profile.Quota)
+
+	return summary
+}
+
+func quotaSummaryForActiveProfile(profiles *objects.APIKeyProfiles) *MyQuotaSummary {
+	if profiles == nil {
+		return nil
+	}
+
+	for _, profile := range profiles.Profiles {
+		if profile.Name == profiles.ActiveProfile {
+			return quotaSummary(profile.Quota)
+		}
+	}
+
+	return nil
+}
+
+func quotaSummary(quota *objects.APIKeyQuota) *MyQuotaSummary {
+	if quota == nil {
+		return nil
+	}
+
+	summary := &MyQuotaSummary{
+		Requests:    quota.Requests,
+		TotalTokens: quota.TotalTokens,
+		Period:      string(quota.Period.Type),
+	}
+	if quota.Cost != nil {
+		cost := quota.Cost.String()
+		summary.Cost = &cost
+	}
+
 	return summary
 }

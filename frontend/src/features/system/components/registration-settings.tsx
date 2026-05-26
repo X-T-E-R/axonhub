@@ -19,11 +19,11 @@ import i18n from '@/lib/i18n';
 
 type RegistrationPolicyForm = Omit<AdminRegistrationPolicy, 'inviteCodeRequired' | 'passwordSignupAllowed'>;
 
-const RECOMMENDED_PROJECT_SCOPES = ['read_requests'];
-const DEFAULT_SELF_SERVICE_PRESETS = ['*'];
+const RECOMMENDED_PROJECT_SCOPES: string[] = [];
+const DEFAULT_SELF_SERVICE_PRESETS: string[] = [];
 
 const PROJECT_SCOPE_OPTIONS = [
-  { value: 'read_requests', recommended: true },
+  { value: 'read_requests' },
   { value: 'write_requests' },
   { value: 'read_api_keys' },
   { value: 'write_api_keys' },
@@ -53,6 +53,7 @@ function toForm(policy: AdminRegistrationPolicy): RegistrationPolicyForm {
   return {
     enabled: policy.enabled,
     oidcEnabled: policy.oidcEnabled,
+    selfServiceEnabled: policy.selfServiceEnabled ?? false,
     inviteCode: policy.inviteCode || '',
     defaultProjectId: policy.defaultProjectId || 0,
     autoJoinFirstProject: policy.autoJoinFirstProject,
@@ -74,6 +75,7 @@ function withUsableOnboardingDefaults(form: RegistrationPolicyForm): Registratio
 const initialForm: RegistrationPolicyForm = {
   enabled: false,
   oidcEnabled: false,
+  selfServiceEnabled: false,
   inviteCode: '',
   defaultProjectId: 0,
   autoJoinFirstProject: true,
@@ -86,7 +88,7 @@ export function RegistrationSettings() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<RegistrationPolicyForm>(initialForm);
-  const [presetNamesText, setPresetNamesText] = useState(stringifyList(DEFAULT_SELF_SERVICE_PRESETS));
+  const [presetNamesText, setPresetNamesText] = useState('');
 
   const { data: policy, isLoading } = useQuery({
     queryKey: ['adminRegistrationPolicy'],
@@ -119,7 +121,7 @@ export function RegistrationSettings() {
       inviteCode: form.inviteCode.trim(),
       selfServicePresetNames: parseList(presetNamesText),
     }),
-    [form, presetNamesText]
+    [form, presetNamesText],
   );
 
   const hasChanges = useMemo(() => {
@@ -130,14 +132,13 @@ export function RegistrationSettings() {
     return JSON.stringify(toForm(policy)) !== JSON.stringify(nextForm);
   }, [nextForm, policy]);
 
+  const exposesAllPresets = nextForm.selfServicePresetNames.includes('*');
+
   const handleEnableMode = (field: 'enabled' | 'oidcEnabled', enabled: boolean) => {
     setForm((prev) => {
       const next = { ...prev, [field]: enabled };
       return enabled ? withUsableOnboardingDefaults(next) : next;
     });
-    if (enabled && presetNamesText.trim() === '') {
-      setPresetNamesText(stringifyList(DEFAULT_SELF_SERVICE_PRESETS));
-    }
   };
 
   const handleScopeToggle = (scope: string, checked: boolean) => {
@@ -150,10 +151,12 @@ export function RegistrationSettings() {
   };
 
   const restoreRecommendedDefaults = () => {
-    setForm((prev) => withUsableOnboardingDefaults({ ...prev, defaultProjectScopes: [...RECOMMENDED_PROJECT_SCOPES] }));
-    if (presetNamesText.trim() === '') {
-      setPresetNamesText(stringifyList(DEFAULT_SELF_SERVICE_PRESETS));
-    }
+    setForm((prev) =>
+      withUsableOnboardingDefaults({
+        ...prev,
+        defaultProjectScopes: [...RECOMMENDED_PROJECT_SCOPES],
+      }),
+    );
   };
 
   const handleSave = async () => {
@@ -175,8 +178,8 @@ export function RegistrationSettings() {
         <CardHeader>
           <div className='flex flex-wrap items-start justify-between gap-3'>
             <div>
-              <CardTitle>{t('system.registration.title')}</CardTitle>
-              <CardDescription>{t('system.registration.description')}</CardDescription>
+              <CardTitle>{t('system.registration.onboardingTitle')}</CardTitle>
+              <CardDescription>{t('system.registration.onboardingDescription')}</CardDescription>
             </div>
             <Badge variant={form.enabled || form.oidcEnabled ? 'default' : 'secondary'}>
               {form.enabled || form.oidcEnabled ? t('system.registration.status.open') : t('system.registration.status.closed')}
@@ -203,7 +206,11 @@ export function RegistrationSettings() {
               <Label htmlFor='registration-oidc'>{t('system.registration.oidcSignup.label')}</Label>
               <div className='text-muted-foreground text-sm'>{t('system.registration.oidcSignup.description')}</div>
             </div>
-            <Switch id='registration-oidc' checked={form.oidcEnabled} onCheckedChange={(oidcEnabled) => handleEnableMode('oidcEnabled', oidcEnabled)} />
+            <Switch
+              id='registration-oidc'
+              checked={form.oidcEnabled}
+              onCheckedChange={(oidcEnabled) => handleEnableMode('oidcEnabled', oidcEnabled)}
+            />
           </div>
 
           <Separator />
@@ -214,7 +221,12 @@ export function RegistrationSettings() {
               <Input
                 id='registration-invite-code'
                 value={form.inviteCode}
-                onChange={(event) => setForm((prev) => ({ ...prev, inviteCode: event.target.value }))}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    inviteCode: event.target.value,
+                  }))
+                }
                 placeholder={t('system.registration.inviteCode.placeholder')}
               />
               <div className='text-muted-foreground text-sm'>{t('system.registration.inviteCode.description')}</div>
@@ -228,7 +240,10 @@ export function RegistrationSettings() {
                 min={0}
                 value={form.defaultProjectId}
                 onChange={(event) =>
-                  setForm((prev) => ({ ...prev, defaultProjectId: Math.max(0, Number(event.target.value) || 0) }))
+                  setForm((prev) => ({
+                    ...prev,
+                    defaultProjectId: Math.max(0, Number(event.target.value) || 0),
+                  }))
                 }
               />
               <div className='text-muted-foreground text-sm'>{t('system.registration.defaultProject.description')}</div>
@@ -280,11 +295,6 @@ export function RegistrationSettings() {
                     />
                     <span className='space-y-1'>
                       <span className='block font-medium'>{t(`scopes.${option.value}`)}</span>
-                      {option.recommended && (
-                        <Badge variant='secondary' className='h-5 px-1.5 text-[10px]'>
-                          {t('system.registration.defaultScopes.recommendedBadge')}
-                        </Badge>
-                      )}
                     </span>
                   </label>
                 );
@@ -296,6 +306,34 @@ export function RegistrationSettings() {
             </div>
           </div>
 
+          <Separator />
+
+          <div className='space-y-3'>
+            <div className='flex flex-wrap items-start justify-between gap-3'>
+              <div className='space-y-1'>
+                <Label>{t('system.registration.selfService.title')}</Label>
+                <div className='text-muted-foreground text-sm'>{t('system.registration.selfService.description')}</div>
+              </div>
+              <Badge variant={form.selfServiceEnabled ? 'default' : 'secondary'}>
+                {form.selfServiceEnabled
+                  ? t('system.registration.selfService.status.enabled')
+                  : t('system.registration.selfService.status.disabled')}
+              </Badge>
+            </div>
+
+            <div className='flex items-center justify-between gap-4 rounded-lg border p-4'>
+              <div className='space-y-0.5'>
+                <Label htmlFor='self-service-enabled'>{t('system.registration.selfService.enabled.label')}</Label>
+                <div className='text-muted-foreground text-sm'>{t('system.registration.selfService.enabled.description')}</div>
+              </div>
+              <Switch
+                id='self-service-enabled'
+                checked={form.selfServiceEnabled ?? false}
+                onCheckedChange={(selfServiceEnabled) => setForm((prev) => ({ ...prev, selfServiceEnabled }))}
+              />
+            </div>
+          </div>
+
           <div className='grid gap-4 md:grid-cols-2'>
             <div className='space-y-2'>
               <Label htmlFor='registration-preset-names'>{t('system.registration.selfServicePresets.label')}</Label>
@@ -303,10 +341,20 @@ export function RegistrationSettings() {
                 id='registration-preset-names'
                 value={presetNamesText}
                 onChange={(event) => setPresetNamesText(event.target.value)}
-                placeholder={'*\nfast\ncheap'}
+                placeholder={'fast\ncheap'}
                 className='min-h-28'
               />
               <div className='text-muted-foreground text-sm'>{t('system.registration.selfServicePresets.description')}</div>
+              {!nextForm.selfServicePresetNames.length && (
+                <div className='rounded-lg border border-dashed p-3 text-sm'>
+                  {t('system.registration.selfServicePresets.noneSelected')}
+                </div>
+              )}
+              {exposesAllPresets && (
+                <div className='rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200'>
+                  {t('system.registration.selfServicePresets.wildcardWarning')}
+                </div>
+              )}
             </div>
 
             <div className='flex items-center justify-between gap-4 rounded-lg border p-4'>

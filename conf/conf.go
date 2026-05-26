@@ -18,7 +18,6 @@ import (
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
-	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/db"
@@ -250,11 +249,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("registration.invite_code", "")
 	v.SetDefault("registration.default_project_id", 0)
 	v.SetDefault("registration.auto_join_first_project", true)
-	v.SetDefault("registration.default_project_scopes", []string{
-		string(scopes.ScopeReadRequests),
-	})
+	v.SetDefault("registration.default_project_scopes", []string{})
+	v.SetDefault("registration.self_service_enabled", false)
 	v.SetDefault("registration.allow_request_details", false)
-	v.SetDefault("registration.self_service_preset_names", []string{"*"})
+	v.SetDefault("registration.self_service_preset_names", []string{})
 }
 
 // parseLogLevel converts a string log level to zapcore.Level.

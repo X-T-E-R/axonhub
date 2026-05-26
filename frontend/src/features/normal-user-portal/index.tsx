@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, RefreshCw, Search } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { selfServiceApi, type SelfAPIKey, type SelfUsage } from '@/lib/api-client';
-import { normalizeEntityID, extractNumberID } from '@/lib/utils';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useMyProjects } from '@/features/projects/data/projects';
+import { selfServiceApi, type SelfAPIKey, type SelfQuotaSummary, type SelfRequest, type SelfUsage } from '@/lib/api-client';
+import { extractNumberID, normalizeEntityID } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore, useSelectedProjectId } from '@/stores/projectStore';
 
@@ -17,61 +22,103 @@ type RevealedSecret = {
   value: string;
 };
 
-const formatNumber = (value?: number | null) => {
-  if (value === null || value === undefined) {
-    return '—';
-  }
-
-  return value.toLocaleString();
+type RequestFilters = {
+  keyId: string;
+  model: string;
+  status: string;
+  range: '24h' | '7d' | '30d' | 'all';
 };
 
-const formatProjectLabel = (projectID: string, index: number) => {
+const MODEL_PAGE_SIZE = 12;
+const PRESET_ALL = 'all';
+const FILTER_ALL = 'all';
+
+const formatNumber = (value?: number | null) => (value === null || value === undefined ? '—' : value.toLocaleString());
+
+const formatProjectLabel = (projectID: string, index: number, projectName?: string) => {
+  if (projectName?.trim()) {
+    return projectName.trim();
+  }
   const numericId = extractNumberID(projectID);
   return numericId ? `Project #${numericId}` : `Project ${index + 1}`;
 };
 
-const formatUsageCost = (usage?: SelfUsage) => {
-  if (!usage || usage.totalCost <= 0) {
-    return '—';
-  }
+const formatUsageCost = (usage?: SelfUsage) => (!usage || usage.totalCost <= 0 ? '—' : usage.totalCost.toFixed(6));
 
-  return usage.totalCost.toFixed(6);
+const formatQuotaSummary = (quota?: SelfQuotaSummary) => {
+  if (!quota) return '';
+  const parts = [
+    quota.requests ? `${quota.requests.toLocaleString()} requests` : '',
+    quota.totalTokens ? `${quota.totalTokens.toLocaleString()} tokens` : '',
+    quota.cost ? `cost ${quota.cost}` : '',
+    quota.period ? `per ${quota.period}` : '',
+  ].filter(Boolean);
+  return parts.join(' · ');
+};
+
+const getRangeStart = (range: RequestFilters['range']) => {
+  if (range === 'all') return undefined;
+  const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  return start;
+};
+
+const isSelfServiceDisabledError = (error: unknown) => {
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  return (
+    message.includes('self-service') || message.includes('self service') || message.includes('disabled') || message.includes('forbidden')
+  );
 };
 
 export default function NormalUserPortal() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { user } = useAuthStore((state) => state.auth);
   const selectedProjectId = useSelectedProjectId();
   const setSelectedProjectId = useProjectStore((state) => state.setSelectedProjectId);
+  const { data: myProjects } = useMyProjects();
   const [keyName, setKeyName] = useState('');
-  const [presetID, setPresetID] = useState('');
+  const [createPresetID, setCreatePresetID] = useState('');
+  const [modelPresetFilter, setModelPresetFilter] = useState(PRESET_ALL);
+  const [modelSearch, setModelSearch] = useState('');
+  const [visibleModelCount, setVisibleModelCount] = useState(MODEL_PAGE_SIZE);
+  const [editingKeyId, setEditingKeyId] = useState<number | null>(null);
+  const [editingKeyName, setEditingKeyName] = useState('');
+  const [requestFilters, setRequestFilters] = useState<RequestFilters>({
+    keyId: FILTER_ALL,
+    model: '',
+    status: FILTER_ALL,
+    range: '7d',
+  });
   const [revealedSecret, setRevealedSecret] = useState<RevealedSecret | null>(null);
   const [showSecret, setShowSecret] = useState(false);
-  const [copiedTarget, setCopiedTarget] = useState<'base-url' | 'api-key' | null>(null);
+  const [copiedTarget, setCopiedTarget] = useState<'base-url' | 'api-key' | 'snippet' | null>(null);
 
-  const userProjects = user?.projects ?? [];
+  const projectNameById = useMemo(
+    () =>
+      new Map(
+        (myProjects ?? []).map((project) => [project.id, project.name]),
+      ),
+    [myProjects],
+  );
   const projectOptions = useMemo(
     () =>
-      userProjects
+      (user?.projects ?? [])
         .map((project, index) => {
           const projectID = normalizeEntityID(project.projectID);
-          return {
-            id: projectID,
-            label: formatProjectLabel(projectID, index),
-            scopes: project.scopes,
-            isOwner: project.isOwner,
-          };
+          return { id: projectID, label: formatProjectLabel(projectID, index, projectNameById.get(projectID)) };
         })
         .filter((project) => project.id),
-    [userProjects],
+    [projectNameById, user?.projects],
   );
-
   const firstProjectID = projectOptions[0]?.id ?? '';
   const selectedProjectBelongsToUser = useMemo(
     () => Boolean(selectedProjectId && projectOptions.some((project) => project.id === selectedProjectId)),
     [projectOptions, selectedProjectId],
   );
   const projectID = selectedProjectBelongsToUser && selectedProjectId ? selectedProjectId : firstProjectID;
+  const selectedPresetIdForApi = modelPresetFilter === PRESET_ALL ? undefined : Number(modelPresetFilter);
   const baseURL = useMemo(() => (typeof window === 'undefined' ? '/v1' : `${window.location.origin}/v1`), []);
 
   useEffect(() => {
@@ -81,10 +128,16 @@ export default function NormalUserPortal() {
   }, [projectID, selectedProjectId, setSelectedProjectId]);
 
   useEffect(() => {
-    setPresetID('');
+    setCreatePresetID('');
+    setModelPresetFilter(PRESET_ALL);
     setRevealedSecret(null);
     setShowSecret(false);
+    setVisibleModelCount(MODEL_PAGE_SIZE);
   }, [projectID]);
+
+  useEffect(() => {
+    setVisibleModelCount(MODEL_PAGE_SIZE);
+  }, [modelPresetFilter, modelSearch]);
 
   const enabled = Boolean(projectID);
   const presets = useQuery({
@@ -98,13 +151,13 @@ export default function NormalUserPortal() {
     enabled,
   });
   const models = useQuery({
-    queryKey: ['self', 'models', projectID, presetID],
-    queryFn: () => selfServiceApi.models(projectID, presetID ? Number(presetID) : undefined),
+    queryKey: ['self', 'models', projectID, selectedPresetIdForApi],
+    queryFn: () => selfServiceApi.models(projectID, selectedPresetIdForApi),
     enabled,
   });
   const requests = useQuery({
     queryKey: ['self', 'requests', projectID],
-    queryFn: () => selfServiceApi.requests(projectID),
+    queryFn: () => selfServiceApi.requests(projectID, { limit: 100 }),
     enabled,
   });
   const usage = useQuery({
@@ -113,51 +166,68 @@ export default function NormalUserPortal() {
     enabled,
   });
 
-  useEffect(() => {
-    if (!presets.data?.length) {
-      setPresetID('');
-      return;
-    }
-
-    if (presetID && presets.data.some((preset) => String(preset.id) === presetID)) {
-      return;
-    }
-
-    if (presets.data.length === 1) {
-      setPresetID(String(presets.data[0].id));
-      return;
-    }
-
-    setPresetID('');
-  }, [presetID, presets.data]);
-
-  const selectedPreset = presets.data?.find((preset) => String(preset.id) === presetID);
+  const selectedPreset = presets.data?.find((preset) => String(preset.id) === createPresetID);
+  const selectedModelPreset = presets.data?.find((preset) => String(preset.id) === modelPresetFilter);
+  const selectedExampleModel = models.data?.[0]?.name || models.data?.[0]?.id || 'gpt-4o-mini';
   const requestDetailsVisible = requests.data?.some((request) => request.detailsVisible) ?? false;
-  const createDisabledReason =
-    !enabled
-      ? 'Select a project before creating a key.'
+  const selfServiceDisabled = [presets.error, keys.error, models.error, requests.error, usage.error].some(isSelfServiceDisabledError);
+  const hasNoPresets = !presets.isLoading && !presets.isError && !presets.data?.length;
+  const hasNoModels = !models.isLoading && !models.isError && !models.data?.length;
+  const hasNoKeys = !keys.isLoading && !keys.isError && !keys.data?.length;
+  const hasNoRequests = !requests.isLoading && !requests.isError && !requests.data?.length;
+  const createDisabledReason = !enabled
+    ? t('selfService.empty.noProject.description')
+    : selfServiceDisabled
+      ? t('selfService.empty.disabled.description')
       : presets.isLoading
-        ? 'Loading available routing presets...'
+        ? t('selfService.keys.create.loadingPresets')
         : presets.isError
-          ? 'Could not load routing presets for this project.'
-          : !presets.data?.length
-            ? 'No self-service routing presets are available in this project yet.'
+          ? t('selfService.keys.create.presetsError')
+          : hasNoPresets
+            ? t('selfService.empty.noPresets.description')
             : !keyName.trim()
-              ? 'Enter a memorable key name first.'
-              : !presetID
-                ? 'Choose a routing preset first.'
+              ? t('selfService.keys.create.nameRequired')
+              : !createPresetID
+                ? t('selfService.keys.create.presetRequired')
                 : undefined;
 
-  const copyText = async (value: string, target: 'base-url' | 'api-key') => {
+  const requestStatusOptions = useMemo(
+    () => Array.from(new Set(requests.data?.map((request) => request.status).filter(Boolean))).sort(),
+    [requests.data],
+  );
+  const filteredRequests = useMemo(() => {
+    const rangeStart = getRangeStart(requestFilters.range);
+    const modelFilter = requestFilters.model.trim().toLowerCase();
+    return (requests.data ?? []).filter((request) => {
+      if (requestFilters.keyId !== FILTER_ALL && String(request.apiKeyId ?? '') !== requestFilters.keyId) return false;
+      if (requestFilters.status !== FILTER_ALL && request.status !== requestFilters.status) return false;
+      if (modelFilter && !request.modelId.toLowerCase().includes(modelFilter)) return false;
+      if (rangeStart && new Date(request.createdAt) < rangeStart) return false;
+      return true;
+    });
+  }, [requestFilters, requests.data]);
+  const filteredModels = useMemo(() => {
+    const search = modelSearch.trim().toLowerCase();
+    if (!search) return models.data ?? [];
+    return (models.data ?? []).filter((model) =>
+      [model.id, model.name, ...(model.developers ?? []), ...(model.groups ?? [])].join(' ').toLowerCase().includes(search),
+    );
+  }, [modelSearch, models.data]);
+  const visibleModels = filteredModels.slice(0, visibleModelCount);
+  const canShowMoreModels = visibleModelCount < filteredModels.length;
+  const firstRequestSnippet = `curl ${baseURL}/chat/completions \\
+  -H "Authorization: Bearer ${revealedSecret?.value || '<YOUR_API_KEY>'}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"${selectedExampleModel}","messages":[{"role":"user","content":"Hello"}]}'`;
+
+  const copyText = async (value: string, target: 'base-url' | 'api-key' | 'snippet') => {
     try {
       await navigator.clipboard.writeText(value);
       setCopiedTarget(target);
-      toast.success('Copied to clipboard!');
-      window.setTimeout(() => {
-        setCopiedTarget((current) => (current === target ? null : current));
-      }, 1500);
+      toast.success(t('selfService.toasts.copied'));
+      window.setTimeout(() => setCopiedTarget((current) => (current === target ? null : current)), 1500);
     } catch {
-      toast.error('Failed to copy to clipboard.');
+      toast.error(t('selfService.toasts.copyFailed'));
     }
   };
 
@@ -166,12 +236,13 @@ export default function NormalUserPortal() {
       selfServiceApi.createAPIKey({
         projectId: projectID,
         name: keyName.trim(),
-        presetId: presetID,
+        presetId: createPresetID,
       }),
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: ['self', 'api-keys', projectID] });
+      await queryClient.invalidateQueries({
+        queryKey: ['self', 'api-keys', projectID],
+      });
       setKeyName('');
-
       if (created.key) {
         setRevealedSecret({
           keyId: created.id,
@@ -179,20 +250,22 @@ export default function NormalUserPortal() {
           value: created.key,
         });
         setShowSecret(false);
-        toast.success('API key created. Copy it now because the secret is only revealed once.');
+        toast.success(t('selfService.toasts.keyCreatedWithSecret'));
         return;
       }
-
-      toast.success('API key created.');
+      toast.success(t('selfService.toasts.keyCreated'));
     },
-    onError: (error: any) => toast.error(error.message || 'Failed to create API key'),
+    onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyCreateFailed')),
   });
-
   const rotateKey = useMutation({
-    mutationFn: async (key: SelfAPIKey) => ({ key, rotated: await selfServiceApi.rotateAPIKey(key.id) }),
+    mutationFn: async (key: SelfAPIKey) => ({
+      key,
+      rotated: await selfServiceApi.rotateAPIKey(key.id),
+    }),
     onSuccess: async ({ key, rotated }) => {
-      await queryClient.invalidateQueries({ queryKey: ['self', 'api-keys', projectID] });
-
+      await queryClient.invalidateQueries({
+        queryKey: ['self', 'api-keys', projectID],
+      });
       if (rotated.key) {
         setRevealedSecret({
           keyId: rotated.id,
@@ -201,309 +274,712 @@ export default function NormalUserPortal() {
         });
         setShowSecret(false);
       }
-
-      toast.success(`Rotated ${key.name}.`);
+      toast.success(t('selfService.toasts.keyRotated', { name: key.name }));
     },
-    onError: (error: any) => toast.error(error.message || 'Failed to rotate API key'),
+    onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyRotateFailed')),
   });
-
+  const updateKey = useMutation({
+    mutationFn: async ({ id, name }: { id: number; name: string }) => selfServiceApi.updateAPIKey(id, { name }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['self', 'api-keys', projectID],
+      });
+      setEditingKeyId(null);
+      setEditingKeyName('');
+      toast.success(t('selfService.toasts.keyRenamed'));
+    },
+    onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyRenameFailed')),
+  });
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => selfServiceApi.updateAPIKeyStatus(id, status),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['self', 'api-keys', projectID] });
-      toast.success('API key status updated.');
+      await queryClient.invalidateQueries({
+        queryKey: ['self', 'api-keys', projectID],
+      });
+      toast.success(t('selfService.toasts.keyStatusUpdated'));
     },
-    onError: (error: any) => toast.error(error.message || 'Failed to update API key status'),
+    onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyStatusFailed')),
   });
+
+  const startRename = (key: SelfAPIKey) => {
+    setEditingKeyId(key.id);
+    setEditingKeyName(key.name);
+  };
+  const submitRename = (key: SelfAPIKey) => {
+    const nextName = editingKeyName.trim();
+    if (!nextName || nextName === key.name) {
+      setEditingKeyId(null);
+      setEditingKeyName('');
+      return;
+    }
+    updateKey.mutate({ id: key.id, name: nextName });
+  };
 
   if (!enabled) {
     return (
       <div className='mx-auto max-w-3xl p-6'>
-        <Card>
-          <CardHeader>
-            <CardTitle>No project access yet</CardTitle>
-            <CardDescription>Ask an administrator to add your account to a project before creating API keys.</CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyState title={t('selfService.empty.noProject.title')} description={t('selfService.empty.noProject.description')} />
+      </div>
+    );
+  }
+  if (selfServiceDisabled) {
+    return (
+      <div className='mx-auto max-w-3xl p-6'>
+        <EmptyState title={t('selfService.empty.disabled.title')} description={t('selfService.empty.disabled.description')} />
       </div>
     );
   }
 
   return (
     <div className='space-y-6 p-6'>
-      <div className='space-y-2'>
-        <h1 className='text-2xl font-semibold tracking-tight'>Start using AxonHub</h1>
-        <p className='text-muted-foreground max-w-3xl text-sm'>
-          Browse approved models, create your own user key from an allowed routing preset, and review only your own request activity.
-        </p>
+      <div className='flex flex-wrap items-start justify-between gap-4'>
+        <div className='space-y-2'>
+          <h1 className='text-2xl font-semibold tracking-tight'>{t('selfService.title')}</h1>
+          <p className='text-muted-foreground max-w-3xl text-sm'>{t('selfService.description')}</p>
+        </div>
+        {projectOptions.length > 1 && (
+          <div className='w-full space-y-2 sm:w-64'>
+            <Label htmlFor='self-project'>{t('selfService.project.label')}</Label>
+            <Select value={projectID} onValueChange={setSelectedProjectId}>
+              <SelectTrigger id='self-project' className='w-full' aria-label={t('selfService.project.label')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {projectOptions.map((project) => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       <div className='grid gap-4 md:grid-cols-4'>
-        <Card>
-          <CardHeader>
-            <CardTitle>{models.isLoading ? '—' : formatNumber(models.data?.length)}</CardTitle>
-            <CardDescription>Accessible models</CardDescription>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>{keys.isLoading ? '—' : formatNumber(keys.data?.length)}</CardTitle>
-            <CardDescription>My API keys</CardDescription>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>{usage.isLoading ? '—' : formatNumber(usage.data?.requests)}</CardTitle>
-            <CardDescription>Requests attributed to my keys</CardDescription>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>{usage.isLoading ? '—' : formatNumber(usage.data?.totalTokens)}</CardTitle>
-            <CardDescription>Tokens used</CardDescription>
-          </CardHeader>
-        </Card>
+        <MetricCard value={models.isLoading ? '—' : formatNumber(models.data?.length)} label={t('selfService.metrics.models')} />
+        <MetricCard value={keys.isLoading ? '—' : formatNumber(keys.data?.length)} label={t('selfService.metrics.keys')} />
+        <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.requests)} label={t('selfService.metrics.requests')} />
+        <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.totalTokens)} label={t('selfService.metrics.tokens')} />
       </div>
 
-      <div className='grid gap-4 xl:grid-cols-[1.1fr_0.9fr]'>
-        <Card>
-          <CardHeader>
-            <CardTitle>Create my API key</CardTitle>
-            <CardDescription>Keys created here belong to your account and can only use the approved preset you choose.</CardDescription>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            {projectOptions.length > 1 && (
-              <div className='space-y-2'>
-                <p className='text-sm font-medium'>Project</p>
-                <select
-                  className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
-                  value={projectID}
-                  onChange={(event) => setSelectedProjectId(event.target.value)}
-                >
-                  {projectOptions.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+      <Tabs defaultValue='overview' className='space-y-4'>
+        <TabsList className='flex h-auto w-full flex-wrap justify-start'>
+          <TabsTrigger value='overview'>{t('selfService.tabs.overview')}</TabsTrigger>
+          <TabsTrigger value='models'>{t('selfService.tabs.models')}</TabsTrigger>
+          <TabsTrigger value='keys'>{t('selfService.tabs.keys')}</TabsTrigger>
+          <TabsTrigger value='requests'>{t('selfService.tabs.requests')}</TabsTrigger>
+          <TabsTrigger value='usage'>{t('selfService.tabs.usage')}</TabsTrigger>
+        </TabsList>
 
-            <div className='grid gap-3 md:grid-cols-[1.1fr_0.9fr]'>
-              <Input value={keyName} onChange={(event) => setKeyName(event.target.value)} placeholder='Key name, e.g. local app' />
-              <select
-                className='border-input bg-background h-9 rounded-md border px-3 text-sm'
-                value={presetID}
-                onChange={(event) => setPresetID(event.target.value)}
-              >
-                <option value=''>Select a routing preset</option>
-                {presets.data?.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+        <TabsContent value='overview' className='space-y-4'>
+          <div className='grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
+            <FirstRequestCard
+              baseURL={baseURL}
+              copiedTarget={copiedTarget}
+              onCopy={copyText}
+              revealedSecret={revealedSecret}
+              showSecret={showSecret}
+              setShowSecret={setShowSecret}
+              snippet={firstRequestSnippet}
+            />
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('selfService.overview.statusTitle')}</CardTitle>
+                <CardDescription>{t('selfService.overview.statusDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-3 text-sm'>
+                <StatusRow
+                  ok={!hasNoPresets}
+                  label={t('selfService.overview.presetsStatus')}
+                  detail={
+                    hasNoPresets
+                      ? t('selfService.empty.noPresets.description')
+                      : t('selfService.overview.presetsReady', {
+                          count: presets.data?.length ?? 0,
+                        })
+                  }
+                />
+                <StatusRow
+                  ok={!hasNoModels}
+                  label={t('selfService.overview.modelsStatus')}
+                  detail={
+                    hasNoModels
+                      ? t('selfService.empty.noModels.description')
+                      : t('selfService.overview.modelsReady', {
+                          count: models.data?.length ?? 0,
+                        })
+                  }
+                />
+                <StatusRow
+                  ok={!hasNoKeys}
+                  label={t('selfService.overview.keysStatus')}
+                  detail={
+                    hasNoKeys
+                      ? t('selfService.empty.noKeys.description')
+                      : t('selfService.overview.keysReady', {
+                          count: keys.data?.length ?? 0,
+                        })
+                  }
+                />
+                <StatusRow
+                  ok={!hasNoRequests}
+                  label={t('selfService.overview.requestsStatus')}
+                  detail={
+                    hasNoRequests
+                      ? t('selfService.empty.noRequests.description')
+                      : t('selfService.overview.requestsReady', {
+                          count: requests.data?.length ?? 0,
+                        })
+                  }
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
-            {selectedPreset && (
-              <div className='rounded-md border border-dashed p-3 text-sm'>
-                <div className='font-medium'>{selectedPreset.name}</div>
-                <p className='text-muted-foreground mt-1 text-xs'>
-                  {selectedPreset.description || 'This preset controls the models and routing rules your key can use.'}
-                </p>
-              </div>
-            )}
-
-            <div className='flex flex-wrap items-center gap-2'>
-              <Button disabled={Boolean(createDisabledReason) || createKey.isPending} onClick={() => createKey.mutate()}>
-                {createKey.isPending ? 'Creating key...' : 'Create key'}
-              </Button>
-              {createDisabledReason && <p className='text-muted-foreground text-xs'>{createDisabledReason}</p>}
-            </div>
-
-            <div className='flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-xs'>
-              <div>
-                <div className='text-muted-foreground'>Base URL</div>
-                <code className='text-sm'>{baseURL}</code>
-              </div>
-              <Button variant='outline' size='sm' onClick={() => copyText(baseURL, 'base-url')}>
-                {copiedTarget === 'base-url' ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
-                Copy
-              </Button>
-            </div>
-
-            {revealedSecret && (
-              <div className='space-y-3 rounded-md border border-dashed p-3'>
-                <div className='flex flex-wrap items-center justify-between gap-2'>
-                  <div>
-                    <p className='font-medium'>{revealedSecret.keyName}</p>
-                    <p className='text-muted-foreground text-xs'>This secret is shown only after create or rotate. Copy it before leaving this page.</p>
-                  </div>
-                  <div className='flex gap-2'>
-                    <Button variant='outline' size='sm' onClick={() => setShowSecret((current) => !current)}>
-                      {showSecret ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
-                      {showSecret ? 'Hide' : 'Reveal'}
-                    </Button>
-                    <Button variant='outline' size='sm' onClick={() => copyText(revealedSecret.value, 'api-key')}>
-                      {copiedTarget === 'api-key' ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
-                      Copy key
-                    </Button>
-                  </div>
+        <TabsContent value='models' className='space-y-4'>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('selfService.models.title')}</CardTitle>
+              <CardDescription>
+                {selectedPresetIdForApi
+                  ? t('selfService.models.descriptionPreset', {
+                      preset: selectedModelPreset?.name || t('selfService.models.selectedPreset'),
+                    })
+                  : t('selfService.models.descriptionAll')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='grid gap-3 lg:grid-cols-[1fr_260px]'>
+                <div className='relative'>
+                  <Search className='text-muted-foreground pointer-events-none absolute top-2.5 left-3 h-4 w-4' />
+                  <Input
+                    aria-label={t('selfService.models.searchLabel')}
+                    className='pl-9'
+                    value={modelSearch}
+                    onChange={(event) => setModelSearch(event.target.value)}
+                    placeholder={t('selfService.models.searchPlaceholder')}
+                  />
                 </div>
-                <code className='block rounded bg-muted px-3 py-2 text-xs break-all'>
-                  {showSecret ? revealedSecret.value : '•'.repeat(Math.max(revealedSecret.value.length, 16))}
-                </code>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>My API keys</CardTitle>
-            <CardDescription>Only keys owned by your account in the selected project are listed here.</CardDescription>
-          </CardHeader>
-          <CardContent className='space-y-3'>
-            {keys.isLoading && <p className='text-muted-foreground text-sm'>Loading your keys...</p>}
-            {keys.isError && <p className='text-sm text-destructive'>Could not load your API keys.</p>}
-            {!keys.isLoading && !keys.isError && !keys.data?.length && <p className='text-muted-foreground text-sm'>No keys yet. Create one from a routing preset.</p>}
-            {keys.data?.map((key) => {
-              const isStatusUpdating = updateStatus.isPending && updateStatus.variables?.id === key.id;
-              const isRotating = rotateKey.isPending && rotateKey.variables?.id === key.id;
-              const nextStatus = key.status === 'enabled' ? 'disabled' : 'enabled';
-
-              return (
-                <div key={key.id} className='space-y-3 rounded-md border p-3 text-sm'>
-                  <div className='flex flex-wrap items-start justify-between gap-2'>
-                    <div>
-                      <div className='font-medium'>{key.name}</div>
-                      <div className='text-muted-foreground text-xs'>
-                        {key.activeProfile || 'No active profile'} · updated {new Date(key.updatedAt).toLocaleString()}
-                      </div>
-                    </div>
-                    <Badge variant={key.status === 'enabled' ? 'default' : 'secondary'}>{key.status}</Badge>
-                  </div>
-
-                  <div className='flex flex-wrap gap-2'>
-                    <Button variant='outline' size='sm' disabled={isRotating} onClick={() => rotateKey.mutate(key)}>
-                      <RefreshCw className='h-4 w-4' />
-                      Rotate
-                    </Button>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      disabled={isStatusUpdating}
-                      onClick={() => updateStatus.mutate({ id: key.id, status: nextStatus })}
-                    >
-                      {key.status === 'enabled' ? 'Disable' : 'Enable'}
-                    </Button>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      disabled={isStatusUpdating}
-                      onClick={() => updateStatus.mutate({ id: key.id, status: 'archived' })}
-                    >
-                      Archive
-                    </Button>
-                  </div>
-
-                  {revealedSecret?.keyId === key.id && (
-                    <div className='rounded-md border border-dashed p-3 text-xs text-muted-foreground'>
-                      The rotated or newly created secret for this key is ready above. Copy it before closing the page.
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className='grid gap-4 xl:grid-cols-[1fr_0.95fr]'>
-        <Card>
-          <CardHeader>
-            <CardTitle>Model marketplace</CardTitle>
-            <CardDescription>
-              {presetID
-                ? `Showing models available through ${selectedPreset?.name || 'the selected preset'}.`
-                : 'Showing all models allowed by your current project and visible self-service presets.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className='space-y-3'>
-            {models.isLoading && <p className='text-muted-foreground text-sm'>Loading accessible models...</p>}
-            {models.isError && <p className='text-sm text-destructive'>Could not load models for the selected project.</p>}
-            {!models.isLoading && !models.isError && !models.data?.length && (
-              <p className='text-muted-foreground text-sm'>
-                {presetID ? 'No models are available for the selected routing preset.' : 'No accessible models are available in this project yet.'}
-              </p>
-            )}
-            <div className='grid gap-2 sm:grid-cols-2'>
-              {models.data?.slice(0, 12).map((model) => (
-                <div key={model.id} className='space-y-2 rounded-md border p-3 text-sm'>
-                  <div className='font-medium'>{model.name}</div>
-                  <div className='flex flex-wrap gap-1'>
-                    {(model.groups?.length ? model.groups : ['model gateway']).map((group) => (
-                      <Badge key={`${model.id}-${group}`} variant='outline'>
-                        {group}
-                      </Badge>
+                <Select value={modelPresetFilter} onValueChange={setModelPresetFilter}>
+                  <SelectTrigger aria-label={t('selfService.models.presetFilter')} className='w-full'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={PRESET_ALL}>{t('selfService.models.allPresets')}</SelectItem>
+                    {presets.data?.map((preset) => (
+                      <SelectItem key={preset.id} value={String(preset.id)}>
+                        {preset.name}
+                      </SelectItem>
                     ))}
-                  </div>
-                  {model.developers?.length ? <p className='text-muted-foreground text-xs'>{model.developers.join(', ')}</p> : null}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>My recent requests and usage</CardTitle>
-            <CardDescription>
-              {requestDetailsVisible
-                ? 'Request details are enabled for this project.'
-                : 'Prompt, response, provider, and channel internals stay hidden unless an administrator enables them.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-3 sm:grid-cols-3'>
-              <div className='rounded-md border p-3'>
-                <div className='text-muted-foreground text-xs'>Requests</div>
-                <div className='text-lg font-semibold'>{requests.isLoading ? '—' : formatNumber(usage.data?.requests)}</div>
+                  </SelectContent>
+                </Select>
               </div>
-              <div className='rounded-md border p-3'>
-                <div className='text-muted-foreground text-xs'>Prompt tokens</div>
-                <div className='text-lg font-semibold'>{usage.isLoading ? '—' : formatNumber(usage.data?.promptTokens)}</div>
-              </div>
-              <div className='rounded-md border p-3'>
-                <div className='text-muted-foreground text-xs'>Operational cost</div>
-                <div className='text-lg font-semibold'>{usage.isLoading ? '—' : formatUsageCost(usage.data)}</div>
-              </div>
-            </div>
 
-            {requests.isLoading && <p className='text-muted-foreground text-sm'>Loading your recent requests...</p>}
-            {requests.isError && <p className='text-sm text-destructive'>Could not load your recent requests.</p>}
-            {!requests.isLoading && !requests.isError && !requests.data?.length && <p className='text-muted-foreground text-sm'>No requests from your keys yet.</p>}
+              {models.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.models.loading')}</p>}
+              {models.isError && <p className='text-sm text-destructive'>{t('selfService.models.error')}</p>}
+              {!models.isLoading && !models.isError && hasNoModels && (
+                <EmptyState
+                  title={t('selfService.empty.noModels.title')}
+                  description={t('selfService.empty.noModels.description')}
+                  compact
+                />
+              )}
+              {!models.isLoading && !models.isError && !hasNoModels && !filteredModels.length && (
+                <EmptyState
+                  title={t('selfService.empty.noModelMatches.title')}
+                  description={t('selfService.empty.noModelMatches.description')}
+                  compact
+                />
+              )}
 
-            <div className='space-y-2'>
-              {requests.data?.slice(0, 8).map((request) => (
-                <div key={request.id} className='rounded-md border p-3 text-sm'>
-                  <div className='flex flex-wrap items-center justify-between gap-2'>
-                    <span className='font-medium'>{request.modelId}</span>
-                    <div className='flex gap-2'>
-                      <Badge variant='secondary'>{request.status}</Badge>
-                      <Badge variant='outline'>{request.detailsVisible ? 'details enabled' : 'metadata only'}</Badge>
+              <div className='grid gap-2 md:grid-cols-2 xl:grid-cols-3'>
+                {visibleModels.map((model) => (
+                  <div key={`${model.id}-${model.presetId ?? 'all'}`} className='space-y-2 rounded-md border p-3 text-sm'>
+                    <div className='font-medium'>{model.name || model.id}</div>
+                    <div className='text-muted-foreground text-xs break-all'>{model.id}</div>
+                    <div className='flex flex-wrap gap-1'>
+                      {(model.groups?.length ? model.groups : [t('selfService.models.defaultGroup')]).map((group) => (
+                        <Badge key={`${model.id}-${group}`} variant='outline'>
+                          {group}
+                        </Badge>
+                      ))}
                     </div>
+                    {model.developers?.length ? <p className='text-muted-foreground text-xs'>{model.developers.join(', ')}</p> : null}
+                    {model.presetId && (
+                      <Button variant='outline' size='sm' onClick={() => setCreatePresetID(String(model.presetId))}>
+                        {t('selfService.models.usePreset')}
+                      </Button>
+                    )}
                   </div>
-                  <div className='text-muted-foreground mt-1 text-xs'>
-                    {new Date(request.createdAt).toLocaleString()} · {request.source} · {request.stream ? 'streaming' : 'non-streaming'}
-                    {request.latencyMs ? ` · ${request.latencyMs} ms` : ''}
+                ))}
+              </div>
+
+              {canShowMoreModels && (
+                <div className='flex justify-center'>
+                  <Button variant='outline' onClick={() => setVisibleModelCount((count) => count + MODEL_PAGE_SIZE)}>
+                    {t('selfService.models.showMore', {
+                      remaining: filteredModels.length - visibleModelCount,
+                    })}
+                  </Button>
+                </div>
+              )}
+              {!canShowMoreModels && filteredModels.length > MODEL_PAGE_SIZE && (
+                <p className='text-muted-foreground text-center text-xs'>
+                  {t('selfService.models.allShown', {
+                    count: filteredModels.length,
+                  })}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value='keys' className='space-y-4'>
+          <div className='grid gap-4 xl:grid-cols-[1.1fr_0.9fr]'>
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('selfService.keys.create.title')}</CardTitle>
+                <CardDescription>{t('selfService.keys.create.description')}</CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                <div className='grid gap-3 md:grid-cols-[1.1fr_0.9fr]'>
+                  <div className='space-y-2'>
+                    <Label htmlFor='self-key-name'>{t('selfService.keys.create.nameLabel')}</Label>
+                    <Input
+                      id='self-key-name'
+                      value={keyName}
+                      onChange={(event) => setKeyName(event.target.value)}
+                      placeholder={t('selfService.keys.create.namePlaceholder')}
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='self-preset'>{t('selfService.keys.create.presetLabel')}</Label>
+                    <Select value={createPresetID} onValueChange={setCreatePresetID}>
+                      <SelectTrigger id='self-preset' className='w-full' aria-label={t('selfService.keys.create.presetLabel')}>
+                        <SelectValue placeholder={t('selfService.keys.create.presetPlaceholder')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {presets.data?.map((preset) => (
+                          <SelectItem key={preset.id} value={String(preset.id)}>
+                            {preset.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+
+                {selectedPreset && (
+                  <div className='rounded-md border border-dashed p-3 text-sm'>
+                    <div className='font-medium'>{selectedPreset.name}</div>
+                    <p className='text-muted-foreground mt-1 text-xs'>
+                      {selectedPreset.description || t('selfService.keys.create.presetFallback')}
+                    </p>
+                    {selectedPreset.profileLabel && (
+                      <Badge variant='outline' className='mt-2'>
+                        {selectedPreset.profileLabel}
+                      </Badge>
+                    )}
+                    {selectedPreset.modelCount !== undefined && (
+                      <Badge variant='secondary' className='mt-2'>
+                        {t('selfService.keys.create.modelCount', {
+                          count: selectedPreset.modelCount,
+                        })}
+                      </Badge>
+                    )}
+                    {formatQuotaSummary(selectedPreset.quotaSummary) && (
+                      <p className='text-muted-foreground mt-2 text-xs'>{formatQuotaSummary(selectedPreset.quotaSummary)}</p>
+                    )}
+                  </div>
+                )}
+
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Button disabled={Boolean(createDisabledReason) || createKey.isPending} onClick={() => createKey.mutate()}>
+                    {createKey.isPending ? t('selfService.keys.create.creating') : t('selfService.keys.create.submit')}
+                  </Button>
+                  {createDisabledReason && <p className='text-muted-foreground text-xs'>{createDisabledReason}</p>}
+                </div>
+              </CardContent>
+            </Card>
+            <FirstRequestCard
+              baseURL={baseURL}
+              copiedTarget={copiedTarget}
+              onCopy={copyText}
+              revealedSecret={revealedSecret}
+              showSecret={showSecret}
+              setShowSecret={setShowSecret}
+              snippet={firstRequestSnippet}
+            />
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('selfService.keys.list.title')}</CardTitle>
+              <CardDescription>{t('selfService.keys.list.description')}</CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-3'>
+              {keys.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.keys.list.loading')}</p>}
+              {keys.isError && <p className='text-sm text-destructive'>{t('selfService.keys.list.error')}</p>}
+              {hasNoKeys && (
+                <EmptyState title={t('selfService.empty.noKeys.title')} description={t('selfService.empty.noKeys.description')} compact />
+              )}
+              {keys.data?.map((key) => {
+                const isStatusUpdating = updateStatus.isPending && updateStatus.variables?.id === key.id;
+                const isRotating = rotateKey.isPending && rotateKey.variables?.id === key.id;
+                const isRenaming = updateKey.isPending && updateKey.variables?.id === key.id;
+                const nextStatus = key.status === 'enabled' ? 'disabled' : 'enabled';
+                const isEditing = editingKeyId === key.id;
+                return (
+                  <div key={key.id} className='space-y-3 rounded-md border p-3 text-sm'>
+                    <div className='flex flex-wrap items-start justify-between gap-2'>
+                      <div className='min-w-0 flex-1'>
+                        {isEditing ? (
+                          <div className='flex max-w-xl flex-wrap gap-2'>
+                            <Input
+                              aria-label={t('selfService.keys.rename.inputLabel')}
+                              value={editingKeyName}
+                              onChange={(event) => setEditingKeyName(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') submitRename(key);
+                                if (event.key === 'Escape') {
+                                  setEditingKeyId(null);
+                                  setEditingKeyName('');
+                                }
+                              }}
+                            />
+                            <Button size='sm' disabled={isRenaming} onClick={() => submitRename(key)}>
+                              {t('common.buttons.save')}
+                            </Button>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() => {
+                                setEditingKeyId(null);
+                                setEditingKeyName('');
+                              }}
+                            >
+                              {t('common.buttons.cancel')}
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className='font-medium'>{key.name}</div>
+                        )}
+                        <div className='text-muted-foreground mt-1 text-xs'>
+                          {(key.activeProfile || t('selfService.keys.list.noPreset')) +
+                            ` · ${t('selfService.keys.list.updated', { time: new Date(key.updatedAt).toLocaleString() })}`}
+                        </div>
+                      </div>
+                      <Badge variant={key.status === 'enabled' ? 'default' : 'secondary'}>{key.status}</Badge>
+                    </div>
+                    <div className='flex flex-wrap gap-2'>
+                      <Button variant='outline' size='sm' disabled={isEditing} onClick={() => startRename(key)}>
+                        {t('selfService.keys.actions.rename')}
+                      </Button>
+                      <Button variant='outline' size='sm' disabled={isRotating} onClick={() => rotateKey.mutate(key)}>
+                        <RefreshCw className='h-4 w-4' />
+                        {t('selfService.keys.actions.rotate')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        disabled={isStatusUpdating}
+                        onClick={() =>
+                          updateStatus.mutate({
+                            id: key.id,
+                            status: nextStatus,
+                          })
+                        }
+                      >
+                        {key.status === 'enabled' ? t('selfService.keys.actions.disable') : t('selfService.keys.actions.enable')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        disabled={isStatusUpdating || key.status === 'archived'}
+                        onClick={() =>
+                          updateStatus.mutate({
+                            id: key.id,
+                            status: 'archived',
+                          })
+                        }
+                      >
+                        {t('selfService.keys.actions.archive')}
+                      </Button>
+                    </div>
+                    {revealedSecret?.keyId === key.id && (
+                      <div className='rounded-md border border-dashed p-3 text-xs text-muted-foreground'>
+                        {t('selfService.keys.list.secretReady')}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value='requests' className='space-y-4'>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('selfService.requests.title')}</CardTitle>
+              <CardDescription>
+                {requestDetailsVisible ? t('selfService.requests.detailsEnabled') : t('selfService.requests.detailsHidden')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='grid gap-3 lg:grid-cols-4'>
+                <Select
+                  value={requestFilters.range}
+                  onValueChange={(range: RequestFilters['range']) => setRequestFilters((prev) => ({ ...prev, range }))}
+                >
+                  <SelectTrigger aria-label={t('selfService.requests.filters.range')} className='w-full'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='24h'>{t('selfService.requests.filters.last24h')}</SelectItem>
+                    <SelectItem value='7d'>{t('selfService.requests.filters.last7d')}</SelectItem>
+                    <SelectItem value='30d'>{t('selfService.requests.filters.last30d')}</SelectItem>
+                    <SelectItem value='all'>{t('selfService.requests.filters.allTime')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={requestFilters.keyId} onValueChange={(keyId) => setRequestFilters((prev) => ({ ...prev, keyId }))}>
+                  <SelectTrigger aria-label={t('selfService.requests.filters.key')} className='w-full'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FILTER_ALL}>{t('selfService.requests.filters.allKeys')}</SelectItem>
+                    {keys.data?.map((key) => (
+                      <SelectItem key={key.id} value={String(key.id)}>
+                        {key.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={requestFilters.status} onValueChange={(status) => setRequestFilters((prev) => ({ ...prev, status }))}>
+                  <SelectTrigger aria-label={t('selfService.requests.filters.status')} className='w-full'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FILTER_ALL}>{t('selfService.requests.filters.allStatuses')}</SelectItem>
+                    {requestStatusOptions.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  aria-label={t('selfService.requests.filters.model')}
+                  value={requestFilters.model}
+                  onChange={(event) =>
+                    setRequestFilters((prev) => ({
+                      ...prev,
+                      model: event.target.value,
+                    }))
+                  }
+                  placeholder={t('selfService.requests.filters.modelPlaceholder')}
+                />
+              </div>
+
+              {requests.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.requests.loading')}</p>}
+              {requests.isError && <p className='text-sm text-destructive'>{t('selfService.requests.error')}</p>}
+              {hasNoRequests && (
+                <EmptyState
+                  title={t('selfService.empty.noRequests.title')}
+                  description={t('selfService.empty.noRequests.description')}
+                  compact
+                />
+              )}
+              {!hasNoRequests && !filteredRequests.length && (
+                <EmptyState
+                  title={t('selfService.empty.noRequestMatches.title')}
+                  description={t('selfService.empty.noRequestMatches.description')}
+                  compact
+                />
+              )}
+              <div className='space-y-2'>
+                {filteredRequests.map((request) => (
+                  <RequestRow key={request.id} request={request} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value='usage' className='space-y-4'>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('selfService.usage.title')}</CardTitle>
+              <CardDescription>{t('selfService.usage.description')}</CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='grid gap-3 md:grid-cols-4'>
+                <MetricBox label={t('selfService.usage.requests')} value={usage.isLoading ? '—' : formatNumber(usage.data?.requests)} />
+                <MetricBox
+                  label={t('selfService.usage.promptTokens')}
+                  value={usage.isLoading ? '—' : formatNumber(usage.data?.promptTokens)}
+                />
+                <MetricBox
+                  label={t('selfService.usage.completionTokens')}
+                  value={usage.isLoading ? '—' : formatNumber(usage.data?.completionTokens)}
+                />
+                <MetricBox label={t('selfService.usage.operationalCost')} value={usage.isLoading ? '—' : formatUsageCost(usage.data)} />
+              </div>
+              <div className='text-muted-foreground rounded-md border border-dashed p-3 text-sm'>{t('selfService.usage.filterNote')}</div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function MetricCard({ value, label }: { value: string; label: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{value}</CardTitle>
+        <CardDescription>{label}</CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
+function MetricBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className='rounded-md border p-3'>
+      <div className='text-muted-foreground text-xs'>{label}</div>
+      <div className='text-lg font-semibold'>{value}</div>
+    </div>
+  );
+}
+
+function EmptyState({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {
+  return (
+    <Card className={compact ? 'border-dashed' : undefined}>
+      <CardHeader>
+        <CardTitle className={compact ? 'text-base' : undefined}>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
+function StatusRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className='flex items-start justify-between gap-3 rounded-md border p-3'>
+      <div>
+        <div className='font-medium'>{label}</div>
+        <div className='text-muted-foreground text-xs'>{detail}</div>
       </div>
+      <Badge variant={ok ? 'default' : 'secondary'}>{ok ? t('selfService.overview.ok') : t('selfService.overview.action')}</Badge>
+    </div>
+  );
+}
+
+function FirstRequestCard({
+  baseURL,
+  copiedTarget,
+  onCopy,
+  revealedSecret,
+  showSecret,
+  setShowSecret,
+  snippet,
+}: {
+  baseURL: string;
+  copiedTarget: 'base-url' | 'api-key' | 'snippet' | null;
+  onCopy: (value: string, target: 'base-url' | 'api-key' | 'snippet') => void;
+  revealedSecret: RevealedSecret | null;
+  showSecret: boolean;
+  setShowSecret: (value: boolean | ((current: boolean) => boolean)) => void;
+  snippet: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('selfService.firstRequest.title')}</CardTitle>
+        <CardDescription>{t('selfService.firstRequest.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className='space-y-4'>
+        <div className='flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-xs'>
+          <div>
+            <div className='text-muted-foreground'>{t('selfService.firstRequest.baseUrl')}</div>
+            <code className='text-sm'>{baseURL}</code>
+          </div>
+          <Button variant='outline' size='sm' onClick={() => onCopy(baseURL, 'base-url')}>
+            {copiedTarget === 'base-url' ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
+            {t('common.buttons.copy')}
+          </Button>
+        </div>
+        {revealedSecret ? (
+          <div className='space-y-3 rounded-md border border-dashed p-3'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <div>
+                <p className='font-medium'>{revealedSecret.keyName}</p>
+                <p className='text-muted-foreground text-xs'>{t('selfService.firstRequest.secretHelp')}</p>
+              </div>
+              <div className='flex gap-2'>
+                <Button variant='outline' size='sm' onClick={() => setShowSecret((current) => !current)}>
+                  {showSecret ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                  {showSecret ? t('selfService.firstRequest.hide') : t('selfService.firstRequest.reveal')}
+                </Button>
+                <Button variant='outline' size='sm' onClick={() => onCopy(revealedSecret.value, 'api-key')}>
+                  {copiedTarget === 'api-key' ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
+                  {t('selfService.firstRequest.copyKey')}
+                </Button>
+              </div>
+            </div>
+            <code className='block rounded bg-muted px-3 py-2 text-xs break-all'>
+              {showSecret ? revealedSecret.value : '•'.repeat(Math.max(revealedSecret.value.length, 16))}
+            </code>
+          </div>
+        ) : (
+          <div className='text-muted-foreground rounded-md border border-dashed p-3 text-sm'>{t('selfService.firstRequest.noSecret')}</div>
+        )}
+        <div className='space-y-2'>
+          <div className='flex items-center justify-between gap-2'>
+            <Label>{t('selfService.firstRequest.curlExample')}</Label>
+            <Button variant='outline' size='sm' onClick={() => onCopy(snippet, 'snippet')}>
+              {copiedTarget === 'snippet' ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
+              {t('common.buttons.copy')}
+            </Button>
+          </div>
+          <pre className='overflow-x-auto rounded-md bg-muted p-3 text-xs'>
+            <code>{snippet}</code>
+          </pre>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RequestRow({ request }: { request: SelfRequest }) {
+  const { t } = useTranslation();
+  return (
+    <div className='rounded-md border p-3 text-sm'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <span className='font-medium'>{request.modelId}</span>
+        <div className='flex gap-2'>
+          <Badge variant='secondary'>{request.status}</Badge>
+          <Badge variant='outline'>
+            {request.detailsVisible ? t('selfService.requests.badges.detailsEnabled') : t('selfService.requests.badges.metadataOnly')}
+          </Badge>
+        </div>
+      </div>
+      <div className='text-muted-foreground mt-1 text-xs'>
+        {new Date(request.createdAt).toLocaleString()} · {request.source} ·{' '}
+        {request.stream ? t('selfService.requests.streaming') : t('selfService.requests.nonStreaming')}
+        {request.latencyMs ? ` · ${request.latencyMs} ms` : ''}
+      </div>
+      {!request.detailsVisible && (
+        <div className='text-muted-foreground mt-2 rounded border border-dashed p-2 text-xs'>
+          {t('selfService.requests.metadataOnlyHelp')}
+        </div>
+      )}
     </div>
   );
 }

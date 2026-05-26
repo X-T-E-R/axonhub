@@ -136,6 +136,7 @@
   "common.messages.errorMessage": "错误信息",
   "common.messages.success": "成功",
   "common.buttons.cancel": "取消",
+  "common.buttons.copy": "复制",
   "common.buttons.processing": "处理中...",
   "common.buttons.confirm": "确认",
   "common.buttons.save": "保存",

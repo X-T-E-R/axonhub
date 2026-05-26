@@ -39,7 +39,7 @@ class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
-    public response?: unknown
+    public response?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -116,6 +116,7 @@ export async function apiRequest<T>(endpoint: string, options: ApiRequestOptions
 export interface AdminRegistrationPolicy {
   enabled: boolean;
   oidcEnabled: boolean;
+  selfServiceEnabled: boolean;
   inviteCode: string;
   inviteCodeRequired: boolean;
   defaultProjectId: number;
@@ -164,13 +165,14 @@ export const authApi = {
     inviteCodeRequired: boolean;
     passwordSignupAllowed: boolean;
     allowRequestDetails: boolean;
+    selfServiceEnabled: boolean;
   }> => apiRequest('/admin/auth/signup-policy'),
 
   adminRegistrationPolicy: (): Promise<{ data: AdminRegistrationPolicy }> =>
     apiRequest('/admin/auth/registration-policy', { requireAuth: true }),
 
   updateAdminRegistrationPolicy: (
-    data: Omit<AdminRegistrationPolicy, 'inviteCodeRequired' | 'passwordSignupAllowed'>
+    data: Omit<AdminRegistrationPolicy, 'inviteCodeRequired' | 'passwordSignupAllowed'>,
   ): Promise<{ data: AdminRegistrationPolicy }> =>
     apiRequest('/admin/auth/registration-policy', {
       method: 'PUT',
@@ -215,11 +217,13 @@ export const authApi = {
   getOIDCLinkAuthorizeURL: (provider: string): Promise<{ data: { url: string; state: string } }> =>
     apiRequest(`/admin/oidc/link/${provider}`, { requireAuth: true }),
 
-  exchangeOIDCCode: (code: string): Promise<{
+  exchangeOIDCCode: (
+    code: string,
+  ): Promise<{
     data: {
       user: AuthUser;
       token: string;
-    }
+    };
   }> =>
     apiRequest('/oauth/oidc/exchange', {
       method: 'POST',
@@ -227,16 +231,23 @@ export const authApi = {
     }),
 };
 
+export interface SelfQuotaSummary {
+  requests?: number;
+  totalTokens?: number;
+  cost?: string;
+  period?: string;
+}
+
 export interface SelfRoutingPreset {
   id: number;
   name: string;
   description: string;
-  profile?: {
-    name?: string;
-    modelIDs?: string[];
-    channelTags?: string[];
-    quota?: unknown;
-  };
+  enabled?: boolean;
+  visible?: boolean;
+  profileLabel?: string;
+  modelCount?: number;
+  modelPreview?: string[];
+  quotaSummary?: SelfQuotaSummary;
 }
 
 export interface SelfAPIKey {
@@ -247,6 +258,7 @@ export interface SelfAPIKey {
   createdAt: string;
   updatedAt: string;
   activeProfile: string;
+  quotaSummary?: SelfQuotaSummary;
   key?: string;
 }
 
@@ -279,19 +291,52 @@ export interface SelfUsage {
   totalCost: number;
 }
 
+export interface SelfRequestQuery {
+  limit?: number;
+}
+
 const dataOf = <T>(promise: Promise<{ data: T }>) => promise.then((response) => response.data);
 
 export const selfServiceApi = {
   routingPresets: (projectId: string): Promise<SelfRoutingPreset[]> =>
-    dataOf(apiRequest<{ data: SelfRoutingPreset[] }>(`/admin/self/routing-presets?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+    dataOf(
+      apiRequest<{ data: SelfRoutingPreset[] }>(`/admin/self/routing-presets?project_id=${encodeURIComponent(projectId)}`, {
+        requireAuth: true,
+      }),
+    ),
   apiKeys: (projectId: string): Promise<SelfAPIKey[]> =>
     dataOf(apiRequest<{ data: SelfAPIKey[] }>(`/admin/self/api-keys?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
   createAPIKey: (input: { projectId: string; name: string; presetId: string }): Promise<SelfAPIKey> =>
-    dataOf(apiRequest<{ data: SelfAPIKey }>('/admin/self/api-keys', { method: 'POST', requireAuth: true, body: input })),
+    dataOf(
+      apiRequest<{ data: SelfAPIKey }>('/admin/self/api-keys', {
+        method: 'POST',
+        requireAuth: true,
+        body: input,
+      }),
+    ),
+  updateAPIKey: (id: number, input: { name?: string }): Promise<SelfAPIKey> =>
+    dataOf(
+      apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}`, {
+        method: 'PATCH',
+        requireAuth: true,
+        body: input,
+      }),
+    ),
   rotateAPIKey: (id: number): Promise<SelfAPIKey> =>
-    dataOf(apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/rotate`, { method: 'POST', requireAuth: true })),
+    dataOf(
+      apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/rotate`, {
+        method: 'POST',
+        requireAuth: true,
+      }),
+    ),
   updateAPIKeyStatus: (id: number, status: string): Promise<SelfAPIKey> =>
-    dataOf(apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/status`, { method: 'PATCH', requireAuth: true, body: { status } })),
+    dataOf(
+      apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/status`, {
+        method: 'PATCH',
+        requireAuth: true,
+        body: { status },
+      }),
+    ),
   models: (projectId: string, presetId?: number): Promise<SelfModel[]> => {
     const params = new URLSearchParams({ project_id: projectId });
     if (presetId) {
@@ -299,8 +344,11 @@ export const selfServiceApi = {
     }
     return dataOf(apiRequest<{ data: SelfModel[] }>(`/admin/self/models?${params.toString()}`, { requireAuth: true }));
   },
-  requests: (projectId: string): Promise<SelfRequest[]> =>
-    dataOf(apiRequest<{ data: SelfRequest[] }>(`/admin/self/requests?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+  requests: (projectId: string, query: SelfRequestQuery = {}): Promise<SelfRequest[]> => {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (query.limit) params.set('limit', String(query.limit));
+    return dataOf(apiRequest<{ data: SelfRequest[] }>(`/admin/self/requests?${params.toString()}`, { requireAuth: true }));
+  },
   usage: (projectId: string): Promise<SelfUsage> =>
     dataOf(apiRequest<{ data: SelfUsage }>(`/admin/self/usage?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
 };
