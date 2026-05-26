@@ -3,11 +3,14 @@ import { pageInfoSchema } from '@/gql/pagination';
 
 export const apiFormatSchema = z.enum([
   'openai/chat_completions',
+  'openai/completions',
   'openai/responses',
+  'openai/responses_compact',
   'openai/image_generation',
   'openai/image_edit',
   'openai/image_variation',
   'openai/embeddings',
+  'openai/video',
   'anthropic/messages',
   'gemini/contents',
   'gemini/embeddings',
@@ -15,6 +18,7 @@ export const apiFormatSchema = z.enum([
   'aisdk/datastream',
   'jina/rerank',
   'jina/embeddings',
+  'seedance/video',
   'ollama/chat',
 ]);
 
@@ -22,16 +26,20 @@ export type ApiFormat = z.infer<typeof apiFormatSchema>;
 
 export const configurableChannelEndpointApiFormats = [
   'openai/chat_completions',
+  'openai/completions',
   'openai/responses',
+  'openai/responses_compact',
   'openai/image_generation',
   'openai/image_edit',
   'openai/image_variation',
   'openai/embeddings',
+  'openai/video',
   'anthropic/messages',
   'gemini/contents',
   'gemini/embeddings',
   'jina/rerank',
   'jina/embeddings',
+  'seedance/video',
 ] as const;
 
 export const configurableChannelEndpointApiFormatSchema = z.enum(configurableChannelEndpointApiFormats);

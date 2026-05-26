@@ -47,15 +47,19 @@ export interface ProviderConfig {
 
 const AXONHUB_PROVIDER_API_FORMATS: ApiFormat[] = [
   'openai/chat_completions',
+  'openai/completions',
   'openai/responses',
+  'openai/responses_compact',
   'openai/image_generation',
   'openai/image_edit',
   'openai/embeddings',
+  'openai/video',
   'anthropic/messages',
   'gemini/contents',
   'gemini/embeddings',
   'jina/rerank',
   'jina/embeddings',
+  'seedance/video',
 ];
 
 /**

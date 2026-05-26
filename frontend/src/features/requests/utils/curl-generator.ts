@@ -13,17 +13,22 @@ export interface CurlGeneratorOptions {
 
 const API_FORMAT_PATHS: Record<ApiFormat, string> = {
   'openai/chat_completions': '/v1/chat/completions',
+  'openai/completions': '/v1/completions',
   'openai/responses': '/v1/responses',
+  'openai/responses_compact': '/v1/responses/compact',
   'openai/image_generation': '/v1/images/generations',
   'openai/image_edit': '/v1/images/edits',
   'openai/image_variation': '/v1/images/variations',
   'openai/embeddings': '/v1/embeddings',
+  'openai/video': '/v1/videos',
   'anthropic/messages': '/v1/messages',
   'gemini/contents': '/v1beta/models/{model}:generateContent',
+  'gemini/embeddings': '/v1beta/models/{model}:embedContent',
   'aisdk/text': '/api/chat',
   'aisdk/datastream': '/api/datastream',
   'jina/rerank': '/v1/rerank',
   'jina/embeddings': '/jina/v1/embeddings',
+  'seedance/video': '/doubao/v3/contents/generations/tasks',
 };
 
 function getApiPath(apiFormat?: ApiFormat, body?: any, channelType?: ChannelType): string {
@@ -33,8 +38,8 @@ function getApiPath(apiFormat?: ApiFormat, body?: any, channelType?: ChannelType
 
   let path = API_FORMAT_PATHS[apiFormat] || '/v1/chat/completions';
 
-  if (apiFormat === 'gemini/contents' && body?.model) {
-    if (channelType === 'gemini_vertex') {
+  if ((apiFormat === 'gemini/contents' || apiFormat === 'gemini/embeddings') && body?.model) {
+    if (apiFormat === 'gemini/contents' && channelType === 'gemini_vertex') {
       path = '/v1/publishers/google/models/{model}:generateContent';
     }
     path = path.replace('{model}', body.model);

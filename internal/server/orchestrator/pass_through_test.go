@@ -1358,6 +1358,24 @@ func TestMergePassThroughBodySkipsFormatsWithoutTopLevelModel(t *testing.T) {
 	require.Equal(t, string(rawBody), string(merged))
 }
 
+func TestMergePassThroughBodyPatchesOpenAICompletionModel(t *testing.T) {
+	rawBody := []byte(`{"model":"client-completion-model","prompt":"hi"}`)
+
+	merged, err := mergePassThroughRequestBody(rawBody, llm.APIFormatOpenAICompletion, "mapped-completion-model")
+	require.NoError(t, err)
+	require.Equal(t, "mapped-completion-model", gjson.GetBytes(merged, "model").String())
+	require.Equal(t, "hi", gjson.GetBytes(merged, "prompt").String())
+}
+
+func TestMergePassThroughBodyPatchesOpenAIImageGenerationModel(t *testing.T) {
+	rawBody := []byte(`{"model":"client-image-model","prompt":"draw a cat"}`)
+
+	merged, err := mergePassThroughRequestBody(rawBody, llm.APIFormatOpenAIImageGeneration, "mapped-image-model")
+	require.NoError(t, err)
+	require.Equal(t, "mapped-image-model", gjson.GetBytes(merged, "model").String())
+	require.Equal(t, "draw a cat", gjson.GetBytes(merged, "prompt").String())
+}
+
 func TestApplyAxonHubFullPassThroughRequest_ChatPreservesPathQueryBodyAndAuth(t *testing.T) {
 	ctx := context.Background()
 	rawHTTPReq, err := http.NewRequest(http.MethodPost, "http://gateway.local/v1/chat/completions?trace=abc&debug=1", nil)

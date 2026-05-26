@@ -271,9 +271,11 @@ func passThroughBodyNeedsModelPatch(apiFormat llm.APIFormat) bool {
 	//nolint:exhaustive // ohter format do not need model field.
 	switch apiFormat {
 	case llm.APIFormatOpenAIChatCompletion,
+		llm.APIFormatOpenAICompletion,
 		llm.APIFormatOpenAIResponse,
 		llm.APIFormatOpenAIResponseCompact,
 		llm.APIFormatOpenAIEmbedding,
+		llm.APIFormatOpenAIImageGeneration,
 		llm.APIFormatJinaEmbedding,
 		llm.APIFormatJinaRerank,
 		llm.APIFormatAnthropicMessage:
