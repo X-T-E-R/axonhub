@@ -14,9 +14,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAllChannelSummarys } from '@/features/channels/data/channels';
-import type { ChannelKeyStatus, FailurePolicyActionType, FailurePolicyEventSource, FailurePolicyProfile } from '@/features/channels/data/schema';
+import type {
+  ChannelKeyHealthCheckRule,
+  ChannelKeyStatus,
+  FailurePolicyActionType,
+  FailurePolicyEventSource,
+  FailurePolicyProfile,
+} from '@/features/channels/data/schema';
 import { usePermissions } from '@/hooks/usePermissions';
 import { extractNumberID, extractNumberIDAsNumber } from '@/lib/utils';
 import {
@@ -59,6 +66,46 @@ function createBuiltinProbe(index = 0) {
       kind: 'channel_api_key_test' as const,
     },
     http: null,
+  };
+}
+
+function createHTTPProbe(index = 0): ChannelKeyHealthCheckRule {
+  return {
+    id: `http-probe-${Date.now()}-${index + 1}`,
+    name: 'HTTP balance check',
+    type: 'http',
+    enabled: true,
+    builtin: null,
+    http: {
+      method: 'GET',
+      urlMode: 'provider_base_url',
+      path: '/user/balance',
+      url: null,
+      timeoutMs: 10000,
+      headers: [],
+      keyInjection: {
+        location: 'authorization_bearer',
+        headerName: null,
+      },
+      expectedStatuses: [200],
+      passWhen: '',
+    },
+  };
+}
+
+function createDeepSeekBalanceProbe(index = 0): ChannelKeyHealthCheckRule {
+  const probe = createHTTPProbe(index);
+  return {
+    ...probe,
+    id: `deepseek-balance-${Date.now()}-${index + 1}`,
+    name: 'DeepSeek balance',
+    http: {
+      ...probe.http,
+      urlMode: 'absolute_url',
+      path: null,
+      url: 'https://api.deepseek.com/user/balance',
+      passWhen: 'json.is_available == true',
+    },
   };
 }
 
@@ -154,14 +201,21 @@ function numericValue(value: string): number | null {
   return Number.isFinite(next) ? next : null;
 }
 
+function parseStatusCodes(value: string): number[] {
+  return value
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item) && item >= 100 && item <= 599);
+}
+
 function formatActionLabel(action: string) {
   return action.replaceAll('_', ' ');
 }
 
 function MonitoringManagement() {
   const { t } = useTranslation();
-  const { hasSystemScope } = usePermissions();
-  const canWrite = hasSystemScope('write_channels');
+  const { hasScope } = usePermissions();
+  const canWrite = hasScope('write_channels');
   const { data: settings, isLoading, refetch } = useMonitoringSettings();
   const updateSettings = useUpdateMonitoringSettings();
   const { data: channelsData } = useAllChannelSummarys(undefined, { includeArchived: true });
@@ -265,8 +319,8 @@ function MonitoringManagement() {
         </div>
       </Header>
 
-      <Main fixed>
-        <div className='flex flex-1 flex-col gap-4 overflow-auto'>
+      <Main>
+        <div className='flex flex-col gap-4'>
           <Card>
             <CardHeader>
               <CardTitle>{t('monitoring.global.title')}</CardTitle>
@@ -366,23 +420,36 @@ function MonitoringManagement() {
               </CardHeader>
               <CardContent>
                 {selectedRule ? (
-                  <div className='space-y-6'>
-                    <RuleBasics rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
-                    <Separator />
-                    <RuleTargets rule={selectedRule} channels={channels} canWrite={canWrite} onChange={patchSelectedRule} />
-                    <Separator />
-                    <RuleProbes rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
-                    <Separator />
-                    <ProfilesEditor title={t('monitoring.profiles.keyTitle')} target='key' rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
-                    <Separator />
-                    <ProfilesEditor
-                      title={t('monitoring.profiles.channelTitle')}
-                      target='channel'
-                      rule={selectedRule}
-                      canWrite={canWrite}
-                      onChange={patchSelectedRule}
-                    />
-                  </div>
+                  <Tabs defaultValue='basics' className='space-y-4'>
+                    <TabsList className='grid h-auto w-full grid-cols-2 gap-1 md:grid-cols-5'>
+                      <TabsTrigger value='basics'>{t('monitoring.editor.basics')}</TabsTrigger>
+                      <TabsTrigger value='targets'>{t('monitoring.targets.title')}</TabsTrigger>
+                      <TabsTrigger value='probes'>{t('monitoring.probes.title')}</TabsTrigger>
+                      <TabsTrigger value='keyProfiles'>{t('monitoring.profiles.keyTitle')}</TabsTrigger>
+                      <TabsTrigger value='channelProfiles'>{t('monitoring.profiles.channelTitle')}</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value='basics' className='mt-0'>
+                      <RuleBasics rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
+                    </TabsContent>
+                    <TabsContent value='targets' className='mt-0'>
+                      <RuleTargets rule={selectedRule} channels={channels} canWrite={canWrite} onChange={patchSelectedRule} />
+                    </TabsContent>
+                    <TabsContent value='probes' className='mt-0'>
+                      <RuleProbes rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
+                    </TabsContent>
+                    <TabsContent value='keyProfiles' className='mt-0'>
+                      <ProfilesEditor title={t('monitoring.profiles.keyTitle')} target='key' rule={selectedRule} canWrite={canWrite} onChange={patchSelectedRule} />
+                    </TabsContent>
+                    <TabsContent value='channelProfiles' className='mt-0'>
+                      <ProfilesEditor
+                        title={t('monitoring.profiles.channelTitle')}
+                        target='channel'
+                        rule={selectedRule}
+                        canWrite={canWrite}
+                        onChange={patchSelectedRule}
+                      />
+                    </TabsContent>
+                  </Tabs>
                 ) : (
                   <div className='rounded-lg border border-dashed p-8 text-center text-muted-foreground'>{t('monitoring.editor.empty')}</div>
                 )}
@@ -643,6 +710,39 @@ function RuleProbes({
   onChange: (updater: (rule: MonitoringRule) => MonitoringRule) => void;
 }) {
   const { t } = useTranslation();
+  const updateProbe = (id: string, patch: Partial<ChannelKeyHealthCheckRule>) => {
+    onChange((current) => ({
+      ...current,
+      probes: current.probes.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    }));
+  };
+
+  const updateHTTPProbe = (id: string, patch: Partial<NonNullable<ChannelKeyHealthCheckRule['http']>>) => {
+    onChange((current) => ({
+      ...current,
+      probes: current.probes.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              type: 'http',
+              builtin: null,
+              http: {
+                method: item.http?.method ?? 'GET',
+                urlMode: item.http?.urlMode ?? 'provider_base_url',
+                path: item.http?.path ?? '/user/balance',
+                url: item.http?.url ?? '',
+                timeoutMs: item.http?.timeoutMs ?? 10000,
+                headers: item.http?.headers ?? [],
+                keyInjection: item.http?.keyInjection ?? { location: 'authorization_bearer', headerName: null },
+                expectedStatuses: item.http?.expectedStatuses ?? [200],
+                passWhen: item.http?.passWhen ?? '',
+                ...patch,
+              },
+            }
+          : item
+      ),
+    }));
+  };
 
   return (
     <section className='space-y-4'>
@@ -651,52 +751,158 @@ function RuleProbes({
           <h3 className='font-semibold'>{t('monitoring.probes.title')}</h3>
           <p className='text-sm text-muted-foreground'>{t('monitoring.probes.description')}</p>
         </div>
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          disabled={!canWrite}
-          onClick={() => onChange((current) => ({ ...current, probes: [...current.probes, createBuiltinProbe(current.probes.length)] }))}
-        >
-          <IconPlus className='mr-1 h-4 w-4' />
-          {t('monitoring.probes.addBuiltin')}
-        </Button>
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={!canWrite}
+            onClick={() => onChange((current) => ({ ...current, probes: [...current.probes, createBuiltinProbe(current.probes.length)] }))}
+          >
+            <IconPlus className='mr-1 h-4 w-4' />
+            {t('monitoring.probes.addBuiltin')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={!canWrite}
+            onClick={() => onChange((current) => ({ ...current, probes: [...current.probes, createDeepSeekBalanceProbe(current.probes.length)] }))}
+          >
+            <IconPlus className='mr-1 h-4 w-4' />
+            {t('monitoring.probes.addDeepSeek')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={!canWrite}
+            onClick={() => onChange((current) => ({ ...current, probes: [...current.probes, createHTTPProbe(current.probes.length)] }))}
+          >
+            <IconPlus className='mr-1 h-4 w-4' />
+            {t('monitoring.probes.addHttp')}
+          </Button>
+        </div>
       </div>
       <div className='space-y-2'>
         {rule.probes.map((probe) => (
-          <div key={probe.id} className='grid gap-2 rounded-lg border p-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center'>
-            <Switch
-              checked={probe.enabled !== false}
-              disabled={!canWrite}
-              onCheckedChange={(checked) =>
-                onChange((current) => ({
-                  ...current,
-                  probes: current.probes.map((item) => (item.id === probe.id ? { ...item, enabled: checked } : item)),
-                }))
-              }
-            />
-            <Input
-              value={probe.name}
-              disabled={!canWrite}
-              onChange={(event) =>
-                onChange((current) => ({
-                  ...current,
-                  probes: current.probes.map((item) => (item.id === probe.id ? { ...item, name: event.target.value } : item)),
-                }))
-              }
-            />
-            <div className='flex items-center gap-2'>
-              <Badge variant='outline'>{probe.type}</Badge>
-              <Button
-                type='button'
-                variant='ghost'
-                size='icon'
-                disabled={!canWrite || rule.probes.length <= 1}
-                onClick={() => onChange((current) => ({ ...current, probes: current.probes.filter((item) => item.id !== probe.id) }))}
+          <div key={probe.id} className='space-y-3 rounded-lg border p-3'>
+            <div className='grid gap-2 md:grid-cols-[auto_minmax(0,1fr)_180px_auto] md:items-center'>
+              <Switch checked={probe.enabled !== false} disabled={!canWrite} onCheckedChange={(checked) => updateProbe(probe.id, { enabled: checked })} />
+              <Input value={probe.name} disabled={!canWrite} onChange={(event) => updateProbe(probe.id, { name: event.target.value })} />
+              <Select
+                value={probe.type}
+                disabled={!canWrite}
+                onValueChange={(value) =>
+                  updateProbe(
+                    probe.id,
+                    value === 'builtin_test'
+                      ? {
+                          type: 'builtin_test',
+                          builtin: { kind: 'channel_api_key_test' },
+                          http: null,
+                        }
+                      : {
+                          ...createHTTPProbe(0),
+                          id: probe.id,
+                          name: probe.name,
+                          enabled: probe.enabled,
+                        }
+                  )
+                }
               >
-                <IconTrash className='h-4 w-4' />
-              </Button>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='builtin_test'>{t('monitoring.probes.types.builtin')}</SelectItem>
+                  <SelectItem value='http'>{t('monitoring.probes.types.http')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className='flex items-center justify-end gap-2'>
+                <Badge variant='outline'>{probe.type}</Badge>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  disabled={!canWrite || rule.probes.length <= 1}
+                  onClick={() => onChange((current) => ({ ...current, probes: current.probes.filter((item) => item.id !== probe.id) }))}
+                >
+                  <IconTrash className='h-4 w-4' />
+                </Button>
+              </div>
             </div>
+            {probe.type === 'http' ? (
+              <div className='grid gap-3 rounded-md bg-muted/30 p-3 md:grid-cols-2'>
+                <div className='space-y-1'>
+                  <Label>{t('monitoring.probes.http.urlMode')}</Label>
+                  <Select
+                    value={probe.http?.urlMode ?? 'provider_base_url'}
+                    disabled={!canWrite}
+                    onValueChange={(value) =>
+                      updateHTTPProbe(probe.id, {
+                        urlMode: value as NonNullable<ChannelKeyHealthCheckRule['http']>['urlMode'],
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='provider_base_url'>{t('monitoring.probes.http.providerBaseUrl')}</SelectItem>
+                      <SelectItem value='absolute_url'>{t('monitoring.probes.http.absoluteUrl')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className='space-y-1'>
+                  <Label>{probe.http?.urlMode === 'absolute_url' ? t('monitoring.probes.http.url') : t('monitoring.probes.http.path')}</Label>
+                  <Input
+                    value={probe.http?.urlMode === 'absolute_url' ? (probe.http?.url ?? '') : (probe.http?.path ?? '')}
+                    disabled={!canWrite}
+                    placeholder={probe.http?.urlMode === 'absolute_url' ? 'https://api.deepseek.com/user/balance' : '/user/balance'}
+                    onChange={(event) =>
+                      updateHTTPProbe(
+                        probe.id,
+                        probe.http?.urlMode === 'absolute_url'
+                          ? { url: event.target.value, path: null }
+                          : { path: event.target.value, url: null }
+                      )
+                    }
+                  />
+                </div>
+                <div className='space-y-1'>
+                  <Label>{t('monitoring.probes.http.expectedStatuses')}</Label>
+                  <Input
+                    value={(probe.http?.expectedStatuses ?? [200]).join(', ')}
+                    disabled={!canWrite}
+                    placeholder='200, 204'
+                    onChange={(event) => updateHTTPProbe(probe.id, { expectedStatuses: parseStatusCodes(event.target.value) })}
+                  />
+                </div>
+                <div className='space-y-1'>
+                  <Label>{t('monitoring.probes.http.timeoutMs')}</Label>
+                  <Input
+                    type='number'
+                    min={100}
+                    max={30000}
+                    value={probe.http?.timeoutMs ?? 10000}
+                    disabled={!canWrite}
+                    onChange={(event) => updateHTTPProbe(probe.id, { timeoutMs: Math.max(100, Number(event.target.value) || 10000) })}
+                  />
+                </div>
+                <div className='space-y-1 md:col-span-2'>
+                  <Label>{t('monitoring.probes.http.passWhen')}</Label>
+                  <Textarea
+                    rows={2}
+                    value={probe.http?.passWhen ?? ''}
+                    disabled={!canWrite}
+                    placeholder='json.is_available == true'
+                    onChange={(event) => updateHTTPProbe(probe.id, { passWhen: event.target.value })}
+                  />
+                </div>
+                <p className='text-xs text-muted-foreground md:col-span-2'>{t('monitoring.probes.http.hint')}</p>
+              </div>
+            ) : null}
           </div>
         ))}
       </div>

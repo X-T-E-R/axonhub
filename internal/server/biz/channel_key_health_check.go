@@ -1493,6 +1493,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	if len(targetKeys) == 0 {
 		return svc.ChannelAPIKeyInventory(ctx, channelID)
 	}
+	targetStatuses := selectedChannelKeyHealthCheckTargetStatuses(ch, targetKeys)
 
 	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
 	chForCheck := *ch
@@ -1534,14 +1535,19 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	allCheckedKeysFailed := len(targetKeys) > 0 && failed == len(targetKeys)
 	results = svc.applyFailurePolicyToHealthCheckResults(ctx, ch, settings, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerManual, allCheckedKeysFailed)
 	for i, key := range targetKeys {
+		keyID := objects.ChannelAPIKeyFingerprint(key)
+		targetStatus := targetStatuses[keyID]
+		if targetStatus == "" {
+			targetStatus = objects.ChannelKeyStatusActive
+		}
 		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerManual, settings.KeyHealthCheck.HistoryLimitOrDefault())
 		if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
 			Channel: ch,
 			Target: monitoringTargetKey{
 				RawKey:    key,
-				ID:        objects.ChannelAPIKeyFingerprint(key),
+				ID:        keyID,
 				MaskedKey: objects.MaskChannelAPIKey(key),
-				Status:    objects.ChannelKeyStatusActive,
+				Status:    targetStatus,
 			},
 			Result:    results[i],
 			Trigger:   objects.ChannelKeyHealthCheckTriggerManual,
@@ -1564,6 +1570,36 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	}
 
 	return svc.ChannelAPIKeyInventory(ctx, channelID)
+}
+
+func selectedChannelKeyHealthCheckTargetStatuses(ch *ent.Channel, keys []string) map[string]objects.ChannelKeyStatus {
+	statuses := make(map[string]objects.ChannelKeyStatus, len(keys))
+	if ch == nil {
+		return statuses
+	}
+
+	for _, key := range keys {
+		statuses[objects.ChannelAPIKeyFingerprint(key)] = objects.ChannelKeyStatusActive
+	}
+	for _, disabled := range ch.DisabledAPIKeys {
+		if disabled.Key == "" {
+			continue
+		}
+		id := objects.ChannelAPIKeyFingerprint(disabled.Key)
+		if _, ok := statuses[id]; ok {
+			statuses[id] = objects.ChannelKeyStatusDisabled
+		}
+	}
+	for _, archived := range channelArchivedAPIKeys(ch.Settings) {
+		if archived.ID == "" {
+			continue
+		}
+		if _, ok := statuses[archived.ID]; ok {
+			statuses[archived.ID] = objects.ChannelKeyStatusArchived
+		}
+	}
+
+	return statuses
 }
 
 func mergeChannelKeyOperationalStatus(ch *ent.Channel, health *objects.ChannelKeyHealthCheck) {
@@ -1609,14 +1645,6 @@ func selectedChannelKeyHealthCheckTargets(ch *ent.Channel, keyIDs []string) []st
 		return ch.Credentials.GetRoutableAPIKeys(ch.DisabledAPIKeys, channelArchivedAPIKeys(ch.Settings))
 	}
 
-	archived := channelArchivedAPIKeys(ch.Settings)
-	archivedIDs := make(map[string]struct{}, len(archived))
-	for _, item := range archived {
-		if item.ID != "" {
-			archivedIDs[item.ID] = struct{}{}
-		}
-	}
-
 	targets := make([]string, 0, len(keyIDs))
 	seen := make(map[string]struct{}, len(keyIDs))
 	for _, keyID := range keyIDs {
@@ -1626,9 +1654,6 @@ func selectedChannelKeyHealthCheckTargets(ch *ent.Channel, keyIDs []string) []st
 		}
 
 		id := objects.ChannelAPIKeyFingerprint(key)
-		if _, ok := archivedIDs[id]; ok {
-			continue
-		}
 		if _, ok := seen[id]; ok {
 			continue
 		}
