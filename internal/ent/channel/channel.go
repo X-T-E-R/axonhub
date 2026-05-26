@@ -69,6 +69,8 @@ const (
 	EdgeUsageLogs = "usage_logs"
 	// EdgeChannelProbes holds the string denoting the channel_probes edge name in mutations.
 	EdgeChannelProbes = "channel_probes"
+	// EdgeMonitoringEvents holds the string denoting the monitoring_events edge name in mutations.
+	EdgeMonitoringEvents = "monitoring_events"
 	// EdgeChannelModelPrices holds the string denoting the channel_model_prices edge name in mutations.
 	EdgeChannelModelPrices = "channel_model_prices"
 	// EdgeProviderQuotaStatus holds the string denoting the provider_quota_status edge name in mutations.
@@ -103,6 +105,13 @@ const (
 	ChannelProbesInverseTable = "channel_probes"
 	// ChannelProbesColumn is the table column denoting the channel_probes relation/edge.
 	ChannelProbesColumn = "channel_id"
+	// MonitoringEventsTable is the table that holds the monitoring_events relation/edge.
+	MonitoringEventsTable = "channel_key_monitoring_events"
+	// MonitoringEventsInverseTable is the table name for the ChannelKeyMonitoringEvent entity.
+	// It exists in this package in order to avoid circular dependency with the "channelkeymonitoringevent" package.
+	MonitoringEventsInverseTable = "channel_key_monitoring_events"
+	// MonitoringEventsColumn is the table column denoting the monitoring_events relation/edge.
+	MonitoringEventsColumn = "channel_id"
 	// ChannelModelPricesTable is the table that holds the channel_model_prices relation/edge.
 	ChannelModelPricesTable = "channel_model_prices"
 	// ChannelModelPricesInverseTable is the table name for the ChannelModelPrice entity.
@@ -424,6 +433,20 @@ func ByChannelProbes(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByMonitoringEventsCount orders the results by monitoring_events count.
+func ByMonitoringEventsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newMonitoringEventsStep(), opts...)
+	}
+}
+
+// ByMonitoringEvents orders the results by monitoring_events terms.
+func ByMonitoringEvents(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newMonitoringEventsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByChannelModelPricesCount orders the results by channel_model_prices count.
 func ByChannelModelPricesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -470,6 +493,13 @@ func newChannelProbesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ChannelProbesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, ChannelProbesTable, ChannelProbesColumn),
+	)
+}
+func newMonitoringEventsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(MonitoringEventsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, MonitoringEventsTable, MonitoringEventsColumn),
 	)
 }
 func newChannelModelPricesStep() *sqlgraph.Step {

@@ -146,6 +146,8 @@ enum ChannelKeyHealthCheckPolicyActionType {
   delete_key
   disable_channel
   backoff
+  enable_key
+  restore_key
 }
 
 enum ChannelKeyHealthCheckBackoffMode {
@@ -164,6 +166,8 @@ enum FailurePolicyEventSource {
   request_failure
   scheduled_health_check_failure
   manual_health_check_failure
+  scheduled_health_check
+  manual_health_check
 }
 
 enum FailurePolicyActionType {
@@ -173,6 +177,8 @@ enum FailurePolicyActionType {
   archive_key
   delete_key
   disable_channel
+  enable_key
+  restore_key
 }
 
 enum ChannelKeyHealthCheckRuleType {
@@ -306,21 +312,27 @@ input ChannelKeyHealthCheckPolicyInput {
 
 type ChannelKeyHealthCheckPolicyCondition {
   minFailureCount: Int
+  success: Boolean
   statusCodes: [Int!]
   available: Boolean
   balanceLTE: Float
+  balanceGTE: Float
   reasonContains: String
   allCheckedKeysFailed: Boolean
+  keyStatuses: [ChannelKeyStatus!]
   expr: String
 }
 
 input ChannelKeyHealthCheckPolicyConditionInput {
   minFailureCount: Int
+  success: Boolean
   statusCodes: [Int!]
   available: Boolean
   balanceLTE: Float
+  balanceGTE: Float
   reasonContains: String
   allCheckedKeysFailed: Boolean
+  keyStatuses: [ChannelKeyStatus!]
   expr: String
 }
 

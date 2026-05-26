@@ -11,6 +11,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -170,6 +171,33 @@ func (f TraverseChannel) Traverse(ctx context.Context, q ent.Query) error {
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.ChannelQuery", q)
+}
+
+// The ChannelKeyMonitoringEventFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ChannelKeyMonitoringEventFunc func(context.Context, *ent.ChannelKeyMonitoringEventQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ChannelKeyMonitoringEventFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ChannelKeyMonitoringEventQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ChannelKeyMonitoringEventQuery", q)
+}
+
+// The TraverseChannelKeyMonitoringEvent type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseChannelKeyMonitoringEvent func(context.Context, *ent.ChannelKeyMonitoringEventQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseChannelKeyMonitoringEvent) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseChannelKeyMonitoringEvent) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ChannelKeyMonitoringEventQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ChannelKeyMonitoringEventQuery", q)
 }
 
 // The ChannelModelPriceFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -748,6 +776,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.APIKeyProfileTemplateQuery, predicate.APIKeyProfileTemplate, apikeyprofiletemplate.OrderOption]{typ: ent.TypeAPIKeyProfileTemplate, tq: q}, nil
 	case *ent.ChannelQuery:
 		return &query[*ent.ChannelQuery, predicate.Channel, channel.OrderOption]{typ: ent.TypeChannel, tq: q}, nil
+	case *ent.ChannelKeyMonitoringEventQuery:
+		return &query[*ent.ChannelKeyMonitoringEventQuery, predicate.ChannelKeyMonitoringEvent, channelkeymonitoringevent.OrderOption]{typ: ent.TypeChannelKeyMonitoringEvent, tq: q}, nil
 	case *ent.ChannelModelPriceQuery:
 		return &query[*ent.ChannelModelPriceQuery, predicate.ChannelModelPrice, channelmodelprice.OrderOption]{typ: ent.TypeChannelModelPrice, tq: q}, nil
 	case *ent.ChannelModelPriceVersionQuery:

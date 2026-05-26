@@ -177,6 +177,74 @@ input UpdateQuotaEnforcementSettingsInput {
   mode: QuotaEnforcementMode
 }
 
+type MonitoringSettings {
+  enabled: Boolean!
+  historyRetentionDays: Int!
+  rules: [MonitoringRule!]!
+}
+
+input UpdateMonitoringSettingsInput {
+  enabled: Boolean
+  historyRetentionDays: Int
+  rules: [MonitoringRuleInput!]
+}
+
+type MonitoringRule {
+  id: String!
+  name: String!
+  description: String
+  enabled: Boolean
+  schedule: MonitoringRuleSchedule!
+  targets: MonitoringRuleTargets!
+  probes: [ChannelKeyHealthCheckRule!]!
+  keyProfiles: [FailurePolicyProfile!]!
+  channelProfiles: [FailurePolicyProfile!]!
+}
+
+input MonitoringRuleInput {
+  id: String!
+  name: String!
+  description: String
+  enabled: Boolean
+  schedule: MonitoringRuleScheduleInput
+  targets: MonitoringRuleTargetsInput
+  probes: [ChannelKeyHealthCheckRuleInput!]
+  keyProfiles: [FailurePolicyProfileInput!]
+  channelProfiles: [FailurePolicyProfileInput!]
+}
+
+type MonitoringRuleSchedule {
+  intervalMinutes: Int!
+  historyLimit: Int!
+  maxChannels: Int!
+  maxKeysPerChannel: Int!
+  keySpacingMs: Int!
+  jitterMs: Int!
+}
+
+input MonitoringRuleScheduleInput {
+  intervalMinutes: Int
+  historyLimit: Int
+  maxChannels: Int
+  maxKeysPerChannel: Int
+  keySpacingMs: Int
+  jitterMs: Int
+}
+
+type MonitoringRuleTargets {
+  channelIDs: [Int!]!
+  channelStatuses: [String!]!
+  keyStatuses: [ChannelKeyStatus!]!
+  includeBackoff: Boolean!
+}
+
+input MonitoringRuleTargetsInput {
+  channelIDs: [Int!]
+  channelStatuses: [String!]
+  keyStatuses: [ChannelKeyStatus!]
+  includeBackoff: Boolean
+}
+
 type SystemModelSettings {
   fallbackToChannelsOnModelNotFound: Boolean!
   queryAllChannelModels: Boolean!
@@ -367,6 +435,7 @@ extend type Mutation {
   updateSystemGeneralSettings(input: UpdateSystemGeneralSettingsInput!): Boolean!
   updateVideoStorageSettings(input: UpdateVideoStorageSettingsInput!): Boolean!
   updateQuotaEnforcementSettings(input: UpdateQuotaEnforcementSettingsInput!): Boolean!
+  updateMonitoringSettings(input: UpdateMonitoringSettingsInput!): Boolean!
   checkProviderQuotas: Boolean!
   triggerGcCleanup(input: TriggerGcCleanupInput!): Boolean!
   saveProxyPreset(input: SaveProxyPresetInput!): Boolean!
@@ -435,6 +504,7 @@ extend type Query {
   systemGeneralSettings: SystemGeneralSettings!
   videoStorageSettings: VideoStorageSettings!
   quotaEnforcementSettings: QuotaEnforcementSettings!
+  monitoringSettings: MonitoringSettings!
   proxyPresets: [ProxyPreset!]!
   userAgentPassThroughSettings: UserAgentPassThroughSettings!
   passThroughSettings: PassThroughSettings!

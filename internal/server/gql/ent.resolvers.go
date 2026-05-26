@@ -92,6 +92,22 @@ func (r *channelResolver) ProviderQuotaStatus(ctx context.Context, obj *ent.Chan
 }
 
 // ID is the resolver for the id field.
+func (r *channelKeyMonitoringEventResolver) ID(ctx context.Context, obj *ent.ChannelKeyMonitoringEvent) (*objects.GUID, error) {
+	return &objects.GUID{
+		Type: ent.TypeChannelKeyMonitoringEvent,
+		ID:   obj.ID,
+	}, nil
+}
+
+// ChannelID is the resolver for the channelID field.
+func (r *channelKeyMonitoringEventResolver) ChannelID(ctx context.Context, obj *ent.ChannelKeyMonitoringEvent) (*objects.GUID, error) {
+	return &objects.GUID{
+		Type: ent.TypeChannel,
+		ID:   obj.ChannelID,
+	}, nil
+}
+
+// ID is the resolver for the id field.
 func (r *channelModelPriceResolver) ID(ctx context.Context, obj *ent.ChannelModelPrice) (*objects.GUID, error) {
 	return &objects.GUID{
 		Type: ent.TypeChannelModelPrice,
@@ -332,6 +348,18 @@ func (r *queryResolver) Channels(ctx context.Context, after *entgql.Cursor[int],
 	return r.client.Channel.Query().Paginate(ctx, after, first, before, last,
 		ent.WithChannelOrder(orderBy),
 		ent.WithChannelFilter(where.Filter),
+	)
+}
+
+// ChannelKeyMonitoringEvents is the resolver for the channelKeyMonitoringEvents field.
+func (r *queryResolver) ChannelKeyMonitoringEvents(ctx context.Context, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.ChannelKeyMonitoringEventOrder, where *ent.ChannelKeyMonitoringEventWhereInput) (*ent.ChannelKeyMonitoringEventConnection, error) {
+	if err := validatePaginationArgs(first, last); err != nil {
+		return nil, err
+	}
+
+	return r.client.ChannelKeyMonitoringEvent.Query().Paginate(ctx, after, first, before, last,
+		ent.WithChannelKeyMonitoringEventOrder(orderBy),
+		ent.WithChannelKeyMonitoringEventFilter(where.Filter),
 	)
 }
 
@@ -933,6 +961,11 @@ func (r *Resolver) APIKeyProfileTemplate() APIKeyProfileTemplateResolver {
 // Channel returns ChannelResolver implementation.
 func (r *Resolver) Channel() ChannelResolver { return &channelResolver{r} }
 
+// ChannelKeyMonitoringEvent returns ChannelKeyMonitoringEventResolver implementation.
+func (r *Resolver) ChannelKeyMonitoringEvent() ChannelKeyMonitoringEventResolver {
+	return &channelKeyMonitoringEventResolver{r}
+}
+
 // ChannelModelPrice returns ChannelModelPriceResolver implementation.
 func (r *Resolver) ChannelModelPrice() ChannelModelPriceResolver {
 	return &channelModelPriceResolver{r}
@@ -1012,6 +1045,7 @@ func (r *Resolver) UserRole() UserRoleResolver { return &userRoleResolver{r} }
 type aPIKeyResolver struct{ *Resolver }
 type aPIKeyProfileTemplateResolver struct{ *Resolver }
 type channelResolver struct{ *Resolver }
+type channelKeyMonitoringEventResolver struct{ *Resolver }
 type channelModelPriceResolver struct{ *Resolver }
 type channelModelPriceVersionResolver struct{ *Resolver }
 type channelOverrideTemplateResolver struct{ *Resolver }

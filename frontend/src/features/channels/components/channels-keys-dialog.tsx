@@ -23,7 +23,6 @@ import {
   IconRefresh,
   IconRestore,
   IconRoute,
-  IconSettingsAutomation,
   IconTrash,
 } from '@tabler/icons-react';
 import type { TFunction } from 'i18next';
@@ -97,6 +96,8 @@ interface KeyInventoryRow {
 }
 
 type BatchKeyAction = 'health' | 'disable' | 'enable' | 'archive' | 'restore' | 'delete';
+const KEY_STATUS_FILTERS: KeyInventoryStatus[] = ['active', 'disabled', 'archived'];
+const DEFAULT_KEY_STATUS_FILTERS: KeyInventoryStatus[] = ['active', 'disabled'];
 type FailurePolicyTarget = 'key' | 'channel';
 type AvailabilityConditionMode = 'any' | 'available' | 'unavailable';
 type KeyHistoryTooltipProps = TooltipProps<number, string> & {
@@ -1564,7 +1565,7 @@ function ChannelHistoryDialog({
 export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const { t, i18n } = useTranslation();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [showArchived, setShowArchived] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<Set<KeyInventoryStatus>>(new Set(DEFAULT_KEY_STATUS_FILTERS));
   const [detailsKeyID, setDetailsKeyID] = useState<string | null>(null);
   const [channelHistoryOpen, setChannelHistoryOpen] = useState(false);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
@@ -1590,7 +1591,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     if (open) {
       form.reset(valuesFromChannel(currentRow));
       setSelectedKeys(new Set());
-      setShowArchived(false);
+      setStatusFilter(new Set(DEFAULT_KEY_STATUS_FILTERS));
       setDetailsKeyID(null);
       setChannelHistoryOpen(false);
       setConfirmDeleteKey(null);
@@ -1608,8 +1609,21 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     () => (isDeepSeekChannel ? summarizeActiveBalances(activeKeys, t, i18n.language) : null),
     [activeKeys, i18n.language, isDeepSeekChannel, t]
   );
-  const visibleInventory = useMemo(() => inventory.filter((item) => showArchived || item.status !== 'archived'), [inventory, showArchived]);
+  const visibleInventory = useMemo(() => inventory.filter((item) => statusFilter.has(item.status)), [inventory, statusFilter]);
   const selectedRows = useMemo(() => visibleInventory.filter((item) => selectedKeys.has(item.id)), [visibleInventory, selectedKeys]);
+  const visibleSelectedCount = useMemo(
+    () => visibleInventory.filter((item) => selectedKeys.has(item.id)).length,
+    [selectedKeys, visibleInventory]
+  );
+  const allVisibleSelected = visibleInventory.length > 0 && visibleSelectedCount === visibleInventory.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
+  const statusFilterSummary = useMemo(
+    () =>
+      KEY_STATUS_FILTERS.filter((status) => statusFilter.has(status))
+        .map((status) => t(`channels.dialogs.keys.status.${status}`))
+        .join(', '),
+    [statusFilter, t]
+  );
   const selectedHealthCheckKeyIDs = useMemo(
     () => selectedRows.filter((item) => item.status !== 'archived').map((item) => item.id),
     [selectedRows]
@@ -1632,8 +1646,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     [visibleInventory]
   );
   const selectedStrategy = form.watch('strategy');
-  const deepseekRuleEnabled = form.watch('healthCheck.deepseekRuleEnabled');
-  const deepseekUseAbsoluteURL = form.watch('healthCheck.deepseekUseAbsoluteURL');
   const isPending =
     keyInventory.isFetching ||
     addAPIKey.isPending ||
@@ -1660,6 +1672,32 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         next.add(id);
       } else {
         next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleStatusFilter = (status: KeyInventoryStatus, checked: boolean) => {
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(status);
+      } else {
+        next.delete(status);
+      }
+      return next;
+    });
+  };
+
+  const toggleVisibleSelection = (checked: boolean) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      for (const item of visibleInventory) {
+        if (checked) {
+          next.add(item.id);
+        } else {
+          next.delete(item.id);
+        }
       }
       return next;
     });
@@ -1808,10 +1846,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
           <Form {...form}>
             <Tabs defaultValue='inventory' className='min-h-0 flex-1'>
-              <TabsList className='grid w-full grid-cols-3'>
+              <TabsList className='grid w-full grid-cols-2'>
                 <TabsTrigger value='inventory'>{t('channels.dialogs.keys.tabs.inventory')}</TabsTrigger>
                 <TabsTrigger value='routing'>{t('channels.dialogs.keys.tabs.routing')}</TabsTrigger>
-                <TabsTrigger value='health'>{t('channels.dialogs.keys.tabs.health')}</TabsTrigger>
               </TabsList>
 
               <ScrollArea className='mt-4 h-[58vh] pr-3'>
@@ -1949,15 +1986,28 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                         </button>
                       ) : null}
 
-                      <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between'>
-                        <div className='text-muted-foreground text-sm'>
-                          {showArchived
-                            ? t('channels.dialogs.keys.inventory.archivedVisible', { count: archivedKeys.length })
-                            : t('channels.dialogs.keys.inventory.archivedHidden', { count: archivedKeys.length })}
+                      <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-2 lg:flex-row lg:items-center lg:justify-between'>
+                        <div className='space-y-1'>
+                          <div className='text-sm font-medium'>{t('channels.dialogs.keys.inventory.statusFilter.label')}</div>
+                          <div className='text-muted-foreground text-sm'>
+                            {statusFilter.size > 0
+                              ? t('channels.dialogs.keys.inventory.statusFilter.summary', {
+                                  count: visibleInventory.length,
+                                  statuses: statusFilterSummary,
+                                })
+                              : t('channels.dialogs.keys.inventory.statusFilter.none')}
+                          </div>
                         </div>
-                        <div className='flex items-center gap-2'>
-                          <span className='text-sm'>{t('channels.dialogs.keys.inventory.showArchived')}</span>
-                          <Switch checked={showArchived} onCheckedChange={setShowArchived} />
+                        <div className='flex flex-wrap gap-3'>
+                          {KEY_STATUS_FILTERS.map((status) => (
+                            <label key={status} className='flex items-center gap-2 text-sm'>
+                              <Checkbox
+                                checked={statusFilter.has(status)}
+                                onCheckedChange={(checked) => toggleStatusFilter(status, checked === true)}
+                              />
+                              <span>{t(`channels.dialogs.keys.status.${status}`)}</span>
+                            </label>
+                          ))}
                         </div>
                       </div>
 
@@ -2057,7 +2107,14 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead className='w-12'></TableHead>
+                              <TableHead className='w-12'>
+                                <Checkbox
+                                  checked={allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false}
+                                  onCheckedChange={(checked) => toggleVisibleSelection(checked === true)}
+                                  aria-label={t('channels.dialogs.keys.inventory.selectVisible')}
+                                  disabled={visibleInventory.length === 0 || isPending}
+                                />
+                              </TableHead>
                               <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
                               <TableHead>{t('channels.dialogs.keys.columns.status')}</TableHead>
                               <TableHead>{t('channels.dialogs.keys.columns.lastCheck')}</TableHead>
@@ -2071,7 +2128,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                 <TableCell colSpan={6} className='text-muted-foreground h-28 text-center text-sm'>
                                   {inventory.length === 0
                                     ? t('channels.dialogs.keys.inventory.empty')
-                                    : t('channels.dialogs.keys.inventory.archivedOnlyEmpty')}
+                                    : t('channels.dialogs.keys.inventory.statusFilter.empty')}
                                 </TableCell>
                               </TableRow>
                             ) : (
@@ -2341,207 +2398,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                           <div className='mt-1 text-sm'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.description`)}</div>
                         </AlertDescription>
                       </Alert>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value='health' className='mt-0 space-y-4'>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className='flex items-center gap-2'>
-                        <IconSettingsAutomation className='h-5 w-5' />
-                        {t('channels.dialogs.keys.health.title')}
-                      </CardTitle>
-                      <CardDescription>{t('channels.dialogs.keys.health.description')}</CardDescription>
-                    </CardHeader>
-                    <CardContent className='space-y-5'>
-                      <div className='grid gap-4 md:grid-cols-2'>
-                        <FormField
-                          control={form.control}
-                          name='healthCheck.enabled'
-                          render={({ field }) => (
-                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                              <div className='space-y-0.5'>
-                                <FormLabel>{t('channels.dialogs.keys.health.enabled.label')}</FormLabel>
-                                <FormDescription>{t('channels.dialogs.keys.health.enabled.description')}</FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch checked={field.value} onCheckedChange={field.onChange} />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name='healthCheck.includeDisabled'
-                          render={({ field }) => (
-                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                              <div className='space-y-0.5'>
-                                <FormLabel>{t('channels.dialogs.keys.health.includeDisabled.label')}</FormLabel>
-                                <FormDescription>{t('channels.dialogs.keys.health.includeDisabled.description')}</FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch checked={field.value} onCheckedChange={field.onChange} />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <div className='grid gap-4 md:grid-cols-3'>
-                        <FormField
-                          control={form.control}
-                          name='healthCheck.intervalMinutes'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.health.interval.label')}</FormLabel>
-                              <FormControl>
-                                <Input
-                                  ref={field.ref}
-                                  name={field.name}
-                                  type='number'
-                                  min={5}
-                                  max={10080}
-                                  value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
-                                  onBlur={field.onBlur}
-                                  onChange={(event) => field.onChange(event.target.value)}
-                                />
-                              </FormControl>
-                              <FormDescription>{t('channels.dialogs.keys.health.interval.description')}</FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name='healthCheck.historyLimit'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('channels.dialogs.keys.health.historyLimit.label')}</FormLabel>
-                              <FormControl>
-                                <Input
-                                  ref={field.ref}
-                                  name={field.name}
-                                  type='number'
-                                  min={1}
-                                  max={100}
-                                  value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
-                                  onBlur={field.onBlur}
-                                  onChange={(event) => field.onChange(event.target.value)}
-                                />
-                              </FormControl>
-                              <FormDescription>{t('channels.dialogs.keys.health.historyLimit.description')}</FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <div className='space-y-4'>
-                        <FormField
-                          control={form.control}
-                          name='healthCheck.builtinRuleEnabled'
-                          render={({ field }) => (
-                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                              <div className='space-y-0.5'>
-                                <FormLabel>{t('channels.dialogs.keys.health.rules.builtin.label')}</FormLabel>
-                                <FormDescription>{t('channels.dialogs.keys.health.rules.builtin.description')}</FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch checked={field.value} onCheckedChange={field.onChange} />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name='healthCheck.deepseekRuleEnabled'
-                          render={({ field }) => (
-                            <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                              <div className='space-y-0.5'>
-                                <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.label')}</FormLabel>
-                                <FormDescription>{t('channels.dialogs.keys.health.rules.deepseek.description')}</FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch checked={field.value} onCheckedChange={field.onChange} />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-
-                        {deepseekRuleEnabled ? (
-                          <div className='grid gap-4 rounded-lg border p-3 md:grid-cols-3'>
-                            <FormField
-                              control={form.control}
-                              name='healthCheck.deepseekUseAbsoluteURL'
-                              render={({ field }) => (
-                                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 md:col-span-3'>
-                                  <div className='space-y-0.5'>
-                                    <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.absoluteUrl.label')}</FormLabel>
-                                    <FormDescription>
-                                      {t('channels.dialogs.keys.health.rules.deepseek.absoluteUrl.description')}
-                                    </FormDescription>
-                                  </div>
-                                  <FormControl>
-                                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                            {deepseekUseAbsoluteURL ? (
-                              <Alert className='md:col-span-3'>
-                                <IconAlertTriangle className='h-4 w-4' />
-                                <AlertDescription>{t('channels.dialogs.keys.health.rules.deepseek.absoluteUrl.warning')}</AlertDescription>
-                              </Alert>
-                            ) : null}
-                            <FormField
-                              control={form.control}
-                              name='healthCheck.deepseekPath'
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>
-                                    {t(
-                                      deepseekUseAbsoluteURL
-                                        ? 'channels.dialogs.keys.health.rules.deepseek.url'
-                                        : 'channels.dialogs.keys.health.rules.deepseek.path'
-                                    )}
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name='healthCheck.deepseekExpectedStatuses'
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.statuses')}</FormLabel>
-                                  <FormControl>
-                                    <Input {...field} />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name='healthCheck.deepseekPassWhen'
-                              render={({ field }) => (
-                                <FormItem className='md:col-span-3'>
-                                  <FormLabel>{t('channels.dialogs.keys.health.rules.deepseek.passWhen')}</FormLabel>
-                                  <FormControl>
-                                    <Textarea rows={3} {...field} />
-                                  </FormControl>
-                                  <FormDescription>{t('channels.dialogs.keys.health.rules.deepseek.passWhenDescription')}</FormDescription>
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                        ) : null}
-                      </div>
                     </CardContent>
                   </Card>
                 </TabsContent>

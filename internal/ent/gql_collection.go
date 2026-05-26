@@ -13,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -720,6 +721,95 @@ func (_q *ChannelQuery) collectField(ctx context.Context, oneNode bool, opCtx *g
 				*wq = *query
 			})
 
+		case "monitoringEvents":
+			var (
+				alias = field.Alias
+				path  = append(path, alias)
+				query = (&ChannelKeyMonitoringEventClient{config: _q.config}).Query()
+			)
+			args := newChannelKeyMonitoringEventPaginateArgs(fieldArgs(ctx, new(ChannelKeyMonitoringEventWhereInput), path...))
+			if err := validateFirstLast(args.first, args.last); err != nil {
+				return fmt.Errorf("validate first and last in path %q: %w", path, err)
+			}
+			pager, err := newChannelKeyMonitoringEventPager(args.opts, args.last != nil)
+			if err != nil {
+				return fmt.Errorf("create new pager in path %q: %w", path, err)
+			}
+			if query, err = pager.applyFilter(query); err != nil {
+				return err
+			}
+			ignoredEdges := !hasCollectedField(ctx, append(path, edgesField)...)
+			if hasCollectedField(ctx, append(path, totalCountField)...) || hasCollectedField(ctx, append(path, pageInfoField)...) {
+				hasPagination := args.after != nil || args.first != nil || args.before != nil || args.last != nil
+				if hasPagination || ignoredEdges {
+					query := query.Clone()
+					_q.loadTotal = append(_q.loadTotal, func(ctx context.Context, nodes []*Channel) error {
+						ids := make([]driver.Value, len(nodes))
+						for i := range nodes {
+							ids[i] = nodes[i].ID
+						}
+						var v []struct {
+							NodeID int `sql:"channel_id"`
+							Count  int `sql:"count"`
+						}
+						query.Where(func(s *sql.Selector) {
+							s.Where(sql.InValues(s.C(channel.MonitoringEventsColumn), ids...))
+						})
+						if err := query.GroupBy(channel.MonitoringEventsColumn).Aggregate(Count()).Scan(ctx, &v); err != nil {
+							return err
+						}
+						m := make(map[int]int, len(v))
+						for i := range v {
+							m[v[i].NodeID] = v[i].Count
+						}
+						for i := range nodes {
+							n := m[nodes[i].ID]
+							if nodes[i].Edges.totalCount[4] == nil {
+								nodes[i].Edges.totalCount[4] = make(map[string]int)
+							}
+							nodes[i].Edges.totalCount[4][alias] = n
+						}
+						return nil
+					})
+				} else {
+					_q.loadTotal = append(_q.loadTotal, func(_ context.Context, nodes []*Channel) error {
+						for i := range nodes {
+							n := len(nodes[i].Edges.MonitoringEvents)
+							if nodes[i].Edges.totalCount[4] == nil {
+								nodes[i].Edges.totalCount[4] = make(map[string]int)
+							}
+							nodes[i].Edges.totalCount[4][alias] = n
+						}
+						return nil
+					})
+				}
+			}
+			if ignoredEdges || (args.first != nil && *args.first == 0) || (args.last != nil && *args.last == 0) {
+				continue
+			}
+			if query, err = pager.applyCursors(query, args.after, args.before); err != nil {
+				return err
+			}
+			path = append(path, edgesField, nodeField)
+			if field := collectedField(ctx, path...); field != nil {
+				if err := query.collectField(ctx, false, opCtx, *field, path, mayAddCondition(satisfies, channelkeymonitoringeventImplementors)...); err != nil {
+					return err
+				}
+			}
+			if limit := paginateLimit(args.first, args.last); limit > 0 {
+				if oneNode {
+					pager.applyOrder(query.Limit(limit))
+				} else {
+					modify := entgql.LimitPerRow(channel.MonitoringEventsColumn, limit, pager.orderExpr(query))
+					query.modifiers = append(query.modifiers, modify)
+				}
+			} else {
+				query = pager.applyOrder(query)
+			}
+			_q.WithNamedMonitoringEvents(alias, func(wq *ChannelKeyMonitoringEventQuery) {
+				*wq = *query
+			})
+
 		case "channelModelPrices":
 			var (
 				alias = field.Alias
@@ -892,6 +982,220 @@ func newChannelPaginateArgs(rv map[string]any) *channelPaginateArgs {
 	}
 	if v, ok := rv[whereField].(*ChannelWhereInput); ok {
 		args.opts = append(args.opts, WithChannelFilter(v.Filter))
+	}
+	return args
+}
+
+// CollectFields tells the query-builder to eagerly load connected nodes by resolver context.
+func (_q *ChannelKeyMonitoringEventQuery) CollectFields(ctx context.Context, satisfies ...string) (*ChannelKeyMonitoringEventQuery, error) {
+	fc := graphql.GetFieldContext(ctx)
+	if fc == nil {
+		return _q, nil
+	}
+	if err := _q.collectField(ctx, false, graphql.GetOperationContext(ctx), fc.Field, nil, satisfies...); err != nil {
+		return nil, err
+	}
+	return _q, nil
+}
+
+func (_q *ChannelKeyMonitoringEventQuery) collectField(ctx context.Context, oneNode bool, opCtx *graphql.OperationContext, collected graphql.CollectedField, path []string, satisfies ...string) error {
+	path = append([]string(nil), path...)
+	var (
+		unknownSeen    bool
+		fieldSeen      = make(map[string]struct{}, len(channelkeymonitoringevent.Columns))
+		selectedFields = []string{channelkeymonitoringevent.FieldID}
+	)
+	for _, field := range graphql.CollectFields(opCtx, collected.Selections, satisfies) {
+		switch field.Name {
+
+		case "channel":
+			var (
+				alias = field.Alias
+				path  = append(path, alias)
+				query = (&ChannelClient{config: _q.config}).Query()
+			)
+			if err := query.collectField(ctx, oneNode, opCtx, field, path, mayAddCondition(satisfies, channelImplementors)...); err != nil {
+				return err
+			}
+			_q.withChannel = query
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldChannelID]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldChannelID)
+				fieldSeen[channelkeymonitoringevent.FieldChannelID] = struct{}{}
+			}
+		case "createdAt":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldCreatedAt]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldCreatedAt)
+				fieldSeen[channelkeymonitoringevent.FieldCreatedAt] = struct{}{}
+			}
+		case "updatedAt":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldUpdatedAt]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldUpdatedAt)
+				fieldSeen[channelkeymonitoringevent.FieldUpdatedAt] = struct{}{}
+			}
+		case "channelID":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldChannelID]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldChannelID)
+				fieldSeen[channelkeymonitoringevent.FieldChannelID] = struct{}{}
+			}
+		case "channelName":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldChannelName]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldChannelName)
+				fieldSeen[channelkeymonitoringevent.FieldChannelName] = struct{}{}
+			}
+		case "keyID":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldKeyID]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldKeyID)
+				fieldSeen[channelkeymonitoringevent.FieldKeyID] = struct{}{}
+			}
+		case "maskedKey":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldMaskedKey]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldMaskedKey)
+				fieldSeen[channelkeymonitoringevent.FieldMaskedKey] = struct{}{}
+			}
+		case "ruleID":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldRuleID]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldRuleID)
+				fieldSeen[channelkeymonitoringevent.FieldRuleID] = struct{}{}
+			}
+		case "ruleName":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldRuleName]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldRuleName)
+				fieldSeen[channelkeymonitoringevent.FieldRuleName] = struct{}{}
+			}
+		case "trigger":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldTrigger]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldTrigger)
+				fieldSeen[channelkeymonitoringevent.FieldTrigger] = struct{}{}
+			}
+		case "source":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldSource]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldSource)
+				fieldSeen[channelkeymonitoringevent.FieldSource] = struct{}{}
+			}
+		case "success":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldSuccess]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldSuccess)
+				fieldSeen[channelkeymonitoringevent.FieldSuccess] = struct{}{}
+			}
+		case "skipped":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldSkipped]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldSkipped)
+				fieldSeen[channelkeymonitoringevent.FieldSkipped] = struct{}{}
+			}
+		case "reason":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldReason]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldReason)
+				fieldSeen[channelkeymonitoringevent.FieldReason] = struct{}{}
+			}
+		case "statusCode":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldStatusCode]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldStatusCode)
+				fieldSeen[channelkeymonitoringevent.FieldStatusCode] = struct{}{}
+			}
+		case "balance":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldBalance]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldBalance)
+				fieldSeen[channelkeymonitoringevent.FieldBalance] = struct{}{}
+			}
+		case "currency":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldCurrency]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldCurrency)
+				fieldSeen[channelkeymonitoringevent.FieldCurrency] = struct{}{}
+			}
+		case "available":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldAvailable]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldAvailable)
+				fieldSeen[channelkeymonitoringevent.FieldAvailable] = struct{}{}
+			}
+		case "probe":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldProbe]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldProbe)
+				fieldSeen[channelkeymonitoringevent.FieldProbe] = struct{}{}
+			}
+		case "matchedPolicy":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldMatchedPolicy]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldMatchedPolicy)
+				fieldSeen[channelkeymonitoringevent.FieldMatchedPolicy] = struct{}{}
+			}
+		case "action":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldAction]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldAction)
+				fieldSeen[channelkeymonitoringevent.FieldAction] = struct{}{}
+			}
+		case "nextCheckAt":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldNextCheckAt]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldNextCheckAt)
+				fieldSeen[channelkeymonitoringevent.FieldNextCheckAt] = struct{}{}
+			}
+		case "backoffAttempt":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldBackoffAttempt]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldBackoffAttempt)
+				fieldSeen[channelkeymonitoringevent.FieldBackoffAttempt] = struct{}{}
+			}
+		case "checkedAt":
+			if _, ok := fieldSeen[channelkeymonitoringevent.FieldCheckedAt]; !ok {
+				selectedFields = append(selectedFields, channelkeymonitoringevent.FieldCheckedAt)
+				fieldSeen[channelkeymonitoringevent.FieldCheckedAt] = struct{}{}
+			}
+		case "id":
+		case "__typename":
+		default:
+			unknownSeen = true
+		}
+	}
+	if !unknownSeen {
+		_q.Select(selectedFields...)
+	}
+	return nil
+}
+
+type channelkeymonitoringeventPaginateArgs struct {
+	first, last   *int
+	after, before *Cursor
+	opts          []ChannelKeyMonitoringEventPaginateOption
+}
+
+func newChannelKeyMonitoringEventPaginateArgs(rv map[string]any) *channelkeymonitoringeventPaginateArgs {
+	args := &channelkeymonitoringeventPaginateArgs{}
+	if rv == nil {
+		return args
+	}
+	if v := rv[firstField]; v != nil {
+		args.first = v.(*int)
+	}
+	if v := rv[lastField]; v != nil {
+		args.last = v.(*int)
+	}
+	if v := rv[afterField]; v != nil {
+		args.after = v.(*Cursor)
+	}
+	if v := rv[beforeField]; v != nil {
+		args.before = v.(*Cursor)
+	}
+	if v, ok := rv[orderByField]; ok {
+		switch v := v.(type) {
+		case map[string]any:
+			var (
+				err1, err2 error
+				order      = &ChannelKeyMonitoringEventOrder{Field: &ChannelKeyMonitoringEventOrderField{}, Direction: entgql.OrderDirectionAsc}
+			)
+			if d, ok := v[directionField]; ok {
+				err1 = order.Direction.UnmarshalGQL(d)
+			}
+			if f, ok := v[fieldField]; ok {
+				err2 = order.Field.UnmarshalGQL(f)
+			}
+			if err1 == nil && err2 == nil {
+				args.opts = append(args.opts, WithChannelKeyMonitoringEventOrder(order))
+			}
+		case *ChannelKeyMonitoringEventOrder:
+			if v != nil {
+				args.opts = append(args.opts, WithChannelKeyMonitoringEventOrder(v))
+			}
+		}
+	}
+	if v, ok := rv[whereField].(*ChannelKeyMonitoringEventWhereInput); ok {
+		args.opts = append(args.opts, WithChannelKeyMonitoringEventFilter(v.Filter))
 	}
 	return args
 }

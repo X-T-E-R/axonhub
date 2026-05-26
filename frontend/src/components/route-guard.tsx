@@ -2,23 +2,36 @@ import { useEffect } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { IconShieldX, IconArrowLeft } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
-import { useRoutePermissions } from '@/hooks/useRoutePermissions';
+import type { ScopeLevel } from '@/config/route-permission';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
 interface RouteGuardProps {
   children: React.ReactNode;
   requiredScopes?: string[];
+  scopeLevel?: ScopeLevel;
   fallbackPath?: string;
   showForbidden?: boolean;
 }
 
-export function RouteGuard({ children, requiredScopes = [], fallbackPath = '/', showForbidden = true }: RouteGuardProps) {
+export function RouteGuard({ children, requiredScopes = [], scopeLevel = 'any', fallbackPath = '/', showForbidden = true }: RouteGuardProps) {
   const router = useRouter();
-  const { userScopes, isOwner } = useRoutePermissions();
+  const { isOwner, hasScope, hasSystemScope, hasProjectScope } = usePermissions();
 
   // 检查用户是否有所需权限
-  const hasAccess = isOwner || requiredScopes.length === 0 || requiredScopes.some((scope) => userScopes.includes(scope));
+  const hasAccess =
+    isOwner ||
+    requiredScopes.length === 0 ||
+    requiredScopes.some((scope) => {
+      if (scopeLevel === 'system') {
+        return hasSystemScope(scope);
+      }
+      if (scopeLevel === 'project') {
+        return hasProjectScope(scope);
+      }
+      return hasScope(scope);
+    });
 
   useEffect(() => {
     if (!hasAccess && !showForbidden) {

@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/predicate"
@@ -34,6 +35,7 @@ type ChannelQuery struct {
 	withExecutions              *RequestExecutionQuery
 	withUsageLogs               *UsageLogQuery
 	withChannelProbes           *ChannelProbeQuery
+	withMonitoringEvents        *ChannelKeyMonitoringEventQuery
 	withChannelModelPrices      *ChannelModelPriceQuery
 	withProviderQuotaStatus     *ProviderQuotaStatusQuery
 	loadTotal                   []func(context.Context, []*Channel) error
@@ -42,6 +44,7 @@ type ChannelQuery struct {
 	withNamedExecutions         map[string]*RequestExecutionQuery
 	withNamedUsageLogs          map[string]*UsageLogQuery
 	withNamedChannelProbes      map[string]*ChannelProbeQuery
+	withNamedMonitoringEvents   map[string]*ChannelKeyMonitoringEventQuery
 	withNamedChannelModelPrices map[string]*ChannelModelPriceQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -160,6 +163,28 @@ func (_q *ChannelQuery) QueryChannelProbes() *ChannelProbeQuery {
 			sqlgraph.From(channel.Table, channel.FieldID, selector),
 			sqlgraph.To(channelprobe.Table, channelprobe.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, channel.ChannelProbesTable, channel.ChannelProbesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryMonitoringEvents chains the current query on the "monitoring_events" edge.
+func (_q *ChannelQuery) QueryMonitoringEvents() *ChannelKeyMonitoringEventQuery {
+	query := (&ChannelKeyMonitoringEventClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(channel.Table, channel.FieldID, selector),
+			sqlgraph.To(channelkeymonitoringevent.Table, channelkeymonitoringevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, channel.MonitoringEventsTable, channel.MonitoringEventsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -407,6 +432,7 @@ func (_q *ChannelQuery) Clone() *ChannelQuery {
 		withExecutions:          _q.withExecutions.Clone(),
 		withUsageLogs:           _q.withUsageLogs.Clone(),
 		withChannelProbes:       _q.withChannelProbes.Clone(),
+		withMonitoringEvents:    _q.withMonitoringEvents.Clone(),
 		withChannelModelPrices:  _q.withChannelModelPrices.Clone(),
 		withProviderQuotaStatus: _q.withProviderQuotaStatus.Clone(),
 		// clone intermediate query.
@@ -457,6 +483,17 @@ func (_q *ChannelQuery) WithChannelProbes(opts ...func(*ChannelProbeQuery)) *Cha
 		opt(query)
 	}
 	_q.withChannelProbes = query
+	return _q
+}
+
+// WithMonitoringEvents tells the query-builder to eager-load the nodes that are connected to
+// the "monitoring_events" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ChannelQuery) WithMonitoringEvents(opts ...func(*ChannelKeyMonitoringEventQuery)) *ChannelQuery {
+	query := (&ChannelKeyMonitoringEventClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withMonitoringEvents = query
 	return _q
 }
 
@@ -566,11 +603,12 @@ func (_q *ChannelQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Chan
 	var (
 		nodes       = []*Channel{}
 		_spec       = _q.querySpec()
-		loadedTypes = [6]bool{
+		loadedTypes = [7]bool{
 			_q.withRequests != nil,
 			_q.withExecutions != nil,
 			_q.withUsageLogs != nil,
 			_q.withChannelProbes != nil,
+			_q.withMonitoringEvents != nil,
 			_q.withChannelModelPrices != nil,
 			_q.withProviderQuotaStatus != nil,
 		}
@@ -624,6 +662,15 @@ func (_q *ChannelQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Chan
 			return nil, err
 		}
 	}
+	if query := _q.withMonitoringEvents; query != nil {
+		if err := _q.loadMonitoringEvents(ctx, query, nodes,
+			func(n *Channel) { n.Edges.MonitoringEvents = []*ChannelKeyMonitoringEvent{} },
+			func(n *Channel, e *ChannelKeyMonitoringEvent) {
+				n.Edges.MonitoringEvents = append(n.Edges.MonitoringEvents, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
 	if query := _q.withChannelModelPrices; query != nil {
 		if err := _q.loadChannelModelPrices(ctx, query, nodes,
 			func(n *Channel) { n.Edges.ChannelModelPrices = []*ChannelModelPrice{} },
@@ -664,6 +711,13 @@ func (_q *ChannelQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Chan
 		if err := _q.loadChannelProbes(ctx, query, nodes,
 			func(n *Channel) { n.appendNamedChannelProbes(name) },
 			func(n *Channel, e *ChannelProbe) { n.appendNamedChannelProbes(name, e) }); err != nil {
+			return nil, err
+		}
+	}
+	for name, query := range _q.withNamedMonitoringEvents {
+		if err := _q.loadMonitoringEvents(ctx, query, nodes,
+			func(n *Channel) { n.appendNamedMonitoringEvents(name) },
+			func(n *Channel, e *ChannelKeyMonitoringEvent) { n.appendNamedMonitoringEvents(name, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -787,6 +841,36 @@ func (_q *ChannelQuery) loadChannelProbes(ctx context.Context, query *ChannelPro
 	}
 	query.Where(predicate.ChannelProbe(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(channel.ChannelProbesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ChannelID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "channel_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ChannelQuery) loadMonitoringEvents(ctx context.Context, query *ChannelKeyMonitoringEventQuery, nodes []*Channel, init func(*Channel), assign func(*Channel, *ChannelKeyMonitoringEvent)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Channel)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(channelkeymonitoringevent.FieldChannelID)
+	}
+	query.Where(predicate.ChannelKeyMonitoringEvent(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(channel.MonitoringEventsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {
@@ -1006,6 +1090,20 @@ func (_q *ChannelQuery) WithNamedChannelProbes(name string, opts ...func(*Channe
 		_q.withNamedChannelProbes = make(map[string]*ChannelProbeQuery)
 	}
 	_q.withNamedChannelProbes[name] = query
+	return _q
+}
+
+// WithNamedMonitoringEvents tells the query-builder to eager-load the nodes that are connected to the "monitoring_events"
+// edge with the given name. The optional arguments are used to configure the query builder of the edge.
+func (_q *ChannelQuery) WithNamedMonitoringEvents(name string, opts ...func(*ChannelKeyMonitoringEventQuery)) *ChannelQuery {
+	query := (&ChannelKeyMonitoringEventClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	if _q.withNamedMonitoringEvents == nil {
+		_q.withNamedMonitoringEvents = make(map[string]*ChannelKeyMonitoringEventQuery)
+	}
+	_q.withNamedMonitoringEvents[name] = query
 	return _q
 }
 

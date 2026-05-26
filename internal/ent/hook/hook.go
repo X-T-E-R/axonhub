@@ -45,6 +45,18 @@ func (f ChannelFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChannelMutation", m)
 }
 
+// The ChannelKeyMonitoringEventFunc type is an adapter to allow the use of ordinary
+// function as ChannelKeyMonitoringEvent mutator.
+type ChannelKeyMonitoringEventFunc func(context.Context, *ent.ChannelKeyMonitoringEventMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ChannelKeyMonitoringEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ChannelKeyMonitoringEventMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChannelKeyMonitoringEventMutation", m)
+}
+
 // The ChannelModelPriceFunc type is an adapter to allow the use of ordinary
 // function as ChannelModelPrice mutator.
 type ChannelModelPriceFunc func(context.Context, *ent.ChannelModelPriceMutation) (ent.Value, error)

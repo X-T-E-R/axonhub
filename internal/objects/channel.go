@@ -250,6 +250,8 @@ const (
 	ChannelKeyHealthCheckPolicyActionDeleteKey      ChannelKeyHealthCheckPolicyActionType = "delete_key"
 	ChannelKeyHealthCheckPolicyActionDisableChannel ChannelKeyHealthCheckPolicyActionType = "disable_channel"
 	ChannelKeyHealthCheckPolicyActionBackoff        ChannelKeyHealthCheckPolicyActionType = "backoff"
+	ChannelKeyHealthCheckPolicyActionEnableKey      ChannelKeyHealthCheckPolicyActionType = "enable_key"
+	ChannelKeyHealthCheckPolicyActionRestoreKey     ChannelKeyHealthCheckPolicyActionType = "restore_key"
 )
 
 type ChannelKeyHealthCheckBackoffMode string
@@ -364,13 +366,16 @@ type ChannelKeyHealthCheckPolicy struct {
 }
 
 type ChannelKeyHealthCheckPolicyCondition struct {
-	MinFailureCount      *int     `json:"minFailureCount,omitempty"`
-	StatusCodes          []int    `json:"statusCodes,omitempty"`
-	Available            *bool    `json:"available,omitempty"`
-	BalanceLTE           *float64 `json:"balanceLTE,omitempty"`
-	ReasonContains       string   `json:"reasonContains,omitempty"`
-	AllCheckedKeysFailed *bool    `json:"allCheckedKeysFailed,omitempty"`
-	Expr                 string   `json:"expr,omitempty"`
+	MinFailureCount      *int               `json:"minFailureCount,omitempty"`
+	Success              *bool              `json:"success,omitempty"`
+	StatusCodes          []int              `json:"statusCodes,omitempty"`
+	Available            *bool              `json:"available,omitempty"`
+	BalanceLTE           *float64           `json:"balanceLTE,omitempty"`
+	BalanceGTE           *float64           `json:"balanceGTE,omitempty"`
+	ReasonContains       string             `json:"reasonContains,omitempty"`
+	AllCheckedKeysFailed *bool              `json:"allCheckedKeysFailed,omitempty"`
+	KeyStatuses          []ChannelKeyStatus `json:"keyStatuses,omitempty"`
+	Expr                 string             `json:"expr,omitempty"`
 }
 
 type ChannelKeyHealthCheckPolicyAction struct {
@@ -400,6 +405,8 @@ const (
 	FailurePolicyEventSourceRequestFailure              FailurePolicyEventSource = "request_failure"
 	FailurePolicyEventSourceScheduledHealthCheckFailure FailurePolicyEventSource = "scheduled_health_check_failure"
 	FailurePolicyEventSourceManualHealthCheckFailure    FailurePolicyEventSource = "manual_health_check_failure"
+	FailurePolicyEventSourceScheduledHealthCheck        FailurePolicyEventSource = "scheduled_health_check"
+	FailurePolicyEventSourceManualHealthCheck           FailurePolicyEventSource = "manual_health_check"
 )
 
 type FailurePolicyTarget string
@@ -418,6 +425,8 @@ const (
 	FailurePolicyActionArchiveKey     FailurePolicyActionType = "archive_key"
 	FailurePolicyActionDeleteKey      FailurePolicyActionType = "delete_key"
 	FailurePolicyActionDisableChannel FailurePolicyActionType = "disable_channel"
+	FailurePolicyActionEnableKey      FailurePolicyActionType = "enable_key"
+	FailurePolicyActionRestoreKey     FailurePolicyActionType = "restore_key"
 )
 
 type FailurePolicy struct {

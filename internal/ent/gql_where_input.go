@@ -10,6 +10,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -997,6 +998,10 @@ type ChannelWhereInput struct {
 	HasChannelProbes     *bool                     `json:"hasChannelProbes,omitempty"`
 	HasChannelProbesWith []*ChannelProbeWhereInput `json:"hasChannelProbesWith,omitempty"`
 
+	// "monitoring_events" edge predicates.
+	HasMonitoringEvents     *bool                                  `json:"hasMonitoringEvents,omitempty"`
+	HasMonitoringEventsWith []*ChannelKeyMonitoringEventWhereInput `json:"hasMonitoringEventsWith,omitempty"`
+
 	// "channel_model_prices" edge predicates.
 	HasChannelModelPrices     *bool                          `json:"hasChannelModelPrices,omitempty"`
 	HasChannelModelPricesWith []*ChannelModelPriceWhereInput `json:"hasChannelModelPricesWith,omitempty"`
@@ -1534,6 +1539,24 @@ func (i *ChannelWhereInput) P() (predicate.Channel, error) {
 		}
 		predicates = append(predicates, channel.HasChannelProbesWith(with...))
 	}
+	if i.HasMonitoringEvents != nil {
+		p := channel.HasMonitoringEvents()
+		if !*i.HasMonitoringEvents {
+			p = channel.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasMonitoringEventsWith) > 0 {
+		with := make([]predicate.ChannelKeyMonitoringEvent, 0, len(i.HasMonitoringEventsWith))
+		for _, w := range i.HasMonitoringEventsWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasMonitoringEventsWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, channel.HasMonitoringEventsWith(with...))
+	}
 	if i.HasChannelModelPrices != nil {
 		p := channel.HasChannelModelPrices()
 		if !*i.HasChannelModelPrices {
@@ -1577,6 +1600,1172 @@ func (i *ChannelWhereInput) P() (predicate.Channel, error) {
 		return predicates[0], nil
 	default:
 		return channel.And(predicates...), nil
+	}
+}
+
+// ChannelKeyMonitoringEventWhereInput represents a where input for filtering ChannelKeyMonitoringEvent queries.
+type ChannelKeyMonitoringEventWhereInput struct {
+	Predicates []predicate.ChannelKeyMonitoringEvent  `json:"-"`
+	Not        *ChannelKeyMonitoringEventWhereInput   `json:"not,omitempty"`
+	Or         []*ChannelKeyMonitoringEventWhereInput `json:"or,omitempty"`
+	And        []*ChannelKeyMonitoringEventWhereInput `json:"and,omitempty"`
+
+	// "id" field predicates.
+	ID      *int  `json:"id,omitempty"`
+	IDNEQ   *int  `json:"idNEQ,omitempty"`
+	IDIn    []int `json:"idIn,omitempty"`
+	IDNotIn []int `json:"idNotIn,omitempty"`
+	IDGT    *int  `json:"idGT,omitempty"`
+	IDGTE   *int  `json:"idGTE,omitempty"`
+	IDLT    *int  `json:"idLT,omitempty"`
+	IDLTE   *int  `json:"idLTE,omitempty"`
+
+	// "created_at" field predicates.
+	CreatedAt      *time.Time  `json:"createdAt,omitempty"`
+	CreatedAtNEQ   *time.Time  `json:"createdAtNEQ,omitempty"`
+	CreatedAtIn    []time.Time `json:"createdAtIn,omitempty"`
+	CreatedAtNotIn []time.Time `json:"createdAtNotIn,omitempty"`
+	CreatedAtGT    *time.Time  `json:"createdAtGT,omitempty"`
+	CreatedAtGTE   *time.Time  `json:"createdAtGTE,omitempty"`
+	CreatedAtLT    *time.Time  `json:"createdAtLT,omitempty"`
+	CreatedAtLTE   *time.Time  `json:"createdAtLTE,omitempty"`
+
+	// "updated_at" field predicates.
+	UpdatedAt      *time.Time  `json:"updatedAt,omitempty"`
+	UpdatedAtNEQ   *time.Time  `json:"updatedAtNEQ,omitempty"`
+	UpdatedAtIn    []time.Time `json:"updatedAtIn,omitempty"`
+	UpdatedAtNotIn []time.Time `json:"updatedAtNotIn,omitempty"`
+	UpdatedAtGT    *time.Time  `json:"updatedAtGT,omitempty"`
+	UpdatedAtGTE   *time.Time  `json:"updatedAtGTE,omitempty"`
+	UpdatedAtLT    *time.Time  `json:"updatedAtLT,omitempty"`
+	UpdatedAtLTE   *time.Time  `json:"updatedAtLTE,omitempty"`
+
+	// "channel_id" field predicates.
+	ChannelID      *int  `json:"channelID,omitempty"`
+	ChannelIDNEQ   *int  `json:"channelIDNEQ,omitempty"`
+	ChannelIDIn    []int `json:"channelIDIn,omitempty"`
+	ChannelIDNotIn []int `json:"channelIDNotIn,omitempty"`
+
+	// "channel_name" field predicates.
+	ChannelName             *string  `json:"channelName,omitempty"`
+	ChannelNameNEQ          *string  `json:"channelNameNEQ,omitempty"`
+	ChannelNameIn           []string `json:"channelNameIn,omitempty"`
+	ChannelNameNotIn        []string `json:"channelNameNotIn,omitempty"`
+	ChannelNameGT           *string  `json:"channelNameGT,omitempty"`
+	ChannelNameGTE          *string  `json:"channelNameGTE,omitempty"`
+	ChannelNameLT           *string  `json:"channelNameLT,omitempty"`
+	ChannelNameLTE          *string  `json:"channelNameLTE,omitempty"`
+	ChannelNameContains     *string  `json:"channelNameContains,omitempty"`
+	ChannelNameHasPrefix    *string  `json:"channelNameHasPrefix,omitempty"`
+	ChannelNameHasSuffix    *string  `json:"channelNameHasSuffix,omitempty"`
+	ChannelNameIsNil        bool     `json:"channelNameIsNil,omitempty"`
+	ChannelNameNotNil       bool     `json:"channelNameNotNil,omitempty"`
+	ChannelNameEqualFold    *string  `json:"channelNameEqualFold,omitempty"`
+	ChannelNameContainsFold *string  `json:"channelNameContainsFold,omitempty"`
+
+	// "key_id" field predicates.
+	KeyID             *string  `json:"keyID,omitempty"`
+	KeyIDNEQ          *string  `json:"keyIDNEQ,omitempty"`
+	KeyIDIn           []string `json:"keyIDIn,omitempty"`
+	KeyIDNotIn        []string `json:"keyIDNotIn,omitempty"`
+	KeyIDGT           *string  `json:"keyIDGT,omitempty"`
+	KeyIDGTE          *string  `json:"keyIDGTE,omitempty"`
+	KeyIDLT           *string  `json:"keyIDLT,omitempty"`
+	KeyIDLTE          *string  `json:"keyIDLTE,omitempty"`
+	KeyIDContains     *string  `json:"keyIDContains,omitempty"`
+	KeyIDHasPrefix    *string  `json:"keyIDHasPrefix,omitempty"`
+	KeyIDHasSuffix    *string  `json:"keyIDHasSuffix,omitempty"`
+	KeyIDIsNil        bool     `json:"keyIDIsNil,omitempty"`
+	KeyIDNotNil       bool     `json:"keyIDNotNil,omitempty"`
+	KeyIDEqualFold    *string  `json:"keyIDEqualFold,omitempty"`
+	KeyIDContainsFold *string  `json:"keyIDContainsFold,omitempty"`
+
+	// "masked_key" field predicates.
+	MaskedKey             *string  `json:"maskedKey,omitempty"`
+	MaskedKeyNEQ          *string  `json:"maskedKeyNEQ,omitempty"`
+	MaskedKeyIn           []string `json:"maskedKeyIn,omitempty"`
+	MaskedKeyNotIn        []string `json:"maskedKeyNotIn,omitempty"`
+	MaskedKeyGT           *string  `json:"maskedKeyGT,omitempty"`
+	MaskedKeyGTE          *string  `json:"maskedKeyGTE,omitempty"`
+	MaskedKeyLT           *string  `json:"maskedKeyLT,omitempty"`
+	MaskedKeyLTE          *string  `json:"maskedKeyLTE,omitempty"`
+	MaskedKeyContains     *string  `json:"maskedKeyContains,omitempty"`
+	MaskedKeyHasPrefix    *string  `json:"maskedKeyHasPrefix,omitempty"`
+	MaskedKeyHasSuffix    *string  `json:"maskedKeyHasSuffix,omitempty"`
+	MaskedKeyIsNil        bool     `json:"maskedKeyIsNil,omitempty"`
+	MaskedKeyNotNil       bool     `json:"maskedKeyNotNil,omitempty"`
+	MaskedKeyEqualFold    *string  `json:"maskedKeyEqualFold,omitempty"`
+	MaskedKeyContainsFold *string  `json:"maskedKeyContainsFold,omitempty"`
+
+	// "rule_id" field predicates.
+	RuleID             *string  `json:"ruleID,omitempty"`
+	RuleIDNEQ          *string  `json:"ruleIDNEQ,omitempty"`
+	RuleIDIn           []string `json:"ruleIDIn,omitempty"`
+	RuleIDNotIn        []string `json:"ruleIDNotIn,omitempty"`
+	RuleIDGT           *string  `json:"ruleIDGT,omitempty"`
+	RuleIDGTE          *string  `json:"ruleIDGTE,omitempty"`
+	RuleIDLT           *string  `json:"ruleIDLT,omitempty"`
+	RuleIDLTE          *string  `json:"ruleIDLTE,omitempty"`
+	RuleIDContains     *string  `json:"ruleIDContains,omitempty"`
+	RuleIDHasPrefix    *string  `json:"ruleIDHasPrefix,omitempty"`
+	RuleIDHasSuffix    *string  `json:"ruleIDHasSuffix,omitempty"`
+	RuleIDIsNil        bool     `json:"ruleIDIsNil,omitempty"`
+	RuleIDNotNil       bool     `json:"ruleIDNotNil,omitempty"`
+	RuleIDEqualFold    *string  `json:"ruleIDEqualFold,omitempty"`
+	RuleIDContainsFold *string  `json:"ruleIDContainsFold,omitempty"`
+
+	// "rule_name" field predicates.
+	RuleName             *string  `json:"ruleName,omitempty"`
+	RuleNameNEQ          *string  `json:"ruleNameNEQ,omitempty"`
+	RuleNameIn           []string `json:"ruleNameIn,omitempty"`
+	RuleNameNotIn        []string `json:"ruleNameNotIn,omitempty"`
+	RuleNameGT           *string  `json:"ruleNameGT,omitempty"`
+	RuleNameGTE          *string  `json:"ruleNameGTE,omitempty"`
+	RuleNameLT           *string  `json:"ruleNameLT,omitempty"`
+	RuleNameLTE          *string  `json:"ruleNameLTE,omitempty"`
+	RuleNameContains     *string  `json:"ruleNameContains,omitempty"`
+	RuleNameHasPrefix    *string  `json:"ruleNameHasPrefix,omitempty"`
+	RuleNameHasSuffix    *string  `json:"ruleNameHasSuffix,omitempty"`
+	RuleNameIsNil        bool     `json:"ruleNameIsNil,omitempty"`
+	RuleNameNotNil       bool     `json:"ruleNameNotNil,omitempty"`
+	RuleNameEqualFold    *string  `json:"ruleNameEqualFold,omitempty"`
+	RuleNameContainsFold *string  `json:"ruleNameContainsFold,omitempty"`
+
+	// "trigger" field predicates.
+	Trigger             *string  `json:"trigger,omitempty"`
+	TriggerNEQ          *string  `json:"triggerNEQ,omitempty"`
+	TriggerIn           []string `json:"triggerIn,omitempty"`
+	TriggerNotIn        []string `json:"triggerNotIn,omitempty"`
+	TriggerGT           *string  `json:"triggerGT,omitempty"`
+	TriggerGTE          *string  `json:"triggerGTE,omitempty"`
+	TriggerLT           *string  `json:"triggerLT,omitempty"`
+	TriggerLTE          *string  `json:"triggerLTE,omitempty"`
+	TriggerContains     *string  `json:"triggerContains,omitempty"`
+	TriggerHasPrefix    *string  `json:"triggerHasPrefix,omitempty"`
+	TriggerHasSuffix    *string  `json:"triggerHasSuffix,omitempty"`
+	TriggerEqualFold    *string  `json:"triggerEqualFold,omitempty"`
+	TriggerContainsFold *string  `json:"triggerContainsFold,omitempty"`
+
+	// "source" field predicates.
+	Source             *string  `json:"source,omitempty"`
+	SourceNEQ          *string  `json:"sourceNEQ,omitempty"`
+	SourceIn           []string `json:"sourceIn,omitempty"`
+	SourceNotIn        []string `json:"sourceNotIn,omitempty"`
+	SourceGT           *string  `json:"sourceGT,omitempty"`
+	SourceGTE          *string  `json:"sourceGTE,omitempty"`
+	SourceLT           *string  `json:"sourceLT,omitempty"`
+	SourceLTE          *string  `json:"sourceLTE,omitempty"`
+	SourceContains     *string  `json:"sourceContains,omitempty"`
+	SourceHasPrefix    *string  `json:"sourceHasPrefix,omitempty"`
+	SourceHasSuffix    *string  `json:"sourceHasSuffix,omitempty"`
+	SourceIsNil        bool     `json:"sourceIsNil,omitempty"`
+	SourceNotNil       bool     `json:"sourceNotNil,omitempty"`
+	SourceEqualFold    *string  `json:"sourceEqualFold,omitempty"`
+	SourceContainsFold *string  `json:"sourceContainsFold,omitempty"`
+
+	// "success" field predicates.
+	Success    *bool `json:"success,omitempty"`
+	SuccessNEQ *bool `json:"successNEQ,omitempty"`
+
+	// "skipped" field predicates.
+	Skipped    *bool `json:"skipped,omitempty"`
+	SkippedNEQ *bool `json:"skippedNEQ,omitempty"`
+
+	// "reason" field predicates.
+	Reason             *string  `json:"reason,omitempty"`
+	ReasonNEQ          *string  `json:"reasonNEQ,omitempty"`
+	ReasonIn           []string `json:"reasonIn,omitempty"`
+	ReasonNotIn        []string `json:"reasonNotIn,omitempty"`
+	ReasonGT           *string  `json:"reasonGT,omitempty"`
+	ReasonGTE          *string  `json:"reasonGTE,omitempty"`
+	ReasonLT           *string  `json:"reasonLT,omitempty"`
+	ReasonLTE          *string  `json:"reasonLTE,omitempty"`
+	ReasonContains     *string  `json:"reasonContains,omitempty"`
+	ReasonHasPrefix    *string  `json:"reasonHasPrefix,omitempty"`
+	ReasonHasSuffix    *string  `json:"reasonHasSuffix,omitempty"`
+	ReasonIsNil        bool     `json:"reasonIsNil,omitempty"`
+	ReasonNotNil       bool     `json:"reasonNotNil,omitempty"`
+	ReasonEqualFold    *string  `json:"reasonEqualFold,omitempty"`
+	ReasonContainsFold *string  `json:"reasonContainsFold,omitempty"`
+
+	// "status_code" field predicates.
+	StatusCode       *int  `json:"statusCode,omitempty"`
+	StatusCodeNEQ    *int  `json:"statusCodeNEQ,omitempty"`
+	StatusCodeIn     []int `json:"statusCodeIn,omitempty"`
+	StatusCodeNotIn  []int `json:"statusCodeNotIn,omitempty"`
+	StatusCodeGT     *int  `json:"statusCodeGT,omitempty"`
+	StatusCodeGTE    *int  `json:"statusCodeGTE,omitempty"`
+	StatusCodeLT     *int  `json:"statusCodeLT,omitempty"`
+	StatusCodeLTE    *int  `json:"statusCodeLTE,omitempty"`
+	StatusCodeIsNil  bool  `json:"statusCodeIsNil,omitempty"`
+	StatusCodeNotNil bool  `json:"statusCodeNotNil,omitempty"`
+
+	// "currency" field predicates.
+	Currency             *string  `json:"currency,omitempty"`
+	CurrencyNEQ          *string  `json:"currencyNEQ,omitempty"`
+	CurrencyIn           []string `json:"currencyIn,omitempty"`
+	CurrencyNotIn        []string `json:"currencyNotIn,omitempty"`
+	CurrencyGT           *string  `json:"currencyGT,omitempty"`
+	CurrencyGTE          *string  `json:"currencyGTE,omitempty"`
+	CurrencyLT           *string  `json:"currencyLT,omitempty"`
+	CurrencyLTE          *string  `json:"currencyLTE,omitempty"`
+	CurrencyContains     *string  `json:"currencyContains,omitempty"`
+	CurrencyHasPrefix    *string  `json:"currencyHasPrefix,omitempty"`
+	CurrencyHasSuffix    *string  `json:"currencyHasSuffix,omitempty"`
+	CurrencyIsNil        bool     `json:"currencyIsNil,omitempty"`
+	CurrencyNotNil       bool     `json:"currencyNotNil,omitempty"`
+	CurrencyEqualFold    *string  `json:"currencyEqualFold,omitempty"`
+	CurrencyContainsFold *string  `json:"currencyContainsFold,omitempty"`
+
+	// "available" field predicates.
+	Available       *bool `json:"available,omitempty"`
+	AvailableNEQ    *bool `json:"availableNEQ,omitempty"`
+	AvailableIsNil  bool  `json:"availableIsNil,omitempty"`
+	AvailableNotNil bool  `json:"availableNotNil,omitempty"`
+
+	// "probe" field predicates.
+	Probe             *string  `json:"probe,omitempty"`
+	ProbeNEQ          *string  `json:"probeNEQ,omitempty"`
+	ProbeIn           []string `json:"probeIn,omitempty"`
+	ProbeNotIn        []string `json:"probeNotIn,omitempty"`
+	ProbeGT           *string  `json:"probeGT,omitempty"`
+	ProbeGTE          *string  `json:"probeGTE,omitempty"`
+	ProbeLT           *string  `json:"probeLT,omitempty"`
+	ProbeLTE          *string  `json:"probeLTE,omitempty"`
+	ProbeContains     *string  `json:"probeContains,omitempty"`
+	ProbeHasPrefix    *string  `json:"probeHasPrefix,omitempty"`
+	ProbeHasSuffix    *string  `json:"probeHasSuffix,omitempty"`
+	ProbeIsNil        bool     `json:"probeIsNil,omitempty"`
+	ProbeNotNil       bool     `json:"probeNotNil,omitempty"`
+	ProbeEqualFold    *string  `json:"probeEqualFold,omitempty"`
+	ProbeContainsFold *string  `json:"probeContainsFold,omitempty"`
+
+	// "matched_policy" field predicates.
+	MatchedPolicy             *string  `json:"matchedPolicy,omitempty"`
+	MatchedPolicyNEQ          *string  `json:"matchedPolicyNEQ,omitempty"`
+	MatchedPolicyIn           []string `json:"matchedPolicyIn,omitempty"`
+	MatchedPolicyNotIn        []string `json:"matchedPolicyNotIn,omitempty"`
+	MatchedPolicyGT           *string  `json:"matchedPolicyGT,omitempty"`
+	MatchedPolicyGTE          *string  `json:"matchedPolicyGTE,omitempty"`
+	MatchedPolicyLT           *string  `json:"matchedPolicyLT,omitempty"`
+	MatchedPolicyLTE          *string  `json:"matchedPolicyLTE,omitempty"`
+	MatchedPolicyContains     *string  `json:"matchedPolicyContains,omitempty"`
+	MatchedPolicyHasPrefix    *string  `json:"matchedPolicyHasPrefix,omitempty"`
+	MatchedPolicyHasSuffix    *string  `json:"matchedPolicyHasSuffix,omitempty"`
+	MatchedPolicyIsNil        bool     `json:"matchedPolicyIsNil,omitempty"`
+	MatchedPolicyNotNil       bool     `json:"matchedPolicyNotNil,omitempty"`
+	MatchedPolicyEqualFold    *string  `json:"matchedPolicyEqualFold,omitempty"`
+	MatchedPolicyContainsFold *string  `json:"matchedPolicyContainsFold,omitempty"`
+
+	// "action" field predicates.
+	Action             *string  `json:"action,omitempty"`
+	ActionNEQ          *string  `json:"actionNEQ,omitempty"`
+	ActionIn           []string `json:"actionIn,omitempty"`
+	ActionNotIn        []string `json:"actionNotIn,omitempty"`
+	ActionGT           *string  `json:"actionGT,omitempty"`
+	ActionGTE          *string  `json:"actionGTE,omitempty"`
+	ActionLT           *string  `json:"actionLT,omitempty"`
+	ActionLTE          *string  `json:"actionLTE,omitempty"`
+	ActionContains     *string  `json:"actionContains,omitempty"`
+	ActionHasPrefix    *string  `json:"actionHasPrefix,omitempty"`
+	ActionHasSuffix    *string  `json:"actionHasSuffix,omitempty"`
+	ActionIsNil        bool     `json:"actionIsNil,omitempty"`
+	ActionNotNil       bool     `json:"actionNotNil,omitempty"`
+	ActionEqualFold    *string  `json:"actionEqualFold,omitempty"`
+	ActionContainsFold *string  `json:"actionContainsFold,omitempty"`
+
+	// "next_check_at" field predicates.
+	NextCheckAt       *time.Time  `json:"nextCheckAt,omitempty"`
+	NextCheckAtNEQ    *time.Time  `json:"nextCheckAtNEQ,omitempty"`
+	NextCheckAtIn     []time.Time `json:"nextCheckAtIn,omitempty"`
+	NextCheckAtNotIn  []time.Time `json:"nextCheckAtNotIn,omitempty"`
+	NextCheckAtGT     *time.Time  `json:"nextCheckAtGT,omitempty"`
+	NextCheckAtGTE    *time.Time  `json:"nextCheckAtGTE,omitempty"`
+	NextCheckAtLT     *time.Time  `json:"nextCheckAtLT,omitempty"`
+	NextCheckAtLTE    *time.Time  `json:"nextCheckAtLTE,omitempty"`
+	NextCheckAtIsNil  bool        `json:"nextCheckAtIsNil,omitempty"`
+	NextCheckAtNotNil bool        `json:"nextCheckAtNotNil,omitempty"`
+
+	// "backoff_attempt" field predicates.
+	BackoffAttempt       *int  `json:"backoffAttempt,omitempty"`
+	BackoffAttemptNEQ    *int  `json:"backoffAttemptNEQ,omitempty"`
+	BackoffAttemptIn     []int `json:"backoffAttemptIn,omitempty"`
+	BackoffAttemptNotIn  []int `json:"backoffAttemptNotIn,omitempty"`
+	BackoffAttemptGT     *int  `json:"backoffAttemptGT,omitempty"`
+	BackoffAttemptGTE    *int  `json:"backoffAttemptGTE,omitempty"`
+	BackoffAttemptLT     *int  `json:"backoffAttemptLT,omitempty"`
+	BackoffAttemptLTE    *int  `json:"backoffAttemptLTE,omitempty"`
+	BackoffAttemptIsNil  bool  `json:"backoffAttemptIsNil,omitempty"`
+	BackoffAttemptNotNil bool  `json:"backoffAttemptNotNil,omitempty"`
+
+	// "checked_at" field predicates.
+	CheckedAt      *time.Time  `json:"checkedAt,omitempty"`
+	CheckedAtNEQ   *time.Time  `json:"checkedAtNEQ,omitempty"`
+	CheckedAtIn    []time.Time `json:"checkedAtIn,omitempty"`
+	CheckedAtNotIn []time.Time `json:"checkedAtNotIn,omitempty"`
+	CheckedAtGT    *time.Time  `json:"checkedAtGT,omitempty"`
+	CheckedAtGTE   *time.Time  `json:"checkedAtGTE,omitempty"`
+	CheckedAtLT    *time.Time  `json:"checkedAtLT,omitempty"`
+	CheckedAtLTE   *time.Time  `json:"checkedAtLTE,omitempty"`
+
+	// "channel" edge predicates.
+	HasChannel     *bool                `json:"hasChannel,omitempty"`
+	HasChannelWith []*ChannelWhereInput `json:"hasChannelWith,omitempty"`
+}
+
+// AddPredicates adds custom predicates to the where input to be used during the filtering phase.
+func (i *ChannelKeyMonitoringEventWhereInput) AddPredicates(predicates ...predicate.ChannelKeyMonitoringEvent) {
+	i.Predicates = append(i.Predicates, predicates...)
+}
+
+// Filter applies the ChannelKeyMonitoringEventWhereInput filter on the ChannelKeyMonitoringEventQuery builder.
+func (i *ChannelKeyMonitoringEventWhereInput) Filter(q *ChannelKeyMonitoringEventQuery) (*ChannelKeyMonitoringEventQuery, error) {
+	if i == nil {
+		return q, nil
+	}
+	p, err := i.P()
+	if err != nil {
+		if err == ErrEmptyChannelKeyMonitoringEventWhereInput {
+			return q, nil
+		}
+		return nil, err
+	}
+	return q.Where(p), nil
+}
+
+// ErrEmptyChannelKeyMonitoringEventWhereInput is returned in case the ChannelKeyMonitoringEventWhereInput is empty.
+var ErrEmptyChannelKeyMonitoringEventWhereInput = errors.New("ent: empty predicate ChannelKeyMonitoringEventWhereInput")
+
+// P returns a predicate for filtering channelkeymonitoringevents.
+// An error is returned if the input is empty or invalid.
+func (i *ChannelKeyMonitoringEventWhereInput) P() (predicate.ChannelKeyMonitoringEvent, error) {
+	var predicates []predicate.ChannelKeyMonitoringEvent
+	if i.Not != nil {
+		p, err := i.Not.P()
+		if err != nil {
+			return nil, fmt.Errorf("%w: field 'not'", err)
+		}
+		predicates = append(predicates, channelkeymonitoringevent.Not(p))
+	}
+	switch n := len(i.Or); {
+	case n == 1:
+		p, err := i.Or[0].P()
+		if err != nil {
+			return nil, fmt.Errorf("%w: field 'or'", err)
+		}
+		predicates = append(predicates, p)
+	case n > 1:
+		or := make([]predicate.ChannelKeyMonitoringEvent, 0, n)
+		for _, w := range i.Or {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'or'", err)
+			}
+			or = append(or, p)
+		}
+		predicates = append(predicates, channelkeymonitoringevent.Or(or...))
+	}
+	switch n := len(i.And); {
+	case n == 1:
+		p, err := i.And[0].P()
+		if err != nil {
+			return nil, fmt.Errorf("%w: field 'and'", err)
+		}
+		predicates = append(predicates, p)
+	case n > 1:
+		and := make([]predicate.ChannelKeyMonitoringEvent, 0, n)
+		for _, w := range i.And {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'and'", err)
+			}
+			and = append(and, p)
+		}
+		predicates = append(predicates, channelkeymonitoringevent.And(and...))
+	}
+	predicates = append(predicates, i.Predicates...)
+	if i.ID != nil {
+		predicates = append(predicates, channelkeymonitoringevent.IDEQ(*i.ID))
+	}
+	if i.IDNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.IDNEQ(*i.IDNEQ))
+	}
+	if len(i.IDIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.IDIn(i.IDIn...))
+	}
+	if len(i.IDNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.IDNotIn(i.IDNotIn...))
+	}
+	if i.IDGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.IDGT(*i.IDGT))
+	}
+	if i.IDGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.IDGTE(*i.IDGTE))
+	}
+	if i.IDLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.IDLT(*i.IDLT))
+	}
+	if i.IDLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.IDLTE(*i.IDLTE))
+	}
+	if i.CreatedAt != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtEQ(*i.CreatedAt))
+	}
+	if i.CreatedAtNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtNEQ(*i.CreatedAtNEQ))
+	}
+	if len(i.CreatedAtIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtIn(i.CreatedAtIn...))
+	}
+	if len(i.CreatedAtNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtNotIn(i.CreatedAtNotIn...))
+	}
+	if i.CreatedAtGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtGT(*i.CreatedAtGT))
+	}
+	if i.CreatedAtGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtGTE(*i.CreatedAtGTE))
+	}
+	if i.CreatedAtLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtLT(*i.CreatedAtLT))
+	}
+	if i.CreatedAtLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CreatedAtLTE(*i.CreatedAtLTE))
+	}
+	if i.UpdatedAt != nil {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtEQ(*i.UpdatedAt))
+	}
+	if i.UpdatedAtNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtNEQ(*i.UpdatedAtNEQ))
+	}
+	if len(i.UpdatedAtIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtIn(i.UpdatedAtIn...))
+	}
+	if len(i.UpdatedAtNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtNotIn(i.UpdatedAtNotIn...))
+	}
+	if i.UpdatedAtGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtGT(*i.UpdatedAtGT))
+	}
+	if i.UpdatedAtGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtGTE(*i.UpdatedAtGTE))
+	}
+	if i.UpdatedAtLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtLT(*i.UpdatedAtLT))
+	}
+	if i.UpdatedAtLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.UpdatedAtLTE(*i.UpdatedAtLTE))
+	}
+	if i.ChannelID != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelIDEQ(*i.ChannelID))
+	}
+	if i.ChannelIDNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelIDNEQ(*i.ChannelIDNEQ))
+	}
+	if len(i.ChannelIDIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelIDIn(i.ChannelIDIn...))
+	}
+	if len(i.ChannelIDNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelIDNotIn(i.ChannelIDNotIn...))
+	}
+	if i.ChannelName != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameEQ(*i.ChannelName))
+	}
+	if i.ChannelNameNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameNEQ(*i.ChannelNameNEQ))
+	}
+	if len(i.ChannelNameIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameIn(i.ChannelNameIn...))
+	}
+	if len(i.ChannelNameNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameNotIn(i.ChannelNameNotIn...))
+	}
+	if i.ChannelNameGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameGT(*i.ChannelNameGT))
+	}
+	if i.ChannelNameGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameGTE(*i.ChannelNameGTE))
+	}
+	if i.ChannelNameLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameLT(*i.ChannelNameLT))
+	}
+	if i.ChannelNameLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameLTE(*i.ChannelNameLTE))
+	}
+	if i.ChannelNameContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameContains(*i.ChannelNameContains))
+	}
+	if i.ChannelNameHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameHasPrefix(*i.ChannelNameHasPrefix))
+	}
+	if i.ChannelNameHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameHasSuffix(*i.ChannelNameHasSuffix))
+	}
+	if i.ChannelNameIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameIsNil())
+	}
+	if i.ChannelNameNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameNotNil())
+	}
+	if i.ChannelNameEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameEqualFold(*i.ChannelNameEqualFold))
+	}
+	if i.ChannelNameContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ChannelNameContainsFold(*i.ChannelNameContainsFold))
+	}
+	if i.KeyID != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDEQ(*i.KeyID))
+	}
+	if i.KeyIDNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDNEQ(*i.KeyIDNEQ))
+	}
+	if len(i.KeyIDIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDIn(i.KeyIDIn...))
+	}
+	if len(i.KeyIDNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDNotIn(i.KeyIDNotIn...))
+	}
+	if i.KeyIDGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDGT(*i.KeyIDGT))
+	}
+	if i.KeyIDGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDGTE(*i.KeyIDGTE))
+	}
+	if i.KeyIDLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDLT(*i.KeyIDLT))
+	}
+	if i.KeyIDLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDLTE(*i.KeyIDLTE))
+	}
+	if i.KeyIDContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDContains(*i.KeyIDContains))
+	}
+	if i.KeyIDHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDHasPrefix(*i.KeyIDHasPrefix))
+	}
+	if i.KeyIDHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDHasSuffix(*i.KeyIDHasSuffix))
+	}
+	if i.KeyIDIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDIsNil())
+	}
+	if i.KeyIDNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDNotNil())
+	}
+	if i.KeyIDEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDEqualFold(*i.KeyIDEqualFold))
+	}
+	if i.KeyIDContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.KeyIDContainsFold(*i.KeyIDContainsFold))
+	}
+	if i.MaskedKey != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyEQ(*i.MaskedKey))
+	}
+	if i.MaskedKeyNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyNEQ(*i.MaskedKeyNEQ))
+	}
+	if len(i.MaskedKeyIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyIn(i.MaskedKeyIn...))
+	}
+	if len(i.MaskedKeyNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyNotIn(i.MaskedKeyNotIn...))
+	}
+	if i.MaskedKeyGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyGT(*i.MaskedKeyGT))
+	}
+	if i.MaskedKeyGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyGTE(*i.MaskedKeyGTE))
+	}
+	if i.MaskedKeyLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyLT(*i.MaskedKeyLT))
+	}
+	if i.MaskedKeyLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyLTE(*i.MaskedKeyLTE))
+	}
+	if i.MaskedKeyContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyContains(*i.MaskedKeyContains))
+	}
+	if i.MaskedKeyHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyHasPrefix(*i.MaskedKeyHasPrefix))
+	}
+	if i.MaskedKeyHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyHasSuffix(*i.MaskedKeyHasSuffix))
+	}
+	if i.MaskedKeyIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyIsNil())
+	}
+	if i.MaskedKeyNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyNotNil())
+	}
+	if i.MaskedKeyEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyEqualFold(*i.MaskedKeyEqualFold))
+	}
+	if i.MaskedKeyContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MaskedKeyContainsFold(*i.MaskedKeyContainsFold))
+	}
+	if i.RuleID != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDEQ(*i.RuleID))
+	}
+	if i.RuleIDNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDNEQ(*i.RuleIDNEQ))
+	}
+	if len(i.RuleIDIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDIn(i.RuleIDIn...))
+	}
+	if len(i.RuleIDNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDNotIn(i.RuleIDNotIn...))
+	}
+	if i.RuleIDGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDGT(*i.RuleIDGT))
+	}
+	if i.RuleIDGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDGTE(*i.RuleIDGTE))
+	}
+	if i.RuleIDLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDLT(*i.RuleIDLT))
+	}
+	if i.RuleIDLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDLTE(*i.RuleIDLTE))
+	}
+	if i.RuleIDContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDContains(*i.RuleIDContains))
+	}
+	if i.RuleIDHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDHasPrefix(*i.RuleIDHasPrefix))
+	}
+	if i.RuleIDHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDHasSuffix(*i.RuleIDHasSuffix))
+	}
+	if i.RuleIDIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDIsNil())
+	}
+	if i.RuleIDNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDNotNil())
+	}
+	if i.RuleIDEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDEqualFold(*i.RuleIDEqualFold))
+	}
+	if i.RuleIDContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleIDContainsFold(*i.RuleIDContainsFold))
+	}
+	if i.RuleName != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameEQ(*i.RuleName))
+	}
+	if i.RuleNameNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameNEQ(*i.RuleNameNEQ))
+	}
+	if len(i.RuleNameIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameIn(i.RuleNameIn...))
+	}
+	if len(i.RuleNameNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameNotIn(i.RuleNameNotIn...))
+	}
+	if i.RuleNameGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameGT(*i.RuleNameGT))
+	}
+	if i.RuleNameGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameGTE(*i.RuleNameGTE))
+	}
+	if i.RuleNameLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameLT(*i.RuleNameLT))
+	}
+	if i.RuleNameLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameLTE(*i.RuleNameLTE))
+	}
+	if i.RuleNameContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameContains(*i.RuleNameContains))
+	}
+	if i.RuleNameHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameHasPrefix(*i.RuleNameHasPrefix))
+	}
+	if i.RuleNameHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameHasSuffix(*i.RuleNameHasSuffix))
+	}
+	if i.RuleNameIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameIsNil())
+	}
+	if i.RuleNameNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameNotNil())
+	}
+	if i.RuleNameEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameEqualFold(*i.RuleNameEqualFold))
+	}
+	if i.RuleNameContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.RuleNameContainsFold(*i.RuleNameContainsFold))
+	}
+	if i.Trigger != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerEQ(*i.Trigger))
+	}
+	if i.TriggerNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerNEQ(*i.TriggerNEQ))
+	}
+	if len(i.TriggerIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerIn(i.TriggerIn...))
+	}
+	if len(i.TriggerNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerNotIn(i.TriggerNotIn...))
+	}
+	if i.TriggerGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerGT(*i.TriggerGT))
+	}
+	if i.TriggerGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerGTE(*i.TriggerGTE))
+	}
+	if i.TriggerLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerLT(*i.TriggerLT))
+	}
+	if i.TriggerLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerLTE(*i.TriggerLTE))
+	}
+	if i.TriggerContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerContains(*i.TriggerContains))
+	}
+	if i.TriggerHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerHasPrefix(*i.TriggerHasPrefix))
+	}
+	if i.TriggerHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerHasSuffix(*i.TriggerHasSuffix))
+	}
+	if i.TriggerEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerEqualFold(*i.TriggerEqualFold))
+	}
+	if i.TriggerContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.TriggerContainsFold(*i.TriggerContainsFold))
+	}
+	if i.Source != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceEQ(*i.Source))
+	}
+	if i.SourceNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceNEQ(*i.SourceNEQ))
+	}
+	if len(i.SourceIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.SourceIn(i.SourceIn...))
+	}
+	if len(i.SourceNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.SourceNotIn(i.SourceNotIn...))
+	}
+	if i.SourceGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceGT(*i.SourceGT))
+	}
+	if i.SourceGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceGTE(*i.SourceGTE))
+	}
+	if i.SourceLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceLT(*i.SourceLT))
+	}
+	if i.SourceLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceLTE(*i.SourceLTE))
+	}
+	if i.SourceContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceContains(*i.SourceContains))
+	}
+	if i.SourceHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceHasPrefix(*i.SourceHasPrefix))
+	}
+	if i.SourceHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceHasSuffix(*i.SourceHasSuffix))
+	}
+	if i.SourceIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceIsNil())
+	}
+	if i.SourceNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceNotNil())
+	}
+	if i.SourceEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceEqualFold(*i.SourceEqualFold))
+	}
+	if i.SourceContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SourceContainsFold(*i.SourceContainsFold))
+	}
+	if i.Success != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SuccessEQ(*i.Success))
+	}
+	if i.SuccessNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SuccessNEQ(*i.SuccessNEQ))
+	}
+	if i.Skipped != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SkippedEQ(*i.Skipped))
+	}
+	if i.SkippedNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.SkippedNEQ(*i.SkippedNEQ))
+	}
+	if i.Reason != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonEQ(*i.Reason))
+	}
+	if i.ReasonNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonNEQ(*i.ReasonNEQ))
+	}
+	if len(i.ReasonIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonIn(i.ReasonIn...))
+	}
+	if len(i.ReasonNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonNotIn(i.ReasonNotIn...))
+	}
+	if i.ReasonGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonGT(*i.ReasonGT))
+	}
+	if i.ReasonGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonGTE(*i.ReasonGTE))
+	}
+	if i.ReasonLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonLT(*i.ReasonLT))
+	}
+	if i.ReasonLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonLTE(*i.ReasonLTE))
+	}
+	if i.ReasonContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonContains(*i.ReasonContains))
+	}
+	if i.ReasonHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonHasPrefix(*i.ReasonHasPrefix))
+	}
+	if i.ReasonHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonHasSuffix(*i.ReasonHasSuffix))
+	}
+	if i.ReasonIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonIsNil())
+	}
+	if i.ReasonNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonNotNil())
+	}
+	if i.ReasonEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonEqualFold(*i.ReasonEqualFold))
+	}
+	if i.ReasonContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ReasonContainsFold(*i.ReasonContainsFold))
+	}
+	if i.StatusCode != nil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeEQ(*i.StatusCode))
+	}
+	if i.StatusCodeNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeNEQ(*i.StatusCodeNEQ))
+	}
+	if len(i.StatusCodeIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeIn(i.StatusCodeIn...))
+	}
+	if len(i.StatusCodeNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeNotIn(i.StatusCodeNotIn...))
+	}
+	if i.StatusCodeGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeGT(*i.StatusCodeGT))
+	}
+	if i.StatusCodeGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeGTE(*i.StatusCodeGTE))
+	}
+	if i.StatusCodeLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeLT(*i.StatusCodeLT))
+	}
+	if i.StatusCodeLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeLTE(*i.StatusCodeLTE))
+	}
+	if i.StatusCodeIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeIsNil())
+	}
+	if i.StatusCodeNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.StatusCodeNotNil())
+	}
+	if i.Currency != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyEQ(*i.Currency))
+	}
+	if i.CurrencyNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyNEQ(*i.CurrencyNEQ))
+	}
+	if len(i.CurrencyIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyIn(i.CurrencyIn...))
+	}
+	if len(i.CurrencyNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyNotIn(i.CurrencyNotIn...))
+	}
+	if i.CurrencyGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyGT(*i.CurrencyGT))
+	}
+	if i.CurrencyGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyGTE(*i.CurrencyGTE))
+	}
+	if i.CurrencyLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyLT(*i.CurrencyLT))
+	}
+	if i.CurrencyLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyLTE(*i.CurrencyLTE))
+	}
+	if i.CurrencyContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyContains(*i.CurrencyContains))
+	}
+	if i.CurrencyHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyHasPrefix(*i.CurrencyHasPrefix))
+	}
+	if i.CurrencyHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyHasSuffix(*i.CurrencyHasSuffix))
+	}
+	if i.CurrencyIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyIsNil())
+	}
+	if i.CurrencyNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyNotNil())
+	}
+	if i.CurrencyEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyEqualFold(*i.CurrencyEqualFold))
+	}
+	if i.CurrencyContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CurrencyContainsFold(*i.CurrencyContainsFold))
+	}
+	if i.Available != nil {
+		predicates = append(predicates, channelkeymonitoringevent.AvailableEQ(*i.Available))
+	}
+	if i.AvailableNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.AvailableNEQ(*i.AvailableNEQ))
+	}
+	if i.AvailableIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.AvailableIsNil())
+	}
+	if i.AvailableNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.AvailableNotNil())
+	}
+	if i.Probe != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeEQ(*i.Probe))
+	}
+	if i.ProbeNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeNEQ(*i.ProbeNEQ))
+	}
+	if len(i.ProbeIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeIn(i.ProbeIn...))
+	}
+	if len(i.ProbeNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeNotIn(i.ProbeNotIn...))
+	}
+	if i.ProbeGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeGT(*i.ProbeGT))
+	}
+	if i.ProbeGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeGTE(*i.ProbeGTE))
+	}
+	if i.ProbeLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeLT(*i.ProbeLT))
+	}
+	if i.ProbeLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeLTE(*i.ProbeLTE))
+	}
+	if i.ProbeContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeContains(*i.ProbeContains))
+	}
+	if i.ProbeHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeHasPrefix(*i.ProbeHasPrefix))
+	}
+	if i.ProbeHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeHasSuffix(*i.ProbeHasSuffix))
+	}
+	if i.ProbeIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeIsNil())
+	}
+	if i.ProbeNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeNotNil())
+	}
+	if i.ProbeEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeEqualFold(*i.ProbeEqualFold))
+	}
+	if i.ProbeContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ProbeContainsFold(*i.ProbeContainsFold))
+	}
+	if i.MatchedPolicy != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyEQ(*i.MatchedPolicy))
+	}
+	if i.MatchedPolicyNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyNEQ(*i.MatchedPolicyNEQ))
+	}
+	if len(i.MatchedPolicyIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyIn(i.MatchedPolicyIn...))
+	}
+	if len(i.MatchedPolicyNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyNotIn(i.MatchedPolicyNotIn...))
+	}
+	if i.MatchedPolicyGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyGT(*i.MatchedPolicyGT))
+	}
+	if i.MatchedPolicyGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyGTE(*i.MatchedPolicyGTE))
+	}
+	if i.MatchedPolicyLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyLT(*i.MatchedPolicyLT))
+	}
+	if i.MatchedPolicyLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyLTE(*i.MatchedPolicyLTE))
+	}
+	if i.MatchedPolicyContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyContains(*i.MatchedPolicyContains))
+	}
+	if i.MatchedPolicyHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyHasPrefix(*i.MatchedPolicyHasPrefix))
+	}
+	if i.MatchedPolicyHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyHasSuffix(*i.MatchedPolicyHasSuffix))
+	}
+	if i.MatchedPolicyIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyIsNil())
+	}
+	if i.MatchedPolicyNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyNotNil())
+	}
+	if i.MatchedPolicyEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyEqualFold(*i.MatchedPolicyEqualFold))
+	}
+	if i.MatchedPolicyContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.MatchedPolicyContainsFold(*i.MatchedPolicyContainsFold))
+	}
+	if i.Action != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionEQ(*i.Action))
+	}
+	if i.ActionNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionNEQ(*i.ActionNEQ))
+	}
+	if len(i.ActionIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ActionIn(i.ActionIn...))
+	}
+	if len(i.ActionNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.ActionNotIn(i.ActionNotIn...))
+	}
+	if i.ActionGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionGT(*i.ActionGT))
+	}
+	if i.ActionGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionGTE(*i.ActionGTE))
+	}
+	if i.ActionLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionLT(*i.ActionLT))
+	}
+	if i.ActionLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionLTE(*i.ActionLTE))
+	}
+	if i.ActionContains != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionContains(*i.ActionContains))
+	}
+	if i.ActionHasPrefix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionHasPrefix(*i.ActionHasPrefix))
+	}
+	if i.ActionHasSuffix != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionHasSuffix(*i.ActionHasSuffix))
+	}
+	if i.ActionIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionIsNil())
+	}
+	if i.ActionNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionNotNil())
+	}
+	if i.ActionEqualFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionEqualFold(*i.ActionEqualFold))
+	}
+	if i.ActionContainsFold != nil {
+		predicates = append(predicates, channelkeymonitoringevent.ActionContainsFold(*i.ActionContainsFold))
+	}
+	if i.NextCheckAt != nil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtEQ(*i.NextCheckAt))
+	}
+	if i.NextCheckAtNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtNEQ(*i.NextCheckAtNEQ))
+	}
+	if len(i.NextCheckAtIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtIn(i.NextCheckAtIn...))
+	}
+	if len(i.NextCheckAtNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtNotIn(i.NextCheckAtNotIn...))
+	}
+	if i.NextCheckAtGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtGT(*i.NextCheckAtGT))
+	}
+	if i.NextCheckAtGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtGTE(*i.NextCheckAtGTE))
+	}
+	if i.NextCheckAtLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtLT(*i.NextCheckAtLT))
+	}
+	if i.NextCheckAtLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtLTE(*i.NextCheckAtLTE))
+	}
+	if i.NextCheckAtIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtIsNil())
+	}
+	if i.NextCheckAtNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.NextCheckAtNotNil())
+	}
+	if i.BackoffAttempt != nil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptEQ(*i.BackoffAttempt))
+	}
+	if i.BackoffAttemptNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptNEQ(*i.BackoffAttemptNEQ))
+	}
+	if len(i.BackoffAttemptIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptIn(i.BackoffAttemptIn...))
+	}
+	if len(i.BackoffAttemptNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptNotIn(i.BackoffAttemptNotIn...))
+	}
+	if i.BackoffAttemptGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptGT(*i.BackoffAttemptGT))
+	}
+	if i.BackoffAttemptGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptGTE(*i.BackoffAttemptGTE))
+	}
+	if i.BackoffAttemptLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptLT(*i.BackoffAttemptLT))
+	}
+	if i.BackoffAttemptLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptLTE(*i.BackoffAttemptLTE))
+	}
+	if i.BackoffAttemptIsNil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptIsNil())
+	}
+	if i.BackoffAttemptNotNil {
+		predicates = append(predicates, channelkeymonitoringevent.BackoffAttemptNotNil())
+	}
+	if i.CheckedAt != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtEQ(*i.CheckedAt))
+	}
+	if i.CheckedAtNEQ != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtNEQ(*i.CheckedAtNEQ))
+	}
+	if len(i.CheckedAtIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtIn(i.CheckedAtIn...))
+	}
+	if len(i.CheckedAtNotIn) > 0 {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtNotIn(i.CheckedAtNotIn...))
+	}
+	if i.CheckedAtGT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtGT(*i.CheckedAtGT))
+	}
+	if i.CheckedAtGTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtGTE(*i.CheckedAtGTE))
+	}
+	if i.CheckedAtLT != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtLT(*i.CheckedAtLT))
+	}
+	if i.CheckedAtLTE != nil {
+		predicates = append(predicates, channelkeymonitoringevent.CheckedAtLTE(*i.CheckedAtLTE))
+	}
+
+	if i.HasChannel != nil {
+		p := channelkeymonitoringevent.HasChannel()
+		if !*i.HasChannel {
+			p = channelkeymonitoringevent.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasChannelWith) > 0 {
+		with := make([]predicate.Channel, 0, len(i.HasChannelWith))
+		for _, w := range i.HasChannelWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasChannelWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, channelkeymonitoringevent.HasChannelWith(with...))
+	}
+	switch len(predicates) {
+	case 0:
+		return nil, ErrEmptyChannelKeyMonitoringEventWhereInput
+	case 1:
+		return predicates[0], nil
+	default:
+		return channelkeymonitoringevent.And(predicates...), nil
 	}
 }
 

@@ -47,6 +47,11 @@ export const routeConfigs: RouteGroup[] = [
         mode: 'hidden',
       },
       {
+        path: '/monitoring',
+        requiredScopes: ['read_channels'],
+        mode: 'hidden',
+      },
+      {
         path: '/models',
         requiredScopes: ['read_channels'],
         mode: 'hidden',

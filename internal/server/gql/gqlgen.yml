@@ -738,6 +738,30 @@ models:
   UpdateRequestObservabilitySettingsInput:
     model:
       - github.com/looplj/axonhub/internal/server/biz.RequestObservabilitySettings
+  MonitoringSettings:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringSettings
+  UpdateMonitoringSettingsInput:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringSettings
+  MonitoringRule:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringRule
+  MonitoringRuleInput:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringRule
+  MonitoringRuleSchedule:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringRuleSchedule
+  MonitoringRuleScheduleInput:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringRuleSchedule
+  MonitoringRuleTargets:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringRuleTargets
+  MonitoringRuleTargetsInput:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.MonitoringRuleTargets
   VideoStorageSettings:
     model:
       - github.com/looplj/axonhub/internal/server/biz.VideoStorageSettings

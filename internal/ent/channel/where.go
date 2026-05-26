@@ -902,6 +902,29 @@ func HasChannelProbesWith(preds ...predicate.ChannelProbe) predicate.Channel {
 	})
 }
 
+// HasMonitoringEvents applies the HasEdge predicate on the "monitoring_events" edge.
+func HasMonitoringEvents() predicate.Channel {
+	return predicate.Channel(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, MonitoringEventsTable, MonitoringEventsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMonitoringEventsWith applies the HasEdge predicate on the "monitoring_events" edge with a given conditions (other predicates).
+func HasMonitoringEventsWith(preds ...predicate.ChannelKeyMonitoringEvent) predicate.Channel {
+	return predicate.Channel(func(s *sql.Selector) {
+		step := newMonitoringEventsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasChannelModelPrices applies the HasEdge predicate on the "channel_model_prices" edge.
 func HasChannelModelPrices() predicate.Channel {
 	return predicate.Channel(func(s *sql.Selector) {

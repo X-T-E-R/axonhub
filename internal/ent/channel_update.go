@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/predicate"
@@ -425,6 +426,21 @@ func (_u *ChannelUpdate) AddChannelProbes(v ...*ChannelProbe) *ChannelUpdate {
 	return _u.AddChannelProbeIDs(ids...)
 }
 
+// AddMonitoringEventIDs adds the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity by IDs.
+func (_u *ChannelUpdate) AddMonitoringEventIDs(ids ...int) *ChannelUpdate {
+	_u.mutation.AddMonitoringEventIDs(ids...)
+	return _u
+}
+
+// AddMonitoringEvents adds the "monitoring_events" edges to the ChannelKeyMonitoringEvent entity.
+func (_u *ChannelUpdate) AddMonitoringEvents(v ...*ChannelKeyMonitoringEvent) *ChannelUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddMonitoringEventIDs(ids...)
+}
+
 // AddChannelModelPriceIDs adds the "channel_model_prices" edge to the ChannelModelPrice entity by IDs.
 func (_u *ChannelUpdate) AddChannelModelPriceIDs(ids ...int) *ChannelUpdate {
 	_u.mutation.AddChannelModelPriceIDs(ids...)
@@ -546,6 +562,27 @@ func (_u *ChannelUpdate) RemoveChannelProbes(v ...*ChannelProbe) *ChannelUpdate 
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveChannelProbeIDs(ids...)
+}
+
+// ClearMonitoringEvents clears all "monitoring_events" edges to the ChannelKeyMonitoringEvent entity.
+func (_u *ChannelUpdate) ClearMonitoringEvents() *ChannelUpdate {
+	_u.mutation.ClearMonitoringEvents()
+	return _u
+}
+
+// RemoveMonitoringEventIDs removes the "monitoring_events" edge to ChannelKeyMonitoringEvent entities by IDs.
+func (_u *ChannelUpdate) RemoveMonitoringEventIDs(ids ...int) *ChannelUpdate {
+	_u.mutation.RemoveMonitoringEventIDs(ids...)
+	return _u
+}
+
+// RemoveMonitoringEvents removes "monitoring_events" edges to ChannelKeyMonitoringEvent entities.
+func (_u *ChannelUpdate) RemoveMonitoringEvents(v ...*ChannelKeyMonitoringEvent) *ChannelUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveMonitoringEventIDs(ids...)
 }
 
 // ClearChannelModelPrices clears all "channel_model_prices" edges to the ChannelModelPrice entity.
@@ -944,6 +981,51 @@ func (_u *ChannelUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(channelprobe.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.MonitoringEventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   channel.MonitoringEventsTable,
+			Columns: []string{channel.MonitoringEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelkeymonitoringevent.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedMonitoringEventsIDs(); len(nodes) > 0 && !_u.mutation.MonitoringEventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   channel.MonitoringEventsTable,
+			Columns: []string{channel.MonitoringEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelkeymonitoringevent.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MonitoringEventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   channel.MonitoringEventsTable,
+			Columns: []string{channel.MonitoringEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelkeymonitoringevent.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -1435,6 +1517,21 @@ func (_u *ChannelUpdateOne) AddChannelProbes(v ...*ChannelProbe) *ChannelUpdateO
 	return _u.AddChannelProbeIDs(ids...)
 }
 
+// AddMonitoringEventIDs adds the "monitoring_events" edge to the ChannelKeyMonitoringEvent entity by IDs.
+func (_u *ChannelUpdateOne) AddMonitoringEventIDs(ids ...int) *ChannelUpdateOne {
+	_u.mutation.AddMonitoringEventIDs(ids...)
+	return _u
+}
+
+// AddMonitoringEvents adds the "monitoring_events" edges to the ChannelKeyMonitoringEvent entity.
+func (_u *ChannelUpdateOne) AddMonitoringEvents(v ...*ChannelKeyMonitoringEvent) *ChannelUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddMonitoringEventIDs(ids...)
+}
+
 // AddChannelModelPriceIDs adds the "channel_model_prices" edge to the ChannelModelPrice entity by IDs.
 func (_u *ChannelUpdateOne) AddChannelModelPriceIDs(ids ...int) *ChannelUpdateOne {
 	_u.mutation.AddChannelModelPriceIDs(ids...)
@@ -1556,6 +1653,27 @@ func (_u *ChannelUpdateOne) RemoveChannelProbes(v ...*ChannelProbe) *ChannelUpda
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveChannelProbeIDs(ids...)
+}
+
+// ClearMonitoringEvents clears all "monitoring_events" edges to the ChannelKeyMonitoringEvent entity.
+func (_u *ChannelUpdateOne) ClearMonitoringEvents() *ChannelUpdateOne {
+	_u.mutation.ClearMonitoringEvents()
+	return _u
+}
+
+// RemoveMonitoringEventIDs removes the "monitoring_events" edge to ChannelKeyMonitoringEvent entities by IDs.
+func (_u *ChannelUpdateOne) RemoveMonitoringEventIDs(ids ...int) *ChannelUpdateOne {
+	_u.mutation.RemoveMonitoringEventIDs(ids...)
+	return _u
+}
+
+// RemoveMonitoringEvents removes "monitoring_events" edges to ChannelKeyMonitoringEvent entities.
+func (_u *ChannelUpdateOne) RemoveMonitoringEvents(v ...*ChannelKeyMonitoringEvent) *ChannelUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveMonitoringEventIDs(ids...)
 }
 
 // ClearChannelModelPrices clears all "channel_model_prices" edges to the ChannelModelPrice entity.
@@ -1984,6 +2102,51 @@ func (_u *ChannelUpdateOne) sqlSave(ctx context.Context) (_node *Channel, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(channelprobe.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.MonitoringEventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   channel.MonitoringEventsTable,
+			Columns: []string{channel.MonitoringEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelkeymonitoringevent.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedMonitoringEventsIDs(); len(nodes) > 0 && !_u.mutation.MonitoringEventsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   channel.MonitoringEventsTable,
+			Columns: []string{channel.MonitoringEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelkeymonitoringevent.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MonitoringEventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   channel.MonitoringEventsTable,
+			Columns: []string{channel.MonitoringEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelkeymonitoringevent.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

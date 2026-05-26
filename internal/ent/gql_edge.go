@@ -128,6 +128,27 @@ func (_m *Channel) ChannelProbes(ctx context.Context) (result []*ChannelProbe, e
 	return result, err
 }
 
+func (_m *Channel) MonitoringEvents(
+	ctx context.Context, after *Cursor, first *int, before *Cursor, last *int, orderBy *ChannelKeyMonitoringEventOrder, where *ChannelKeyMonitoringEventWhereInput,
+) (*ChannelKeyMonitoringEventConnection, error) {
+	opts := []ChannelKeyMonitoringEventPaginateOption{
+		WithChannelKeyMonitoringEventOrder(orderBy),
+		WithChannelKeyMonitoringEventFilter(where.Filter),
+	}
+	alias := graphql.GetFieldContext(ctx).Field.Alias
+	totalCount, hasTotalCount := _m.Edges.totalCount[4][alias]
+	if nodes, err := _m.NamedMonitoringEvents(alias); err == nil || hasTotalCount {
+		pager, err := newChannelKeyMonitoringEventPager(opts, last != nil)
+		if err != nil {
+			return nil, err
+		}
+		conn := &ChannelKeyMonitoringEventConnection{Edges: []*ChannelKeyMonitoringEventEdge{}, TotalCount: totalCount}
+		conn.build(nodes, pager, after, first, before, last)
+		return conn, nil
+	}
+	return _m.QueryMonitoringEvents().Paginate(ctx, after, first, before, last, opts...)
+}
+
 func (_m *Channel) ChannelModelPrices(ctx context.Context) (result []*ChannelModelPrice, err error) {
 	if fc := graphql.GetFieldContext(ctx); fc != nil && fc.Field.Alias != "" {
 		result, err = _m.NamedChannelModelPrices(graphql.GetFieldContext(ctx).Field.Alias)
@@ -146,6 +167,14 @@ func (_m *Channel) ProviderQuotaStatus(ctx context.Context) (*ProviderQuotaStatu
 		result, err = _m.QueryProviderQuotaStatus().Only(ctx)
 	}
 	return result, MaskNotFound(err)
+}
+
+func (_m *ChannelKeyMonitoringEvent) Channel(ctx context.Context) (*Channel, error) {
+	result, err := _m.Edges.ChannelOrErr()
+	if IsNotLoaded(err) {
+		result, err = _m.QueryChannel().Only(ctx)
+	}
+	return result, err
 }
 
 func (_m *ChannelModelPrice) Channel(ctx context.Context) (*Channel, error) {

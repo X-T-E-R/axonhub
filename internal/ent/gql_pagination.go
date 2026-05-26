@@ -17,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -1130,6 +1131,446 @@ func (_m *Channel) ToEdge(order *ChannelOrder) *ChannelEdge {
 		order = DefaultChannelOrder
 	}
 	return &ChannelEdge{
+		Node:   _m,
+		Cursor: order.Field.toCursor(_m),
+	}
+}
+
+// ChannelKeyMonitoringEventEdge is the edge representation of ChannelKeyMonitoringEvent.
+type ChannelKeyMonitoringEventEdge struct {
+	Node   *ChannelKeyMonitoringEvent `json:"node"`
+	Cursor Cursor                     `json:"cursor"`
+}
+
+// ChannelKeyMonitoringEventConnection is the connection containing edges to ChannelKeyMonitoringEvent.
+type ChannelKeyMonitoringEventConnection struct {
+	Edges      []*ChannelKeyMonitoringEventEdge `json:"edges"`
+	PageInfo   PageInfo                         `json:"pageInfo"`
+	TotalCount int                              `json:"totalCount"`
+}
+
+func (c *ChannelKeyMonitoringEventConnection) build(nodes []*ChannelKeyMonitoringEvent, pager *channelkeymonitoringeventPager, after *Cursor, first *int, before *Cursor, last *int) {
+	c.PageInfo.HasNextPage = before != nil
+	c.PageInfo.HasPreviousPage = after != nil
+	if first != nil && *first+1 == len(nodes) {
+		c.PageInfo.HasNextPage = true
+		nodes = nodes[:len(nodes)-1]
+	} else if last != nil && *last+1 == len(nodes) {
+		c.PageInfo.HasPreviousPage = true
+		nodes = nodes[:len(nodes)-1]
+	}
+	var nodeAt func(int) *ChannelKeyMonitoringEvent
+	if last != nil {
+		n := len(nodes) - 1
+		nodeAt = func(i int) *ChannelKeyMonitoringEvent {
+			return nodes[n-i]
+		}
+	} else {
+		nodeAt = func(i int) *ChannelKeyMonitoringEvent {
+			return nodes[i]
+		}
+	}
+	c.Edges = make([]*ChannelKeyMonitoringEventEdge, len(nodes))
+	for i := range nodes {
+		node := nodeAt(i)
+		c.Edges[i] = &ChannelKeyMonitoringEventEdge{
+			Node:   node,
+			Cursor: pager.toCursor(node),
+		}
+	}
+	if l := len(c.Edges); l > 0 {
+		c.PageInfo.StartCursor = &c.Edges[0].Cursor
+		c.PageInfo.EndCursor = &c.Edges[l-1].Cursor
+	}
+	if c.TotalCount == 0 {
+		c.TotalCount = len(nodes)
+	}
+}
+
+// ChannelKeyMonitoringEventPaginateOption enables pagination customization.
+type ChannelKeyMonitoringEventPaginateOption func(*channelkeymonitoringeventPager) error
+
+// WithChannelKeyMonitoringEventOrder configures pagination ordering.
+func WithChannelKeyMonitoringEventOrder(order *ChannelKeyMonitoringEventOrder) ChannelKeyMonitoringEventPaginateOption {
+	if order == nil {
+		order = DefaultChannelKeyMonitoringEventOrder
+	}
+	o := *order
+	return func(pager *channelkeymonitoringeventPager) error {
+		if err := o.Direction.Validate(); err != nil {
+			return err
+		}
+		if o.Field == nil {
+			o.Field = DefaultChannelKeyMonitoringEventOrder.Field
+		}
+		pager.order = &o
+		return nil
+	}
+}
+
+// WithChannelKeyMonitoringEventFilter configures pagination filter.
+func WithChannelKeyMonitoringEventFilter(filter func(*ChannelKeyMonitoringEventQuery) (*ChannelKeyMonitoringEventQuery, error)) ChannelKeyMonitoringEventPaginateOption {
+	return func(pager *channelkeymonitoringeventPager) error {
+		if filter == nil {
+			return errors.New("ChannelKeyMonitoringEventQuery filter cannot be nil")
+		}
+		pager.filter = filter
+		return nil
+	}
+}
+
+type channelkeymonitoringeventPager struct {
+	reverse bool
+	order   *ChannelKeyMonitoringEventOrder
+	filter  func(*ChannelKeyMonitoringEventQuery) (*ChannelKeyMonitoringEventQuery, error)
+}
+
+func newChannelKeyMonitoringEventPager(opts []ChannelKeyMonitoringEventPaginateOption, reverse bool) (*channelkeymonitoringeventPager, error) {
+	pager := &channelkeymonitoringeventPager{reverse: reverse}
+	for _, opt := range opts {
+		if err := opt(pager); err != nil {
+			return nil, err
+		}
+	}
+	if pager.order == nil {
+		pager.order = DefaultChannelKeyMonitoringEventOrder
+	}
+	return pager, nil
+}
+
+func (p *channelkeymonitoringeventPager) applyFilter(query *ChannelKeyMonitoringEventQuery) (*ChannelKeyMonitoringEventQuery, error) {
+	if p.filter != nil {
+		return p.filter(query)
+	}
+	return query, nil
+}
+
+func (p *channelkeymonitoringeventPager) toCursor(_m *ChannelKeyMonitoringEvent) Cursor {
+	return p.order.Field.toCursor(_m)
+}
+
+func (p *channelkeymonitoringeventPager) applyCursors(query *ChannelKeyMonitoringEventQuery, after, before *Cursor) (*ChannelKeyMonitoringEventQuery, error) {
+	direction := p.order.Direction
+	if p.reverse {
+		direction = direction.Reverse()
+	}
+	for _, predicate := range entgql.CursorsPredicate(after, before, DefaultChannelKeyMonitoringEventOrder.Field.column, p.order.Field.column, direction) {
+		query = query.Where(predicate)
+	}
+	return query, nil
+}
+
+func (p *channelkeymonitoringeventPager) applyOrder(query *ChannelKeyMonitoringEventQuery) *ChannelKeyMonitoringEventQuery {
+	direction := p.order.Direction
+	if p.reverse {
+		direction = direction.Reverse()
+	}
+	query = query.Order(p.order.Field.toTerm(direction.OrderTermOption()))
+	if p.order.Field != DefaultChannelKeyMonitoringEventOrder.Field {
+		query = query.Order(DefaultChannelKeyMonitoringEventOrder.Field.toTerm(direction.OrderTermOption()))
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(p.order.Field.column)
+	}
+	return query
+}
+
+func (p *channelkeymonitoringeventPager) orderExpr(query *ChannelKeyMonitoringEventQuery) sql.Querier {
+	direction := p.order.Direction
+	if p.reverse {
+		direction = direction.Reverse()
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(p.order.Field.column)
+	}
+	return sql.ExprFunc(func(b *sql.Builder) {
+		b.Ident(p.order.Field.column).Pad().WriteString(string(direction))
+		if p.order.Field != DefaultChannelKeyMonitoringEventOrder.Field {
+			b.Comma().Ident(DefaultChannelKeyMonitoringEventOrder.Field.column).Pad().WriteString(string(direction))
+		}
+	})
+}
+
+// Paginate executes the query and returns a relay based cursor connection to ChannelKeyMonitoringEvent.
+func (_m *ChannelKeyMonitoringEventQuery) Paginate(
+	ctx context.Context, after *Cursor, first *int,
+	before *Cursor, last *int, opts ...ChannelKeyMonitoringEventPaginateOption,
+) (*ChannelKeyMonitoringEventConnection, error) {
+	if err := validateFirstLast(first, last); err != nil {
+		return nil, err
+	}
+	pager, err := newChannelKeyMonitoringEventPager(opts, last != nil)
+	if err != nil {
+		return nil, err
+	}
+	if _m, err = pager.applyFilter(_m); err != nil {
+		return nil, err
+	}
+	conn := &ChannelKeyMonitoringEventConnection{Edges: []*ChannelKeyMonitoringEventEdge{}}
+	ignoredEdges := !hasCollectedField(ctx, edgesField)
+	if hasCollectedField(ctx, totalCountField) || hasCollectedField(ctx, pageInfoField) {
+		hasPagination := after != nil || first != nil || before != nil || last != nil
+		if hasPagination || ignoredEdges {
+			c := _m.Clone()
+			c.ctx.Fields = nil
+			if conn.TotalCount, err = c.Count(ctx); err != nil {
+				return nil, err
+			}
+			conn.PageInfo.HasNextPage = first != nil && conn.TotalCount > 0
+			conn.PageInfo.HasPreviousPage = last != nil && conn.TotalCount > 0
+		}
+	}
+	if ignoredEdges || (first != nil && *first == 0) || (last != nil && *last == 0) {
+		return conn, nil
+	}
+	if _m, err = pager.applyCursors(_m, after, before); err != nil {
+		return nil, err
+	}
+	limit := paginateLimit(first, last)
+	if limit != 0 {
+		_m.Limit(limit)
+	}
+	if field := collectedField(ctx, edgesField, nodeField); field != nil {
+		if err := _m.collectField(ctx, limit == 1, graphql.GetOperationContext(ctx), *field, []string{edgesField, nodeField}); err != nil {
+			return nil, err
+		}
+	}
+	_m = pager.applyOrder(_m)
+	nodes, err := _m.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conn.build(nodes, pager, after, first, before, last)
+	return conn, nil
+}
+
+var (
+	// ChannelKeyMonitoringEventOrderFieldCreatedAt orders ChannelKeyMonitoringEvent by created_at.
+	ChannelKeyMonitoringEventOrderFieldCreatedAt = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.CreatedAt, nil
+		},
+		column: channelkeymonitoringevent.FieldCreatedAt,
+		toTerm: channelkeymonitoringevent.ByCreatedAt,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.CreatedAt,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldUpdatedAt orders ChannelKeyMonitoringEvent by updated_at.
+	ChannelKeyMonitoringEventOrderFieldUpdatedAt = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.UpdatedAt, nil
+		},
+		column: channelkeymonitoringevent.FieldUpdatedAt,
+		toTerm: channelkeymonitoringevent.ByUpdatedAt,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.UpdatedAt,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldChannelID orders ChannelKeyMonitoringEvent by channel_id.
+	ChannelKeyMonitoringEventOrderFieldChannelID = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.ChannelID, nil
+		},
+		column: channelkeymonitoringevent.FieldChannelID,
+		toTerm: channelkeymonitoringevent.ByChannelID,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.ChannelID,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldKeyID orders ChannelKeyMonitoringEvent by key_id.
+	ChannelKeyMonitoringEventOrderFieldKeyID = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.KeyID, nil
+		},
+		column: channelkeymonitoringevent.FieldKeyID,
+		toTerm: channelkeymonitoringevent.ByKeyID,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.KeyID,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldRuleID orders ChannelKeyMonitoringEvent by rule_id.
+	ChannelKeyMonitoringEventOrderFieldRuleID = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.RuleID, nil
+		},
+		column: channelkeymonitoringevent.FieldRuleID,
+		toTerm: channelkeymonitoringevent.ByRuleID,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.RuleID,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldTrigger orders ChannelKeyMonitoringEvent by trigger.
+	ChannelKeyMonitoringEventOrderFieldTrigger = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.Trigger, nil
+		},
+		column: channelkeymonitoringevent.FieldTrigger,
+		toTerm: channelkeymonitoringevent.ByTrigger,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.Trigger,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldSuccess orders ChannelKeyMonitoringEvent by success.
+	ChannelKeyMonitoringEventOrderFieldSuccess = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.Success, nil
+		},
+		column: channelkeymonitoringevent.FieldSuccess,
+		toTerm: channelkeymonitoringevent.BySuccess,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.Success,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldSkipped orders ChannelKeyMonitoringEvent by skipped.
+	ChannelKeyMonitoringEventOrderFieldSkipped = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.Skipped, nil
+		},
+		column: channelkeymonitoringevent.FieldSkipped,
+		toTerm: channelkeymonitoringevent.BySkipped,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.Skipped,
+			}
+		},
+	}
+	// ChannelKeyMonitoringEventOrderFieldCheckedAt orders ChannelKeyMonitoringEvent by checked_at.
+	ChannelKeyMonitoringEventOrderFieldCheckedAt = &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.CheckedAt, nil
+		},
+		column: channelkeymonitoringevent.FieldCheckedAt,
+		toTerm: channelkeymonitoringevent.ByCheckedAt,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{
+				ID:    _m.ID,
+				Value: _m.CheckedAt,
+			}
+		},
+	}
+)
+
+// String implement fmt.Stringer interface.
+func (f ChannelKeyMonitoringEventOrderField) String() string {
+	var str string
+	switch f.column {
+	case ChannelKeyMonitoringEventOrderFieldCreatedAt.column:
+		str = "CREATED_AT"
+	case ChannelKeyMonitoringEventOrderFieldUpdatedAt.column:
+		str = "UPDATED_AT"
+	case ChannelKeyMonitoringEventOrderFieldChannelID.column:
+		str = "CHANNEL_ID"
+	case ChannelKeyMonitoringEventOrderFieldKeyID.column:
+		str = "KEY_ID"
+	case ChannelKeyMonitoringEventOrderFieldRuleID.column:
+		str = "RULE_ID"
+	case ChannelKeyMonitoringEventOrderFieldTrigger.column:
+		str = "TRIGGER"
+	case ChannelKeyMonitoringEventOrderFieldSuccess.column:
+		str = "SUCCESS"
+	case ChannelKeyMonitoringEventOrderFieldSkipped.column:
+		str = "SKIPPED"
+	case ChannelKeyMonitoringEventOrderFieldCheckedAt.column:
+		str = "CHECKED_AT"
+	}
+	return str
+}
+
+// MarshalGQL implements graphql.Marshaler interface.
+func (f ChannelKeyMonitoringEventOrderField) MarshalGQL(w io.Writer) {
+	io.WriteString(w, strconv.Quote(f.String()))
+}
+
+// UnmarshalGQL implements graphql.Unmarshaler interface.
+func (f *ChannelKeyMonitoringEventOrderField) UnmarshalGQL(v interface{}) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("ChannelKeyMonitoringEventOrderField %T must be a string", v)
+	}
+	switch str {
+	case "CREATED_AT":
+		*f = *ChannelKeyMonitoringEventOrderFieldCreatedAt
+	case "UPDATED_AT":
+		*f = *ChannelKeyMonitoringEventOrderFieldUpdatedAt
+	case "CHANNEL_ID":
+		*f = *ChannelKeyMonitoringEventOrderFieldChannelID
+	case "KEY_ID":
+		*f = *ChannelKeyMonitoringEventOrderFieldKeyID
+	case "RULE_ID":
+		*f = *ChannelKeyMonitoringEventOrderFieldRuleID
+	case "TRIGGER":
+		*f = *ChannelKeyMonitoringEventOrderFieldTrigger
+	case "SUCCESS":
+		*f = *ChannelKeyMonitoringEventOrderFieldSuccess
+	case "SKIPPED":
+		*f = *ChannelKeyMonitoringEventOrderFieldSkipped
+	case "CHECKED_AT":
+		*f = *ChannelKeyMonitoringEventOrderFieldCheckedAt
+	default:
+		return fmt.Errorf("%s is not a valid ChannelKeyMonitoringEventOrderField", str)
+	}
+	return nil
+}
+
+// ChannelKeyMonitoringEventOrderField defines the ordering field of ChannelKeyMonitoringEvent.
+type ChannelKeyMonitoringEventOrderField struct {
+	// Value extracts the ordering value from the given ChannelKeyMonitoringEvent.
+	Value    func(*ChannelKeyMonitoringEvent) (ent.Value, error)
+	column   string // field or computed.
+	toTerm   func(...sql.OrderTermOption) channelkeymonitoringevent.OrderOption
+	toCursor func(*ChannelKeyMonitoringEvent) Cursor
+}
+
+// ChannelKeyMonitoringEventOrder defines the ordering of ChannelKeyMonitoringEvent.
+type ChannelKeyMonitoringEventOrder struct {
+	Direction OrderDirection                       `json:"direction"`
+	Field     *ChannelKeyMonitoringEventOrderField `json:"field"`
+}
+
+// DefaultChannelKeyMonitoringEventOrder is the default ordering of ChannelKeyMonitoringEvent.
+var DefaultChannelKeyMonitoringEventOrder = &ChannelKeyMonitoringEventOrder{
+	Direction: entgql.OrderDirectionAsc,
+	Field: &ChannelKeyMonitoringEventOrderField{
+		Value: func(_m *ChannelKeyMonitoringEvent) (ent.Value, error) {
+			return _m.ID, nil
+		},
+		column: channelkeymonitoringevent.FieldID,
+		toTerm: channelkeymonitoringevent.ByID,
+		toCursor: func(_m *ChannelKeyMonitoringEvent) Cursor {
+			return Cursor{ID: _m.ID}
+		},
+	},
+}
+
+// ToEdge converts ChannelKeyMonitoringEvent into ChannelKeyMonitoringEventEdge.
+func (_m *ChannelKeyMonitoringEvent) ToEdge(order *ChannelKeyMonitoringEventOrder) *ChannelKeyMonitoringEventEdge {
+	if order == nil {
+		order = DefaultChannelKeyMonitoringEventOrder
+	}
+	return &ChannelKeyMonitoringEventEdge{
 		Node:   _m,
 		Cursor: order.Field.toCursor(_m),
 	}

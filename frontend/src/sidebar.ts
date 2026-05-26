@@ -7,6 +7,7 @@ import {
   IconShield,
   IconKey,
   IconActivity,
+  IconActivityHeartbeat,
   IconDatabase,
   IconAB2,
   IconBaselineDensityMedium,
@@ -77,6 +78,11 @@ export function useSidebarData(): SidebarData {
           title: t('sidebar.items.channels'),
           url: '/channels',
           icon: IconAi,
+        } as NavLink,
+        {
+          title: t('sidebar.items.monitoring'),
+          url: '/monitoring',
+          icon: IconActivityHeartbeat,
         } as NavLink,
         {
           title: t('sidebar.items.models'),

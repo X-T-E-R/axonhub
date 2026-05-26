@@ -9,6 +9,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/channelkeymonitoringevent"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
@@ -201,6 +202,42 @@ func init() {
 	channelDescEndpoints := channelFields[17].Descriptor()
 	// channel.DefaultEndpoints holds the default value on creation for the endpoints field.
 	channel.DefaultEndpoints = channelDescEndpoints.Default.([]objects.ChannelEndpoint)
+	channelkeymonitoringeventMixin := schema.ChannelKeyMonitoringEvent{}.Mixin()
+	channelkeymonitoringevent.Policy = privacy.NewPolicies(schema.ChannelKeyMonitoringEvent{})
+	channelkeymonitoringevent.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := channelkeymonitoringevent.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	channelkeymonitoringeventMixinFields0 := channelkeymonitoringeventMixin[0].Fields()
+	_ = channelkeymonitoringeventMixinFields0
+	channelkeymonitoringeventFields := schema.ChannelKeyMonitoringEvent{}.Fields()
+	_ = channelkeymonitoringeventFields
+	// channelkeymonitoringeventDescCreatedAt is the schema descriptor for created_at field.
+	channelkeymonitoringeventDescCreatedAt := channelkeymonitoringeventMixinFields0[0].Descriptor()
+	// channelkeymonitoringevent.DefaultCreatedAt holds the default value on creation for the created_at field.
+	channelkeymonitoringevent.DefaultCreatedAt = channelkeymonitoringeventDescCreatedAt.Default.(func() time.Time)
+	// channelkeymonitoringeventDescUpdatedAt is the schema descriptor for updated_at field.
+	channelkeymonitoringeventDescUpdatedAt := channelkeymonitoringeventMixinFields0[1].Descriptor()
+	// channelkeymonitoringevent.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	channelkeymonitoringevent.DefaultUpdatedAt = channelkeymonitoringeventDescUpdatedAt.Default.(func() time.Time)
+	// channelkeymonitoringevent.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	channelkeymonitoringevent.UpdateDefaultUpdatedAt = channelkeymonitoringeventDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// channelkeymonitoringeventDescTrigger is the schema descriptor for trigger field.
+	channelkeymonitoringeventDescTrigger := channelkeymonitoringeventFields[6].Descriptor()
+	// channelkeymonitoringevent.DefaultTrigger holds the default value on creation for the trigger field.
+	channelkeymonitoringevent.DefaultTrigger = channelkeymonitoringeventDescTrigger.Default.(string)
+	// channelkeymonitoringeventDescSuccess is the schema descriptor for success field.
+	channelkeymonitoringeventDescSuccess := channelkeymonitoringeventFields[8].Descriptor()
+	// channelkeymonitoringevent.DefaultSuccess holds the default value on creation for the success field.
+	channelkeymonitoringevent.DefaultSuccess = channelkeymonitoringeventDescSuccess.Default.(bool)
+	// channelkeymonitoringeventDescSkipped is the schema descriptor for skipped field.
+	channelkeymonitoringeventDescSkipped := channelkeymonitoringeventFields[9].Descriptor()
+	// channelkeymonitoringevent.DefaultSkipped holds the default value on creation for the skipped field.
+	channelkeymonitoringevent.DefaultSkipped = channelkeymonitoringeventDescSkipped.Default.(bool)
 	channelmodelpriceMixin := schema.ChannelModelPrice{}.Mixin()
 	channelmodelprice.Policy = privacy.NewPolicies(schema.ChannelModelPrice{})
 	channelmodelprice.Hooks[0] = func(next ent.Mutator) ent.Mutator {
