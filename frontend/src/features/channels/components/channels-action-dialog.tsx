@@ -78,6 +78,7 @@ const isAxonHubChannelType = (channelType?: ChannelType | null) => {
 };
 
 type AxonHubBehaviorPreset = 'lowLatency' | 'standard' | 'audit' | 'fullDebug';
+type AxonHubBehaviorPresetValue = AxonHubBehaviorPreset | 'custom';
 
 type AxonHubBehaviorSettings = {
   passThroughUserAgent: boolean | null;
@@ -130,7 +131,7 @@ const AXONHUB_BEHAVIOR_PRESETS: Record<AxonHubBehaviorPreset, AxonHubBehaviorSet
 
 const AXONHUB_BEHAVIOR_PRESET_OPTIONS = Object.keys(AXONHUB_BEHAVIOR_PRESETS) as AxonHubBehaviorPreset[];
 
-function getAxonHubBehaviorPresetValue(settings: AxonHubBehaviorSettings): AxonHubBehaviorPreset | 'custom' {
+function getAxonHubBehaviorPresetValue(settings: AxonHubBehaviorSettings): AxonHubBehaviorPresetValue {
   const matched = AXONHUB_BEHAVIOR_PRESET_OPTIONS.find((preset) => {
     const presetSettings = AXONHUB_BEHAVIOR_PRESETS[preset];
     return (
@@ -145,6 +146,18 @@ function getAxonHubBehaviorPresetValue(settings: AxonHubBehaviorSettings): AxonH
   });
 
   return matched ?? 'custom';
+}
+
+function getAxonHubBehaviorSettings(settings?: Channel['settings'] | null): AxonHubBehaviorSettings {
+  return {
+    passThroughUserAgent: settings?.passThroughUserAgent ?? null,
+    passThroughBody: settings?.passThroughBody ?? null,
+    disableRetries: settings?.disableRetries ?? false,
+    fullPassThrough: settings?.fullPassThrough ?? false,
+    storeExecutionRequestBody: settings?.storeExecutionRequestBody ?? null,
+    storeExecutionResponseBody: settings?.storeExecutionResponseBody ?? null,
+    storeExecutionStreamChunks: settings?.storeExecutionStreamChunks ?? null,
+  };
 }
 
 // Custom hook for debounced value
@@ -361,22 +374,27 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const [proxyUsername, setProxyUsername] = useState(() => initialRow?.settings?.proxy?.username || '');
   const [proxyPassword, setProxyPassword] = useState(() => initialRow?.settings?.proxy?.password || '');
   const [passThroughUserAgent, setPassThroughUserAgent] = useState<boolean | null>(() => {
-    return initialRow?.settings?.passThroughUserAgent ?? null;
+    return getAxonHubBehaviorSettings(initialRow?.settings).passThroughUserAgent;
   });
   const [passThroughBody, setPassThroughBody] = useState<boolean | null>(() => {
-    return initialRow?.settings?.passThroughBody ?? null;
+    return getAxonHubBehaviorSettings(initialRow?.settings).passThroughBody;
   });
-  const [disableRetries, setDisableRetries] = useState(() => initialRow?.settings?.disableRetries ?? false);
-  const [fullPassThrough, setFullPassThrough] = useState(() => initialRow?.settings?.fullPassThrough ?? false);
+  const [disableRetries, setDisableRetries] = useState(
+    () => getAxonHubBehaviorSettings(initialRow?.settings).disableRetries
+  );
+  const [fullPassThrough, setFullPassThrough] = useState(
+    () => getAxonHubBehaviorSettings(initialRow?.settings).fullPassThrough
+  );
   const [storeExecutionRequestBody, setStoreExecutionRequestBody] = useState<boolean | null>(() => {
-    return initialRow?.settings?.storeExecutionRequestBody ?? null;
+    return getAxonHubBehaviorSettings(initialRow?.settings).storeExecutionRequestBody;
   });
   const [storeExecutionResponseBody, setStoreExecutionResponseBody] = useState<boolean | null>(() => {
-    return initialRow?.settings?.storeExecutionResponseBody ?? null;
+    return getAxonHubBehaviorSettings(initialRow?.settings).storeExecutionResponseBody;
   });
   const [storeExecutionStreamChunks, setStoreExecutionStreamChunks] = useState<boolean | null>(() => {
-    return initialRow?.settings?.storeExecutionStreamChunks ?? null;
+    return getAxonHubBehaviorSettings(initialRow?.settings).storeExecutionStreamChunks;
   });
+  const [forceAxonHubBehaviorCustomPreset, setForceAxonHubBehaviorCustomPreset] = useState(false);
 
   // Memoized proxy config for OAuth exchange
   const proxyConfig: ProxyConfig | undefined = useMemo(() => {
@@ -472,13 +490,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     setUseGeminiVertex(initialRow.type === 'gemini_vertex');
     setUseAnthropicAws(initialRow.type === 'anthropic_aws');
     setUseKimiCoding(initialRow.type === 'moonshot_coding');
-    setPassThroughUserAgent(initialRow.settings?.passThroughUserAgent ?? null);
-    setPassThroughBody(initialRow.settings?.passThroughBody ?? null);
-    setDisableRetries(initialRow.settings?.disableRetries ?? false);
-    setFullPassThrough(initialRow.settings?.fullPassThrough ?? false);
-    setStoreExecutionRequestBody(initialRow.settings?.storeExecutionRequestBody ?? null);
-    setStoreExecutionResponseBody(initialRow.settings?.storeExecutionResponseBody ?? null);
-    setStoreExecutionStreamChunks(initialRow.settings?.storeExecutionStreamChunks ?? null);
+    const axonHubBehaviorSettings = getAxonHubBehaviorSettings(initialRow.settings);
+    setPassThroughUserAgent(axonHubBehaviorSettings.passThroughUserAgent);
+    setPassThroughBody(axonHubBehaviorSettings.passThroughBody);
+    setDisableRetries(axonHubBehaviorSettings.disableRetries);
+    setFullPassThrough(axonHubBehaviorSettings.fullPassThrough);
+    setStoreExecutionRequestBody(axonHubBehaviorSettings.storeExecutionRequestBody);
+    setStoreExecutionResponseBody(axonHubBehaviorSettings.storeExecutionResponseBody);
+    setStoreExecutionStreamChunks(axonHubBehaviorSettings.storeExecutionStreamChunks);
+    setForceAxonHubBehaviorCustomPreset(false);
 
     // Detect authMode for codex and claudecode
     if (initialRow.type === 'codex') {
@@ -700,8 +720,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const isClaudeCodeType = (selectedType || derivedChannelType) === 'claudecode';
   const isCopilotType = (selectedType || derivedChannelType) === 'github_copilot';
   const isAxonHubType = isAxonHubChannelType(selectedType || derivedChannelType);
-
-  const axonHubBehaviorPresetValue = useMemo(
+  const derivedAxonHubBehaviorPresetValue = useMemo(
     () =>
       getAxonHubBehaviorPresetValue({
         passThroughUserAgent,
@@ -722,9 +741,14 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       storeExecutionStreamChunks,
     ]
   );
+  const axonHubBehaviorPresetValue: AxonHubBehaviorPresetValue =
+    forceAxonHubBehaviorCustomPreset && derivedAxonHubBehaviorPresetValue !== 'custom'
+      ? 'custom'
+      : derivedAxonHubBehaviorPresetValue;
 
   const applyAxonHubBehaviorPreset = useCallback((preset: AxonHubBehaviorPreset) => {
     const presetSettings = AXONHUB_BEHAVIOR_PRESETS[preset];
+    setForceAxonHubBehaviorCustomPreset(false);
     setPassThroughUserAgent(presetSettings.passThroughUserAgent);
     setPassThroughBody(presetSettings.passThroughBody);
     setDisableRetries(presetSettings.disableRetries);
@@ -733,6 +757,37 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     setStoreExecutionResponseBody(presetSettings.storeExecutionResponseBody);
     setStoreExecutionStreamChunks(presetSettings.storeExecutionStreamChunks);
   }, []);
+
+  const markAxonHubBehaviorCustom = useCallback(() => {
+    setForceAxonHubBehaviorCustomPreset(true);
+  }, []);
+
+  const handleAxonHubBehaviorPresetChange = useCallback(
+    (value: AxonHubBehaviorPresetValue) => {
+      if (value === 'custom') {
+        markAxonHubBehaviorCustom();
+        return;
+      }
+      applyAxonHubBehaviorPreset(value);
+    },
+    [applyAxonHubBehaviorPreset, markAxonHubBehaviorCustom]
+  );
+
+  const handleAxonHubTriStateChange = useCallback(
+    (setter: (value: boolean | null) => void, value: string) => {
+      markAxonHubBehaviorCustom();
+      setter(value === 'inherit' ? null : value === 'enabled');
+    },
+    [markAxonHubBehaviorCustom]
+  );
+
+  const handleAxonHubBooleanChange = useCallback(
+    (setter: (value: boolean) => void, checked: boolean | 'indeterminate') => {
+      markAxonHubBehaviorCustom();
+      setter(checked === true);
+    },
+    [markAxonHubBehaviorCustom]
+  );
 
   // OAuth providers cannot have their provider/API format changed during edit.
   // Derived from currentRow credentials so it stays stable across re-renders
@@ -1567,13 +1622,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             setProxyUrl(initialRow?.settings?.proxy?.url || '');
             setProxyUsername(initialRow?.settings?.proxy?.username || '');
             setProxyPassword(initialRow?.settings?.proxy?.password || '');
-            setPassThroughUserAgent(initialRow?.settings?.passThroughUserAgent ?? null);
-            setPassThroughBody(initialRow?.settings?.passThroughBody ?? null);
-            setDisableRetries(initialRow?.settings?.disableRetries ?? false);
-            setFullPassThrough(initialRow?.settings?.fullPassThrough ?? false);
-            setStoreExecutionRequestBody(initialRow?.settings?.storeExecutionRequestBody ?? null);
-            setStoreExecutionResponseBody(initialRow?.settings?.storeExecutionResponseBody ?? null);
-            setStoreExecutionStreamChunks(initialRow?.settings?.storeExecutionStreamChunks ?? null);
+            const axonHubBehaviorSettings = getAxonHubBehaviorSettings(initialRow?.settings);
+            setPassThroughUserAgent(axonHubBehaviorSettings.passThroughUserAgent);
+            setPassThroughBody(axonHubBehaviorSettings.passThroughBody);
+            setDisableRetries(axonHubBehaviorSettings.disableRetries);
+            setFullPassThrough(axonHubBehaviorSettings.fullPassThrough);
+            setStoreExecutionRequestBody(axonHubBehaviorSettings.storeExecutionRequestBody);
+            setStoreExecutionResponseBody(axonHubBehaviorSettings.storeExecutionResponseBody);
+            setStoreExecutionStreamChunks(axonHubBehaviorSettings.storeExecutionStreamChunks);
+            setForceAxonHubBehaviorCustomPreset(false);
             // Reset provider and API format state
             if (initialRow) {
               setSelectedProvider(getProviderFromChannelType(initialRow.type) || 'openai');
@@ -2523,11 +2580,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 <FormLabel className='text-sm'>{t('channels.dialogs.axonHubBehavior.preset.label')}</FormLabel>
                                 <Select
                                   value={axonHubBehaviorPresetValue}
-                                  onValueChange={(value) => {
-                                    if (value !== 'custom') {
-                                      applyAxonHubBehaviorPreset(value as AxonHubBehaviorPreset);
-                                    }
-                                  }}
+                                  onValueChange={(value) => handleAxonHubBehaviorPresetChange(value as AxonHubBehaviorPresetValue)}
                                 >
                                   <SelectTrigger>
                                     <SelectValue />
@@ -2551,7 +2604,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                   <FormLabel className='text-sm'>{t('channels.dialogs.bodyPassThrough.label')}</FormLabel>
                                   <Select
                                     value={passThroughBody === null ? 'inherit' : passThroughBody ? 'enabled' : 'disabled'}
-                                    onValueChange={(value) => setPassThroughBody(value === 'inherit' ? null : value === 'enabled')}
+                                    onValueChange={(value) => handleAxonHubTriStateChange(setPassThroughBody, value)}
                                   >
                                     <SelectTrigger>
                                       <SelectValue placeholder={t('channels.dialogs.bodyPassThrough.inherit')} />
@@ -2568,7 +2621,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                   <FormLabel className='text-sm'>{t('channels.dialogs.userAgentPassThrough.label')}</FormLabel>
                                   <Select
                                     value={passThroughUserAgent === null ? 'inherit' : passThroughUserAgent ? 'enabled' : 'disabled'}
-                                    onValueChange={(value) => setPassThroughUserAgent(value === 'inherit' ? null : value === 'enabled')}
+                                    onValueChange={(value) => handleAxonHubTriStateChange(setPassThroughUserAgent, value)}
                                   >
                                     <SelectTrigger>
                                       <SelectValue placeholder={t('channels.dialogs.userAgentPassThrough.inherit')} />
@@ -2602,7 +2655,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                             : 'disabled'
                                       }
                                       onValueChange={(value) =>
-                                        setStoreExecutionRequestBody(value === 'inherit' ? null : value === 'enabled')
+                                        handleAxonHubTriStateChange(setStoreExecutionRequestBody, value)
                                       }
                                     >
                                       <SelectTrigger>
@@ -2632,7 +2685,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                             : 'disabled'
                                       }
                                       onValueChange={(value) =>
-                                        setStoreExecutionResponseBody(value === 'inherit' ? null : value === 'enabled')
+                                        handleAxonHubTriStateChange(setStoreExecutionResponseBody, value)
                                       }
                                     >
                                       <SelectTrigger>
@@ -2662,7 +2715,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                             : 'disabled'
                                       }
                                       onValueChange={(value) =>
-                                        setStoreExecutionStreamChunks(value === 'inherit' ? null : value === 'enabled')
+                                        handleAxonHubTriStateChange(setStoreExecutionStreamChunks, value)
                                       }
                                     >
                                       <SelectTrigger>
@@ -2685,7 +2738,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 <label className='flex items-start gap-2'>
                                   <Checkbox
                                     checked={fullPassThrough}
-                                    onCheckedChange={(checked) => setFullPassThrough(checked === true)}
+                                    onCheckedChange={(checked) => handleAxonHubBooleanChange(setFullPassThrough, checked)}
                                     className='mt-1'
                                   />
                                   <span className='space-y-1'>
@@ -2697,7 +2750,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 <label className='flex items-start gap-2'>
                                   <Checkbox
                                     checked={disableRetries}
-                                    onCheckedChange={(checked) => setDisableRetries(checked === true)}
+                                    onCheckedChange={(checked) => handleAxonHubBooleanChange(setDisableRetries, checked)}
                                     className='mt-1'
                                   />
                                   <span className='space-y-1'>
