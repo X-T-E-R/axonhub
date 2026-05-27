@@ -83,6 +83,9 @@ type Channel struct {
 	// apiKeyOverride, if non-empty, forces all outbound transformers to use this key
 	// instead of the channel's normal key selection. Used by the channel key test flow.
 	apiKeyOverride string
+
+	// globalKeySelection is the system default used when a channel follows global key routing.
+	globalKeySelection *objects.ChannelKeySelection
 }
 
 type ChannelServiceParams struct {

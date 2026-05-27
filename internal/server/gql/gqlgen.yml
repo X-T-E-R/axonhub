@@ -853,6 +853,12 @@ models:
   UpdateChannelActionMenuSettingInput:
     model:
       - github.com/looplj/axonhub/internal/server/biz.ChannelActionMenuSetting
+  ChannelKeyRoutingSetting:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelKeyRoutingSetting
+  UpdateChannelKeyRoutingSettingInput:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelKeyRoutingSetting
   ChannelAdvancedActionMenuMode:
     model:
       - github.com/looplj/axonhub/internal/server/biz.ChannelAdvancedActionMenuMode

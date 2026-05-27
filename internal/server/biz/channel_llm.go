@@ -161,8 +161,8 @@ func getAPIKeyProvider(ch *Channel) auth.APIKeyProvider {
 	enabled := ch.cachedEnabledAPIKeys
 	if len(enabled) > 1 {
 		strategy := objects.ChannelKeySelectionStrategyTraceSticky
-		if ch.Settings != nil && ch.Settings.KeySelection != nil {
-			strategy = ch.Settings.KeySelection.StrategyOrDefault()
+		if keySelection := channelKeySelectionForProvider(ch); keySelection != nil {
+			strategy = keySelection.StrategyOrDefault()
 		}
 
 		switch strategy {
@@ -518,6 +518,12 @@ func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel, apiKeyOve
 	ch := buildChannel(c, httpClient)
 	if len(apiKeyOverride) > 0 {
 		ch.apiKeyOverride = apiKeyOverride[0]
+	}
+
+	if svc.SystemService != nil {
+		ch.globalKeySelection = svc.SystemService.ChannelSettingOrDefault(context.Background()).Routing.ToKeySelection()
+	} else {
+		ch.globalKeySelection = defaultChannelSetting.Routing.ToKeySelection()
 	}
 
 	switch c.Type {

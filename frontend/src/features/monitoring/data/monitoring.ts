@@ -14,17 +14,55 @@ import {
   type FailurePolicyProfile,
 } from '@/features/channels/data/schema';
 
-const monitoringNumber = (fallback: number, min = 0) => z.preprocess((value) => value ?? fallback, z.number().int().min(min));
+const monitoringNumber = (fallback: number, min = 0) =>
+  z.preprocess((value) => (value === '' || value == null ? fallback : value), z.coerce.number().int().min(min).catch(fallback));
+
+function pickAlias(record: Record<string, unknown>, camel: string, snake: string, fallback: unknown) {
+  return record[camel] ?? record[snake] ?? fallback;
+}
+
+function normalizeMonitoringScheduleInput(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    intervalMinutes: pickAlias(record, 'intervalMinutes', 'interval_minutes', 60),
+    historyLimit: pickAlias(record, 'historyLimit', 'history_limit', 100),
+    maxChannels: pickAlias(record, 'maxChannels', 'max_channels', 4),
+    maxKeysPerChannel: pickAlias(record, 'maxKeysPerChannel', 'max_keys_per_channel', 8),
+    keySpacingMs: pickAlias(record, 'keySpacingMs', 'key_spacing_ms', 1000),
+    jitterMs: pickAlias(record, 'jitterMs', 'jitter_ms', 250),
+  };
+}
+
+function normalizeMonitoringTargetsInput(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    channelIDs: pickAlias(record, 'channelIDs', 'channel_ids', []),
+    channelStatuses: pickAlias(record, 'channelStatuses', 'channel_statuses', ['enabled']),
+    keyStatuses: pickAlias(record, 'keyStatuses', 'key_statuses', ['active']),
+    includeBackoff: pickAlias(record, 'includeBackoff', 'include_backoff', false),
+  };
+}
 
 export const monitoringRuleScheduleSchema = z
-  .object({
-    intervalMinutes: monitoringNumber(60, 1),
-    historyLimit: monitoringNumber(100, 1),
-    maxChannels: monitoringNumber(4, 0),
-    maxKeysPerChannel: monitoringNumber(8, 0),
-    keySpacingMs: monitoringNumber(1000, 0),
-    jitterMs: monitoringNumber(250, 0),
-  })
+  .preprocess(
+    normalizeMonitoringScheduleInput,
+    z.object({
+      intervalMinutes: monitoringNumber(60, 1),
+      historyLimit: monitoringNumber(100, 1),
+      maxChannels: monitoringNumber(4, 0),
+      maxKeysPerChannel: monitoringNumber(8, 0),
+      keySpacingMs: monitoringNumber(1000, 0),
+      jitterMs: monitoringNumber(250, 0),
+    })
+  )
   .default({
     intervalMinutes: 60,
     historyLimit: 100,
@@ -35,12 +73,15 @@ export const monitoringRuleScheduleSchema = z
   });
 
 export const monitoringRuleTargetsSchema = z
-  .object({
-    channelIDs: z.preprocess((value) => value ?? [], z.array(z.number().int())),
-    channelStatuses: z.preprocess((value) => value ?? ['enabled'], z.array(z.string())),
-    keyStatuses: z.preprocess((value) => value ?? ['active'], z.array(channelKeyStatusSchema)),
-    includeBackoff: z.preprocess((value) => value ?? false, z.boolean()),
-  })
+  .preprocess(
+    normalizeMonitoringTargetsInput,
+    z.object({
+      channelIDs: z.preprocess((value) => value ?? [], z.array(z.number().int())),
+      channelStatuses: z.preprocess((value) => value ?? ['enabled'], z.array(z.string())),
+      keyStatuses: z.preprocess((value) => value ?? ['active'], z.array(channelKeyStatusSchema)),
+      includeBackoff: z.preprocess((value) => value ?? false, z.boolean()),
+    })
+  )
   .default({
     channelIDs: [],
     channelStatuses: ['enabled'],

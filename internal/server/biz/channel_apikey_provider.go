@@ -160,8 +160,12 @@ func (p *CacheAffinityKeyProvider) Get(ctx context.Context) string {
 }
 
 func channelKeySelectionForProvider(channel *Channel) *objects.ChannelKeySelection {
-	if channel == nil || channel.Settings == nil || channel.Settings.KeySelection == nil {
+	if channel == nil {
 		return nil
+	}
+
+	if channel.Settings == nil || channel.Settings.KeySelection == nil || channel.Settings.KeySelection.Strategy == "" {
+		return channel.globalKeySelection
 	}
 
 	return channel.Settings.KeySelection

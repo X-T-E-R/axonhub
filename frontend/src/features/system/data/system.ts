@@ -946,6 +946,11 @@ const CHANNEL_SETTINGS_QUERY = `
       actionMenu {
         advancedActionsMode
       }
+      routing {
+        strategy
+        likelyAffinityTTLMinutes
+        exactAffinityTTLMinutes
+      }
     }
   }
 `;
@@ -1067,6 +1072,7 @@ export type ProbeFrequency = 'ONE_MINUTE' | 'FIVE_MINUTES' | 'THIRTY_MINUTES' | 
 export type AutoSyncFrequency = 'ONE_HOUR' | 'SIX_HOURS' | 'ONE_DAY';
 
 export type ChannelAdvancedActionMenuMode = 'GROUPED' | 'EXPANDED';
+export type ChannelKeySelectionStrategy = 'trace_sticky' | 'cache_affinity' | 'random' | 'round_robin';
 
 export interface ChannelProbeSetting {
   enabled: boolean;
@@ -1081,10 +1087,17 @@ export interface ChannelActionMenuSetting {
   advancedActionsMode: ChannelAdvancedActionMenuMode;
 }
 
+export interface ChannelKeyRoutingSetting {
+  strategy: ChannelKeySelectionStrategy;
+  likelyAffinityTTLMinutes?: number | null;
+  exactAffinityTTLMinutes?: number | null;
+}
+
 export interface ChannelSetting {
   probe: ChannelProbeSetting;
   autoSync: ChannelModelAutoSyncSetting;
   actionMenu: ChannelActionMenuSetting;
+  routing: ChannelKeyRoutingSetting;
 }
 
 export interface UpdateChannelProbeSettingInput {
@@ -1100,10 +1113,17 @@ export interface UpdateChannelActionMenuSettingInput {
   advancedActionsMode?: ChannelAdvancedActionMenuMode;
 }
 
+export interface UpdateChannelKeyRoutingSettingInput {
+  strategy: ChannelKeySelectionStrategy;
+  likelyAffinityTTLMinutes?: number | null;
+  exactAffinityTTLMinutes?: number | null;
+}
+
 export interface UpdateSystemChannelSettingsInput {
   probe?: UpdateChannelProbeSettingInput;
   autoSync?: UpdateChannelModelAutoSyncSettingInput;
   actionMenu?: UpdateChannelActionMenuSettingInput;
+  routing?: UpdateChannelKeyRoutingSettingInput;
 }
 
 export function useChannelSetting() {

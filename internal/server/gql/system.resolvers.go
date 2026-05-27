@@ -151,10 +151,18 @@ func (r *mutationResolver) UpdateSystemChannelSettings(ctx context.Context, inpu
 	if input.ActionMenu.AdvancedActionsMode != "" {
 		setting.ActionMenu = input.ActionMenu
 	}
+	if input.Routing.Strategy != "" {
+		setting.Routing = input.Routing
+	}
 
 	err := r.systemService.SetChannelSetting(ctx, setting)
 	if err != nil {
 		return false, fmt.Errorf("failed to update channel setting: %w", err)
+	}
+	if input.Routing.Strategy != "" && r.channelService != nil {
+		if err := r.channelService.ReloadEnabledChannelsCache(ctx); err != nil {
+			return false, fmt.Errorf("failed to reload enabled channels after updating key routing: %w", err)
+		}
 	}
 
 	return true, nil

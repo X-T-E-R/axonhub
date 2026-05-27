@@ -3,22 +3,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
 import { format } from 'date-fns';
-import { useFieldArray, useForm, type Resolver, type UseFormReturn } from 'react-hook-form';
+import { useForm, type Resolver, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   IconArchive,
   IconAlertTriangle,
   IconChartLine,
-  IconChevronDown,
-  IconChevronUp,
   IconCircleCheck,
   IconCircleX,
-  IconDatabase,
   IconEye,
   IconKey,
   IconKeyOff,
   IconLoader2,
-  IconPlus,
   IconPlayerPlay,
   IconRefresh,
   IconRestore,
@@ -35,7 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -43,7 +39,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
+import { useChannelSetting } from '@/features/system/data/system';
 import {
   useAddChannelAPIKey,
   useArchiveChannelAPIKey,
@@ -59,18 +55,23 @@ import {
   Channel,
   ChannelAPIKeyInventoryItem,
   ChannelBalanceProbe,
-  ChannelFailurePolicy,
   ChannelKeyBalanceSnapshot,
-  ChannelFailurePolicyMode,
-  FailurePolicyActionType,
-  FailurePolicyEventSource,
   ChannelKeyHealthCheck,
   ChannelKeyHealthCheckHTTPRule,
   ChannelKeyHealthCheckHistoryEntry,
   ChannelAPIKeyHealthCheckMode,
   channelKeySelectionStrategySchema,
+  type ChannelKeySelectionStrategy,
 } from '../data/schema';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
+import {
+  FailurePolicyEditor,
+  failurePolicyFormSchema,
+  failurePolicyFromValues,
+  failurePolicyValuesFromLegacyHealth,
+  failurePolicyValuesFromStored,
+} from './channels-key-failure-policy-panel';
+import { DEFAULT_EXACT_AFFINITY_TTL_MINUTES, DEFAULT_LIKELY_AFFINITY_TTL_MINUTES, KeyRoutingPanel } from './channels-key-routing-panel';
 
 interface Props {
   open: boolean;
@@ -103,8 +104,6 @@ interface KeyInventoryRow {
 type BatchKeyAction = 'health' | 'disable' | 'enable' | 'archive' | 'restore' | 'delete';
 const KEY_STATUS_FILTERS: KeyInventoryStatus[] = ['active', 'disabled', 'archived'];
 const DEFAULT_KEY_STATUS_FILTERS: KeyInventoryStatus[] = ['active', 'disabled'];
-type FailurePolicyTarget = 'key' | 'channel';
-type AvailabilityConditionMode = 'any' | 'available' | 'unavailable';
 type KeyHistoryTooltipProps = TooltipProps<number, string> & {
   label?: string | number;
   payload?: Array<{
@@ -123,58 +122,8 @@ type BalanceSummary = {
   keyCount: number;
 };
 
-const nullableIntField = (min: number, max: number) =>
-  z.preprocess((value) => (value === '' || value == null ? null : value), z.coerce.number().int().min(min).max(max).nullable());
-const nullableNumberField = z.preprocess((value) => (value === '' || value == null ? null : value), z.coerce.number().nullable());
-
-const failureProfileFormSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  enabled: z.boolean(),
-  sources: z
-    .array(
-      z.enum([
-        'request_failure',
-        'scheduled_health_check',
-        'manual_health_check',
-        'scheduled_health_check_failure',
-        'manual_health_check_failure',
-        'scheduled_balance_probe',
-        'scheduled_balance_probe_failure',
-        'manual_balance_probe',
-        'manual_balance_probe_failure',
-      ])
-    )
-    .min(1),
-  minFailureCount: nullableIntField(1, 100),
-  statusCodes: z.string().optional(),
-  availability: z.enum(['any', 'available', 'unavailable']),
-  balanceLTE: nullableNumberField,
-  reasonContains: z.string().optional(),
-  allCheckedKeysFailed: z.boolean(),
-  expr: z.string().optional(),
-  actions: z.array(
-    z.object({
-      type: z.enum([
-        'report_only',
-        'backoff_key',
-        'disable_key',
-        'archive_key',
-        'delete_key',
-        'disable_channel',
-        'enable_key',
-        'restore_key',
-      ]),
-      backoffMode: z.enum(['fixed', 'exponential']),
-      intervalMinutes: z.coerce.number().int().min(1).max(10080),
-      maxIntervalMinutes: z.coerce.number().int().min(1).max(10080),
-      multiplier: z.coerce.number().min(1).max(20),
-    })
-  ),
-});
-
 const keysFormSchema = z.object({
-  strategy: channelKeySelectionStrategySchema,
+  strategy: z.union([z.literal('inherit'), channelKeySelectionStrategySchema]),
   likelyAffinityTTLMinutes: z.coerce.number().int().min(1).max(1440),
   exactAffinityTTLMinutes: z.coerce.number().int().min(1).max(10080),
   newKey: z.string().optional(),
@@ -205,44 +154,12 @@ const keysFormSchema = z.object({
     keyInjectionLocation: z.enum(['authorization_bearer', 'header']),
     keyInjectionHeaderName: z.string().optional(),
   }),
-  failurePolicy: z.object({
-    mode: z.enum(['inherit', 'override', 'merge', 'disabled']),
-    keyProfiles: z.array(failureProfileFormSchema),
-    channelProfiles: z.array(failureProfileFormSchema),
-  }),
+  failurePolicy: failurePolicyFormSchema,
 });
 
 type KeysFormValues = z.output<typeof keysFormSchema>;
-type FailureProfileFormValue = KeysFormValues['failurePolicy']['keyProfiles'][number];
-type FailureActionFormValue = FailureProfileFormValue['actions'][number];
 const keysFormResolver = zodResolver(keysFormSchema) as unknown as Resolver<KeysFormValues, unknown, KeysFormValues>;
 
-const DEFAULT_STRATEGY: KeysFormValues['strategy'] = 'trace_sticky';
-const DEFAULT_LIKELY_AFFINITY_TTL_MINUTES = 30;
-const DEFAULT_EXACT_AFFINITY_TTL_MINUTES = 1440;
-const STRATEGIES: KeysFormValues['strategy'][] = ['trace_sticky', 'cache_affinity', 'random', 'round_robin'];
-const FAILURE_POLICY_MODES: ChannelFailurePolicyMode[] = ['inherit', 'override', 'merge', 'disabled'];
-const FAILURE_EVENT_SOURCES: FailurePolicyEventSource[] = [
-  'request_failure',
-  'scheduled_health_check',
-  'manual_health_check',
-  'scheduled_health_check_failure',
-  'manual_health_check_failure',
-  'scheduled_balance_probe',
-  'scheduled_balance_probe_failure',
-  'manual_balance_probe',
-  'manual_balance_probe_failure',
-];
-const KEY_FAILURE_ACTIONS: FailurePolicyActionType[] = [
-  'report_only',
-  'backoff_key',
-  'disable_key',
-  'archive_key',
-  'delete_key',
-  'enable_key',
-  'restore_key',
-];
-const CHANNEL_FAILURE_ACTIONS: FailurePolicyActionType[] = ['report_only', 'disable_channel'];
 const BALANCE_PROBE_PRESETS = [
   'deepseek_balance',
   'siliconflow_user_info',
@@ -501,168 +418,11 @@ function defaultManualTestModeForChannel(channel: Channel): ChannelAPIKeyHealthC
   return channelSupportsManualBalanceProbe(channel) ? 'balance_probe' : 'real_request';
 }
 
-function createDefaultProfile(index: number, target: FailurePolicyTarget): FailureProfileFormValue {
-  return {
-    id: `${target}-policy-${Date.now()}-${index + 1}`,
-    name: `${target === 'key' ? 'Key' : 'Channel'} policy ${index + 1}`,
-    enabled: true,
-    sources:
-      target === 'key' ? ['request_failure', 'scheduled_health_check_failure', 'scheduled_balance_probe_failure'] : ['request_failure'],
-    minFailureCount: 3,
-    statusCodes: '',
-    availability: 'any',
-    balanceLTE: null,
-    reasonContains: '',
-    allCheckedKeysFailed: false,
-    expr: '',
-    actions: [
-      {
-        type: 'report_only' as const,
-        backoffMode: 'fixed',
-        intervalMinutes: 30,
-        maxIntervalMinutes: 240,
-        multiplier: 2,
-      },
-    ],
-  };
-}
-
-function createDefaultAction(target: FailurePolicyTarget): FailureActionFormValue {
-  return {
-    type: target === 'key' ? 'report_only' : 'report_only',
-    backoffMode: 'fixed',
-    intervalMinutes: 30,
-    maxIntervalMinutes: 240,
-    multiplier: 2,
-  };
-}
-
 function parseStatusList(input: string): number[] {
   return input
     .split(',')
     .map((item) => Number(item.trim()))
     .filter((item) => Number.isInteger(item) && item >= 100 && item <= 599);
-}
-
-function toProfileFormValue(
-  profile: NonNullable<ChannelFailurePolicy['keyProfiles']>[number],
-  index: number,
-  target: FailurePolicyTarget,
-  sourcesFallback: FailurePolicyEventSource[]
-): FailureProfileFormValue {
-  const allowedActions = target === 'key' ? KEY_FAILURE_ACTIONS : CHANNEL_FAILURE_ACTIONS;
-  const actions =
-    profile.actions
-      ?.filter((action) => allowedActions.includes(action.type))
-      .map((action) => ({
-        type: action.type,
-        backoffMode: action.backoff?.mode ?? 'fixed',
-        intervalMinutes: positiveOrDefault(action.backoff?.intervalMinutes, 30),
-        maxIntervalMinutes: positiveOrDefault(action.backoff?.maxIntervalMinutes, 240),
-        multiplier: positiveOrDefault(action.backoff?.multiplier, 2),
-      })) ?? [];
-
-  return {
-    id: profile.id || `${target}-policy-${index + 1}`,
-    name: profile.name || `${target === 'key' ? 'Key' : 'Channel'} policy ${index + 1}`,
-    enabled: profile.enabled ?? true,
-    sources: profile.sources && profile.sources.length > 0 ? profile.sources : sourcesFallback,
-    minFailureCount: profile.conditions?.minFailureCount ?? null,
-    statusCodes: (profile.conditions?.statusCodes ?? []).join(', '),
-    availability: profile.conditions?.available == null ? 'any' : profile.conditions.available ? 'available' : 'unavailable',
-    balanceLTE: profile.conditions?.balanceLTE ?? null,
-    reasonContains: profile.conditions?.reasonContains ?? '',
-    allCheckedKeysFailed: profile.conditions?.allCheckedKeysFailed ?? false,
-    expr: profile.conditions?.expr ?? '',
-    actions: actions.length > 0 ? actions : [createDefaultAction(target)],
-  };
-}
-
-function failurePolicyValuesFromStored(policy?: ChannelFailurePolicy | null): KeysFormValues['failurePolicy'] {
-  return {
-    mode: policy?.mode ?? 'inherit',
-    keyProfiles: (policy?.keyProfiles ?? []).map((profile, index) =>
-      toProfileFormValue(profile, index, 'key', ['request_failure', 'scheduled_health_check_failure'])
-    ),
-    channelProfiles: (policy?.channelProfiles ?? []).map((profile, index) =>
-      toProfileFormValue(profile, index, 'channel', ['request_failure'])
-    ),
-  };
-}
-
-function mapLegacyHealthActionType(type: string): FailurePolicyActionType | null {
-  if (type === 'backoff') return 'backoff_key';
-  if (type === 'report_only') return 'report_only';
-  if (type === 'disable_key' || type === 'archive_key' || type === 'delete_key' || type === 'disable_channel') return type;
-  return null;
-}
-
-function failurePolicyValuesFromLegacyHealth(health?: ChannelKeyHealthCheck | null): KeysFormValues['failurePolicy'] {
-  const keyProfiles: FailureProfileFormValue[] = [];
-  const channelProfiles: FailureProfileFormValue[] = [];
-  const legacySources: FailurePolicyEventSource[] = ['scheduled_health_check_failure', 'manual_health_check_failure'];
-
-  (health?.policies ?? []).forEach((policy, index) => {
-    const legacyProfile = {
-      id: policy.id,
-      name: policy.name,
-      enabled: policy.enabled,
-      sources: legacySources,
-      conditions: policy.conditions,
-      actions: (policy.actions ?? [])
-        .map((action) => {
-          const type = mapLegacyHealthActionType(action.type);
-          return type
-            ? {
-                type,
-                backoff: type === 'backoff_key' ? action.backoff : null,
-              }
-            : null;
-        })
-        .filter((action): action is NonNullable<typeof action> => action != null),
-    };
-
-    const keyProfile = toProfileFormValue(legacyProfile, index, 'key', legacySources);
-
-    if (keyProfile.actions.some((action) => KEY_FAILURE_ACTIONS.includes(action.type))) {
-      keyProfiles.push({
-        ...keyProfile,
-        actions: keyProfile.actions.filter((action) => KEY_FAILURE_ACTIONS.includes(action.type)),
-      });
-    }
-
-    if ((policy.actions ?? []).some((action) => action.type === 'disable_channel') || policy.conditions?.allCheckedKeysFailed) {
-      const channelProfile = toProfileFormValue(legacyProfile, index, 'channel', legacySources);
-      channelProfiles.push({
-        ...channelProfile,
-        id: `${channelProfile.id}-channel`,
-        name: `${channelProfile.name} (channel)`,
-        actions: channelProfile.actions.filter((action) => CHANNEL_FAILURE_ACTIONS.includes(action.type)),
-      });
-    }
-  });
-
-  if (health?.failureAction && health.failureAction !== 'report_only') {
-    keyProfiles.push({
-      ...createDefaultProfile(keyProfiles.length, 'key'),
-      id: 'legacy-health-threshold',
-      name: 'Legacy health-check threshold',
-      sources: legacySources,
-      minFailureCount: health.failureThreshold ?? 3,
-      actions: [
-        {
-          ...createDefaultAction('key'),
-          type: health.failureAction === 'disable' ? 'disable_key' : health.failureAction === 'archive' ? 'archive_key' : 'delete_key',
-        },
-      ],
-    });
-  }
-
-  return {
-    mode: 'merge',
-    keyProfiles,
-    channelProfiles: channelProfiles.filter((profile) => profile.actions.length > 0),
-  };
 }
 
 function valuesFromChannel(currentRow: Channel): KeysFormValues {
@@ -685,7 +445,7 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
   const deepseekUseAbsoluteURL = deepseekRule ? deepseekRule.http?.urlMode === 'absolute_url' : DEFAULT_HEALTH_CHECK.deepseekUseAbsoluteURL;
 
   return {
-    strategy: currentRow.settings?.keySelection?.strategy ?? DEFAULT_STRATEGY,
+    strategy: currentRow.settings?.keySelection?.strategy ?? 'inherit',
     likelyAffinityTTLMinutes: currentRow.settings?.keySelection?.likelyAffinityTTLMinutes ?? DEFAULT_LIKELY_AFFINITY_TTL_MINUTES,
     exactAffinityTTLMinutes: currentRow.settings?.keySelection?.exactAffinityTTLMinutes ?? DEFAULT_EXACT_AFFINITY_TTL_MINUTES,
     newKey: '',
@@ -812,44 +572,6 @@ function healthCheckFromValues(values: KeysFormValues): ChannelKeyHealthCheck {
     includeDisabled: values.healthCheck.includeDisabled,
     rules,
     policies: [],
-  };
-}
-
-function failurePolicyFromValues(values: KeysFormValues): ChannelFailurePolicy {
-  const toStoredProfile = (policy: FailureProfileFormValue, target: FailurePolicyTarget) => ({
-    id: policy.id,
-    name: policy.name,
-    enabled: policy.enabled,
-    sources: policy.sources,
-    conditions: {
-      minFailureCount: policy.minFailureCount ?? null,
-      statusCodes: parseStatusList(policy.statusCodes ?? ''),
-      available: policy.availability === 'any' ? null : policy.availability === 'available',
-      balanceLTE: policy.balanceLTE ?? null,
-      reasonContains: policy.reasonContains?.trim() || null,
-      allCheckedKeysFailed: policy.allCheckedKeysFailed || null,
-      expr: policy.expr?.trim() || null,
-    },
-    actions: policy.actions
-      .filter((action) => (target === 'key' ? KEY_FAILURE_ACTIONS : CHANNEL_FAILURE_ACTIONS).includes(action.type))
-      .map((action) => ({
-        type: action.type,
-        backoff:
-          action.type === 'backoff_key'
-            ? {
-                mode: action.backoffMode,
-                intervalMinutes: action.intervalMinutes,
-                maxIntervalMinutes: action.maxIntervalMinutes,
-                multiplier: action.multiplier,
-              }
-            : null,
-      })),
-  });
-
-  return {
-    mode: values.failurePolicy.mode,
-    keyProfiles: values.failurePolicy.keyProfiles.map((profile) => toStoredProfile(profile, 'key')),
-    channelProfiles: values.failurePolicy.channelProfiles.map((profile) => toStoredProfile(profile, 'channel')),
   };
 }
 
@@ -1116,6 +838,15 @@ function healthTone(success?: boolean | null): { textClass: string; badgeVariant
 
 function formatPolicyAction(action?: string | null): string {
   return action?.replaceAll('_', ' ') || '-';
+}
+
+type KeyHistoryListEntry = {
+  key: KeyInventoryRow;
+  entry: ChannelKeyHealthCheckHistoryEntry;
+};
+
+function isRequestFailureHistory(entry: ChannelKeyHealthCheckHistoryEntry): boolean {
+  return entry.trigger === 'request' || !!entry.matchedPolicy || !!entry.action;
 }
 
 function KeyHistoryTooltip({ active, payload, label }: KeyHistoryTooltipProps) {
@@ -1520,514 +1251,6 @@ function BalanceProbeEditor({
   );
 }
 
-function FailurePolicyEditor({ form, disabled }: { form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>; disabled: boolean }) {
-  const { t } = useTranslation();
-
-  return (
-    <div className='space-y-5'>
-      <FormField
-        control={form.control}
-        name='failurePolicy.mode'
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>{t('channels.dialogs.keys.failureStrategy.mode.label')}</FormLabel>
-            <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
-              <FormControl>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-              </FormControl>
-              <SelectContent>
-                {FAILURE_POLICY_MODES.map((mode) => (
-                  <SelectItem key={mode} value={mode}>
-                    {t(`channels.dialogs.keys.failureStrategy.modes.${mode}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FormDescription>{t('channels.dialogs.keys.failureStrategy.mode.description')}</FormDescription>
-          </FormItem>
-        )}
-      />
-
-      <div className='grid gap-4 lg:grid-cols-2'>
-        <FailurePolicyProfilesEditor
-          form={form}
-          disabled={disabled}
-          target='key'
-          name='failurePolicy.keyProfiles'
-          title={t('channels.dialogs.keys.failureStrategy.keyProfiles.title')}
-          description={t('channels.dialogs.keys.failureStrategy.keyProfiles.description')}
-        />
-        <FailurePolicyProfilesEditor
-          form={form}
-          disabled={disabled}
-          target='channel'
-          name='failurePolicy.channelProfiles'
-          title={t('channels.dialogs.keys.failureStrategy.channelProfiles.title')}
-          description={t('channels.dialogs.keys.failureStrategy.channelProfiles.description')}
-        />
-      </div>
-    </div>
-  );
-}
-
-function FailurePolicyProfilesEditor({
-  form,
-  disabled,
-  target,
-  name,
-  title,
-  description,
-}: {
-  form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>;
-  disabled: boolean;
-  target: FailurePolicyTarget;
-  name: 'failurePolicy.keyProfiles' | 'failurePolicy.channelProfiles';
-  title: string;
-  description: string;
-}) {
-  const { t } = useTranslation();
-  const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set());
-  const {
-    fields: policyFields,
-    append: appendPolicy,
-    remove: removePolicy,
-  } = useFieldArray({
-    control: form.control,
-    name,
-  });
-
-  const addPolicy = () => {
-    const policy = createDefaultProfile(policyFields.length, target);
-    appendPolicy(policy);
-    setExpandedPolicies((prev) => new Set(prev).add(policy.id));
-  };
-
-  const togglePolicy = (id: string) => {
-    setExpandedPolicies((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  return (
-    <div className='space-y-3 rounded-lg border p-3'>
-      <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-        <div>
-          <h4 className='text-sm font-medium'>{title}</h4>
-          <p className='text-muted-foreground text-xs'>{description}</p>
-        </div>
-        <Button type='button' variant='outline' size='sm' onClick={addPolicy} disabled={disabled}>
-          <IconPlus className='mr-2 h-4 w-4' />
-          {t('channels.dialogs.keys.failureStrategy.profiles.add')}
-        </Button>
-      </div>
-
-      {policyFields.length === 0 ? (
-        <div className='text-muted-foreground rounded-lg border border-dashed p-4 text-sm'>
-          {t('channels.dialogs.keys.failureStrategy.profiles.empty')}
-        </div>
-      ) : (
-        policyFields.map((policyField, policyIndex) => {
-          const profilePath = `${name}.${policyIndex}` as const;
-          const policyID = form.watch(`${profilePath}.id`) || policyField.id;
-          const policyName = form.watch(`${profilePath}.name`) || t('channels.dialogs.keys.failureStrategy.profiles.unnamed');
-          const policyEnabled = form.watch(`${profilePath}.enabled`);
-          const actions = form.watch(`${profilePath}.actions`) ?? [];
-          const isExpanded = expandedPolicies.has(policyID);
-
-          return (
-            <div key={policyField.id} className='rounded-lg border'>
-              <div className='flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between'>
-                <button type='button' className='flex min-w-0 items-center gap-2 text-left' onClick={() => togglePolicy(policyID)}>
-                  {isExpanded ? <IconChevronUp className='h-4 w-4' /> : <IconChevronDown className='h-4 w-4' />}
-                  <div className='min-w-0'>
-                    <div className='truncate text-sm font-medium'>{policyName}</div>
-                    <div className='text-muted-foreground text-xs'>
-                      {t('channels.dialogs.keys.failureStrategy.profiles.actionCount', { count: actions.length })}
-                    </div>
-                  </div>
-                </button>
-                <div className='flex items-center gap-2'>
-                  <Badge variant={policyEnabled ? 'default' : 'outline'}>
-                    {t(`channels.dialogs.keys.failureStrategy.profiles.${policyEnabled ? 'enabled' : 'disabled'}`)}
-                  </Badge>
-                  <FormField
-                    control={form.control}
-                    name={`${profilePath}.enabled`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormControl>
-                          <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  <Button type='button' variant='ghost' size='sm' onClick={() => removePolicy(policyIndex)} disabled={disabled}>
-                    <IconTrash className='h-4 w-4' />
-                  </Button>
-                </div>
-              </div>
-
-              {isExpanded ? (
-                <div className='space-y-4 border-t p-3'>
-                  <FormField
-                    control={form.control}
-                    name={`${profilePath}.name`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.name')}</FormLabel>
-                        <FormControl>
-                          <Input {...field} disabled={disabled} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className='space-y-2 rounded-lg border p-3'>
-                    <div className='text-sm font-medium'>{t('channels.dialogs.keys.failureStrategy.profiles.fields.sources')}</div>
-                    <div className='grid gap-2'>
-                      {FAILURE_EVENT_SOURCES.map((source) => (
-                        <FormField
-                          key={source}
-                          control={form.control}
-                          name={`${profilePath}.sources`}
-                          render={({ field }) => {
-                            const selected = field.value?.includes(source) ?? false;
-                            return (
-                              <FormItem className='flex items-center gap-2 space-y-0'>
-                                <FormControl>
-                                  <Checkbox
-                                    checked={selected}
-                                    onCheckedChange={(checked) => {
-                                      const current = field.value ?? [];
-                                      field.onChange(
-                                        checked
-                                          ? [...current.filter((item) => item !== source), source]
-                                          : current.length <= 1
-                                            ? current
-                                            : current.filter((item) => item !== source)
-                                      );
-                                    }}
-                                    disabled={disabled}
-                                  />
-                                </FormControl>
-                                <FormLabel className='text-sm font-normal'>
-                                  {t(`channels.dialogs.keys.failureStrategy.sources.${source}`)}
-                                </FormLabel>
-                              </FormItem>
-                            );
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className='grid gap-4 md:grid-cols-3'>
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.minFailureCount`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.minFailureCount')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              type='number'
-                              min={1}
-                              max={100}
-                              value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
-                              onBlur={field.onBlur}
-                              onChange={(event) => field.onChange(event.target.value)}
-                              disabled={disabled}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.statusCodes`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.statusCodes')}</FormLabel>
-                          <FormControl>
-                            <Input placeholder='429, 500' {...field} disabled={disabled} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.availability`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.availability')}</FormLabel>
-                          <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {(['any', 'available', 'unavailable'] satisfies AvailabilityConditionMode[]).map((mode) => (
-                                <SelectItem key={mode} value={mode}>
-                                  {t(`channels.dialogs.keys.failureStrategy.profiles.availability.${mode}`)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.balanceLTE`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.balanceLTE')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              type='number'
-                              value={typeof field.value === 'number' || typeof field.value === 'string' ? field.value : ''}
-                              onBlur={field.onBlur}
-                              onChange={(event) => field.onChange(event.target.value)}
-                              disabled={disabled}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.reasonContains`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.reasonContains')}</FormLabel>
-                          <FormControl>
-                            <Input {...field} disabled={disabled} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.allCheckedKeysFailed`}
-                      render={({ field }) => (
-                        <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                          <div className='space-y-0.5'>
-                            <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.allCheckedKeysFailed')}</FormLabel>
-                          </div>
-                          <FormControl>
-                            <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.expr`}
-                      render={({ field }) => (
-                        <FormItem className='md:col-span-3'>
-                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.expr')}</FormLabel>
-                          <FormControl>
-                            <Textarea rows={2} {...field} disabled={disabled} />
-                          </FormControl>
-                          <FormDescription>{t('channels.dialogs.keys.failureStrategy.profiles.fields.exprDescription')}</FormDescription>
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <PolicyActionsEditor form={form} profileName={name} profileIndex={policyIndex} target={target} disabled={disabled} />
-                </div>
-              ) : null}
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-function PolicyActionsEditor({
-  form,
-  profileName,
-  profileIndex,
-  target,
-  disabled,
-}: {
-  form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>;
-  profileName: 'failurePolicy.keyProfiles' | 'failurePolicy.channelProfiles';
-  profileIndex: number;
-  target: FailurePolicyTarget;
-  disabled: boolean;
-}) {
-  const { t } = useTranslation();
-  const actionsName = `${profileName}.${profileIndex}.actions` as const;
-  const actionChoices = target === 'key' ? KEY_FAILURE_ACTIONS : CHANNEL_FAILURE_ACTIONS;
-  const {
-    fields: actionFields,
-    append: appendAction,
-    remove: removeAction,
-  } = useFieldArray({
-    control: form.control,
-    name: actionsName,
-  });
-
-  return (
-    <div className='space-y-3'>
-      <div className='flex items-center justify-between'>
-        <h5 className='text-sm font-medium'>{t('channels.dialogs.keys.failureStrategy.actions.title')}</h5>
-        <Button type='button' variant='outline' size='sm' onClick={() => appendAction(createDefaultAction(target))} disabled={disabled}>
-          <IconPlus className='mr-2 h-4 w-4' />
-          {t('channels.dialogs.keys.failureStrategy.actions.add')}
-        </Button>
-      </div>
-      {actionFields.map((actionField, actionIndex) => {
-        const actionPath = `${actionsName}.${actionIndex}` as const;
-        const actionType = form.watch(`${actionPath}.type`);
-        return (
-          <div key={actionField.id} className='grid gap-3 rounded-lg border p-3 md:grid-cols-4'>
-            <FormField
-              control={form.control}
-              name={`${actionPath}.type`}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.type')}</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {actionChoices.map((action) => (
-                        <SelectItem key={action} value={action}>
-                          {t(`channels.dialogs.keys.failureStrategy.actions.${action}`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormItem>
-              )}
-            />
-            {actionType === 'backoff_key' ? (
-              <>
-                <FormField
-                  control={form.control}
-                  name={`${actionPath}.backoffMode`}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.backoffMode')}</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value='fixed'>{t('channels.dialogs.keys.failureStrategy.actions.fixed')}</SelectItem>
-                          <SelectItem value='exponential'>{t('channels.dialogs.keys.failureStrategy.actions.exponential')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name={`${actionPath}.intervalMinutes`}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.intervalMinutes')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          ref={field.ref}
-                          name={field.name}
-                          type='number'
-                          min={1}
-                          max={10080}
-                          value={field.value}
-                          onBlur={field.onBlur}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          disabled={disabled}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name={`${actionPath}.maxIntervalMinutes`}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.maxIntervalMinutes')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          ref={field.ref}
-                          name={field.name}
-                          type='number'
-                          min={1}
-                          max={10080}
-                          value={field.value}
-                          onBlur={field.onBlur}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          disabled={disabled}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name={`${actionPath}.multiplier`}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('channels.dialogs.keys.failureStrategy.actions.multiplier')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          ref={field.ref}
-                          name={field.name}
-                          type='number'
-                          min={1}
-                          max={20}
-                          step='0.1'
-                          value={field.value}
-                          onBlur={field.onBlur}
-                          onChange={(event) => field.onChange(event.target.value)}
-                          disabled={disabled}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              </>
-            ) : null}
-            <div className='flex items-end justify-end md:col-start-4'>
-              <Button
-                type='button'
-                variant='ghost'
-                size='sm'
-                onClick={() => removeAction(actionIndex)}
-                disabled={disabled || actionFields.length <= 1}
-              >
-                <IconTrash className='h-4 w-4' />
-              </Button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function KeyDetailsDialog({
   row,
   open,
@@ -2308,6 +1531,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const [manualTestMode, setManualTestMode] = useState<ChannelAPIKeyHealthCheckMode>(() => defaultManualTestModeForChannel(currentRow));
 
   const keyInventory = useChannelAPIKeyInventory(currentRow.id, { enabled: open });
+  const { data: channelSetting } = useChannelSetting();
   const addAPIKey = useAddChannelAPIKey();
   const deleteAPIKey = useDeleteChannelAPIKey();
   const archiveAPIKey = useArchiveChannelAPIKey();
@@ -2371,12 +1595,31 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     [selectedRows]
   );
   const detailsRow = useMemo(() => inventory.find((item) => item.id === detailsKeyID) ?? null, [detailsKeyID, inventory]);
-  const inventoryHistoryCount = useMemo(
-    () => visibleInventory.reduce((sum, item) => sum + (item.history?.length ?? 0), 0),
+  const keyHealthHistory = useMemo<KeyHistoryListEntry[]>(
+    () =>
+      visibleInventory.flatMap((item) =>
+        (item.history ?? [])
+          .filter((entry) => !isRequestFailureHistory(entry))
+          .map((entry) => ({
+            key: item,
+            entry,
+          }))
+      ),
     [visibleInventory]
   );
+  const requestFailureHistory = useMemo<KeyHistoryListEntry[]>(
+    () =>
+      inventory.flatMap((item) =>
+        (item.history ?? []).filter(isRequestFailureHistory).map((entry) => ({
+          key: item,
+          entry,
+        }))
+      ),
+    [inventory]
+  );
+  const channelFailureHistory = useMemo(() => channelHistory.filter(isRequestFailureHistory), [channelHistory]);
   const canRunBalanceProbe = useMemo(() => channelSupportsManualBalanceProbe(currentRow), [currentRow]);
-  const selectedStrategy = form.watch('strategy');
+  const globalRoutingStrategy = channelSetting?.routing?.strategy ?? 'trace_sticky';
   const isPending =
     keyInventory.isFetching ||
     addAPIKey.isPending ||
@@ -2442,11 +1685,14 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
   const saveSettings = async (values: KeysFormValues) => {
     const nextSettings = mergeChannelSettingsForUpdate(currentRow.settings, {
-      keySelection: {
-        strategy: values.strategy,
-        likelyAffinityTTLMinutes: values.likelyAffinityTTLMinutes,
-        exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
-      },
+      keySelection:
+        values.strategy === 'inherit'
+          ? null
+          : {
+              strategy: values.strategy,
+              likelyAffinityTTLMinutes: values.likelyAffinityTTLMinutes,
+              exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
+            },
       keyHealthCheck: healthCheckFromValues(values),
       balanceProbe: balanceProbeFromValues(values, currentRow.settings?.balanceProbe),
       failurePolicy: failurePolicyFromValues(values),
@@ -2585,8 +1831,10 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
           <Form {...form}>
             <Tabs defaultValue='inventory' className='min-h-0 flex-1'>
-              <TabsList className='grid w-full grid-cols-4'>
+              <TabsList className='grid w-full grid-cols-6'>
                 <TabsTrigger value='inventory'>{t('channels.dialogs.keys.tabs.inventory')}</TabsTrigger>
+                <TabsTrigger value='keyHistory'>{t('channels.dialogs.keys.tabs.keyHistory')}</TabsTrigger>
+                <TabsTrigger value='failureHistory'>{t('channels.dialogs.keys.tabs.failureHistory')}</TabsTrigger>
                 <TabsTrigger value='routing'>{t('channels.dialogs.keys.tabs.routing')}</TabsTrigger>
                 <TabsTrigger value='balanceProbe'>{t('channels.dialogs.keys.tabs.balanceProbe')}</TabsTrigger>
                 <TabsTrigger value='failurePolicy'>{t('channels.dialogs.keys.tabs.failurePolicy')}</TabsTrigger>
@@ -2699,58 +1947,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                           </SelectContent>
                         </Select>
                       </div>
-
-                      <button
-                        type='button'
-                        className='from-primary/10 via-background to-muted/50 hover:border-primary/50 flex w-full flex-col gap-3 rounded-xl border bg-gradient-to-r p-4 text-left transition sm:flex-row sm:items-center sm:justify-between'
-                        onClick={() => {
-                          const firstHistoryRow = visibleInventory.find((item) => (item.history?.length ?? 0) > 0) ?? visibleInventory[0];
-                          if (firstHistoryRow) {
-                            setDetailsKeyID(firstHistoryRow.id);
-                          } else if (channelHistory.length > 0) {
-                            setChannelHistoryOpen(true);
-                          }
-                        }}
-                        disabled={visibleInventory.length === 0 && channelHistory.length === 0}
-                      >
-                        <div className='flex items-start gap-3'>
-                          <div className='bg-primary/10 text-primary rounded-lg p-2'>
-                            <IconChartLine className='h-5 w-5' />
-                          </div>
-                          <div>
-                            <div className='font-medium'>{t('channels.dialogs.keys.analytics.title')}</div>
-                            <div className='text-muted-foreground mt-1 text-sm'>{t('channels.dialogs.keys.analytics.description')}</div>
-                          </div>
-                        </div>
-                        <Badge variant='outline'>
-                          {t('channels.dialogs.keys.analytics.historyCount', {
-                            count: inventoryHistoryCount + channelHistory.length,
-                          })}
-                        </Badge>
-                      </button>
-
-                      {channelHistory.length > 0 ? (
-                        <button
-                          type='button'
-                          className='from-primary/5 via-background to-muted/40 hover:border-primary/40 flex w-full flex-col gap-3 rounded-xl border bg-gradient-to-r p-4 text-left transition sm:flex-row sm:items-center sm:justify-between'
-                          onClick={() => setChannelHistoryOpen(true)}
-                        >
-                          <div className='flex items-start gap-3'>
-                            <div className='bg-primary/10 text-primary rounded-lg p-2'>
-                              <IconRoute className='h-5 w-5' />
-                            </div>
-                            <div>
-                              <div className='font-medium'>{t('channels.dialogs.keys.channelHistory.title')}</div>
-                              <div className='text-muted-foreground mt-1 text-sm'>
-                                {t('channels.dialogs.keys.channelHistory.description')}
-                              </div>
-                            </div>
-                          </div>
-                          <Badge variant='outline'>
-                            {t('channels.dialogs.keys.analytics.historyCount', { count: channelHistory.length })}
-                          </Badge>
-                        </button>
-                      ) : null}
 
                       <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-2 lg:flex-row lg:items-center lg:justify-between'>
                         <div className='space-y-1'>
@@ -3062,100 +2258,146 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value='routing' className='mt-0 space-y-4'>
+                <TabsContent value='keyHistory' className='mt-0 space-y-4'>
                   <Card>
                     <CardHeader>
                       <CardTitle className='flex items-center gap-2'>
-                        <IconRoute className='h-5 w-5' />
-                        {t('channels.dialogs.keys.routing.title')}
+                        <IconChartLine className='h-5 w-5' />
+                        {t('channels.dialogs.keys.keyHistory.title')}
                       </CardTitle>
-                      <CardDescription>{t('channels.dialogs.keys.routing.description')}</CardDescription>
+                      <CardDescription>{t('channels.dialogs.keys.keyHistory.description')}</CardDescription>
                     </CardHeader>
-                    <CardContent className='space-y-4'>
-                      <FormField
-                        control={form.control}
-                        name='strategy'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('channels.dialogs.keyRouting.fields.strategy.label')}</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder={t('channels.dialogs.keyRouting.fields.strategy.placeholder')} />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {STRATEGIES.map((strategy) => (
-                                  <SelectItem key={strategy} value={strategy}>
-                                    {t(`channels.dialogs.keyRouting.strategies.${strategy}.label`)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormDescription>{t('channels.dialogs.keyRouting.fields.strategy.description')}</FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      {selectedStrategy === 'cache_affinity' ? (
-                        <div className='grid gap-4 md:grid-cols-2'>
-                          <FormField
-                            control={form.control}
-                            name='likelyAffinityTTLMinutes'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.label')}</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type='number'
-                                    min={1}
-                                    max={1440}
-                                    placeholder={String(DEFAULT_LIKELY_AFFINITY_TTL_MINUTES)}
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.description')}
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
+                    <CardContent>
+                      <div className='rounded-lg border'>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.columns.lastCheck')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.details.statusCode')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.details.reason')}</TableHead>
+                              <TableHead className='text-right'>{t('common.columns.actions')}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {keyHealthHistory.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={5} className='text-muted-foreground h-28 text-center text-sm'>
+                                  {t('channels.dialogs.keys.keyHistory.empty')}
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              keyHealthHistory.map(({ key, entry }) => {
+                                const tone = healthTone(entry.success);
+                                return (
+                                  <TableRow key={`${key.id}-${entry.id}`}>
+                                    <TableCell>
+                                      <code className='bg-muted w-fit rounded px-2 py-0.5 font-mono text-sm'>{key.maskedKey}</code>
+                                    </TableCell>
+                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(entry.checkedAt)}</TableCell>
+                                    <TableCell>{entry.statusCode ?? '-'}</TableCell>
+                                    <TableCell>
+                                      <div className='flex flex-col gap-1'>
+                                        <Badge className='w-fit' variant={tone.badgeVariant}>
+                                          {t(`channels.dialogs.keys.healthState.${entry.success ? 'success' : 'failed'}`)}
+                                        </Badge>
+                                        <span className='text-sm'>{entry.reason || '-'}</span>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className='text-right'>
+                                      <Button type='button' variant='ghost' size='sm' onClick={() => setDetailsKeyID(key.id)}>
+                                        <IconEye className='h-4 w-4' />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })
                             )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name='exactAffinityTTLMinutes'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.label')}</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type='number'
-                                    min={1}
-                                    max={10080}
-                                    placeholder={String(DEFAULT_EXACT_AFFINITY_TTL_MINUTES)}
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.description')}
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      ) : null}
-
-                      <Alert>
-                        <IconDatabase className='h-4 w-4' />
-                        <AlertDescription>
-                          <div className='font-medium'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.label`)}</div>
-                          <div className='mt-1 text-sm'>{t(`channels.dialogs.keyRouting.strategies.${selectedStrategy}.description`)}</div>
-                        </AlertDescription>
-                      </Alert>
+                          </TableBody>
+                        </Table>
+                      </div>
                     </CardContent>
                   </Card>
+                </TabsContent>
+
+                <TabsContent value='failureHistory' className='mt-0 space-y-4'>
+                  <button
+                    type='button'
+                    className='from-primary/5 via-background to-muted/40 hover:border-primary/40 flex w-full flex-col gap-3 rounded-xl border bg-gradient-to-r p-4 text-left transition sm:flex-row sm:items-center sm:justify-between'
+                    onClick={() => setChannelHistoryOpen(true)}
+                    disabled={channelHistory.length === 0}
+                  >
+                    <div className='flex items-start gap-3'>
+                      <div className='bg-primary/10 text-primary rounded-lg p-2'>
+                        <IconRoute className='h-5 w-5' />
+                      </div>
+                      <div>
+                        <div className='font-medium'>{t('channels.dialogs.keys.channelHistory.title')}</div>
+                        <div className='text-muted-foreground mt-1 text-sm'>{t('channels.dialogs.keys.channelHistory.description')}</div>
+                      </div>
+                    </div>
+                    <Badge variant='outline'>{t('channels.dialogs.keys.analytics.historyCount', { count: channelHistory.length })}</Badge>
+                  </button>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{t('channels.dialogs.keys.failureHistory.title')}</CardTitle>
+                      <CardDescription>{t('channels.dialogs.keys.failureHistory.description')}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className='rounded-lg border'>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.columns.lastCheck')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.details.matchedPolicy')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.details.action')}</TableHead>
+                              <TableHead>{t('channels.dialogs.keys.details.reason')}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {requestFailureHistory.length === 0 && channelFailureHistory.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={5} className='text-muted-foreground h-28 text-center text-sm'>
+                                  {t('channels.dialogs.keys.failureHistory.empty')}
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              <>
+                                {channelFailureHistory.map((entry) => (
+                                  <TableRow key={`channel-${entry.id}`}>
+                                    <TableCell>
+                                      <Badge variant='outline'>{t('channels.dialogs.keys.channelHistory.scopeValue')}</Badge>
+                                    </TableCell>
+                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(entry.checkedAt)}</TableCell>
+                                    <TableCell>{entry.matchedPolicy || '-'}</TableCell>
+                                    <TableCell>{formatPolicyAction(entry.action)}</TableCell>
+                                    <TableCell>{entry.reason || '-'}</TableCell>
+                                  </TableRow>
+                                ))}
+                                {requestFailureHistory.map(({ key, entry }) => (
+                                  <TableRow key={`${key.id}-${entry.id}`}>
+                                    <TableCell>
+                                      <code className='bg-muted w-fit rounded px-2 py-0.5 font-mono text-sm'>{key.maskedKey}</code>
+                                    </TableCell>
+                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(entry.checkedAt)}</TableCell>
+                                    <TableCell>{entry.matchedPolicy || '-'}</TableCell>
+                                    <TableCell>{formatPolicyAction(entry.action)}</TableCell>
+                                    <TableCell>{entry.reason || '-'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value='routing' className='mt-0 space-y-4'>
+                  <KeyRoutingPanel form={form} globalStrategy={globalRoutingStrategy as ChannelKeySelectionStrategy} />
                 </TabsContent>
 
                 <TabsContent value='balanceProbe' className='mt-0 space-y-4'>

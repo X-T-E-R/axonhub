@@ -499,10 +499,25 @@ type SystemChannelSettings struct {
 	Probe      ChannelProbeSetting         `json:"probe"`
 	AutoSync   ChannelModelAutoSyncSetting `json:"auto_sync"`
 	ActionMenu ChannelActionMenuSetting    `json:"action_menu"`
+	Routing    ChannelKeyRoutingSetting    `json:"routing"`
 }
 
 type ChannelActionMenuSetting struct {
 	AdvancedActionsMode ChannelAdvancedActionMenuMode `json:"advanced_actions_mode"`
+}
+
+type ChannelKeyRoutingSetting struct {
+	Strategy                 objects.ChannelKeySelectionStrategy `json:"strategy,omitempty"`
+	LikelyAffinityTTLMinutes *int                                `json:"likelyAffinityTTLMinutes,omitempty"`
+	ExactAffinityTTLMinutes  *int                                `json:"exactAffinityTTLMinutes,omitempty"`
+}
+
+func (s ChannelKeyRoutingSetting) ToKeySelection() *objects.ChannelKeySelection {
+	return &objects.ChannelKeySelection{
+		Strategy:                 s.Strategy,
+		LikelyAffinityTTLMinutes: s.LikelyAffinityTTLMinutes,
+		ExactAffinityTTLMinutes:  s.ExactAffinityTTLMinutes,
+	}
 }
 
 type ChannelAdvancedActionMenuMode string
@@ -1401,6 +1416,23 @@ func normalizeSystemChannelSettings(setting *SystemChannelSettings) {
 	case ChannelAdvancedActionMenuModeGrouped, ChannelAdvancedActionMenuModeExpanded:
 	default:
 		setting.ActionMenu.AdvancedActionsMode = defaultChannelSetting.ActionMenu.AdvancedActionsMode
+	}
+
+	switch setting.Routing.Strategy {
+	case objects.ChannelKeySelectionStrategyTraceSticky,
+		objects.ChannelKeySelectionStrategyCacheAffinity,
+		objects.ChannelKeySelectionStrategyRandom,
+		objects.ChannelKeySelectionStrategyRoundRobin:
+	default:
+		setting.Routing.Strategy = defaultChannelSetting.Routing.Strategy
+	}
+	if setting.Routing.LikelyAffinityTTLMinutes != nil {
+		ttl := clampInt(*setting.Routing.LikelyAffinityTTLMinutes, objects.MinChannelKeyAffinityTTLMinutes, objects.MaxChannelKeyLikelyAffinityTTLMinutes)
+		setting.Routing.LikelyAffinityTTLMinutes = &ttl
+	}
+	if setting.Routing.ExactAffinityTTLMinutes != nil {
+		ttl := clampInt(*setting.Routing.ExactAffinityTTLMinutes, objects.MinChannelKeyAffinityTTLMinutes, objects.MaxChannelKeyExactAffinityTTLMinutes)
+		setting.Routing.ExactAffinityTTLMinutes = &ttl
 	}
 }
 
