@@ -439,8 +439,12 @@ func (r *mutationResolver) RestoreChannelAPIKey(ctx context.Context, channelID o
 }
 
 // RunChannelAPIKeyHealthCheck is the resolver for the runChannelAPIKeyHealthCheck field.
-func (r *mutationResolver) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID objects.GUID, keyIDs []string) ([]*biz.ChannelAPIKeyInventoryItem, error) {
-	return r.channelService.RunChannelAPIKeyHealthCheck(ctx, channelID.ID, keyIDs)
+func (r *mutationResolver) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID objects.GUID, keyIDs []string, mode *objects.ChannelAPIKeyHealthCheckMode) ([]*biz.ChannelAPIKeyInventoryItem, error) {
+	if mode == nil {
+		return r.channelService.RunChannelAPIKeyHealthCheck(ctx, channelID.ID, keyIDs)
+	}
+
+	return r.channelService.RunChannelAPIKeyHealthCheck(ctx, channelID.ID, keyIDs, *mode)
 }
 
 // CreateAPIKey is the resolver for the createAPIKey field.

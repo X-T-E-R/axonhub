@@ -257,10 +257,41 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 	}
 
 	if routingChanged {
+		reloadCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+		if err := svc.enabledChannelsCache.Load(reloadCtx, true); err != nil {
+			log.Warn(reloadCtx, "failed to synchronously reload channels after request failure policy",
+				log.Int("channel_id", perf.ChannelID),
+				log.Int("error_code", perf.ResponseStatusCode),
+				log.Cause(err),
+			)
+		}
+		cancel()
+
 		svc.asyncReloadChannels()
 	}
 
 	return routingChanged
+}
+
+// ApplyRequestFailurePolicy evaluates request-time failure policy exactly once
+// for a failed provider attempt. It is safe to call before asynchronous metrics
+// recording so routing mutations are visible to retry selection immediately.
+func (svc *ChannelService) ApplyRequestFailurePolicy(ctx context.Context, perf *PerformanceRecord) bool {
+	if svc == nil || perf == nil || perf.Success || perf.Canceled || perf.ResponseStatusCode == 0 {
+		return false
+	}
+	if perf.FailurePolicyHandled {
+		return perf.FailurePolicyRoutingChanged
+	}
+
+	policy := &RetryPolicy{}
+	if svc.SystemService != nil {
+		policy = svc.SystemService.RetryPolicyOrDefault(ctx)
+	}
+	perf.FailurePolicyRoutingChanged = svc.handleRequestFailurePolicy(ctx, perf, policy)
+	perf.FailurePolicyHandled = true
+
+	return perf.FailurePolicyRoutingChanged
 }
 
 func (svc *ChannelService) incrementChannelFailureCount(channelID int, status int) int {

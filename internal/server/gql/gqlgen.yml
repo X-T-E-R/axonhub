@@ -192,6 +192,9 @@ models:
   ChannelKeyHealthCheckRuleType:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckRuleType
+  ChannelAPIKeyHealthCheckMode:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelAPIKeyHealthCheckMode
   ChannelKeyHealthCheckHTTPMethod:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeyHealthCheckHTTPMethod
@@ -813,6 +816,15 @@ models:
   UpdateChannelModelAutoSyncSettingInput:
     model:
       - github.com/looplj/axonhub/internal/server/biz.ChannelModelAutoSyncSetting
+  ChannelActionMenuSetting:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelActionMenuSetting
+  UpdateChannelActionMenuSettingInput:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelActionMenuSetting
+  ChannelAdvancedActionMenuMode:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelAdvancedActionMenuMode
   ChannelProbePoint:
     model:
       - github.com/looplj/axonhub/internal/server/biz.ChannelProbePoint

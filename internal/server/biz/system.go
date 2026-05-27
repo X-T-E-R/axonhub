@@ -461,8 +461,70 @@ type DeveloperModelSettings struct {
 }
 
 type SystemChannelSettings struct {
-	Probe    ChannelProbeSetting         `json:"probe"`
-	AutoSync ChannelModelAutoSyncSetting `json:"auto_sync"`
+	Probe      ChannelProbeSetting         `json:"probe"`
+	AutoSync   ChannelModelAutoSyncSetting `json:"auto_sync"`
+	ActionMenu ChannelActionMenuSetting    `json:"action_menu"`
+}
+
+type ChannelActionMenuSetting struct {
+	AdvancedActionsMode ChannelAdvancedActionMenuMode `json:"advanced_actions_mode"`
+}
+
+type ChannelAdvancedActionMenuMode string
+
+const (
+	ChannelAdvancedActionMenuModeGrouped  ChannelAdvancedActionMenuMode = "grouped"
+	ChannelAdvancedActionMenuModeExpanded ChannelAdvancedActionMenuMode = "expanded"
+)
+
+func (m ChannelAdvancedActionMenuMode) MarshalGQL(w io.Writer) {
+	var s string
+
+	switch m {
+	case ChannelAdvancedActionMenuModeExpanded:
+		s = "EXPANDED"
+	default:
+		s = "GROUPED"
+	}
+
+	_, _ = io.WriteString(w, `"`+s+`"`)
+}
+
+func (m *ChannelAdvancedActionMenuMode) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("ChannelAdvancedActionMenuMode must be a string")
+	}
+
+	switch str {
+	case "GROUPED":
+		*m = ChannelAdvancedActionMenuModeGrouped
+	case "EXPANDED":
+		*m = ChannelAdvancedActionMenuModeExpanded
+	default:
+		return fmt.Errorf("invalid ChannelAdvancedActionMenuMode: %s", str)
+	}
+
+	return nil
+}
+
+func (m *ChannelAdvancedActionMenuMode) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		*m = ChannelAdvancedActionMenuModeGrouped
+		return nil
+	}
+
+	switch raw {
+	case string(ChannelAdvancedActionMenuModeGrouped), "GROUPED", "":
+		*m = ChannelAdvancedActionMenuModeGrouped
+	case string(ChannelAdvancedActionMenuModeExpanded), "EXPANDED":
+		*m = ChannelAdvancedActionMenuModeExpanded
+	default:
+		*m = ChannelAdvancedActionMenuModeGrouped
+	}
+
+	return nil
 }
 
 type ChannelModelAutoSyncSetting struct {
@@ -1225,7 +1287,9 @@ func (s *SystemService) ChannelSetting(ctx context.Context) (*SystemChannelSetti
 	value, err := s.getSystemValue(ctx, SystemKeyChannelSettings)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			return lo.ToPtr(defaultChannelSetting), nil
+			setting := defaultChannelSetting
+			normalizeSystemChannelSettings(&setting)
+			return &setting, nil
 		}
 
 		return nil, fmt.Errorf("failed to get channel setting: %w", err)
@@ -1234,6 +1298,22 @@ func (s *SystemService) ChannelSetting(ctx context.Context) (*SystemChannelSetti
 	var setting SystemChannelSettings
 	if err := json.Unmarshal([]byte(value), &setting); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal channel setting: %w", err)
+	}
+
+	normalizeSystemChannelSettings(&setting)
+
+	return &setting, nil
+}
+
+func normalizeSystemChannelSettings(setting *SystemChannelSettings) {
+	if setting == nil {
+		return
+	}
+
+	switch setting.Probe.Frequency {
+	case ProbeFrequency1Min, ProbeFrequency5Min, ProbeFrequency30Min, ProbeFrequency1Hour:
+	default:
+		setting.Probe.Frequency = defaultChannelSetting.Probe.Frequency
 	}
 
 	if setting.AutoSync.Frequency == "" {
@@ -1246,7 +1326,11 @@ func (s *SystemService) ChannelSetting(ctx context.Context) (*SystemChannelSetti
 		setting.AutoSync.Frequency = defaultChannelSetting.AutoSync.Frequency
 	}
 
-	return &setting, nil
+	switch setting.ActionMenu.AdvancedActionsMode {
+	case ChannelAdvancedActionMenuModeGrouped, ChannelAdvancedActionMenuModeExpanded:
+	default:
+		setting.ActionMenu.AdvancedActionsMode = defaultChannelSetting.ActionMenu.AdvancedActionsMode
+	}
 }
 
 // ChannelSettingOrDefault retrieves the channel setting or returns the default if not available.
@@ -1267,6 +1351,8 @@ func (s *SystemService) ChannelSettingOrDefault(ctx context.Context) *SystemChan
 
 // SetChannelSetting sets the channel setting configuration.
 func (s *SystemService) SetChannelSetting(ctx context.Context, setting SystemChannelSettings) error {
+	normalizeSystemChannelSettings(&setting)
+
 	jsonBytes, err := json.Marshal(setting)
 	if err != nil {
 		return fmt.Errorf("failed to marshal channel setting: %w", err)
@@ -1719,7 +1805,6 @@ func normalizeMonitoringSettings(settings *MonitoringSettings) {
 		settings.Rules = []MonitoringRule{}
 	}
 
-	seenIDs := make(map[string]int, len(settings.Rules))
 	for i := range settings.Rules {
 		rule := &settings.Rules[i]
 		rule.ID = strings.TrimSpace(rule.ID)
@@ -1745,8 +1830,11 @@ func normalizeMonitoringSettings(settings *MonitoringSettings) {
 			rule.ChannelProfiles = []objects.FailurePolicyProfile{}
 		}
 
-		if rule.ID != "" {
-			seenIDs[rule.ID]++
+		if rule.ID == "" {
+			rule.ID = fmt.Sprintf("monitor-rule-%d", i+1)
+		}
+		if rule.Name == "" {
+			rule.Name = fmt.Sprintf("Monitoring rule %d", i+1)
 		}
 	}
 }

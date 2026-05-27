@@ -302,6 +302,7 @@ func TestSystemService_ChannelSetting_DefaultModelAutoSyncFrequency(t *testing.T
 	setting, err := service.ChannelSetting(ctx)
 	require.NoError(t, err)
 	require.Equal(t, AutoSyncFrequencyOneHour, setting.AutoSync.Frequency)
+	require.Equal(t, ChannelAdvancedActionMenuModeGrouped, setting.ActionMenu.AdvancedActionsMode)
 }
 
 func TestSystemService_SetChannelSetting_PersistsModelAutoSyncFrequency(t *testing.T) {
@@ -322,6 +323,9 @@ func TestSystemService_SetChannelSetting_PersistsModelAutoSyncFrequency(t *testi
 		AutoSync: ChannelModelAutoSyncSetting{
 			Frequency: AutoSyncFrequencySixHours,
 		},
+		ActionMenu: ChannelActionMenuSetting{
+			AdvancedActionsMode: ChannelAdvancedActionMenuModeExpanded,
+		},
 	}
 
 	err := service.SetChannelSetting(ctx, setting)
@@ -330,6 +334,7 @@ func TestSystemService_SetChannelSetting_PersistsModelAutoSyncFrequency(t *testi
 	retrievedSetting, err := service.ChannelSetting(ctx)
 	require.NoError(t, err)
 	require.Equal(t, AutoSyncFrequencySixHours, retrievedSetting.AutoSync.Frequency)
+	require.Equal(t, ChannelAdvancedActionMenuModeExpanded, retrievedSetting.ActionMenu.AdvancedActionsMode)
 }
 
 func TestSystemService_ChannelSetting_BackfillsLegacyModelAutoSyncFrequency(t *testing.T) {
@@ -362,6 +367,7 @@ func TestSystemService_ChannelSetting_BackfillsLegacyModelAutoSyncFrequency(t *t
 	require.NoError(t, err)
 	require.Equal(t, AutoSyncFrequencyOneHour, setting.AutoSync.Frequency)
 	require.Equal(t, ProbeFrequency5Min, setting.Probe.Frequency)
+	require.Equal(t, ChannelAdvancedActionMenuModeGrouped, setting.ActionMenu.AdvancedActionsMode)
 }
 
 func TestSystemService_ChannelSetting_NormalizesLegacyAutoSyncFrequency(t *testing.T) {
@@ -396,6 +402,43 @@ func TestSystemService_ChannelSetting_NormalizesLegacyAutoSyncFrequency(t *testi
 	setting, err := service.ChannelSetting(ctx)
 	require.NoError(t, err)
 	require.Equal(t, AutoSyncFrequencyOneHour, setting.AutoSync.Frequency)
+}
+
+func TestSystemService_ChannelSetting_NormalizesLegacyActionMenuMode(t *testing.T) {
+	cacheConfig := xcache.Config{Mode: xcache.ModeMemory}
+
+	service, client := setupTestSystemService(t, cacheConfig)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	legacySetting := map[string]any{
+		"probe": map[string]any{
+			"enabled":   true,
+			"frequency": ProbeFrequency5Min,
+		},
+		"auto_sync": map[string]any{
+			"frequency": AutoSyncFrequencyOneHour,
+		},
+		"action_menu": map[string]any{
+			"advanced_actions_mode": "legacy",
+		},
+	}
+
+	legacyJSON, err := json.Marshal(legacySetting)
+	require.NoError(t, err)
+
+	_, err = client.System.Create().
+		SetKey(SystemKeyChannelSettings).
+		SetValue(string(legacyJSON)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	setting, err := service.ChannelSetting(ctx)
+	require.NoError(t, err)
+	require.Equal(t, ChannelAdvancedActionMenuModeGrouped, setting.ActionMenu.AdvancedActionsMode)
 }
 
 func TestSystemService_Initialize_WithCache(t *testing.T) {

@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -67,6 +68,42 @@ func TestMonitoringSettingsDefaultsAndValidation(t *testing.T) {
 		Rules: []MonitoringRule{{ID: "dup", Name: "one"}, {ID: "dup", Name: "two"}},
 	})
 	require.Error(t, err)
+}
+
+func TestMonitoringSettingsBackfillsLegacyBlankRuleFields(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	raw, err := json.Marshal(map[string]any{
+		"enabled":              true,
+		"historyRetentionDays": 0,
+		"rules": []map[string]any{{
+			"id":       " ",
+			"name":     "",
+			"schedule": map[string]any{},
+			"targets":  map[string]any{},
+		}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.System.Create().
+		SetKey(SystemKeyMonitoringSettings).
+		SetValue(string(raw)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	got, err := svc.SystemService.MonitoringSettings(ctx)
+	require.NoError(t, err)
+	require.True(t, got.Enabled)
+	require.Equal(t, 30, got.HistoryRetentionDays)
+	require.Len(t, got.Rules, 1)
+	require.Equal(t, "monitor-rule-1", got.Rules[0].ID)
+	require.Equal(t, "Monitoring rule 1", got.Rules[0].Name)
+	require.Equal(t, 60, got.Rules[0].Schedule.IntervalMinutes)
+	require.Equal(t, 100, got.Rules[0].Schedule.HistoryLimit)
+	require.Equal(t, []string{"enabled"}, got.Rules[0].Targets.ChannelStatuses)
+	require.Equal(t, []objects.ChannelKeyStatus{objects.ChannelKeyStatusActive}, got.Rules[0].Targets.KeyStatuses)
 }
 
 func TestMonitoringRuleRecoversDisabledKeyAndWritesEvent(t *testing.T) {

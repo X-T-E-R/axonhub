@@ -1503,7 +1503,7 @@ func clampInt(value, minValue, maxValue int) int {
 	return value
 }
 
-func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID int, keyIDs []string) ([]*ChannelAPIKeyInventoryItem, error) {
+func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID int, keyIDs []string, modes ...objects.ChannelAPIKeyHealthCheckMode) ([]*ChannelAPIKeyInventoryItem, error) {
 	if err := authz.RequireScope(ctx, scopes.ScopeWriteChannels); err != nil {
 		return nil, err
 	}
@@ -1526,6 +1526,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	settings := ensureChannelKeyHealthCheckSettings(ch.Settings)
 	chForCheck := *ch
 	chForCheck.Settings = settings
+	mode := channelAPIKeyManualTestModeFromArgs(modes...)
 	_, _, hasBalanceProbe := channelBalanceProbeSpecForChannel(&chForCheck)
 
 	results := make([]ChannelKeyHealthCheckResult, len(targetKeys))
@@ -1543,12 +1544,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 			return nil, err
 		}
 		group.Go(func() error {
-			if hasBalanceProbe {
-				results[index] = svc.runChannelKeyBalanceProbe(groupCtx, &chForCheck, apiKey, objects.ChannelKeyHealthCheckTriggerManual)
-				return nil
-			}
-
-			results[index] = svc.checkChannelAPIKeyHealth(groupCtx, &chForCheck, apiKey)
+			results[index] = svc.runManualChannelAPIKeyCheck(groupCtx, &chForCheck, apiKey, mode, hasBalanceProbe)
 
 			return nil
 		})
@@ -1604,6 +1600,40 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	}
 
 	return svc.ChannelAPIKeyInventory(ctx, channelID)
+}
+
+func channelAPIKeyManualTestModeFromArgs(modes ...objects.ChannelAPIKeyHealthCheckMode) objects.ChannelAPIKeyHealthCheckMode {
+	if len(modes) == 0 {
+		return objects.ChannelAPIKeyHealthCheckModeAuto
+	}
+
+	switch modes[0] {
+	case objects.ChannelAPIKeyHealthCheckModeAuto, objects.ChannelAPIKeyHealthCheckModeBalanceProbe, objects.ChannelAPIKeyHealthCheckModeRealRequest:
+		return modes[0]
+	default:
+		return objects.ChannelAPIKeyHealthCheckModeAuto
+	}
+}
+
+func (svc *ChannelService) runManualChannelAPIKeyCheck(
+	ctx context.Context,
+	ch *ent.Channel,
+	key string,
+	mode objects.ChannelAPIKeyHealthCheckMode,
+	hasBalanceProbe bool,
+) ChannelKeyHealthCheckResult {
+	switch mode {
+	case objects.ChannelAPIKeyHealthCheckModeBalanceProbe:
+		return svc.runChannelKeyBalanceProbe(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual)
+	case objects.ChannelAPIKeyHealthCheckModeRealRequest:
+		return svc.runBuiltinChannelKeyHealthCheck(ctx, ch, key)
+	default:
+		if hasBalanceProbe {
+			return svc.runChannelKeyBalanceProbe(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual)
+		}
+
+		return svc.checkChannelAPIKeyHealth(ctx, ch, key)
+	}
 }
 
 func selectedChannelKeyHealthCheckTargetStatuses(ch *ent.Channel, keys []string) map[string]objects.ChannelKeyStatus {

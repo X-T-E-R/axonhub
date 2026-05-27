@@ -297,6 +297,9 @@ export type ChannelKeyHealthCheckBackoffMode = z.infer<typeof channelKeyHealthCh
 export const channelKeyHealthCheckRuleTypeSchema = z.enum(['builtin_test', 'http', 'channel_balance_probe']);
 export type ChannelKeyHealthCheckRuleType = z.infer<typeof channelKeyHealthCheckRuleTypeSchema>;
 
+export const channelAPIKeyHealthCheckModeSchema = z.enum(['auto', 'balance_probe', 'real_request']);
+export type ChannelAPIKeyHealthCheckMode = z.infer<typeof channelAPIKeyHealthCheckModeSchema>;
+
 export const channelKeyHealthCheckHeaderSchema = z.object({
   key: z.string().min(1),
   value: z.string(),

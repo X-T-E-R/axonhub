@@ -322,9 +322,10 @@ func (svc *ChannelService) RecordPerformance(ctx context.Context, perf *Performa
 			svc.apiKeyErrorCountsLock.Unlock()
 		}
 	} else if !perf.Canceled {
-		policy := svc.SystemService.RetryPolicyOrDefault(ctx)
-
-		if svc.handleRequestFailurePolicy(ctx, perf, policy) {
+		if !perf.FailurePolicyHandled {
+			svc.ApplyRequestFailurePolicy(ctx, perf)
+		}
+		if perf.FailurePolicyRoutingChanged {
 			return
 		}
 	}
@@ -497,6 +498,15 @@ type PerformanceRecord struct {
 	// If response status code is 0, it means the request is successful.
 	ResponseStatusCode int
 	CompletionTokens   int64
+
+	// FailurePolicyHandled is set once request-failure policy evaluation has
+	// already run for this failed attempt. The orchestrator may run the routing
+	// mutation synchronously before retry selection; the async metrics consumer
+	// must then avoid applying the same destructive policy a second time.
+	FailurePolicyHandled bool
+	// FailurePolicyRoutingChanged records whether the evaluated failure policy
+	// disabled, archived, deleted, backed off, or otherwise changed routability.
+	FailurePolicyRoutingChanged bool
 }
 
 // Calculate calculates performance metrics from collected data.

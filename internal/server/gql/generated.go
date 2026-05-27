@@ -356,6 +356,10 @@ type ComplexityRoot struct {
 		Success         func(childComplexity int) int
 	}
 
+	ChannelActionMenuSetting struct {
+		AdvancedActionsMode func(childComplexity int) int
+	}
+
 	ChannelArchivedAPIKey struct {
 		ArchivedAt      func(childComplexity int) int
 		Available       func(childComplexity int) int
@@ -1227,7 +1231,7 @@ type ComplexityRoot struct {
 		Restore                              func(childComplexity int, file graphql.Upload, input backup.RestoreOptions) int
 		RestoreChannelAPIKey                 func(childComplexity int, channelID objects.GUID, keyID string) int
 		RotateAPIKey                         func(childComplexity int, id objects.GUID) int
-		RunChannelAPIKeyHealthCheck          func(childComplexity int, channelID objects.GUID, keyIDs []string) int
+		RunChannelAPIKeyHealthCheck          func(childComplexity int, channelID objects.GUID, keyIDs []string, mode *objects.ChannelAPIKeyHealthCheckMode) int
 		SaveChannelEndpoints                 func(childComplexity int, input biz.SaveChannelEndpointsInput) int
 		SaveChannelModelPrices               func(childComplexity int, channelID objects.GUID, input []*biz.SaveChannelModelPriceInput) int
 		SaveProxyPreset                      func(childComplexity int, input biz.ProxyPreset) int
@@ -1880,8 +1884,9 @@ type ComplexityRoot struct {
 	}
 
 	SystemChannelSettings struct {
-		AutoSync func(childComplexity int) int
-		Probe    func(childComplexity int) int
+		ActionMenu func(childComplexity int) int
+		AutoSync   func(childComplexity int) int
+		Probe      func(childComplexity int) int
 	}
 
 	SystemConnection struct {
@@ -2366,7 +2371,7 @@ type MutationResolver interface {
 	DeleteChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string) (*biz.DeleteDisabledAPIKeysResult, error)
 	ArchiveChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string, reason *string) (bool, error)
 	RestoreChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string) (bool, error)
-	RunChannelAPIKeyHealthCheck(ctx context.Context, channelID objects.GUID, keyIDs []string) ([]*biz.ChannelAPIKeyInventoryItem, error)
+	RunChannelAPIKeyHealthCheck(ctx context.Context, channelID objects.GUID, keyIDs []string, mode *objects.ChannelAPIKeyHealthCheckMode) ([]*biz.ChannelAPIKeyInventoryItem, error)
 	CreateAPIKey(ctx context.Context, input ent.CreateAPIKeyInput) (*ent.APIKey, error)
 	UpdateAPIKey(ctx context.Context, id objects.GUID, input ent.UpdateAPIKeyInput) (*ent.APIKey, error)
 	UpdateAPIKeyStatus(ctx context.Context, id objects.GUID, status apikey.Status) (*ent.APIKey, error)
@@ -3683,6 +3688,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.Success(childComplexity), true
+
+	case "ChannelActionMenuSetting.advancedActionsMode":
+		if e.complexity.ChannelActionMenuSetting.AdvancedActionsMode == nil {
+			break
+		}
+
+		return e.complexity.ChannelActionMenuSetting.AdvancedActionsMode(childComplexity), true
 
 	case "ChannelArchivedAPIKey.archivedAt":
 		if e.complexity.ChannelArchivedAPIKey.ArchivedAt == nil {
@@ -7486,7 +7498,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.RunChannelAPIKeyHealthCheck(childComplexity, args["channelID"].(objects.GUID), args["keyIDs"].([]string)), true
+		return e.complexity.Mutation.RunChannelAPIKeyHealthCheck(childComplexity, args["channelID"].(objects.GUID), args["keyIDs"].([]string), args["mode"].(*objects.ChannelAPIKeyHealthCheckMode)), true
 	case "Mutation.saveChannelEndpoints":
 		if e.complexity.Mutation.SaveChannelEndpoints == nil {
 			break
@@ -10712,6 +10724,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.System.Value(childComplexity), true
 
+	case "SystemChannelSettings.actionMenu":
+		if e.complexity.SystemChannelSettings.ActionMenu == nil {
+			break
+		}
+
+		return e.complexity.SystemChannelSettings.ActionMenu(childComplexity), true
 	case "SystemChannelSettings.autoSync":
 		if e.complexity.SystemChannelSettings.AutoSync == nil {
 			break
@@ -12414,6 +12432,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputUpdateAPIKeyScopesInput,
 		ec.unmarshalInputUpdateAutoBackupSettingsInput,
 		ec.unmarshalInputUpdateBrandSettingsInput,
+		ec.unmarshalInputUpdateChannelActionMenuSettingInput,
 		ec.unmarshalInputUpdateChannelInput,
 		ec.unmarshalInputUpdateChannelModelAutoSyncSettingInput,
 		ec.unmarshalInputUpdateChannelOverrideTemplateInput,
@@ -13635,6 +13654,11 @@ func (ec *executionContext) field_Mutation_runChannelAPIKeyHealthCheck_args(ctx 
 		return nil, err
 	}
 	args["keyIDs"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "mode", ec.unmarshalOChannelAPIKeyHealthCheckMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelAPIKeyHealthCheckMode)
+	if err != nil {
+		return nil, err
+	}
+	args["mode"] = arg2
 	return args, nil
 }
 
@@ -21365,6 +21389,35 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_history(_ co
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_backoffAttempt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckHistoryEntry", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelActionMenuSetting_advancedActionsMode(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelActionMenuSetting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelActionMenuSetting_advancedActionsMode,
+		func(ctx context.Context) (any, error) {
+			return obj.AdvancedActionsMode, nil
+		},
+		nil,
+		ec.marshalNChannelAdvancedActionMenuMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAdvancedActionMenuMode,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelActionMenuSetting_advancedActionsMode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelActionMenuSetting",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelAdvancedActionMenuMode does not have child fields")
 		},
 	}
 	return fc, nil
@@ -38807,7 +38860,7 @@ func (ec *executionContext) _Mutation_runChannelAPIKeyHealthCheck(ctx context.Co
 		ec.fieldContext_Mutation_runChannelAPIKeyHealthCheck,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().RunChannelAPIKeyHealthCheck(ctx, fc.Args["channelID"].(objects.GUID), fc.Args["keyIDs"].([]string))
+			return ec.resolvers.Mutation().RunChannelAPIKeyHealthCheck(ctx, fc.Args["channelID"].(objects.GUID), fc.Args["keyIDs"].([]string), fc.Args["mode"].(*objects.ChannelAPIKeyHealthCheckMode))
 		},
 		nil,
 		ec.marshalNChannelAPIKeyInventoryItem2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAPIKeyInventoryItemᚄ,
@@ -51097,6 +51150,8 @@ func (ec *executionContext) fieldContext_Query_systemChannelSettings(_ context.C
 				return ec.fieldContext_SystemChannelSettings_probe(ctx, field)
 			case "autoSync":
 				return ec.fieldContext_SystemChannelSettings_autoSync(ctx, field)
+			case "actionMenu":
+				return ec.fieldContext_SystemChannelSettings_actionMenu(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type SystemChannelSettings", field.Name)
 		},
@@ -57799,6 +57854,39 @@ func (ec *executionContext) fieldContext_SystemChannelSettings_autoSync(_ contex
 				return ec.fieldContext_ChannelModelAutoSyncSetting_frequency(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelModelAutoSyncSetting", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemChannelSettings_actionMenu(ctx context.Context, field graphql.CollectedField, obj *biz.SystemChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SystemChannelSettings_actionMenu,
+		func(ctx context.Context) (any, error) {
+			return obj.ActionMenu, nil
+		},
+		nil,
+		ec.marshalNChannelActionMenuSetting2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelActionMenuSetting,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SystemChannelSettings_actionMenu(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "advancedActionsMode":
+				return ec.fieldContext_ChannelActionMenuSetting_advancedActionsMode(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelActionMenuSetting", field.Name)
 		},
 	}
 	return fc, nil
@@ -90289,6 +90377,33 @@ func (ec *executionContext) unmarshalInputUpdateBrandSettingsInput(ctx context.C
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputUpdateChannelActionMenuSettingInput(ctx context.Context, obj any) (biz.ChannelActionMenuSetting, error) {
+	var it biz.ChannelActionMenuSetting
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"advancedActionsMode"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "advancedActionsMode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("advancedActionsMode"))
+			data, err := ec.unmarshalNChannelAdvancedActionMenuMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAdvancedActionMenuMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AdvancedActionsMode = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputUpdateChannelInput(ctx context.Context, obj any) (ent.UpdateChannelInput, error) {
 	var it ent.UpdateChannelInput
 	asMap := map[string]any{}
@@ -91901,7 +92016,7 @@ func (ec *executionContext) unmarshalInputUpdateSystemChannelSettingsInput(ctx c
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"probe", "autoSync"}
+	fieldsInOrder := [...]string{"probe", "autoSync", "actionMenu"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -91922,6 +92037,13 @@ func (ec *executionContext) unmarshalInputUpdateSystemChannelSettingsInput(ctx c
 				return it, err
 			}
 			it.AutoSync = data
+		case "actionMenu":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("actionMenu"))
+			data, err := ec.unmarshalOUpdateChannelActionMenuSettingInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelActionMenuSetting(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ActionMenu = data
 		}
 	}
 
@@ -98478,6 +98600,45 @@ func (ec *executionContext) _ChannelAPIKeyInventoryItem(ctx context.Context, sel
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_backoffAttempt(ctx, field, obj)
 		case "history":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_history(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelActionMenuSettingImplementors = []string{"ChannelActionMenuSetting"}
+
+func (ec *executionContext) _ChannelActionMenuSetting(ctx context.Context, sel ast.SelectionSet, obj *biz.ChannelActionMenuSetting) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelActionMenuSettingImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelActionMenuSetting")
+		case "advancedActionsMode":
+			out.Values[i] = ec._ChannelActionMenuSetting_advancedActionsMode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -112609,6 +112770,11 @@ func (ec *executionContext) _SystemChannelSettings(ctx context.Context, sel ast.
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "actionMenu":
+			out.Values[i] = ec._SystemChannelSettings_actionMenu(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -117624,6 +117790,20 @@ func (ec *executionContext) marshalNChannelAPIKeyInventoryItem2ᚖgithubᚗcom�
 		return graphql.Null
 	}
 	return ec._ChannelAPIKeyInventoryItem(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNChannelActionMenuSetting2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelActionMenuSetting(ctx context.Context, sel ast.SelectionSet, v biz.ChannelActionMenuSetting) graphql.Marshaler {
+	return ec._ChannelActionMenuSetting(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNChannelAdvancedActionMenuMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAdvancedActionMenuMode(ctx context.Context, v any) (biz.ChannelAdvancedActionMenuMode, error) {
+	var res biz.ChannelAdvancedActionMenuMode
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChannelAdvancedActionMenuMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAdvancedActionMenuMode(ctx context.Context, sel ast.SelectionSet, v biz.ChannelAdvancedActionMenuMode) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNChannelArchivedAPIKey2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelArchivedAPIKey(ctx context.Context, sel ast.SelectionSet, v objects.ChannelArchivedAPIKey) graphql.Marshaler {
@@ -124172,6 +124352,25 @@ func (ec *executionContext) marshalOChannel2ᚖgithubᚗcomᚋloopljᚋaxonhub�
 	return ec._Channel(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalOChannelAPIKeyHealthCheckMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelAPIKeyHealthCheckMode(ctx context.Context, v any) (*objects.ChannelAPIKeyHealthCheckMode, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelAPIKeyHealthCheckMode(tmp)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelAPIKeyHealthCheckMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelAPIKeyHealthCheckMode(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelAPIKeyHealthCheckMode) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(*v))
+	return res
+}
+
 func (ec *executionContext) marshalOChannelArchivedAPIKey2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelArchivedAPIKeyᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelArchivedAPIKey) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -130254,6 +130453,11 @@ func (ec *executionContext) marshalOTransformOptions2githubᚗcomᚋloopljᚋaxo
 
 func (ec *executionContext) unmarshalOTransformOptionsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐTransformOptions(ctx context.Context, v any) (objects.TransformOptions, error) {
 	res, err := ec.unmarshalInputTransformOptionsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOUpdateChannelActionMenuSettingInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelActionMenuSetting(ctx context.Context, v any) (biz.ChannelActionMenuSetting, error) {
+	res, err := ec.unmarshalInputUpdateChannelActionMenuSettingInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

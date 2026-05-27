@@ -321,6 +321,11 @@ enum AutoSyncFrequency {
   ONE_DAY
 }
 
+enum ChannelAdvancedActionMenuMode {
+  GROUPED
+  EXPANDED
+}
+
 type ChannelProbeSetting {
   enabled: Boolean!
   frequency: ProbeFrequency!
@@ -330,9 +335,14 @@ type ChannelModelAutoSyncSetting {
   frequency: AutoSyncFrequency!
 }
 
+type ChannelActionMenuSetting {
+  advancedActionsMode: ChannelAdvancedActionMenuMode!
+}
+
 type SystemChannelSettings {
   probe: ChannelProbeSetting!
   autoSync: ChannelModelAutoSyncSetting!
+  actionMenu: ChannelActionMenuSetting!
 }
 
 input UpdateChannelProbeSettingInput {
@@ -344,9 +354,14 @@ input UpdateChannelModelAutoSyncSettingInput {
   frequency: AutoSyncFrequency!
 }
 
+input UpdateChannelActionMenuSettingInput {
+  advancedActionsMode: ChannelAdvancedActionMenuMode!
+}
+
 input UpdateSystemChannelSettingsInput {
   probe: UpdateChannelProbeSettingInput
   autoSync: UpdateChannelModelAutoSyncSettingInput
+  actionMenu: UpdateChannelActionMenuSettingInput
 }
 
 type SystemGeneralSettings {

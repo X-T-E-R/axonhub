@@ -53,6 +53,12 @@ type PersistenceState struct {
 	// Perf is the performance record for the current request.
 	Perf *biz.PerformanceRecord
 
+	// FailurePolicyRoutingChanged is set when the current failed attempt applied
+	// a request-time failure policy that changed channel/key routability. Retry
+	// selection uses it to retry even for otherwise non-retryable status codes
+	// such as 401 after the bad key has been removed from routing.
+	FailurePolicyRoutingChanged bool
+
 	// StreamCompleted tracks whether the stream has response successfully completed.
 	// This is used to distinguish between a stream that was canceled mid-way
 	// versus a stream that completed successfully but the client disconnected
