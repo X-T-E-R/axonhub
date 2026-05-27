@@ -77,6 +77,9 @@ type Channel struct {
 
 	// cachedDisabledKeySet caches disabled key lookup set for O(1) check
 	cachedDisabledKeySet map[string]struct{}
+
+	// globalKeySelection is the system default used when a channel follows global key routing.
+	globalKeySelection *objects.ChannelKeySelection
 }
 
 type ChannelServiceParams struct {

@@ -109,6 +109,25 @@ func TestGetAPIKeyProvider_KeySelectionStrategies(t *testing.T) {
 	}
 }
 
+func TestGetAPIKeyProvider_FollowsGlobalKeySelection(t *testing.T) {
+	ch := &Channel{
+		Channel: &ent.Channel{
+			Name:        "test-channel",
+			Credentials: objects.ChannelCredentials{APIKeys: []string{"key-1", "key-2"}},
+			Settings:    &objects.ChannelSettings{},
+		},
+		cachedEnabledAPIKeys: []string{"key-1", "key-2"},
+		globalKeySelection: &objects.ChannelKeySelection{
+			Strategy: objects.ChannelKeySelectionStrategyRoundRobin,
+		},
+	}
+
+	provider := getAPIKeyProvider(ch)
+	require.IsType(t, &RoundRobinChannelKeyProvider{}, provider)
+	require.Equal(t, "key-1", provider.Get(context.Background()))
+	require.Equal(t, "key-2", provider.Get(context.Background()))
+}
+
 func TestCacheAffinityKeyProvider_StableForAffinityID(t *testing.T) {
 	keys := []string{"key-1", "key-2", "key-3"}
 	provider := NewCacheAffinityKeyProvider(testChannelWithKeySelection(keys, nil))

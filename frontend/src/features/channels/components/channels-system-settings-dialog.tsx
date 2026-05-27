@@ -6,13 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   useChannelSetting,
   useUpdateChannelSetting,
   type AutoSyncFrequency,
   type ChannelAdvancedActionMenuMode,
+  type ChannelKeySelectionStrategy,
   type ProbeFrequency,
 } from '@/features/system/data/system';
 import { useChannels } from '../context/channels-context';
@@ -31,6 +33,13 @@ const AUTO_SYNC_FREQUENCY_OPTIONS: { value: AutoSyncFrequency; label: string }[]
 ];
 
 const ACTION_MENU_MODE_OPTIONS: ChannelAdvancedActionMenuMode[] = ['GROUPED', 'EXPANDED'];
+const ROUTING_STRATEGY_OPTIONS: ChannelKeySelectionStrategy[] = ['trace_sticky', 'cache_affinity', 'random', 'round_robin'];
+const DEFAULT_LIKELY_AFFINITY_TTL_MINUTES = 30;
+const DEFAULT_EXACT_AFFINITY_TTL_MINUTES = 1440;
+
+function normalizeTTL(value: number, fallback: number) {
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
+}
 
 export function ChannelsSystemSettingsDialog() {
   const { t } = useTranslation();
@@ -44,6 +53,9 @@ export function ChannelsSystemSettingsDialog() {
   const [probeFrequency, setProbeFrequency] = React.useState<ProbeFrequency>('ONE_MINUTE');
   const [autoSyncFrequency, setAutoSyncFrequency] = React.useState<AutoSyncFrequency>('ONE_HOUR');
   const [advancedActionMenuMode, setAdvancedActionMenuMode] = React.useState<ChannelAdvancedActionMenuMode>('GROUPED');
+  const [routingStrategy, setRoutingStrategy] = React.useState<ChannelKeySelectionStrategy>('trace_sticky');
+  const [likelyAffinityTTLMinutes, setLikelyAffinityTTLMinutes] = React.useState(DEFAULT_LIKELY_AFFINITY_TTL_MINUTES);
+  const [exactAffinityTTLMinutes, setExactAffinityTTLMinutes] = React.useState(DEFAULT_EXACT_AFFINITY_TTL_MINUTES);
 
   React.useEffect(() => {
     if (settings?.probe) {
@@ -55,6 +67,11 @@ export function ChannelsSystemSettingsDialog() {
     }
     if (settings?.actionMenu?.advancedActionsMode) {
       setAdvancedActionMenuMode(settings.actionMenu.advancedActionsMode);
+    }
+    if (settings?.routing?.strategy) {
+      setRoutingStrategy(settings.routing.strategy);
+      setLikelyAffinityTTLMinutes(settings.routing.likelyAffinityTTLMinutes ?? DEFAULT_LIKELY_AFFINITY_TTL_MINUTES);
+      setExactAffinityTTLMinutes(settings.routing.exactAffinityTTLMinutes ?? DEFAULT_EXACT_AFFINITY_TTL_MINUTES);
     }
   }, [settings]);
 
@@ -70,9 +87,26 @@ export function ChannelsSystemSettingsDialog() {
       actionMenu: {
         advancedActionsMode: advancedActionMenuMode,
       },
+      routing: {
+        strategy: routingStrategy,
+        likelyAffinityTTLMinutes:
+          routingStrategy === 'cache_affinity' ? normalizeTTL(likelyAffinityTTLMinutes, DEFAULT_LIKELY_AFFINITY_TTL_MINUTES) : null,
+        exactAffinityTTLMinutes:
+          routingStrategy === 'cache_affinity' ? normalizeTTL(exactAffinityTTLMinutes, DEFAULT_EXACT_AFFINITY_TTL_MINUTES) : null,
+      },
     });
     setOpen(null);
-  }, [updateSettings, probeEnabled, probeFrequency, autoSyncFrequency, advancedActionMenuMode, setOpen]);
+  }, [
+    updateSettings,
+    probeEnabled,
+    probeFrequency,
+    autoSyncFrequency,
+    advancedActionMenuMode,
+    routingStrategy,
+    likelyAffinityTTLMinutes,
+    exactAffinityTTLMinutes,
+    setOpen,
+  ]);
 
   const handleClose = useCallback(() => {
     setOpen(null);
@@ -107,14 +141,11 @@ export function ChannelsSystemSettingsDialog() {
                   <div className='flex-1 pr-4'>
                     <p className='text-sm font-medium'>{t('channels.dialogs.systemSettings.channelProbe.enabledLabel')}</p>
                     <p className='text-muted-foreground text-sm'>{t('channels.dialogs.systemSettings.channelProbe.enabledDescription')}</p>
-                    <p className='text-muted-foreground text-xs mt-1'>{t('channels.dialogs.systemSettings.channelProbe.probeDescription')}</p>
+                    <p className='text-muted-foreground mt-1 text-xs'>
+                      {t('channels.dialogs.systemSettings.channelProbe.probeDescription')}
+                    </p>
                   </div>
-                  <Switch
-                    id='probe-enabled'
-                    checked={probeEnabled}
-                    onCheckedChange={setProbeEnabled}
-                    disabled={updateSettings.isPending}
-                  />
+                  <Switch id='probe-enabled' checked={probeEnabled} onCheckedChange={setProbeEnabled} disabled={updateSettings.isPending} />
                 </div>
 
                 {probeEnabled && (
@@ -134,8 +165,12 @@ export function ChannelsSystemSettingsDialog() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <p className='text-muted-foreground text-xs'>{t('channels.dialogs.systemSettings.channelProbe.frequencyDescription')}</p>
-                    <p className='text-muted-foreground text-xs mt-1'>{t('channels.dialogs.systemSettings.channelProbe.frequencyWarning')}</p>
+                    <p className='text-muted-foreground text-xs'>
+                      {t('channels.dialogs.systemSettings.channelProbe.frequencyDescription')}
+                    </p>
+                    <p className='text-muted-foreground mt-1 text-xs'>
+                      {t('channels.dialogs.systemSettings.channelProbe.frequencyWarning')}
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -199,6 +234,72 @@ export function ChannelsSystemSettingsDialog() {
                     {t(`channels.dialogs.systemSettings.actionMenu.modes.${advancedActionMenuMode}.description`)}
                   </p>
                 </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className='pb-0'>
+                <CardTitle className='flex items-center gap-2 text-sm'>
+                  <Settings2 className='text-muted-foreground h-4 w-4' />
+                  {t('channels.dialogs.systemSettings.routing.label')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4 pt-4'>
+                <div className='space-y-2'>
+                  <label htmlFor='global-routing-strategy' className='text-sm font-medium'>
+                    {t('channels.dialogs.systemSettings.routing.strategyLabel')}
+                  </label>
+                  <Select value={routingStrategy} onValueChange={(value) => setRoutingStrategy(value as ChannelKeySelectionStrategy)}>
+                    <SelectTrigger id='global-routing-strategy' disabled={updateSettings.isPending}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ROUTING_STRATEGY_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {t(`channels.dialogs.keyRouting.strategies.${option}.label`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className='text-muted-foreground text-xs'>{t('channels.dialogs.systemSettings.routing.strategyDescription')}</p>
+                </div>
+                {routingStrategy === 'cache_affinity' ? (
+                  <div className='grid gap-4 sm:grid-cols-2'>
+                    <div className='space-y-2'>
+                      <label htmlFor='global-likely-affinity-ttl' className='text-sm font-medium'>
+                        {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.label')}
+                      </label>
+                      <Input
+                        id='global-likely-affinity-ttl'
+                        type='number'
+                        min={1}
+                        max={1440}
+                        value={likelyAffinityTTLMinutes}
+                        onChange={(event) => setLikelyAffinityTTLMinutes(Number(event.target.value))}
+                        disabled={updateSettings.isPending}
+                      />
+                      <p className='text-muted-foreground text-xs'>
+                        {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.description')}
+                      </p>
+                    </div>
+                    <div className='space-y-2'>
+                      <label htmlFor='global-exact-affinity-ttl' className='text-sm font-medium'>
+                        {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.label')}
+                      </label>
+                      <Input
+                        id='global-exact-affinity-ttl'
+                        type='number'
+                        min={1}
+                        max={10080}
+                        value={exactAffinityTTLMinutes}
+                        onChange={(event) => setExactAffinityTTLMinutes(Number(event.target.value))}
+                        disabled={updateSettings.isPending}
+                      />
+                      <p className='text-muted-foreground text-xs'>
+                        {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.description')}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </div>

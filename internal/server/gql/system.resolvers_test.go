@@ -9,6 +9,7 @@ import (
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/enttest"
+	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/internal/server/biz"
 )
@@ -122,4 +123,42 @@ func TestMutationResolver_UpdateSystemChannelSettings_MergesActionMenuWithoutOve
 	require.Equal(t, biz.ProbeFrequency5Min, setting.Probe.Frequency)
 	require.Equal(t, biz.AutoSyncFrequencySixHours, setting.AutoSync.Frequency)
 	require.Equal(t, biz.ChannelAdvancedActionMenuModeExpanded, setting.ActionMenu.AdvancedActionsMode)
+}
+
+func TestMutationResolver_UpdateSystemChannelSettings_MergesRoutingWithoutOverwritingOtherSections(t *testing.T) {
+	resolver, ctx, client := setupTestSystemMutationResolver(t)
+	defer client.Close()
+
+	err := resolver.systemService.SetChannelSetting(ctx, biz.SystemChannelSettings{
+		Probe: biz.ChannelProbeSetting{
+			Enabled:   true,
+			Frequency: biz.ProbeFrequency5Min,
+		},
+		AutoSync: biz.ChannelModelAutoSyncSetting{
+			Frequency: biz.AutoSyncFrequencySixHours,
+		},
+		ActionMenu: biz.ChannelActionMenuSetting{
+			AdvancedActionsMode: biz.ChannelAdvancedActionMenuModeExpanded,
+		},
+		Routing: biz.ChannelKeyRoutingSetting{
+			Strategy: objects.ChannelKeySelectionStrategyTraceSticky,
+		},
+	})
+	require.NoError(t, err)
+
+	ok, err := resolver.UpdateSystemChannelSettings(ctx, biz.SystemChannelSettings{
+		Routing: biz.ChannelKeyRoutingSetting{
+			Strategy: objects.ChannelKeySelectionStrategyRoundRobin,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	setting, err := resolver.systemService.ChannelSetting(ctx)
+	require.NoError(t, err)
+	require.True(t, setting.Probe.Enabled)
+	require.Equal(t, biz.ProbeFrequency5Min, setting.Probe.Frequency)
+	require.Equal(t, biz.AutoSyncFrequencySixHours, setting.AutoSync.Frequency)
+	require.Equal(t, biz.ChannelAdvancedActionMenuModeExpanded, setting.ActionMenu.AdvancedActionsMode)
+	require.Equal(t, objects.ChannelKeySelectionStrategyRoundRobin, setting.Routing.Strategy)
 }

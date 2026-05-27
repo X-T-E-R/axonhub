@@ -55,6 +55,9 @@ var defaultChannelSetting = SystemChannelSettings{
 	ActionMenu: ChannelActionMenuSetting{
 		AdvancedActionsMode: ChannelAdvancedActionMenuModeGrouped,
 	},
+	Routing: ChannelKeyRoutingSetting{
+		Strategy: objects.ChannelKeySelectionStrategyTraceSticky,
+	},
 }
 
 var defaultGeneralSettings = SystemGeneralSettings{

@@ -581,6 +581,12 @@ type ComplexityRoot struct {
 		Node   func(childComplexity int) int
 	}
 
+	ChannelKeyRoutingSetting struct {
+		ExactAffinityTTLMinutes  func(childComplexity int) int
+		LikelyAffinityTTLMinutes func(childComplexity int) int
+		Strategy                 func(childComplexity int) int
+	}
+
 	ChannelKeySelection struct {
 		ExactAffinityTTLMinutes  func(childComplexity int) int
 		LikelyAffinityTTLMinutes func(childComplexity int) int
@@ -1887,6 +1893,7 @@ type ComplexityRoot struct {
 		ActionMenu func(childComplexity int) int
 		AutoSync   func(childComplexity int) int
 		Probe      func(childComplexity int) int
+		Routing    func(childComplexity int) int
 	}
 
 	SystemConnection struct {
@@ -4647,6 +4654,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyMonitoringEventEdge.Node(childComplexity), true
+
+	case "ChannelKeyRoutingSetting.exactAffinityTTLMinutes":
+		if e.complexity.ChannelKeyRoutingSetting.ExactAffinityTTLMinutes == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyRoutingSetting.ExactAffinityTTLMinutes(childComplexity), true
+	case "ChannelKeyRoutingSetting.likelyAffinityTTLMinutes":
+		if e.complexity.ChannelKeyRoutingSetting.LikelyAffinityTTLMinutes == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyRoutingSetting.LikelyAffinityTTLMinutes(childComplexity), true
+	case "ChannelKeyRoutingSetting.strategy":
+		if e.complexity.ChannelKeyRoutingSetting.Strategy == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyRoutingSetting.Strategy(childComplexity), true
 
 	case "ChannelKeySelection.exactAffinityTTLMinutes":
 		if e.complexity.ChannelKeySelection.ExactAffinityTTLMinutes == nil {
@@ -10742,6 +10768,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SystemChannelSettings.Probe(childComplexity), true
+	case "SystemChannelSettings.routing":
+		if e.complexity.SystemChannelSettings.Routing == nil {
+			break
+		}
+
+		return e.complexity.SystemChannelSettings.Routing(childComplexity), true
 
 	case "SystemConnection.edges":
 		if e.complexity.SystemConnection.Edges == nil {
@@ -12434,6 +12466,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputUpdateBrandSettingsInput,
 		ec.unmarshalInputUpdateChannelActionMenuSettingInput,
 		ec.unmarshalInputUpdateChannelInput,
+		ec.unmarshalInputUpdateChannelKeyRoutingSettingInput,
 		ec.unmarshalInputUpdateChannelModelAutoSyncSettingInput,
 		ec.unmarshalInputUpdateChannelOverrideTemplateInput,
 		ec.unmarshalInputUpdateChannelProbeSettingInput,
@@ -26507,6 +26540,93 @@ func (ec *executionContext) fieldContext_ChannelKeyMonitoringEventEdge_cursor(_ 
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Cursor does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyRoutingSetting_strategy(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelKeyRoutingSetting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyRoutingSetting_strategy,
+		func(ctx context.Context) (any, error) {
+			return obj.Strategy, nil
+		},
+		nil,
+		ec.marshalNChannelKeySelectionStrategy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeySelectionStrategy,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyRoutingSetting_strategy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyRoutingSetting",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelKeySelectionStrategy does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyRoutingSetting_likelyAffinityTTLMinutes(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelKeyRoutingSetting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyRoutingSetting_likelyAffinityTTLMinutes,
+		func(ctx context.Context) (any, error) {
+			return obj.LikelyAffinityTTLMinutes, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyRoutingSetting_likelyAffinityTTLMinutes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyRoutingSetting",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyRoutingSetting_exactAffinityTTLMinutes(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelKeyRoutingSetting) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyRoutingSetting_exactAffinityTTLMinutes,
+		func(ctx context.Context) (any, error) {
+			return obj.ExactAffinityTTLMinutes, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyRoutingSetting_exactAffinityTTLMinutes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyRoutingSetting",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -51152,6 +51272,8 @@ func (ec *executionContext) fieldContext_Query_systemChannelSettings(_ context.C
 				return ec.fieldContext_SystemChannelSettings_autoSync(ctx, field)
 			case "actionMenu":
 				return ec.fieldContext_SystemChannelSettings_actionMenu(ctx, field)
+			case "routing":
+				return ec.fieldContext_SystemChannelSettings_routing(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type SystemChannelSettings", field.Name)
 		},
@@ -57887,6 +58009,43 @@ func (ec *executionContext) fieldContext_SystemChannelSettings_actionMenu(_ cont
 				return ec.fieldContext_ChannelActionMenuSetting_advancedActionsMode(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelActionMenuSetting", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemChannelSettings_routing(ctx context.Context, field graphql.CollectedField, obj *biz.SystemChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SystemChannelSettings_routing,
+		func(ctx context.Context) (any, error) {
+			return obj.Routing, nil
+		},
+		nil,
+		ec.marshalNChannelKeyRoutingSetting2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelKeyRoutingSetting,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SystemChannelSettings_routing(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "strategy":
+				return ec.fieldContext_ChannelKeyRoutingSetting_strategy(ctx, field)
+			case "likelyAffinityTTLMinutes":
+				return ec.fieldContext_ChannelKeyRoutingSetting_likelyAffinityTTLMinutes(ctx, field)
+			case "exactAffinityTTLMinutes":
+				return ec.fieldContext_ChannelKeyRoutingSetting_exactAffinityTTLMinutes(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyRoutingSetting", field.Name)
 		},
 	}
 	return fc, nil
@@ -90634,6 +90793,47 @@ func (ec *executionContext) unmarshalInputUpdateChannelInput(ctx context.Context
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputUpdateChannelKeyRoutingSettingInput(ctx context.Context, obj any) (biz.ChannelKeyRoutingSetting, error) {
+	var it biz.ChannelKeyRoutingSetting
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"strategy", "likelyAffinityTTLMinutes", "exactAffinityTTLMinutes"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "strategy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("strategy"))
+			data, err := ec.unmarshalNChannelKeySelectionStrategy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeySelectionStrategy(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Strategy = data
+		case "likelyAffinityTTLMinutes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("likelyAffinityTTLMinutes"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LikelyAffinityTTLMinutes = data
+		case "exactAffinityTTLMinutes":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exactAffinityTTLMinutes"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExactAffinityTTLMinutes = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputUpdateChannelModelAutoSyncSettingInput(ctx context.Context, obj any) (biz.ChannelModelAutoSyncSetting, error) {
 	var it biz.ChannelModelAutoSyncSetting
 	asMap := map[string]any{}
@@ -92016,7 +92216,7 @@ func (ec *executionContext) unmarshalInputUpdateSystemChannelSettingsInput(ctx c
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"probe", "autoSync", "actionMenu"}
+	fieldsInOrder := [...]string{"probe", "autoSync", "actionMenu", "routing"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -92044,6 +92244,13 @@ func (ec *executionContext) unmarshalInputUpdateSystemChannelSettingsInput(ctx c
 				return it, err
 			}
 			it.ActionMenu = data
+		case "routing":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("routing"))
+			data, err := ec.unmarshalOUpdateChannelKeyRoutingSettingInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelKeyRoutingSetting(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Routing = data
 		}
 	}
 
@@ -99995,6 +100202,49 @@ func (ec *executionContext) _ChannelKeyMonitoringEventEdge(ctx context.Context, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelKeyRoutingSettingImplementors = []string{"ChannelKeyRoutingSetting"}
+
+func (ec *executionContext) _ChannelKeyRoutingSetting(ctx context.Context, sel ast.SelectionSet, obj *biz.ChannelKeyRoutingSetting) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelKeyRoutingSettingImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelKeyRoutingSetting")
+		case "strategy":
+			out.Values[i] = ec._ChannelKeyRoutingSetting_strategy(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "likelyAffinityTTLMinutes":
+			out.Values[i] = ec._ChannelKeyRoutingSetting_likelyAffinityTTLMinutes(ctx, field, obj)
+		case "exactAffinityTTLMinutes":
+			out.Values[i] = ec._ChannelKeyRoutingSetting_exactAffinityTTLMinutes(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -112775,6 +113025,11 @@ func (ec *executionContext) _SystemChannelSettings(ctx context.Context, sel ast.
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "routing":
+			out.Values[i] = ec._SystemChannelSettings_routing(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -118068,6 +118323,27 @@ func (ec *executionContext) marshalNChannelKeyMonitoringEventOrderField2ᚖgithu
 func (ec *executionContext) unmarshalNChannelKeyMonitoringEventWhereInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐChannelKeyMonitoringEventWhereInput(ctx context.Context, v any) (*ent.ChannelKeyMonitoringEventWhereInput, error) {
 	res, err := ec.unmarshalInputChannelKeyMonitoringEventWhereInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChannelKeyRoutingSetting2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelKeyRoutingSetting(ctx context.Context, sel ast.SelectionSet, v biz.ChannelKeyRoutingSetting) graphql.Marshaler {
+	return ec._ChannelKeyRoutingSetting(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNChannelKeySelectionStrategy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeySelectionStrategy(ctx context.Context, v any) (objects.ChannelKeySelectionStrategy, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelKeySelectionStrategy(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChannelKeySelectionStrategy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeySelectionStrategy(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeySelectionStrategy) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
 }
 
 func (ec *executionContext) unmarshalNChannelKeyStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyStatus(ctx context.Context, v any) (objects.ChannelKeyStatus, error) {
@@ -130458,6 +130734,11 @@ func (ec *executionContext) unmarshalOTransformOptionsInput2githubᚗcomᚋloopl
 
 func (ec *executionContext) unmarshalOUpdateChannelActionMenuSettingInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelActionMenuSetting(ctx context.Context, v any) (biz.ChannelActionMenuSetting, error) {
 	res, err := ec.unmarshalInputUpdateChannelActionMenuSettingInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOUpdateChannelKeyRoutingSettingInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelKeyRoutingSetting(ctx context.Context, v any) (biz.ChannelKeyRoutingSetting, error) {
+	res, err := ec.unmarshalInputUpdateChannelKeyRoutingSettingInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

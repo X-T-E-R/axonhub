@@ -339,10 +339,17 @@ type ChannelActionMenuSetting {
   advancedActionsMode: ChannelAdvancedActionMenuMode!
 }
 
+type ChannelKeyRoutingSetting {
+  strategy: ChannelKeySelectionStrategy!
+  likelyAffinityTTLMinutes: Int
+  exactAffinityTTLMinutes: Int
+}
+
 type SystemChannelSettings {
   probe: ChannelProbeSetting!
   autoSync: ChannelModelAutoSyncSetting!
   actionMenu: ChannelActionMenuSetting!
+  routing: ChannelKeyRoutingSetting!
 }
 
 input UpdateChannelProbeSettingInput {
@@ -358,10 +365,17 @@ input UpdateChannelActionMenuSettingInput {
   advancedActionsMode: ChannelAdvancedActionMenuMode!
 }
 
+input UpdateChannelKeyRoutingSettingInput {
+  strategy: ChannelKeySelectionStrategy!
+  likelyAffinityTTLMinutes: Int
+  exactAffinityTTLMinutes: Int
+}
+
 input UpdateSystemChannelSettingsInput {
   probe: UpdateChannelProbeSettingInput
   autoSync: UpdateChannelModelAutoSyncSettingInput
   actionMenu: UpdateChannelActionMenuSettingInput
+  routing: UpdateChannelKeyRoutingSettingInput
 }
 
 type SystemGeneralSettings {
