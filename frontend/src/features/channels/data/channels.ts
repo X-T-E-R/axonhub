@@ -32,6 +32,7 @@ import {
   testAPIKeyResultSchema,
   ChannelAPIKeyInventoryItem,
   channelAPIKeyInventoryItemSchema,
+  ChannelAPIKeyHealthCheckMode,
 } from './schema';
 
 const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
@@ -923,8 +924,8 @@ const RESTORE_CHANNEL_API_KEY_MUTATION = `
 `;
 
 const RUN_CHANNEL_API_KEY_HEALTH_CHECK_MUTATION = `
-  mutation RunChannelAPIKeyHealthCheck($channelID: ID!, $keyIDs: [String!]) {
-    runChannelAPIKeyHealthCheck(channelID: $channelID, keyIDs: $keyIDs) {
+  mutation RunChannelAPIKeyHealthCheck($channelID: ID!, $keyIDs: [String!], $mode: ChannelAPIKeyHealthCheckMode) {
+    runChannelAPIKeyHealthCheck(channelID: $channelID, keyIDs: $keyIDs, mode: $mode) {
       ${CHANNEL_API_KEY_INVENTORY_FIELDS}
     }
   }
@@ -2441,13 +2442,14 @@ export function useRunChannelAPIKeyHealthCheck() {
   const { handleError } = useErrorHandler();
 
   return useMutation({
-    mutationFn: async ({ channelID, keyIDs }: { channelID: string; keyIDs?: string[] }) => {
+    mutationFn: async ({ channelID, keyIDs, mode }: { channelID: string; keyIDs?: string[]; mode?: ChannelAPIKeyHealthCheckMode }) => {
       try {
         const data = await graphqlRequest<{ runChannelAPIKeyHealthCheck: ChannelAPIKeyInventoryItem[] }>(
           RUN_CHANNEL_API_KEY_HEALTH_CHECK_MUTATION,
           {
             channelID,
             keyIDs: keyIDs && keyIDs.length > 0 ? keyIDs : undefined,
+            mode,
           }
         );
         return z.array(channelAPIKeyInventoryItemSchema).parse(data.runChannelAPIKeyHealthCheck);

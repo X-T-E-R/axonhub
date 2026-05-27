@@ -943,6 +943,9 @@ const CHANNEL_SETTINGS_QUERY = `
       autoSync {
         frequency
       }
+      actionMenu {
+        advancedActionsMode
+      }
     }
   }
 `;
@@ -1063,6 +1066,8 @@ export type ProbeFrequency = 'ONE_MINUTE' | 'FIVE_MINUTES' | 'THIRTY_MINUTES' | 
 
 export type AutoSyncFrequency = 'ONE_HOUR' | 'SIX_HOURS' | 'ONE_DAY';
 
+export type ChannelAdvancedActionMenuMode = 'GROUPED' | 'EXPANDED';
+
 export interface ChannelProbeSetting {
   enabled: boolean;
   frequency: ProbeFrequency;
@@ -1072,9 +1077,14 @@ export interface ChannelModelAutoSyncSetting {
   frequency: AutoSyncFrequency;
 }
 
+export interface ChannelActionMenuSetting {
+  advancedActionsMode: ChannelAdvancedActionMenuMode;
+}
+
 export interface ChannelSetting {
   probe: ChannelProbeSetting;
   autoSync: ChannelModelAutoSyncSetting;
+  actionMenu: ChannelActionMenuSetting;
 }
 
 export interface UpdateChannelProbeSettingInput {
@@ -1086,9 +1096,14 @@ export interface UpdateChannelModelAutoSyncSettingInput {
   frequency?: AutoSyncFrequency;
 }
 
+export interface UpdateChannelActionMenuSettingInput {
+  advancedActionsMode?: ChannelAdvancedActionMenuMode;
+}
+
 export interface UpdateSystemChannelSettingsInput {
   probe?: UpdateChannelProbeSettingInput;
   autoSync?: UpdateChannelModelAutoSyncSettingInput;
+  actionMenu?: UpdateChannelActionMenuSettingInput;
 }
 
 export function useChannelSetting() {

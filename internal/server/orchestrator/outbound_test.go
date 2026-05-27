@@ -12,11 +12,14 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -559,6 +562,87 @@ func TestShouldForceStreamingForCandidate(t *testing.T) {
 			&llm.Request{Stream: lo.ToPtr(true), RequestType: llm.RequestTypeChat, APIFormat: llm.APIFormatOpenAIChatCompletion},
 		))
 	})
+}
+
+func TestPersistentOutboundTransformer_FailurePolicyRoutingChangeRetriesUnauthorizedWithFreshKey(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:failure-policy-routing-retry?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	badKey := "sk-bad-delete-secret"
+	spareKey := "sk-spare-secret"
+	minFailures := 1
+	ch := client.Channel.Create().
+		SetName("Failure Policy Retry Channel").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{badKey, spareKey}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				KeyProfiles: []objects.FailurePolicyProfile{{
+					ID:      "delete-401",
+					Name:    "Delete unauthorized key",
+					Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						MinFailureCount: &minFailures,
+						StatusCodes:     []int{http.StatusUnauthorized},
+					},
+					Actions: []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDeleteKey}},
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	systemService := biz.NewSystemService(biz.SystemServiceParams{
+		CacheConfig: xcache.Config{Mode: xcache.ModeMemory},
+		Ent:         client,
+	})
+	channelService := biz.NewChannelService(biz.ChannelServiceParams{
+		CacheConfig:   xcache.Config{Mode: xcache.ModeMemory},
+		Ent:           client,
+		SystemService: systemService,
+		HttpClient:    httpclient.NewHttpClient(),
+	})
+	defer channelService.Stop()
+	require.NoError(t, channelService.ReloadEnabledChannelsCache(ctx))
+	currentChannel := channelService.GetEnabledChannel(ch.ID)
+	require.NotNil(t, currentChannel)
+
+	candidate := &ChannelModelsCandidate{
+		Channel: currentChannel,
+		Models:  []biz.ChannelModelEntry{{RequestModel: "gpt-4", ActualModel: "gpt-4"}},
+	}
+	state := &PersistenceState{
+		ChannelService:          channelService,
+		CurrentCandidateIndex:   0,
+		CurrentCandidate:        candidate,
+		CurrentModelIndex:       0,
+		ChannelModelsCandidates: []*ChannelModelsCandidate{candidate},
+	}
+	outbound := &PersistentOutboundTransformer{
+		wrapped: currentChannel.Outbound,
+		state:   state,
+	}
+	middleware := &performanceRecording{outbound: outbound}
+
+	ctx = contexts.WithChannelAPIKey(ctx, badKey)
+	_, err := middleware.OnOutboundRawRequest(ctx, &httpclient.Request{Method: http.MethodPost, URL: "https://api.openai.example.com/v1/chat/completions"})
+	require.NoError(t, err)
+	middleware.OnOutboundRawError(ctx, &httpclient.Error{StatusCode: http.StatusUnauthorized})
+
+	require.True(t, state.FailurePolicyRoutingChanged)
+	updated := client.Channel.GetX(ctx, ch.ID)
+	require.NotContains(t, updated.Credentials.APIKeys, badKey)
+	require.Contains(t, updated.Credentials.APIKeys, spareKey)
+
+	require.True(t, outbound.CanRetry(&httpclient.Error{StatusCode: http.StatusUnauthorized}))
+	require.NoError(t, outbound.PrepareForRetry(ctx))
+	require.False(t, state.FailurePolicyRoutingChanged)
+	require.NotContains(t, state.CurrentCandidate.Channel.Credentials.APIKeys, badKey)
+	require.Equal(t, []string{spareKey}, state.CurrentCandidate.Channel.Credentials.APIKeys)
 }
 
 func TestPersistentOutboundTransformer_HasMoreChannels_DisableRetries(t *testing.T) {

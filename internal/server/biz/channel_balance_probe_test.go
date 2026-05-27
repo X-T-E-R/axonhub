@@ -265,6 +265,91 @@ func TestRunChannelAPIKeyHealthCheckPrefersBalanceProbeAndStoresSnapshot(t *test
 	require.Equal(t, "USD", items[0].Currency)
 }
 
+func TestRunChannelAPIKeyHealthCheckRealRequestModeBypassesBalanceProbe(t *testing.T) {
+	disableChannelKeyHealthCheckDelays(t)
+
+	balanceProbeCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		balanceProbeCalled = true
+		_, _ = w.Write([]byte(`{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"42.00"}]}`))
+	}))
+	defer server.Close()
+
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	svc.httpClient = httpclient.NewHttpClientWithClient(server.Client())
+	builtinCalled := false
+	svc.SetChannelKeyHealthCheckTester(channelKeyHealthCheckTesterFunc(func(ctx context.Context, channelID objects.GUID, key string, modelID *string, proxy *httpclient.ProxyConfig) ChannelKeyHealthCheckBuiltinResult {
+		builtinCalled = true
+		require.Equal(t, "sk-real-request-manual", key)
+		return ChannelKeyHealthCheckBuiltinResult{Success: true, Reason: "builtin ok"}
+	}))
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeDeepseek).
+		SetName("Real Request Manual").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL(server.URL).
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"sk-real-request-manual"}}).
+		SetSupportedModels([]string{"deepseek-chat"}).
+		SetDefaultTestModel("deepseek-chat").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{},
+			BalanceProbe: &objects.ChannelBalanceProbe{
+				Preset: objects.ChannelBalanceProbePresetDeepSeek,
+				HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
+					Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+					URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeProviderBaseURL,
+					Path:             "/user/balance",
+					ExpectedStatuses: []int{http.StatusOK},
+				},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	items, err := svc.RunChannelAPIKeyHealthCheck(ctx, ch.ID, nil, objects.ChannelAPIKeyHealthCheckModeRealRequest)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.True(t, builtinCalled)
+	require.False(t, balanceProbeCalled)
+	require.NotNil(t, items[0].Success)
+	require.True(t, *items[0].Success)
+	require.Equal(t, "builtin ok", items[0].Reason)
+	require.Nil(t, items[0].BalanceSnapshot)
+}
+
+func TestSelectedChannelKeyHealthCheckTargetsIncludeSelectedDisabledAndArchivedKeys(t *testing.T) {
+	activeKey := "sk-active"
+	disabledKey := "sk-disabled"
+	archivedKey := "sk-archived"
+	ch := &ent.Channel{
+		Credentials: objects.ChannelCredentials{APIKeys: []string{activeKey, disabledKey, archivedKey}},
+		DisabledAPIKeys: []objects.DisabledAPIKey{{
+			Key: disabledKey,
+		}},
+		Settings: &objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				ArchivedKeys: []objects.ChannelArchivedAPIKey{{
+					ID: objects.ChannelAPIKeyFingerprint(archivedKey),
+				}},
+			},
+		},
+	}
+
+	require.Equal(t, []string{activeKey}, selectedChannelKeyHealthCheckTargets(ch, nil))
+	require.ElementsMatch(
+		t,
+		[]string{disabledKey, archivedKey},
+		selectedChannelKeyHealthCheckTargets(ch, []string{
+			objects.ChannelAPIKeyFingerprint(disabledKey),
+			objects.ChannelAPIKeyFingerprint(archivedKey),
+		}),
+	)
+}
+
 func TestUpdateChannelAllowsWriteOnlyAdminToSaveCustomBalanceProbe(t *testing.T) {
 	svc, client := setupTestChannelService(t)
 	defer client.Close()

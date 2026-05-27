@@ -336,6 +336,14 @@ const (
 	ChannelKeyHealthCheckRuleTypeHTTP        ChannelKeyHealthCheckRuleType = "http"
 )
 
+type ChannelAPIKeyHealthCheckMode string
+
+const (
+	ChannelAPIKeyHealthCheckModeAuto         ChannelAPIKeyHealthCheckMode = "auto"
+	ChannelAPIKeyHealthCheckModeBalanceProbe ChannelAPIKeyHealthCheckMode = "balance_probe"
+	ChannelAPIKeyHealthCheckModeRealRequest  ChannelAPIKeyHealthCheckMode = "real_request"
+)
+
 type ChannelKeyHealthCheckHTTPMethod string
 
 const (

@@ -89,3 +89,37 @@ func TestMutationResolver_UpdateSystemChannelSettings_MergesProbeWithoutOverwrit
 	require.Equal(t, biz.ProbeFrequency1Hour, setting.Probe.Frequency)
 	require.Equal(t, biz.AutoSyncFrequencySixHours, setting.AutoSync.Frequency)
 }
+
+func TestMutationResolver_UpdateSystemChannelSettings_MergesActionMenuWithoutOverwritingProbeOrAutoSync(t *testing.T) {
+	resolver, ctx, client := setupTestSystemMutationResolver(t)
+	defer client.Close()
+
+	err := resolver.systemService.SetChannelSetting(ctx, biz.SystemChannelSettings{
+		Probe: biz.ChannelProbeSetting{
+			Enabled:   true,
+			Frequency: biz.ProbeFrequency5Min,
+		},
+		AutoSync: biz.ChannelModelAutoSyncSetting{
+			Frequency: biz.AutoSyncFrequencySixHours,
+		},
+		ActionMenu: biz.ChannelActionMenuSetting{
+			AdvancedActionsMode: biz.ChannelAdvancedActionMenuModeGrouped,
+		},
+	})
+	require.NoError(t, err)
+
+	ok, err := resolver.UpdateSystemChannelSettings(ctx, biz.SystemChannelSettings{
+		ActionMenu: biz.ChannelActionMenuSetting{
+			AdvancedActionsMode: biz.ChannelAdvancedActionMenuModeExpanded,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	setting, err := resolver.systemService.ChannelSetting(ctx)
+	require.NoError(t, err)
+	require.True(t, setting.Probe.Enabled)
+	require.Equal(t, biz.ProbeFrequency5Min, setting.Probe.Frequency)
+	require.Equal(t, biz.AutoSyncFrequencySixHours, setting.AutoSync.Frequency)
+	require.Equal(t, biz.ChannelAdvancedActionMenuModeExpanded, setting.ActionMenu.AdvancedActionsMode)
+}

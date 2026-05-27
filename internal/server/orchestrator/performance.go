@@ -53,6 +53,7 @@ func (m *performanceRecording) OnOutboundRawRequest(ctx context.Context, request
 	if channel == nil {
 		return request, nil
 	}
+	m.outbound.state.FailurePolicyRoutingChanged = false
 
 	// Preserve Stream flag from existing PerformanceRecord (set in OnInboundLlmRequest)
 	var streamFlag bool
@@ -128,6 +129,13 @@ func (m *performanceRecording) OnOutboundRawError(ctx context.Context, err error
 	} else {
 		errorCode := ExtractErrorCode(err)
 		perf.MarkFailed(errorCode)
+	}
+
+	if m.outbound.state.ChannelService == nil {
+		return
+	}
+	if !perf.Canceled {
+		m.outbound.state.FailurePolicyRoutingChanged = m.outbound.state.ChannelService.ApplyRequestFailurePolicy(ctx, perf)
 	}
 
 	m.outbound.state.ChannelService.AsyncRecordPerformance(ctx, perf)

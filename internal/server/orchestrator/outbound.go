@@ -583,6 +583,10 @@ func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 		return false
 	}
 
+	if p.state.FailurePolicyRoutingChanged {
+		return true
+	}
+
 	// Local admission rejection: the same channel cannot make progress until the
 	// local queue/RPM state changes, so bounce immediately to the next channel.
 	if isChannelQueueError(err) || isLocalRPMExhaustedError(err) {
@@ -630,6 +634,14 @@ func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 // It will try the next model in the same channel if available.
 func (p *PersistentOutboundTransformer) PrepareForRetry(ctx context.Context) error {
 	candidate := p.state.CurrentCandidate
+	if p.state.FailurePolicyRoutingChanged {
+		refreshed, err := p.refreshCurrentCandidateAfterRoutingChange(ctx)
+		if err != nil {
+			return err
+		}
+		candidate = refreshed
+		p.state.FailurePolicyRoutingChanged = false
+	}
 
 	// Reset request execution for the same channel.
 	p.state.RequestExec = nil
@@ -672,6 +684,35 @@ func (p *PersistentOutboundTransformer) PrepareForRetry(ctx context.Context) err
 	}
 
 	return nil
+}
+
+func (p *PersistentOutboundTransformer) refreshCurrentCandidateAfterRoutingChange(ctx context.Context) (*ChannelModelsCandidate, error) {
+	if p.state == nil || p.state.CurrentCandidate == nil || p.state.CurrentCandidate.Channel == nil {
+		return nil, errors.New("no current candidate available after failure policy routing change")
+	}
+	if p.state.ChannelService == nil {
+		return p.state.CurrentCandidate, nil
+	}
+
+	current := p.state.CurrentCandidate
+	if err := p.state.ChannelService.ReloadEnabledChannelsCache(ctx); err != nil {
+		return nil, fmt.Errorf("failed to reload channels after failure policy routing change: %w", err)
+	}
+
+	refreshedChannel := p.state.ChannelService.GetEnabledChannel(current.Channel.ID)
+	if refreshedChannel == nil {
+		return nil, fmt.Errorf("current channel %d is no longer routable after failure policy routing change", current.Channel.ID)
+	}
+
+	refreshed := *current
+	refreshed.Channel = refreshedChannel
+	if p.state.CurrentCandidateIndex >= 0 && p.state.CurrentCandidateIndex < len(p.state.ChannelModelsCandidates) {
+		p.state.ChannelModelsCandidates[p.state.CurrentCandidateIndex] = &refreshed
+	}
+	p.state.CurrentCandidate = &refreshed
+	p.wrapped = selectOutboundForCandidate(&refreshed)
+
+	return &refreshed, nil
 }
 
 // CustomizeExecutor customizes the executor for the current channel.

@@ -67,6 +67,7 @@ import {
   ChannelKeyHealthCheck,
   ChannelKeyHealthCheckHTTPRule,
   ChannelKeyHealthCheckHistoryEntry,
+  ChannelAPIKeyHealthCheckMode,
   channelKeySelectionStrategySchema,
 } from '../data/schema';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
@@ -476,6 +477,28 @@ function defaultBalanceProbeForChannel(type: Channel['type']): KeysFormValues['b
     preset,
     ...balanceProbeHTTPValuesFromStored(null, preset, ''),
   };
+}
+
+function channelSupportsManualBalanceProbe(channel: Channel): boolean {
+  const probe = channel.settings?.balanceProbe;
+  if (probe?.preset === CUSTOM_BALANCE_PROBE_PRESET) {
+    return !!probe.http;
+  }
+  if (probe?.preset && isBuiltInBalanceProbePreset(probe.preset)) {
+    return true;
+  }
+  if (probe?.preset) {
+    return false;
+  }
+  if (probe?.http && !probe?.preset) {
+    return true;
+  }
+
+  return BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[channel.type] != null;
+}
+
+function defaultManualTestModeForChannel(channel: Channel): ChannelAPIKeyHealthCheckMode {
+  return channelSupportsManualBalanceProbe(channel) ? 'balance_probe' : 'real_request';
 }
 
 function createDefaultProfile(index: number, target: FailurePolicyTarget): FailureProfileFormValue {
@@ -2282,6 +2305,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const [channelHistoryOpen, setChannelHistoryOpen] = useState(false);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  const [manualTestMode, setManualTestMode] = useState<ChannelAPIKeyHealthCheckMode>(() => defaultManualTestModeForChannel(currentRow));
 
   const keyInventory = useChannelAPIKeyInventory(currentRow.id, { enabled: open });
   const addAPIKey = useAddChannelAPIKey();
@@ -2308,6 +2332,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
       setChannelHistoryOpen(false);
       setConfirmDeleteKey(null);
       setConfirmBatchDelete(false);
+      setManualTestMode(defaultManualTestModeForChannel(currentRow));
     }
   }, [open, currentRow, form]);
 
@@ -2350,6 +2375,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     () => visibleInventory.reduce((sum, item) => sum + (item.history?.length ?? 0), 0),
     [visibleInventory]
   );
+  const canRunBalanceProbe = useMemo(() => channelSupportsManualBalanceProbe(currentRow), [currentRow]);
   const selectedStrategy = form.watch('strategy');
   const isPending =
     keyInventory.isFetching ||
@@ -2369,6 +2395,12 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
       return next.size === prev.size ? prev : next;
     });
   }, [visibleInventory]);
+
+  useEffect(() => {
+    if (manualTestMode === 'balance_probe' && !canRunBalanceProbe) {
+      setManualTestMode('real_request');
+    }
+  }, [canRunBalanceProbe, manualTestMode]);
 
   const toggleSelected = (id: string, checked: boolean) => {
     setSelectedKeys((prev) => {
@@ -2498,6 +2530,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
       await runHealthCheck.mutateAsync({
         channelID: currentRow.id,
         keyIDs,
+        mode: manualTestMode,
       });
     } catch {
       // Error handled by hook.
@@ -2640,6 +2673,33 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                         <AlertDescription>{t('channels.dialogs.keys.inventory.statusCopy')}</AlertDescription>
                       </Alert>
 
+                      <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-3 lg:flex-row lg:items-center lg:justify-between'>
+                        <div className='space-y-1'>
+                          <div className='text-sm font-medium'>{t('channels.dialogs.keys.manualTest.title')}</div>
+                          <div className='text-muted-foreground text-sm'>
+                            {t(`channels.dialogs.keys.manualTest.modes.${manualTestMode}.description`)}
+                          </div>
+                          {!canRunBalanceProbe ? (
+                            <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.manualTest.balanceUnavailable')}</div>
+                          ) : null}
+                        </div>
+                        <Select
+                          value={manualTestMode}
+                          onValueChange={(value) => setManualTestMode(value as ChannelAPIKeyHealthCheckMode)}
+                          disabled={isPending}
+                        >
+                          <SelectTrigger className='w-full lg:w-[240px]'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value='balance_probe' disabled={!canRunBalanceProbe}>
+                              {t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
+                            </SelectItem>
+                            <SelectItem value='real_request'>{t('channels.dialogs.keys.manualTest.modes.real_request.label')}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
                       <button
                         type='button'
                         className='from-primary/10 via-background to-muted/50 hover:border-primary/50 flex w-full flex-col gap-3 rounded-xl border bg-gradient-to-r p-4 text-left transition sm:flex-row sm:items-center sm:justify-between'
@@ -2729,7 +2789,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                               disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
                             >
                               <IconPlayerPlay className='mr-2 h-4 w-4' />
-                              {t('channels.dialogs.keys.actions.healthSelected', { count: selectedHealthCheckKeyIDs.length })}
+                              {t('channels.dialogs.keys.actions.testSelected', { count: selectedHealthCheckKeyIDs.length })}
                             </Button>
                             <Button
                               type='button'
@@ -3125,7 +3185,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                 ) : (
                   <IconPlayerPlay className='mr-2 h-4 w-4' />
                 )}
-                {t('channels.dialogs.keys.actions.runChecks')}
+                {t('channels.dialogs.keys.actions.runManualTest')}
               </Button>
               <div className='text-muted-foreground hidden items-center gap-1 text-xs sm:flex'>
                 <IconAlertTriangle className='h-3.5 w-3.5' />

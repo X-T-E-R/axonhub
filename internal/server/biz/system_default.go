@@ -52,6 +52,9 @@ var defaultChannelSetting = SystemChannelSettings{
 	AutoSync: ChannelModelAutoSyncSetting{
 		Frequency: AutoSyncFrequencyOneHour,
 	},
+	ActionMenu: ChannelActionMenuSetting{
+		AdvancedActionsMode: ChannelAdvancedActionMenuModeGrouped,
+	},
 }
 
 var defaultGeneralSettings = SystemGeneralSettings{

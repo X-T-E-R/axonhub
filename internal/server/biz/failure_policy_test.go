@@ -363,6 +363,61 @@ func TestRequestFailurePolicyDeleteKeyKeepsRequestHistory(t *testing.T) {
 	require.NotContains(t, string(rawHistory), apiKey)
 }
 
+func TestApplyRequestFailurePolicyPreventsRecordPerformanceDoubleApply(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	apiKey := "sk-delete-once-secret"
+	spareKey := "sk-spare-secret"
+	minFailures := 1
+	ch := client.Channel.Create().
+		SetName("Request Delete Policy Once").
+		SetType(channel.TypeOpenai).
+		SetBaseURL("https://api.openai.example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{apiKey, spareKey}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{HistoryLimit: 10},
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				KeyProfiles: []objects.FailurePolicyProfile{{
+					ID:      "request-delete",
+					Name:    "Request delete",
+					Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+					Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+						MinFailureCount: &minFailures,
+						StatusCodes:     []int{http.StatusUnauthorized},
+					},
+					Actions: []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDeleteKey}},
+				}},
+			},
+		}).
+		SaveX(ctx)
+
+	svc := NewChannelServiceForTest(client)
+	perf := &PerformanceRecord{
+		ChannelID:          ch.ID,
+		APIKey:             apiKey,
+		ResponseStatusCode: http.StatusUnauthorized,
+		Success:            false,
+		RequestCompleted:   true,
+		EndTime:            time.Now(),
+	}
+
+	require.True(t, svc.ApplyRequestFailurePolicy(ctx, perf))
+	require.True(t, perf.FailurePolicyHandled)
+	require.True(t, perf.FailurePolicyRoutingChanged)
+
+	svc.RecordPerformance(ctx, perf)
+
+	updated := client.Channel.GetX(ctx, ch.ID)
+	require.Equal(t, []string{spareKey}, updated.Credentials.APIKeys)
+	require.Len(t, updated.Settings.KeyHealthCheck.History, 1)
+	require.Equal(t, string(objects.FailurePolicyActionDeleteKey), updated.Settings.KeyHealthCheck.History[0].Action)
+}
+
 func TestRequestFailurePolicyChannelTargetRecordsChannelHistory(t *testing.T) {
 	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
 	defer client.Close()

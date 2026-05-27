@@ -8,7 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useChannelSetting, useUpdateChannelSetting, type AutoSyncFrequency, type ProbeFrequency } from '@/features/system/data/system';
+import {
+  useChannelSetting,
+  useUpdateChannelSetting,
+  type AutoSyncFrequency,
+  type ChannelAdvancedActionMenuMode,
+  type ProbeFrequency,
+} from '@/features/system/data/system';
 import { useChannels } from '../context/channels-context';
 
 const PROBE_FREQUENCY_OPTIONS: { value: ProbeFrequency; label: string }[] = [
@@ -24,6 +30,8 @@ const AUTO_SYNC_FREQUENCY_OPTIONS: { value: AutoSyncFrequency; label: string }[]
   { value: 'ONE_DAY', label: '1 day' },
 ];
 
+const ACTION_MENU_MODE_OPTIONS: ChannelAdvancedActionMenuMode[] = ['GROUPED', 'EXPANDED'];
+
 export function ChannelsSystemSettingsDialog() {
   const { t } = useTranslation();
   const { open, setOpen } = useChannels();
@@ -35,6 +43,7 @@ export function ChannelsSystemSettingsDialog() {
   const [probeEnabled, setProbeEnabled] = React.useState(false);
   const [probeFrequency, setProbeFrequency] = React.useState<ProbeFrequency>('ONE_MINUTE');
   const [autoSyncFrequency, setAutoSyncFrequency] = React.useState<AutoSyncFrequency>('ONE_HOUR');
+  const [advancedActionMenuMode, setAdvancedActionMenuMode] = React.useState<ChannelAdvancedActionMenuMode>('GROUPED');
 
   React.useEffect(() => {
     if (settings?.probe) {
@@ -43,6 +52,9 @@ export function ChannelsSystemSettingsDialog() {
     }
     if (settings?.autoSync?.frequency) {
       setAutoSyncFrequency(settings.autoSync.frequency);
+    }
+    if (settings?.actionMenu?.advancedActionsMode) {
+      setAdvancedActionMenuMode(settings.actionMenu.advancedActionsMode);
     }
   }, [settings]);
 
@@ -55,9 +67,12 @@ export function ChannelsSystemSettingsDialog() {
       autoSync: {
         frequency: autoSyncFrequency,
       },
+      actionMenu: {
+        advancedActionsMode: advancedActionMenuMode,
+      },
     });
     setOpen(null);
-  }, [updateSettings, probeEnabled, probeFrequency, autoSyncFrequency, setOpen]);
+  }, [updateSettings, probeEnabled, probeFrequency, autoSyncFrequency, advancedActionMenuMode, setOpen]);
 
   const handleClose = useCallback(() => {
     setOpen(null);
@@ -150,6 +165,39 @@ export function ChannelsSystemSettingsDialog() {
                     </SelectContent>
                   </Select>
                   <p className='text-muted-foreground text-xs'>{t('channels.dialogs.systemSettings.autoSync.frequencyDescription')}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className='pb-0'>
+                <CardTitle className='flex items-center gap-2 text-sm'>
+                  <Settings2 className='text-muted-foreground h-4 w-4' />
+                  {t('channels.dialogs.systemSettings.actionMenu.label')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4 pt-4'>
+                <div className='space-y-2'>
+                  <label htmlFor='action-menu-mode' className='text-sm font-medium'>
+                    {t('channels.dialogs.systemSettings.actionMenu.modeLabel')}
+                  </label>
+                  <Select
+                    value={advancedActionMenuMode}
+                    onValueChange={(value) => setAdvancedActionMenuMode(value as ChannelAdvancedActionMenuMode)}
+                  >
+                    <SelectTrigger id='action-menu-mode' disabled={updateSettings.isPending}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ACTION_MENU_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {t(`channels.dialogs.systemSettings.actionMenu.modes.${option}.label`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(`channels.dialogs.systemSettings.actionMenu.modes.${advancedActionMenuMode}.description`)}
+                  </p>
                 </div>
               </CardContent>
             </Card>

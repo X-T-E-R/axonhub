@@ -44,6 +44,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DataTableColumnHeader } from '@/components/data-table-column-header';
+import { useChannelSetting } from '@/features/system/data/system';
 import { useChannels } from '../context/channels-context';
 import { useTestChannel, useUpdateChannel } from '../data/channels';
 import { CHANNEL_CONFIGS, getProvider } from '../data/config_channels';
@@ -89,6 +90,8 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
   const channel = row.original;
   const { setOpen, setCurrentRow } = useChannels();
   const testChannel = useTestChannel();
+  const { data: channelSetting } = useChannelSetting();
+  const advancedActionMenuMode = channelSetting?.actionMenu?.advancedActionsMode ?? 'GROUPED';
   const isArchived = channel.status === 'archived';
   const hasError = !!channel.errorMessage;
 
@@ -112,6 +115,85 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
     setCurrentRow(channel);
     setOpen('edit');
   }, [channel, setCurrentRow, setOpen]);
+
+  const advancedActionItems = (
+    <>
+      <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
+        {t('channels.actions.modelsAndEndpoints')}
+      </DropdownMenuLabel>
+      <DropdownMenuItem
+        onClick={() => {
+          setCurrentRow(channel);
+          setOpen('modelMapping');
+        }}
+      >
+        <IconRoute size={16} className='mr-2' />
+        {t('channels.dialogs.settings.modelMapping.title')}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => {
+          setCurrentRow(channel);
+          setOpen('price');
+        }}
+      >
+        <IconCoin size={16} className='mr-2' />
+        {t('channels.actions.modelPrice')}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => {
+          setCurrentRow(channel);
+          setOpen('endpoints');
+        }}
+      >
+        <IconPlugConnected size={16} className='mr-2' />
+        {t('channels.endpoints.title')}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
+        {t('channels.actions.requestHandling')}
+      </DropdownMenuLabel>
+      <DropdownMenuItem
+        onClick={() => {
+          setCurrentRow(channel);
+          setOpen('overrides');
+        }}
+      >
+        <IconAdjustments size={16} className='mr-2' />
+        {t('channels.dialogs.settings.overrides.action')}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => {
+          setCurrentRow(channel);
+          setOpen('transformOptions');
+        }}
+      >
+        <IconTransform size={16} className='mr-2' />
+        {t('channels.dialogs.transformOptions.action')}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
+        {t('channels.actions.networkAndLimits')}
+      </DropdownMenuLabel>
+      <DropdownMenuItem
+        onClick={() => {
+          setCurrentRow(channel);
+          setOpen('proxy');
+        }}
+      >
+        <IconNetwork size={16} className='mr-2' />
+        {t('channels.dialogs.proxy.action')}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => {
+          setCurrentRow(channel);
+          setOpen('rateLimit');
+        }}
+      >
+        <IconGauge size={16} className='mr-2' />
+        {t('channels.dialogs.rateLimit.action')}
+      </DropdownMenuItem>
+    </>
+  );
 
   return (
     <div className='flex items-center justify-center gap-1'>
@@ -174,88 +256,20 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
             {t('channels.dialogs.keys.action')}
           </DropdownMenuItem>
 
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <IconAdjustments size={16} className='mr-2' />
-              {t('channels.actions.advancedSettings')}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className='w-[220px]'>
-              <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
-                {t('channels.actions.modelsAndEndpoints')}
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCurrentRow(channel);
-                  setOpen('modelMapping');
-                }}
-              >
-                <IconRoute size={16} className='mr-2' />
-                {t('channels.dialogs.settings.modelMapping.title')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCurrentRow(channel);
-                  setOpen('price');
-                }}
-              >
-                <IconCoin size={16} className='mr-2' />
-                {t('channels.actions.modelPrice')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCurrentRow(channel);
-                  setOpen('endpoints');
-                }}
-              >
-                <IconPlugConnected size={16} className='mr-2' />
-                {t('channels.endpoints.title')}
-              </DropdownMenuItem>
+          {advancedActionMenuMode === 'EXPANDED' ? (
+            <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
-                {t('channels.actions.requestHandling')}
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCurrentRow(channel);
-                  setOpen('overrides');
-                }}
-              >
+              {advancedActionItems}
+            </>
+          ) : (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
                 <IconAdjustments size={16} className='mr-2' />
-                {t('channels.dialogs.settings.overrides.action')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCurrentRow(channel);
-                  setOpen('transformOptions');
-                }}
-              >
-                <IconTransform size={16} className='mr-2' />
-                {t('channels.dialogs.transformOptions.action')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
-                {t('channels.actions.networkAndLimits')}
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCurrentRow(channel);
-                  setOpen('proxy');
-                }}
-              >
-                <IconNetwork size={16} className='mr-2' />
-                {t('channels.dialogs.proxy.action')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  setCurrentRow(channel);
-                  setOpen('rateLimit');
-                }}
-              >
-                <IconGauge size={16} className='mr-2' />
-                {t('channels.dialogs.rateLimit.action')}
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+                {t('channels.actions.advancedSettings')}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className='w-[220px]'>{advancedActionItems}</DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
 
           <DropdownMenuSeparator />
           <DropdownMenuItem

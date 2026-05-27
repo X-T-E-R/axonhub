@@ -148,6 +148,9 @@ func (r *mutationResolver) UpdateSystemChannelSettings(ctx context.Context, inpu
 	if input.AutoSync.Frequency != "" {
 		setting.AutoSync = input.AutoSync
 	}
+	if input.ActionMenu.AdvancedActionsMode != "" {
+		setting.ActionMenu = input.ActionMenu
+	}
 
 	err := r.systemService.SetChannelSetting(ctx, setting)
 	if err != nil {

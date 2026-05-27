@@ -250,6 +250,12 @@ enum ChannelKeyHealthCheckRuleType {
   http
 }
 
+enum ChannelAPIKeyHealthCheckMode {
+  auto
+  balance_probe
+  real_request
+}
+
 enum ChannelKeyHealthCheckHTTPMethod {
   GET
   POST
@@ -1385,6 +1391,7 @@ type Mutation {
   runChannelAPIKeyHealthCheck(
     channelID: ID!
     keyIDs: [String!]
+    mode: ChannelAPIKeyHealthCheckMode
   ): [ChannelAPIKeyInventoryItem!]!
 
   createAPIKey(input: CreateAPIKeyInput!): APIKey!

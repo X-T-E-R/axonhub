@@ -14,38 +14,56 @@ import {
   type FailurePolicyProfile,
 } from '@/features/channels/data/schema';
 
-export const monitoringRuleScheduleSchema = z.object({
-  intervalMinutes: z.number().int().min(1),
-  historyLimit: z.number().int().min(1),
-  maxChannels: z.number().int().min(0),
-  maxKeysPerChannel: z.number().int().min(0),
-  keySpacingMs: z.number().int().min(0),
-  jitterMs: z.number().int().min(0),
-});
+const monitoringNumber = (fallback: number, min = 0) => z.preprocess((value) => value ?? fallback, z.number().int().min(min));
 
-export const monitoringRuleTargetsSchema = z.object({
-  channelIDs: z.array(z.number().int()),
-  channelStatuses: z.array(z.string()),
-  keyStatuses: z.array(channelKeyStatusSchema),
-  includeBackoff: z.boolean(),
-});
+export const monitoringRuleScheduleSchema = z
+  .object({
+    intervalMinutes: monitoringNumber(60, 1),
+    historyLimit: monitoringNumber(100, 1),
+    maxChannels: monitoringNumber(4, 0),
+    maxKeysPerChannel: monitoringNumber(8, 0),
+    keySpacingMs: monitoringNumber(1000, 0),
+    jitterMs: monitoringNumber(250, 0),
+  })
+  .default({
+    intervalMinutes: 60,
+    historyLimit: 100,
+    maxChannels: 4,
+    maxKeysPerChannel: 8,
+    keySpacingMs: 1000,
+    jitterMs: 250,
+  });
+
+export const monitoringRuleTargetsSchema = z
+  .object({
+    channelIDs: z.preprocess((value) => value ?? [], z.array(z.number().int())),
+    channelStatuses: z.preprocess((value) => value ?? ['enabled'], z.array(z.string())),
+    keyStatuses: z.preprocess((value) => value ?? ['active'], z.array(channelKeyStatusSchema)),
+    includeBackoff: z.preprocess((value) => value ?? false, z.boolean()),
+  })
+  .default({
+    channelIDs: [],
+    channelStatuses: ['enabled'],
+    keyStatuses: ['active'],
+    includeBackoff: false,
+  });
 
 export const monitoringRuleSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional().nullable(),
-  enabled: z.boolean().optional().nullable(),
-  schedule: monitoringRuleScheduleSchema,
-  targets: monitoringRuleTargetsSchema,
-  probes: z.array(channelKeyHealthCheckRuleSchema),
-  keyProfiles: z.array(failurePolicyProfileSchema),
-  channelProfiles: z.array(failurePolicyProfileSchema),
+  enabled: z.preprocess((value) => value ?? true, z.boolean()),
+  schedule: z.preprocess((value) => value ?? {}, monitoringRuleScheduleSchema),
+  targets: z.preprocess((value) => value ?? {}, monitoringRuleTargetsSchema),
+  probes: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckRuleSchema)),
+  keyProfiles: z.preprocess((value) => value ?? [], z.array(failurePolicyProfileSchema)),
+  channelProfiles: z.preprocess((value) => value ?? [], z.array(failurePolicyProfileSchema)),
 });
 
 export const monitoringSettingsSchema = z.object({
-  enabled: z.boolean(),
-  historyRetentionDays: z.number().int().min(1),
-  rules: z.array(monitoringRuleSchema),
+  enabled: z.preprocess((value) => value ?? false, z.boolean()),
+  historyRetentionDays: monitoringNumber(30, 1),
+  rules: z.preprocess((value) => value ?? [], z.array(monitoringRuleSchema)),
 });
 
 export const monitoringEventSchema = z.object({
