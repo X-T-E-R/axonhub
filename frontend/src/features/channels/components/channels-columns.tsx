@@ -11,7 +11,6 @@ import {
   IconArchive,
   IconTrash,
   IconCheck,
-  IconWeight,
   IconTransform,
   IconNetwork,
   IconAdjustments,
@@ -27,7 +26,6 @@ import {
 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { usePermissions } from '@/hooks/usePermissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -36,7 +34,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
@@ -86,13 +88,9 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
   const { t } = useTranslation();
   const channel = row.original;
   const { setOpen, setCurrentRow } = useChannels();
-  const { channelPermissions } = usePermissions();
   const testChannel = useTestChannel();
   const isArchived = channel.status === 'archived';
   const hasError = !!channel.errorMessage;
-  const hasDisabledAPIKeys = channelPermissions.canWrite && (channel.disabledAPIKeys?.length ?? 0) > 0;
-  const apiKeysCount = channel.credentials?.apiKeys?.filter((key) => key.trim().length > 0).length ?? 0;
-  const hasMultipleAPIKeys = channelPermissions.canWrite && apiKeysCount > 1;
 
   const handleDefaultTest = async () => {
     try {
@@ -100,7 +98,9 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
         channelID: channel.id,
         modelID: channel.defaultTestModel || undefined,
       });
-    } catch (_error) {}
+    } catch (_error) {
+      // Mutation hook handles the user-facing error state.
+    }
   };
 
   const handleOpenTestDialog = useCallback(() => {
@@ -127,86 +127,43 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
             <DotsHorizontalIcon className='h-3 w-3' />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align='end' className='w-[160px]'>
-          <DropdownMenuItem onClick={handleOpenTestDialog}>
-            <IconPlayerPlay size={16} className='mr-2' />
-            {t('channels.actions.test')}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('testHistory');
-            }}
-          >
-            <IconHistory size={16} className='mr-2' />
-            {t('channels.actions.testHistory')}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('duplicate');
-            }}
-          >
-            <IconCopy size={16} className='mr-2' />
-            {t('common.actions.duplicate')}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('modelMapping');
-            }}
-          >
-            <IconRoute size={16} className='mr-2' />
-            {t('channels.dialogs.settings.modelMapping.title')}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('price');
-            }}
-          >
-            <IconCoin size={16} className='mr-2' />
-            {t('channels.actions.modelPrice')}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('overrides');
-            }}
-          >
-            <IconAdjustments size={16} className='mr-2' />
-            {t('channels.dialogs.settings.overrides.action')}
-          </DropdownMenuItem>
-
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('proxy');
-            }}
-          >
-            <IconNetwork size={16} className='mr-2' />
-            {t('channels.dialogs.proxy.action')}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('transformOptions');
-            }}
-          >
-            <IconTransform size={16} className='mr-2' />
-            {t('channels.dialogs.transformOptions.action')}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setCurrentRow(channel);
-              setOpen('rateLimit');
-            }}
-          >
-            <IconGauge size={16} className='mr-2' />
-            {t('channels.dialogs.rateLimit.action')}
-          </DropdownMenuItem>
+        <DropdownMenuContent align='end' className='w-[220px]'>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconHistory size={16} className='mr-2' />
+              {t('channels.actions.diagnostics')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className='w-[190px]'>
+              <DropdownMenuItem onClick={handleOpenTestDialog}>
+                <IconPlayerPlay size={16} className='mr-2' />
+                {t('channels.actions.test')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('testHistory');
+                }}
+              >
+                <IconHistory size={16} className='mr-2' />
+                {t('channels.actions.testHistory')}
+              </DropdownMenuItem>
+              {hasError && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setCurrentRow(channel);
+                      setOpen('errorResolved');
+                    }}
+                    className='text-green-600!'
+                  >
+                    <IconCheck size={16} className='mr-2' />
+                    {t('channels.actions.markErrorResolved')}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem
             onClick={() => {
               setCurrentRow(channel);
@@ -216,50 +173,100 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
             <IconKey size={16} className='mr-2' />
             {t('channels.dialogs.keys.action')}
           </DropdownMenuItem>
+
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconAdjustments size={16} className='mr-2' />
+              {t('channels.actions.advancedSettings')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className='w-[220px]'>
+              <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
+                {t('channels.actions.modelsAndEndpoints')}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('modelMapping');
+                }}
+              >
+                <IconRoute size={16} className='mr-2' />
+                {t('channels.dialogs.settings.modelMapping.title')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('price');
+                }}
+              >
+                <IconCoin size={16} className='mr-2' />
+                {t('channels.actions.modelPrice')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('endpoints');
+                }}
+              >
+                <IconPlugConnected size={16} className='mr-2' />
+                {t('channels.endpoints.title')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
+                {t('channels.actions.requestHandling')}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('overrides');
+                }}
+              >
+                <IconAdjustments size={16} className='mr-2' />
+                {t('channels.dialogs.settings.overrides.action')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('transformOptions');
+                }}
+              >
+                <IconTransform size={16} className='mr-2' />
+                {t('channels.dialogs.transformOptions.action')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
+                {t('channels.actions.networkAndLimits')}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('proxy');
+                }}
+              >
+                <IconNetwork size={16} className='mr-2' />
+                {t('channels.dialogs.proxy.action')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen('rateLimit');
+                }}
+              >
+                <IconGauge size={16} className='mr-2' />
+                {t('channels.dialogs.rateLimit.action')}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
               setCurrentRow(channel);
-              setOpen('endpoints');
+              setOpen('duplicate');
             }}
           >
-            <IconPlugConnected size={16} className='mr-2' />
-            {t('channels.endpoints.title')}
+            <IconCopy size={16} className='mr-2' />
+            {t('common.actions.duplicate')}
           </DropdownMenuItem>
-          {hasMultipleAPIKeys && (
-            <DropdownMenuItem
-              onClick={() => {
-                setCurrentRow(channel);
-                setOpen('testAPIKeys');
-              }}
-            >
-              <IconPlayerPlay size={16} className='mr-2' />
-              {t('channels.actions.testAPIKeys', { count: apiKeysCount })}
-            </DropdownMenuItem>
-          )}
-          {hasDisabledAPIKeys && (
-            <DropdownMenuItem
-              onClick={() => {
-                setCurrentRow(channel);
-                setOpen('disabledAPIKeys');
-              }}
-              className='text-orange-500!'
-            >
-              <IconKeyOff size={16} className='mr-2' />
-              {t('channels.actions.disabledAPIKeys', { count: channel.disabledAPIKeys?.length ?? 0 })}
-            </DropdownMenuItem>
-          )}
-          {hasError && (
-            <DropdownMenuItem
-              onClick={() => {
-                setCurrentRow(channel);
-                setOpen('errorResolved');
-              }}
-              className='text-green-600!'
-            >
-              <IconCheck size={16} className='mr-2' />
-              {t('channels.actions.markErrorResolved')}
-            </DropdownMenuItem>
-          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
