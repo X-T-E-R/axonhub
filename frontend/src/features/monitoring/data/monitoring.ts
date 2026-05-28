@@ -94,6 +94,7 @@ export const monitoringRuleSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
   enabled: z.preprocess((value) => value ?? true, z.boolean()),
+  probeType: z.string().optional().nullable(),
   schedule: z.preprocess((value) => value ?? {}, monitoringRuleScheduleSchema),
   targets: z.preprocess((value) => value ?? {}, monitoringRuleTargetsSchema),
   probes: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckRuleSchema)),
@@ -169,6 +170,7 @@ export type MonitoringRuleInput = {
   name: string;
   description?: string | null;
   enabled?: boolean | null;
+  probeType?: string | null;
   schedule?: Partial<MonitoringRuleSchedule>;
   targets?: {
     channelIDs?: number[];
@@ -198,6 +200,7 @@ const MONITORING_PROFILE_FIELDS = `
   name
   enabled
   sources
+  conditionCombiner
   conditions {
     minFailureCount
     success
@@ -231,6 +234,7 @@ const MONITORING_SETTINGS_QUERY = `
         name
         description
         enabled
+        probeType
         schedule {
           intervalMinutes
           historyLimit

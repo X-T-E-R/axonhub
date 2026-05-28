@@ -259,6 +259,8 @@ func validateChannelKeyHealthCheckRule(rule objects.ChannelKeyHealthCheckRule) e
 		if err := validateChannelKeyHealthCheckHTTPRule(*rule.HTTP); err != nil {
 			return err
 		}
+	case objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe:
+		return nil
 	default:
 		return fmt.Errorf("unsupported rule type %q", rule.Type)
 	}
@@ -363,12 +365,46 @@ func ValidateChannelFailurePolicy(policy *objects.ChannelFailurePolicy) error {
 	return nil
 }
 
+func normalizeFailurePolicyProfiles(profiles []objects.FailurePolicyProfile) []objects.FailurePolicyProfile {
+	if profiles == nil {
+		return []objects.FailurePolicyProfile{}
+	}
+
+	next := make([]objects.FailurePolicyProfile, len(profiles))
+	copy(next, profiles)
+	for i := range next {
+		next[i].ConditionCombiner = normalizeFailurePolicyConditionCombiner(next[i].ConditionCombiner)
+		if next[i].Sources == nil {
+			next[i].Sources = []objects.FailurePolicyEventSource{}
+		}
+		if next[i].Actions == nil {
+			next[i].Actions = []objects.FailurePolicyAction{}
+		}
+	}
+
+	return next
+}
+
+func normalizeChannelFailurePolicy(policy *objects.ChannelFailurePolicy) {
+	if policy == nil {
+		return
+	}
+
+	policy.KeyProfiles = normalizeFailurePolicyProfiles(policy.KeyProfiles)
+	policy.ChannelProfiles = normalizeFailurePolicyProfiles(policy.ChannelProfiles)
+}
+
 func validateFailurePolicyProfile(profile objects.FailurePolicyProfile) error {
 	if strings.TrimSpace(profile.ID) == "" {
 		return fmt.Errorf("id is required")
 	}
 	if strings.TrimSpace(profile.Name) == "" {
 		return fmt.Errorf("name is required")
+	}
+	switch profile.ConditionCombiner {
+	case "", objects.FailurePolicyConditionCombinerOr, objects.FailurePolicyConditionCombinerAnd:
+	default:
+		return fmt.Errorf("unsupported condition combiner %q", profile.ConditionCombiner)
 	}
 	if profile.Conditions.MinFailureCount != nil && *profile.Conditions.MinFailureCount < 1 {
 		return fmt.Errorf("minFailureCount must be at least 1")
@@ -406,6 +442,17 @@ func validateFailurePolicyProfile(profile objects.FailurePolicyProfile) error {
 	}
 
 	return nil
+}
+
+func normalizeFailurePolicyConditionCombiner(combiner objects.FailurePolicyConditionCombiner) objects.FailurePolicyConditionCombiner {
+	switch combiner {
+	case objects.FailurePolicyConditionCombinerOr:
+		return objects.FailurePolicyConditionCombinerOr
+	case objects.FailurePolicyConditionCombinerAnd, "":
+		return objects.FailurePolicyConditionCombinerAnd
+	default:
+		return objects.FailurePolicyConditionCombinerAnd
+	}
 }
 
 func validateFailurePolicyAction(action objects.FailurePolicyAction) error {

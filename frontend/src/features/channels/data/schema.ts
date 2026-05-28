@@ -264,7 +264,7 @@ export const channelKeyBalanceSnapshotSchema = z.object({
   checkedAt: z.string(),
   success: z.boolean(),
   available: z.boolean().optional().nullable(),
-  statusCode: z.number().int().optional().nullable(),
+  statusCode: z.preprocess((value) => (value === 0 || value == null ? null : value), z.number().int().nullable()).optional(),
   accountStatus: z.string().optional().nullable(),
   accountId: z.string().optional().nullable(),
   primaryBalance: balanceAmountSchema.optional().nullable(),
@@ -304,6 +304,9 @@ export const failurePolicyEventSourceSchema = z.enum([
 ]);
 export type FailurePolicyEventSource = z.infer<typeof failurePolicyEventSourceSchema>;
 
+export const failurePolicyConditionCombinerSchema = z.enum(['or', 'and']);
+export type FailurePolicyConditionCombiner = z.infer<typeof failurePolicyConditionCombinerSchema>;
+
 export const failurePolicyActionTypeSchema = z.enum([
   'report_only',
   'backoff_key',
@@ -324,6 +327,10 @@ export type ChannelKeyHealthCheckRuleType = z.infer<typeof channelKeyHealthCheck
 
 export const channelAPIKeyHealthCheckModeSchema = z.enum(['auto', 'balance_probe', 'real_request']);
 export type ChannelAPIKeyHealthCheckMode = z.infer<typeof channelAPIKeyHealthCheckModeSchema>;
+
+const healthStatusCodeSchema = z
+  .preprocess((value) => (value === 0 || value == null ? null : value), z.number().int().nullable())
+  .optional();
 
 export const channelKeyHealthCheckHeaderSchema = z.object({
   key: z.string().min(1),
@@ -428,6 +435,9 @@ export const failurePolicyProfileSchema = z.object({
   name: z.string().min(1),
   enabled: z.boolean().optional().nullable(),
   sources: z.array(failurePolicyEventSourceSchema).optional().nullable(),
+  conditionCombiner: z
+    .preprocess((value) => (value === '' || value == null ? 'or' : value), failurePolicyConditionCombinerSchema)
+    .optional(),
   conditions: channelKeyHealthCheckPolicyConditionSchema.optional().nullable(),
   actions: z.array(failurePolicyActionSchema).optional().nullable(),
 });
@@ -451,7 +461,7 @@ export const channelKeyHealthCheckHistoryEntrySchema = z.object({
   balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
   trigger: z.enum(['manual', 'scheduled', 'request']).optional().nullable(),
   rule: z.string().optional().nullable(),
-  statusCode: z.number().int().optional().nullable(),
+  statusCode: healthStatusCodeSchema,
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
   nextCheckAt: z.string().optional().nullable(),
@@ -471,7 +481,7 @@ export const channelKeyMetadataSchema = z.object({
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
   balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
-  statusCode: z.number().int().optional().nullable(),
+  statusCode: healthStatusCodeSchema,
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
   nextCheckAt: z.string().optional().nullable(),
@@ -506,7 +516,7 @@ export const channelAPIKeyInventoryItemSchema = z.object({
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
   balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
-  statusCode: z.number().int().optional().nullable(),
+  statusCode: healthStatusCodeSchema,
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
   nextCheckAt: z.string().optional().nullable(),

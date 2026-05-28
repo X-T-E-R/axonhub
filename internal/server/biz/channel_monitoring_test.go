@@ -79,8 +79,15 @@ func TestMonitoringSettingsBackfillsLegacyBlankRuleFields(t *testing.T) {
 		"enabled":              true,
 		"historyRetentionDays": 0,
 		"rules": []map[string]any{{
-			"id":       " ",
-			"name":     "",
+			"id":        " ",
+			"name":      "",
+			"probeType": MonitoringProbeTypeChannelBalanceProbe,
+			"probes":    []map[string]any{},
+			"keyProfiles": []map[string]any{{
+				"id":      "legacy-profile",
+				"name":    "Legacy profile",
+				"sources": []string{"manual_balance_probe_failure"},
+			}},
 			"schedule": map[string]any{},
 			"targets":  map[string]any{},
 		}},
@@ -104,6 +111,14 @@ func TestMonitoringSettingsBackfillsLegacyBlankRuleFields(t *testing.T) {
 	require.Equal(t, 100, got.Rules[0].Schedule.HistoryLimit)
 	require.Equal(t, []string{"enabled"}, got.Rules[0].Targets.ChannelStatuses)
 	require.Equal(t, []objects.ChannelKeyStatus{objects.ChannelKeyStatusActive}, got.Rules[0].Targets.KeyStatuses)
+	require.Equal(t, MonitoringProbeTypeChannelBalanceProbe, got.Rules[0].ProbeType)
+	require.Len(t, got.Rules[0].Probes, 1)
+	require.Equal(t, objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe, got.Rules[0].Probes[0].Type)
+	require.NotEmpty(t, got.Rules[0].Probes[0].ID)
+	require.NotEmpty(t, got.Rules[0].Probes[0].Name)
+	require.Len(t, got.Rules[0].KeyProfiles, 1)
+	require.Equal(t, objects.FailurePolicyConditionCombinerAnd, got.Rules[0].KeyProfiles[0].ConditionCombiner)
+	require.NotNil(t, got.Rules[0].KeyProfiles[0].Actions)
 }
 
 func TestMonitoringRuleRecoversDisabledKeyAndWritesEvent(t *testing.T) {

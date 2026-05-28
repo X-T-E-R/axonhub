@@ -234,6 +234,11 @@ enum FailurePolicyEventSource {
   manual_balance_probe_failure
 }
 
+enum FailurePolicyConditionCombiner {
+  or
+  and
+}
+
 enum FailurePolicyActionType {
   report_only
   backoff_key
@@ -248,6 +253,7 @@ enum FailurePolicyActionType {
 enum ChannelKeyHealthCheckRuleType {
   builtin_test
   http
+  channel_balance_probe
 }
 
 enum ChannelAPIKeyHealthCheckMode {
@@ -353,6 +359,7 @@ type FailurePolicyProfile {
   name: String!
   enabled: Boolean
   sources: [FailurePolicyEventSource!]
+  conditionCombiner: FailurePolicyConditionCombiner
   conditions: ChannelKeyHealthCheckPolicyCondition
   actions: [FailurePolicyAction!]
 }
@@ -362,6 +369,7 @@ input FailurePolicyProfileInput {
   name: String!
   enabled: Boolean
   sources: [FailurePolicyEventSource!]
+  conditionCombiner: FailurePolicyConditionCombiner
   conditions: ChannelKeyHealthCheckPolicyConditionInput
   actions: [FailurePolicyActionInput!]
 }

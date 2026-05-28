@@ -187,6 +187,9 @@ models:
   FailurePolicyEventSource:
     model:
       - github.com/looplj/axonhub/internal/objects.FailurePolicyEventSource
+  FailurePolicyConditionCombiner:
+    model:
+      - github.com/looplj/axonhub/internal/objects.FailurePolicyConditionCombiner
   FailurePolicyActionType:
     model:
       - github.com/looplj/axonhub/internal/objects.FailurePolicyActionType
