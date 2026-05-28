@@ -17,6 +17,7 @@ import {
   type ChannelFailurePolicy,
   type ChannelFailurePolicyMode,
   type ChannelKeyHealthCheck,
+  type FailurePolicyConditionCombiner,
   type FailurePolicyActionType,
   type FailurePolicyEventSource,
 } from '../data/schema';
@@ -47,12 +48,12 @@ export const failureProfileFormSchema = z.object({
       ])
     )
     .min(1),
+  conditionCombiner: z.enum(['or', 'and']),
   minFailureCount: nullableIntField(1, 100),
   statusCodes: z.string().optional(),
   availability: z.enum(['any', 'available', 'unavailable']),
   balanceLTE: nullableNumberField,
   reasonContains: z.string().optional(),
-  allCheckedKeysFailed: z.boolean(),
   expr: z.string().optional(),
   actions: z.array(
     z.object({
@@ -85,17 +86,14 @@ type FailureProfileFormValue = z.output<typeof failureProfileFormSchema>;
 type FailureActionFormValue = FailureProfileFormValue['actions'][number];
 
 const FAILURE_POLICY_MODES: ChannelFailurePolicyMode[] = ['inherit', 'override', 'merge', 'disabled'];
-const FAILURE_EVENT_SOURCES: FailurePolicyEventSource[] = [
-  'request_failure',
-  'scheduled_health_check',
-  'manual_health_check',
-  'scheduled_health_check_failure',
-  'manual_health_check_failure',
-  'scheduled_balance_probe',
-  'scheduled_balance_probe_failure',
-  'manual_balance_probe',
-  'manual_balance_probe_failure',
+const FAILURE_EVENT_SOURCE_SCENES: Array<{ id: string; sources: FailurePolicyEventSource[] }> = [
+  { id: 'request', sources: ['request_failure'] },
+  { id: 'scheduledHealth', sources: ['scheduled_health_check', 'scheduled_health_check_failure'] },
+  { id: 'manualHealth', sources: ['manual_health_check', 'manual_health_check_failure'] },
+  { id: 'scheduledBalance', sources: ['scheduled_balance_probe', 'scheduled_balance_probe_failure'] },
+  { id: 'manualBalance', sources: ['manual_balance_probe', 'manual_balance_probe_failure'] },
 ];
+const CONDITION_COMBINERS: FailurePolicyConditionCombiner[] = ['or', 'and'];
 const KEY_FAILURE_ACTIONS: FailurePolicyActionType[] = [
   'report_only',
   'backoff_key',
@@ -118,12 +116,12 @@ function createDefaultProfile(index: number, target: FailurePolicyTarget): Failu
     enabled: true,
     sources:
       target === 'key' ? ['request_failure', 'scheduled_health_check_failure', 'scheduled_balance_probe_failure'] : ['request_failure'],
+    conditionCombiner: 'or',
     minFailureCount: 3,
     statusCodes: '',
     availability: 'any',
     balanceLTE: null,
     reasonContains: '',
-    allCheckedKeysFailed: false,
     expr: '',
     actions: [
       {
@@ -177,12 +175,12 @@ function toProfileFormValue(
     name: profile.name || `${target === 'key' ? 'Key' : 'Channel'} policy ${index + 1}`,
     enabled: profile.enabled ?? true,
     sources: profile.sources && profile.sources.length > 0 ? profile.sources : sourcesFallback,
+    conditionCombiner: profile.conditionCombiner ?? 'or',
     minFailureCount: profile.conditions?.minFailureCount ?? null,
     statusCodes: (profile.conditions?.statusCodes ?? []).join(', '),
     availability: profile.conditions?.available == null ? 'any' : profile.conditions.available ? 'available' : 'unavailable',
     balanceLTE: profile.conditions?.balanceLTE ?? null,
     reasonContains: profile.conditions?.reasonContains ?? '',
-    allCheckedKeysFailed: profile.conditions?.allCheckedKeysFailed ?? false,
     expr: profile.conditions?.expr ?? '',
     actions: actions.length > 0 ? actions : [createDefaultAction(target)],
   };
@@ -281,13 +279,13 @@ export function failurePolicyFromValues(values: { failurePolicy: FailurePolicyFo
     name: policy.name,
     enabled: policy.enabled,
     sources: policy.sources,
+    conditionCombiner: policy.conditionCombiner ?? 'or',
     conditions: {
       minFailureCount: policy.minFailureCount ?? null,
       statusCodes: parseStatusList(policy.statusCodes ?? ''),
       available: policy.availability === 'any' ? null : policy.availability === 'available',
       balanceLTE: policy.balanceLTE ?? null,
       reasonContains: policy.reasonContains?.trim() || null,
-      allCheckedKeysFailed: policy.allCheckedKeysFailed || null,
       expr: policy.expr?.trim() || null,
     },
     actions: policy.actions
@@ -349,7 +347,7 @@ export function FailurePolicyEditor<TFormValues extends { failurePolicy: Failure
         )}
       />
 
-      <div className='grid gap-4 lg:grid-cols-2'>
+      <div className='space-y-4'>
         <FailurePolicyProfilesEditor
           form={form}
           disabled={disabled}
@@ -492,35 +490,32 @@ function FailurePolicyProfilesEditor<TFormValues extends { failurePolicy: Failur
                   />
 
                   <div className='space-y-2 rounded-lg border p-3'>
-                    <div className='text-sm font-medium'>{t('channels.dialogs.keys.failureStrategy.profiles.fields.sources')}</div>
+                    <div className='text-sm font-medium'>{t('channels.dialogs.keys.failureStrategy.profiles.fields.triggerScenes')}</div>
                     <div className='grid gap-2'>
-                      {FAILURE_EVENT_SOURCES.map((source) => (
+                      {FAILURE_EVENT_SOURCE_SCENES.map((scene) => (
                         <FormField
-                          key={source}
+                          key={scene.id}
                           control={form.control}
                           name={`${profilePath}.sources` as never}
                           render={({ field }) => {
-                            const selected = field.value?.includes(source) ?? false;
+                            const current = (field.value ?? []) as FailurePolicyEventSource[];
+                            const selectedCount = scene.sources.filter((source) => current.includes(source)).length;
+                            const checked = selectedCount === scene.sources.length ? true : selectedCount > 0 ? 'indeterminate' : false;
                             return (
                               <FormItem className='flex items-center gap-2 space-y-0'>
                                 <FormControl>
                                   <Checkbox
-                                    checked={selected}
+                                    checked={checked}
                                     onCheckedChange={(checked) => {
-                                      const current = field.value ?? [];
-                                      field.onChange(
-                                        checked
-                                          ? [...current.filter((item: FailurePolicyEventSource) => item !== source), source]
-                                          : current.length <= 1
-                                            ? current
-                                            : current.filter((item: FailurePolicyEventSource) => item !== source)
-                                      );
+                                      const otherSources = current.filter((source) => !scene.sources.includes(source));
+                                      const nextSources = checked ? [...otherSources, ...scene.sources] : otherSources;
+                                      field.onChange(nextSources.length === 0 && current.length > 0 ? current : nextSources);
                                     }}
                                     disabled={disabled}
                                   />
                                 </FormControl>
                                 <FormLabel className='text-sm font-normal'>
-                                  {t(`channels.dialogs.keys.failureStrategy.sources.${source}`)}
+                                  {t(`channels.dialogs.keys.failureStrategy.triggerScenes.${scene.id}`)}
                                 </FormLabel>
                               </FormItem>
                             );
@@ -531,6 +526,32 @@ function FailurePolicyProfilesEditor<TFormValues extends { failurePolicy: Failur
                   </div>
 
                   <div className='grid gap-4 md:grid-cols-3'>
+                    <FormField
+                      control={form.control}
+                      name={`${profilePath}.conditionCombiner` as never}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.conditionCombiner')}</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {CONDITION_COMBINERS.map((combiner) => (
+                                <SelectItem key={combiner} value={combiner}>
+                                  {t(`channels.dialogs.keys.failureStrategy.conditionCombiners.${combiner}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            {t(`channels.dialogs.keys.failureStrategy.conditionCombiners.${field.value}.description`)}
+                          </FormDescription>
+                        </FormItem>
+                      )}
+                    />
                     <FormField
                       control={form.control}
                       name={`${profilePath}.minFailureCount` as never}
@@ -613,20 +634,6 @@ function FailurePolicyProfilesEditor<TFormValues extends { failurePolicy: Failur
                           <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.reasonContains')}</FormLabel>
                           <FormControl>
                             <Input {...field} disabled={disabled} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`${profilePath}.allCheckedKeysFailed` as never}
-                      render={({ field }) => (
-                        <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                          <div className='space-y-0.5'>
-                            <FormLabel>{t('channels.dialogs.keys.failureStrategy.profiles.fields.allCheckedKeysFailed')}</FormLabel>
-                          </div>
-                          <FormControl>
-                            <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} />
                           </FormControl>
                         </FormItem>
                       )}

@@ -276,8 +276,9 @@ const (
 type ChannelKeyHealthCheckRuleType string
 
 const (
-	ChannelKeyHealthCheckRuleTypeBuiltinTest ChannelKeyHealthCheckRuleType = "builtin_test"
-	ChannelKeyHealthCheckRuleTypeHTTP        ChannelKeyHealthCheckRuleType = "http"
+	ChannelKeyHealthCheckRuleTypeBuiltinTest         ChannelKeyHealthCheckRuleType = "builtin_test"
+	ChannelKeyHealthCheckRuleTypeHTTP                ChannelKeyHealthCheckRuleType = "http"
+	ChannelKeyHealthCheckRuleTypeChannelBalanceProbe ChannelKeyHealthCheckRuleType = "channel_balance_probe"
 )
 
 type ChannelAPIKeyHealthCheckMode string
@@ -528,13 +529,21 @@ type ChannelFailurePolicy struct {
 	ChannelProfiles []FailurePolicyProfile   `json:"channelProfiles,omitempty"`
 }
 
+type FailurePolicyConditionCombiner string
+
+const (
+	FailurePolicyConditionCombinerOr  FailurePolicyConditionCombiner = "or"
+	FailurePolicyConditionCombinerAnd FailurePolicyConditionCombiner = "and"
+)
+
 type FailurePolicyProfile struct {
-	ID         string                               `json:"id"`
-	Name       string                               `json:"name"`
-	Enabled    *bool                                `json:"enabled,omitempty"`
-	Sources    []FailurePolicyEventSource           `json:"sources,omitempty"`
-	Conditions ChannelKeyHealthCheckPolicyCondition `json:"conditions,omitempty"`
-	Actions    []FailurePolicyAction                `json:"actions,omitempty"`
+	ID                string                               `json:"id"`
+	Name              string                               `json:"name"`
+	Enabled           *bool                                `json:"enabled,omitempty"`
+	Sources           []FailurePolicyEventSource           `json:"sources,omitempty"`
+	ConditionCombiner FailurePolicyConditionCombiner       `json:"conditionCombiner,omitempty"`
+	Conditions        ChannelKeyHealthCheckPolicyCondition `json:"conditions,omitempty"`
+	Actions           []FailurePolicyAction                `json:"actions,omitempty"`
 }
 
 type FailurePolicyAction struct {

@@ -35,6 +35,41 @@ func (f channelKeyHealthCheckTesterFunc) TestSingleChannelAPIKey(ctx context.Con
 	return f(ctx, channelID, key, modelID, proxy)
 }
 
+func TestRunBuiltinChannelKeyHealthCheckPropagatesStatusCode(t *testing.T) {
+	svc := &ChannelService{}
+	svc.SetChannelKeyHealthCheckTester(channelKeyHealthCheckTesterFunc(func(ctx context.Context, channelID objects.GUID, key string, modelID *string, proxy *httpclient.ProxyConfig) ChannelKeyHealthCheckBuiltinResult {
+		require.Equal(t, objects.GUID{ID: 42}, channelID)
+		require.Equal(t, "sk-test", key)
+		return ChannelKeyHealthCheckBuiltinResult{
+			Success:    false,
+			Reason:     "unauthorized",
+			StatusCode: 401,
+		}
+	}))
+
+	result := svc.runBuiltinChannelKeyHealthCheck(context.Background(), &ent.Channel{ID: 42}, "sk-test")
+
+	require.False(t, result.Success)
+	require.Equal(t, "unauthorized", result.Reason)
+	require.Equal(t, 401, result.StatusCode)
+}
+
+func TestRunBuiltinChannelKeyHealthCheckDefaultsSuccessfulStatusCode(t *testing.T) {
+	svc := &ChannelService{}
+	svc.SetChannelKeyHealthCheckTester(channelKeyHealthCheckTesterFunc(func(ctx context.Context, channelID objects.GUID, key string, modelID *string, proxy *httpclient.ProxyConfig) ChannelKeyHealthCheckBuiltinResult {
+		return ChannelKeyHealthCheckBuiltinResult{
+			Success: true,
+			Reason:  "ok",
+		}
+	}))
+
+	result := svc.runBuiltinChannelKeyHealthCheck(context.Background(), &ent.Channel{ID: 42}, "sk-test")
+
+	require.True(t, result.Success)
+	require.Equal(t, "ok", result.Reason)
+	require.Equal(t, http.StatusOK, result.StatusCode)
+}
+
 func disableChannelKeyHealthCheckDelays(t *testing.T) {
 	t.Helper()
 

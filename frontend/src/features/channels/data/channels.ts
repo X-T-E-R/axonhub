@@ -221,6 +221,7 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       name
       enabled
       sources
+      conditionCombiner
       conditions {
         minFailureCount
         statusCodes
@@ -246,6 +247,7 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       name
       enabled
       sources
+      conditionCombiner
       conditions {
         minFailureCount
         statusCodes

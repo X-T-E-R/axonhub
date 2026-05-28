@@ -781,6 +781,20 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		}
 		next.BalanceProbe = &balanceProbe
 	}
+	if settings.FailurePolicy != nil {
+		failurePolicy := *settings.FailurePolicy
+		failurePolicy.KeyProfiles = slices.Clone(settings.FailurePolicy.KeyProfiles)
+		for i := range failurePolicy.KeyProfiles {
+			failurePolicy.KeyProfiles[i].Sources = slices.Clone(settings.FailurePolicy.KeyProfiles[i].Sources)
+			failurePolicy.KeyProfiles[i].Actions = slices.Clone(settings.FailurePolicy.KeyProfiles[i].Actions)
+		}
+		failurePolicy.ChannelProfiles = slices.Clone(settings.FailurePolicy.ChannelProfiles)
+		for i := range failurePolicy.ChannelProfiles {
+			failurePolicy.ChannelProfiles[i].Sources = slices.Clone(settings.FailurePolicy.ChannelProfiles[i].Sources)
+			failurePolicy.ChannelProfiles[i].Actions = slices.Clone(settings.FailurePolicy.ChannelProfiles[i].Actions)
+		}
+		next.FailurePolicy = &failurePolicy
+	}
 	if settings.KeyHealthCheck != nil {
 		health := *settings.KeyHealthCheck
 		health.Rules = slices.Clone(settings.KeyHealthCheck.Rules)
@@ -803,6 +817,7 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		}
 		next.KeyHealthCheck = &health
 	}
+	normalizeChannelFailurePolicy(next.FailurePolicy)
 
 	return &next
 }
@@ -812,6 +827,7 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	if next == nil {
 		return nil
 	}
+	normalizeChannelFailurePolicy(next.FailurePolicy)
 
 	currentRuntime := cloneChannelSettings(current)
 	var keyMetadata []objects.ChannelKeyMetadata

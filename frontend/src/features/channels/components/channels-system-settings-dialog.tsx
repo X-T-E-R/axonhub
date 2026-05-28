@@ -114,7 +114,7 @@ export function ChannelsSystemSettingsDialog() {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className='sm:max-w-[720px]'>
+      <DialogContent className='flex max-h-[90vh] flex-col sm:max-w-[720px]'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <Settings2 className='h-5 w-5' />
@@ -128,184 +128,193 @@ export function ChannelsSystemSettingsDialog() {
             <Loader2 className='h-8 w-8 animate-spin' />
           </div>
         ) : (
-          <div className='space-y-4'>
-            <Card>
-              <CardHeader className='pb-0'>
-                <CardTitle className='flex items-center gap-2 text-sm'>
-                  <Activity className='text-muted-foreground h-4 w-4' />
-                  {t('channels.dialogs.systemSettings.channelProbe.label')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4 pt-4'>
-                <div className='flex items-center justify-between'>
-                  <div className='flex-1 pr-4'>
-                    <p className='text-sm font-medium'>{t('channels.dialogs.systemSettings.channelProbe.enabledLabel')}</p>
-                    <p className='text-muted-foreground text-sm'>{t('channels.dialogs.systemSettings.channelProbe.enabledDescription')}</p>
-                    <p className='text-muted-foreground mt-1 text-xs'>
-                      {t('channels.dialogs.systemSettings.channelProbe.probeDescription')}
-                    </p>
+          <div className='min-h-0 flex-1 overflow-y-auto pr-1'>
+            <div className='space-y-4 pb-1'>
+              <Card>
+                <CardHeader className='pb-0'>
+                  <CardTitle className='flex items-center gap-2 text-sm'>
+                    <Activity className='text-muted-foreground h-4 w-4' />
+                    {t('channels.dialogs.systemSettings.channelProbe.label')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4 pt-4'>
+                  <div className='flex items-center justify-between'>
+                    <div className='flex-1 pr-4'>
+                      <p className='text-sm font-medium'>{t('channels.dialogs.systemSettings.channelProbe.enabledLabel')}</p>
+                      <p className='text-muted-foreground text-sm'>
+                        {t('channels.dialogs.systemSettings.channelProbe.enabledDescription')}
+                      </p>
+                      <p className='text-muted-foreground mt-1 text-xs'>
+                        {t('channels.dialogs.systemSettings.channelProbe.probeDescription')}
+                      </p>
+                    </div>
+                    <Switch
+                      id='probe-enabled'
+                      checked={probeEnabled}
+                      onCheckedChange={setProbeEnabled}
+                      disabled={updateSettings.isPending}
+                    />
                   </div>
-                  <Switch id='probe-enabled' checked={probeEnabled} onCheckedChange={setProbeEnabled} disabled={updateSettings.isPending} />
-                </div>
 
-                {probeEnabled && (
+                  {probeEnabled && (
+                    <div className='space-y-2'>
+                      <label htmlFor='probe-frequency' className='text-sm font-medium'>
+                        {t('channels.dialogs.systemSettings.channelProbe.frequencyLabel')}
+                      </label>
+                      <Select value={probeFrequency} onValueChange={(value) => setProbeFrequency(value as ProbeFrequency)}>
+                        <SelectTrigger id='probe-frequency' disabled={updateSettings.isPending}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PROBE_FREQUENCY_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('channels.dialogs.systemSettings.channelProbe.frequencyDescription')}
+                      </p>
+                      <p className='text-muted-foreground mt-1 text-xs'>
+                        {t('channels.dialogs.systemSettings.channelProbe.frequencyWarning')}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='pb-0'>
+                  <CardTitle className='flex items-center gap-2 text-sm'>
+                    <Activity className='text-muted-foreground h-4 w-4' />
+                    {t('channels.dialogs.systemSettings.autoSync.label')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4 pt-4'>
                   <div className='space-y-2'>
-                    <label htmlFor='probe-frequency' className='text-sm font-medium'>
-                      {t('channels.dialogs.systemSettings.channelProbe.frequencyLabel')}
+                    <label htmlFor='auto-sync-frequency' className='text-sm font-medium'>
+                      {t('channels.dialogs.systemSettings.autoSync.frequencyLabel')}
                     </label>
-                    <Select value={probeFrequency} onValueChange={(value) => setProbeFrequency(value as ProbeFrequency)}>
-                      <SelectTrigger id='probe-frequency' disabled={updateSettings.isPending}>
+                    <Select value={autoSyncFrequency} onValueChange={(value) => setAutoSyncFrequency(value as AutoSyncFrequency)}>
+                      <SelectTrigger id='auto-sync-frequency' disabled={updateSettings.isPending}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {PROBE_FREQUENCY_OPTIONS.map((option) => (
+                        {AUTO_SYNC_FREQUENCY_OPTIONS.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <p className='text-muted-foreground text-xs'>{t('channels.dialogs.systemSettings.autoSync.frequencyDescription')}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='pb-0'>
+                  <CardTitle className='flex items-center gap-2 text-sm'>
+                    <Settings2 className='text-muted-foreground h-4 w-4' />
+                    {t('channels.dialogs.systemSettings.actionMenu.label')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4 pt-4'>
+                  <div className='space-y-2'>
+                    <label htmlFor='action-menu-mode' className='text-sm font-medium'>
+                      {t('channels.dialogs.systemSettings.actionMenu.modeLabel')}
+                    </label>
+                    <Select
+                      value={advancedActionMenuMode}
+                      onValueChange={(value) => setAdvancedActionMenuMode(value as ChannelAdvancedActionMenuMode)}
+                    >
+                      <SelectTrigger id='action-menu-mode' disabled={updateSettings.isPending}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACTION_MENU_MODE_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {t(`channels.dialogs.systemSettings.actionMenu.modes.${option}.label`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <p className='text-muted-foreground text-xs'>
-                      {t('channels.dialogs.systemSettings.channelProbe.frequencyDescription')}
-                    </p>
-                    <p className='text-muted-foreground mt-1 text-xs'>
-                      {t('channels.dialogs.systemSettings.channelProbe.frequencyWarning')}
+                      {t(`channels.dialogs.systemSettings.actionMenu.modes.${advancedActionMenuMode}.description`)}
                     </p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className='pb-0'>
-                <CardTitle className='flex items-center gap-2 text-sm'>
-                  <Activity className='text-muted-foreground h-4 w-4' />
-                  {t('channels.dialogs.systemSettings.autoSync.label')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4 pt-4'>
-                <div className='space-y-2'>
-                  <label htmlFor='auto-sync-frequency' className='text-sm font-medium'>
-                    {t('channels.dialogs.systemSettings.autoSync.frequencyLabel')}
-                  </label>
-                  <Select value={autoSyncFrequency} onValueChange={(value) => setAutoSyncFrequency(value as AutoSyncFrequency)}>
-                    <SelectTrigger id='auto-sync-frequency' disabled={updateSettings.isPending}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AUTO_SYNC_FREQUENCY_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className='text-muted-foreground text-xs'>{t('channels.dialogs.systemSettings.autoSync.frequencyDescription')}</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className='pb-0'>
-                <CardTitle className='flex items-center gap-2 text-sm'>
-                  <Settings2 className='text-muted-foreground h-4 w-4' />
-                  {t('channels.dialogs.systemSettings.actionMenu.label')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4 pt-4'>
-                <div className='space-y-2'>
-                  <label htmlFor='action-menu-mode' className='text-sm font-medium'>
-                    {t('channels.dialogs.systemSettings.actionMenu.modeLabel')}
-                  </label>
-                  <Select
-                    value={advancedActionMenuMode}
-                    onValueChange={(value) => setAdvancedActionMenuMode(value as ChannelAdvancedActionMenuMode)}
-                  >
-                    <SelectTrigger id='action-menu-mode' disabled={updateSettings.isPending}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ACTION_MENU_MODE_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {t(`channels.dialogs.systemSettings.actionMenu.modes.${option}.label`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className='text-muted-foreground text-xs'>
-                    {t(`channels.dialogs.systemSettings.actionMenu.modes.${advancedActionMenuMode}.description`)}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className='pb-0'>
-                <CardTitle className='flex items-center gap-2 text-sm'>
-                  <Settings2 className='text-muted-foreground h-4 w-4' />
-                  {t('channels.dialogs.systemSettings.routing.label')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4 pt-4'>
-                <div className='space-y-2'>
-                  <label htmlFor='global-routing-strategy' className='text-sm font-medium'>
-                    {t('channels.dialogs.systemSettings.routing.strategyLabel')}
-                  </label>
-                  <Select value={routingStrategy} onValueChange={(value) => setRoutingStrategy(value as ChannelKeySelectionStrategy)}>
-                    <SelectTrigger id='global-routing-strategy' disabled={updateSettings.isPending}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROUTING_STRATEGY_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {t(`channels.dialogs.keyRouting.strategies.${option}.label`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className='text-muted-foreground text-xs'>{t('channels.dialogs.systemSettings.routing.strategyDescription')}</p>
-                </div>
-                {routingStrategy === 'cache_affinity' ? (
-                  <div className='grid gap-4 sm:grid-cols-2'>
-                    <div className='space-y-2'>
-                      <label htmlFor='global-likely-affinity-ttl' className='text-sm font-medium'>
-                        {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.label')}
-                      </label>
-                      <Input
-                        id='global-likely-affinity-ttl'
-                        type='number'
-                        min={1}
-                        max={1440}
-                        value={likelyAffinityTTLMinutes}
-                        onChange={(event) => setLikelyAffinityTTLMinutes(Number(event.target.value))}
-                        disabled={updateSettings.isPending}
-                      />
-                      <p className='text-muted-foreground text-xs'>
-                        {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.description')}
-                      </p>
-                    </div>
-                    <div className='space-y-2'>
-                      <label htmlFor='global-exact-affinity-ttl' className='text-sm font-medium'>
-                        {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.label')}
-                      </label>
-                      <Input
-                        id='global-exact-affinity-ttl'
-                        type='number'
-                        min={1}
-                        max={10080}
-                        value={exactAffinityTTLMinutes}
-                        onChange={(event) => setExactAffinityTTLMinutes(Number(event.target.value))}
-                        disabled={updateSettings.isPending}
-                      />
-                      <p className='text-muted-foreground text-xs'>
-                        {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.description')}
-                      </p>
-                    </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='pb-0'>
+                  <CardTitle className='flex items-center gap-2 text-sm'>
+                    <Settings2 className='text-muted-foreground h-4 w-4' />
+                    {t('channels.dialogs.systemSettings.routing.label')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4 pt-4'>
+                  <div className='space-y-2'>
+                    <label htmlFor='global-routing-strategy' className='text-sm font-medium'>
+                      {t('channels.dialogs.systemSettings.routing.strategyLabel')}
+                    </label>
+                    <Select value={routingStrategy} onValueChange={(value) => setRoutingStrategy(value as ChannelKeySelectionStrategy)}>
+                      <SelectTrigger id='global-routing-strategy' disabled={updateSettings.isPending}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROUTING_STRATEGY_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {t(`channels.dialogs.keyRouting.strategies.${option}.label`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className='text-muted-foreground text-xs'>{t('channels.dialogs.systemSettings.routing.strategyDescription')}</p>
                   </div>
-                ) : null}
-              </CardContent>
-            </Card>
+                  {routingStrategy === 'cache_affinity' ? (
+                    <div className='grid gap-4 sm:grid-cols-2'>
+                      <div className='space-y-2'>
+                        <label htmlFor='global-likely-affinity-ttl' className='text-sm font-medium'>
+                          {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.label')}
+                        </label>
+                        <Input
+                          id='global-likely-affinity-ttl'
+                          type='number'
+                          min={1}
+                          max={1440}
+                          value={likelyAffinityTTLMinutes}
+                          onChange={(event) => setLikelyAffinityTTLMinutes(Number(event.target.value))}
+                          disabled={updateSettings.isPending}
+                        />
+                        <p className='text-muted-foreground text-xs'>
+                          {t('channels.dialogs.keyRouting.fields.likelyAffinityTTLMinutes.description')}
+                        </p>
+                      </div>
+                      <div className='space-y-2'>
+                        <label htmlFor='global-exact-affinity-ttl' className='text-sm font-medium'>
+                          {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.label')}
+                        </label>
+                        <Input
+                          id='global-exact-affinity-ttl'
+                          type='number'
+                          min={1}
+                          max={10080}
+                          value={exactAffinityTTLMinutes}
+                          onChange={(event) => setExactAffinityTTLMinutes(Number(event.target.value))}
+                          disabled={updateSettings.isPending}
+                        />
+                        <p className='text-muted-foreground text-xs'>
+                          {t('channels.dialogs.keyRouting.fields.exactAffinityTTLMinutes.description')}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className='shrink-0'>
           <Button variant='outline' onClick={handleClose} disabled={updateSettings.isPending}>
             {t('common.buttons.cancel')}
           </Button>

@@ -61,9 +61,10 @@ type ChannelKeyHealthCheckTester interface {
 }
 
 type ChannelKeyHealthCheckBuiltinResult struct {
-	Success bool
-	Reason  string
-	Latency float64
+	Success    bool
+	Reason     string
+	Latency    float64
+	StatusCode int
 }
 
 type ChannelKeyHealthCheckResult struct {
@@ -491,6 +492,8 @@ func (svc *ChannelService) runChannelKeyHealthCheckRule(ctx context.Context, ch 
 		}
 
 		return svc.runHTTPChannelKeyHealthCheck(ctx, ch, key, *rule.HTTP)
+	case objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe:
+		return svc.runChannelKeyBalanceProbe(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual)
 	default:
 		return ChannelKeyHealthCheckResult{Success: false, Reason: fmt.Sprintf("unsupported rule type %q", rule.Type)}
 	}
@@ -521,9 +524,15 @@ func (svc *ChannelService) runBuiltinChannelKeyHealthCheck(ctx context.Context, 
 		result.Reason = "ok"
 	}
 
+	statusCode := result.StatusCode
+	if statusCode == 0 && result.Success {
+		statusCode = http.StatusOK
+	}
+
 	return ChannelKeyHealthCheckResult{
-		Success: result.Success,
-		Reason:  result.Reason,
+		Success:    result.Success,
+		Reason:     result.Reason,
+		StatusCode: statusCode,
 	}
 }
 

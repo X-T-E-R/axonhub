@@ -23,6 +23,7 @@ import type {
   ChannelKeyHealthCheckRule,
   ChannelKeyStatus,
   FailurePolicyActionType,
+  FailurePolicyConditionCombiner,
   FailurePolicyEventSource,
   FailurePolicyProfile,
 } from '@/features/channels/data/schema';
@@ -39,16 +40,13 @@ type OutcomeFilter = 'all' | 'success' | 'failure' | 'skipped';
 
 const KEY_STATUSES: ChannelKeyStatus[] = ['active', 'disabled', 'archived'];
 const CHANNEL_STATUSES = ['enabled', 'disabled', 'archived'];
-const PROFILE_SOURCES: FailurePolicyEventSource[] = [
-  'scheduled_health_check',
-  'manual_health_check',
-  'scheduled_health_check_failure',
-  'manual_health_check_failure',
-  'scheduled_balance_probe',
-  'scheduled_balance_probe_failure',
-  'manual_balance_probe',
-  'manual_balance_probe_failure',
+const PROFILE_SOURCE_SCENES: Array<{ id: string; sources: FailurePolicyEventSource[] }> = [
+  { id: 'scheduledHealth', sources: ['scheduled_health_check', 'scheduled_health_check_failure'] },
+  { id: 'manualHealth', sources: ['manual_health_check', 'manual_health_check_failure'] },
+  { id: 'scheduledBalance', sources: ['scheduled_balance_probe', 'scheduled_balance_probe_failure'] },
+  { id: 'manualBalance', sources: ['manual_balance_probe', 'manual_balance_probe_failure'] },
 ];
+const CONDITION_COMBINERS: FailurePolicyConditionCombiner[] = ['or', 'and'];
 const KEY_ACTIONS: FailurePolicyActionType[] = [
   'report_only',
   'backoff_key',
@@ -100,15 +98,15 @@ function createProfile(target: ProfileTarget, kind: 'failure' | 'recovery', inde
     sources: isRecovery
       ? ['scheduled_balance_probe', 'manual_balance_probe']
       : ['scheduled_balance_probe_failure', 'manual_balance_probe_failure'],
+    conditionCombiner: 'or',
     conditions: {
       minFailureCount: isRecovery ? null : 3,
-      success: isRecovery ? true : false,
+      success: null,
       statusCodes: [],
       available: isRecovery ? true : null,
       balanceLTE: null,
       balanceGTE: isRecovery ? 0 : null,
       reasonContains: null,
-      allCheckedKeysFailed: null,
       keyStatuses: isRecovery && target === 'key' ? ['disabled', 'archived'] : null,
       expr: null,
     },
@@ -143,6 +141,7 @@ function createRule(index = 0): MonitoringRule {
     name: `Monitoring rule ${index + 1}`,
     description: '',
     enabled: true,
+    probeType: 'channel_balance_probe',
     schedule: {
       intervalMinutes: 60,
       historyLimit: 100,
@@ -182,6 +181,35 @@ function numericValue(value: string): number | null {
   if (value.trim() === '') return null;
   const next = Number(value);
   return Number.isFinite(next) ? next : null;
+}
+
+function profileSourceSceneState(sources: FailurePolicyEventSource[] | undefined | null, sceneSources: FailurePolicyEventSource[]) {
+  const selectedCount = sceneSources.filter((source) => (sources ?? []).includes(source)).length;
+  if (selectedCount === 0) return false;
+  return selectedCount === sceneSources.length ? true : 'indeterminate';
+}
+
+function setProfileSourceScene(
+  sources: FailurePolicyEventSource[] | undefined | null,
+  sceneSources: FailurePolicyEventSource[],
+  checked: boolean
+): FailurePolicyEventSource[] {
+  const sourceSet = new Set(sources ?? []);
+  if (checked) {
+    sceneSources.forEach((source) => sourceSet.add(source));
+  } else {
+    sceneSources.forEach((source) => sourceSet.delete(source));
+  }
+  return [...sourceSet];
+}
+
+function profileForSave(profile: FailurePolicyProfile): FailurePolicyProfile {
+  const { allCheckedKeysFailed: _allCheckedKeysFailed, ...conditions } = profile.conditions ?? {};
+  return {
+    ...profile,
+    conditionCombiner: profile.conditionCombiner ?? 'or',
+    conditions,
+  };
 }
 
 function formatActionLabel(action: string) {
@@ -270,6 +298,8 @@ function MonitoringManagement() {
         ...rule,
         name: rule.name.trim(),
         description: rule.description?.trim() || null,
+        keyProfiles: rule.keyProfiles.map(profileForSave),
+        channelProfiles: rule.channelProfiles.map(profileForSave),
       })),
     });
     setDirty(false);
@@ -919,23 +949,24 @@ function ProfilesEditor({
 
           <div className='grid gap-4 lg:grid-cols-3'>
             <div className='space-y-2'>
-              <Label>{t('monitoring.profiles.sources')}</Label>
+              <Label>{t('monitoring.profiles.triggerScenes')}</Label>
               <div className='space-y-2 rounded-md border p-3'>
-                {PROFILE_SOURCES.map((source) => (
-                  <label key={source} className='flex cursor-pointer items-center gap-2 text-sm'>
+                {PROFILE_SOURCE_SCENES.map((scene) => (
+                  <label key={scene.id} className='flex cursor-pointer items-center gap-2 text-sm'>
                     <Checkbox
-                      checked={(profile.sources ?? []).includes(source)}
+                      checked={profileSourceSceneState(profile.sources, scene.sources)}
                       disabled={!canWrite}
                       onCheckedChange={(checked) =>
                         updateProfile(profile.id, (current) => ({
                           ...current,
-                          sources: checked
-                            ? [...(current.sources ?? []), source]
-                            : (current.sources ?? []).filter((item) => item !== source),
+                          sources: (() => {
+                            const nextSources = setProfileSourceScene(current.sources, scene.sources, checked === true);
+                            return nextSources.length === 0 && (current.sources ?? []).length > 0 ? current.sources : nextSources;
+                          })(),
                         }))
                       }
                     />
-                    {t(`monitoring.sources.${source}`)}
+                    {t(`monitoring.triggerScenes.${scene.id}`)}
                   </label>
                 ))}
               </div>
@@ -944,6 +975,27 @@ function ProfilesEditor({
             <div className='space-y-2'>
               <Label>{t('monitoring.profiles.conditions')}</Label>
               <div className='grid gap-2 rounded-md border p-3'>
+                <Select
+                  value={profile.conditionCombiner ?? 'or'}
+                  disabled={!canWrite}
+                  onValueChange={(value) =>
+                    updateProfile(profile.id, (current) => ({
+                      ...current,
+                      conditionCombiner: value as FailurePolicyConditionCombiner,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CONDITION_COMBINERS.map((combiner) => (
+                      <SelectItem key={combiner} value={combiner}>
+                        {t(`monitoring.conditionCombiners.${combiner}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select
                   value={profile.conditions?.success == null ? 'any' : profile.conditions.success ? 'success' : 'failure'}
                   disabled={!canWrite}

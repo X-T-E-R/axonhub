@@ -1133,6 +1133,8 @@ func normalizeRetryPolicy(policy *RetryPolicy) {
 	if policy.FailurePolicy.ChannelProfiles == nil {
 		policy.FailurePolicy.ChannelProfiles = []objects.FailurePolicyProfile{}
 	}
+	policy.FailurePolicy.KeyProfiles = normalizeFailurePolicyProfiles(policy.FailurePolicy.KeyProfiles)
+	policy.FailurePolicy.ChannelProfiles = normalizeFailurePolicyProfiles(policy.FailurePolicy.ChannelProfiles)
 
 	if policy.EmptyResponseTextPatterns == nil {
 		policy.EmptyResponseTextPatterns = append([]string(nil), defaultRetryPolicy.EmptyResponseTextPatterns...)
@@ -1852,15 +1854,15 @@ func normalizeMonitoringSettings(settings *MonitoringSettings) {
 
 		normalizeMonitoringRuleSchedule(&rule.Schedule)
 		normalizeMonitoringRuleTargets(&rule.Targets)
-		if rule.Probes == nil {
-			rule.Probes = []objects.ChannelKeyHealthCheckRule{}
-		}
+		normalizeMonitoringRuleProbes(rule)
 		if rule.KeyProfiles == nil {
 			rule.KeyProfiles = []objects.FailurePolicyProfile{}
 		}
 		if rule.ChannelProfiles == nil {
 			rule.ChannelProfiles = []objects.FailurePolicyProfile{}
 		}
+		rule.KeyProfiles = normalizeFailurePolicyProfiles(rule.KeyProfiles)
+		rule.ChannelProfiles = normalizeFailurePolicyProfiles(rule.ChannelProfiles)
 
 		if rule.ID == "" {
 			rule.ID = fmt.Sprintf("monitor-rule-%d", i+1)
@@ -1868,6 +1870,64 @@ func normalizeMonitoringSettings(settings *MonitoringSettings) {
 		if rule.Name == "" {
 			rule.Name = fmt.Sprintf("Monitoring rule %d", i+1)
 		}
+	}
+}
+
+func normalizeMonitoringRuleProbes(rule *MonitoringRule) {
+	if rule == nil {
+		return
+	}
+	if rule.Probes == nil {
+		rule.Probes = []objects.ChannelKeyHealthCheckRule{}
+	}
+
+	hasBalanceProbe := false
+	for i := range rule.Probes {
+		probe := &rule.Probes[i]
+		probe.ID = strings.TrimSpace(probe.ID)
+		probe.Name = strings.TrimSpace(probe.Name)
+		if probe.Type == "" {
+			if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe {
+				probe.Type = objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe
+			} else if probe.HTTP != nil {
+				probe.Type = objects.ChannelKeyHealthCheckRuleTypeHTTP
+			} else {
+				probe.Type = objects.ChannelKeyHealthCheckRuleTypeBuiltinTest
+			}
+		}
+		switch probe.Type {
+		case objects.ChannelKeyHealthCheckRuleTypeBuiltinTest:
+			if probe.Builtin == nil {
+				probe.Builtin = &objects.ChannelKeyHealthCheckBuiltin{Kind: "channel_api_key_test"}
+			}
+		case objects.ChannelKeyHealthCheckRuleTypeHTTP:
+		case objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe:
+			hasBalanceProbe = true
+		default:
+			if probe.HTTP != nil {
+				probe.Type = objects.ChannelKeyHealthCheckRuleTypeHTTP
+			} else {
+				probe.Type = objects.ChannelKeyHealthCheckRuleTypeBuiltinTest
+				probe.Builtin = &objects.ChannelKeyHealthCheckBuiltin{Kind: "channel_api_key_test"}
+			}
+		}
+		if probe.ID == "" {
+			probe.ID = fmt.Sprintf("monitor-probe-%d", i+1)
+		}
+		if probe.Name == "" {
+			probe.Name = fmt.Sprintf("Monitoring probe %d", i+1)
+		}
+	}
+
+	if hasBalanceProbe {
+		rule.ProbeType = MonitoringProbeTypeChannelBalanceProbe
+	}
+	if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe && len(rule.Probes) == 0 {
+		rule.Probes = []objects.ChannelKeyHealthCheckRule{{
+			ID:   "channel-balance-probe",
+			Name: "Channel balance probe",
+			Type: objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe,
+		}}
 	}
 }
 

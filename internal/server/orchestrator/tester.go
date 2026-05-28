@@ -301,11 +301,12 @@ func (processor *TestChannelOrchestrator) handleStreamResponse(
 
 // TestAPIKeyResult represents the result of testing a single API key.
 type TestAPIKeyResult struct {
-	KeyPrefix string
-	Success   bool
-	Latency   float64
-	Error     *string
-	Disabled  bool
+	KeyPrefix  string
+	Success    bool
+	Latency    float64
+	Error      *string
+	Disabled   bool
+	StatusCode int
 }
 
 // TestChannelAPIKeysResult represents the aggregated result of testing all API keys.
@@ -435,9 +436,10 @@ func (processor *TestChannelOrchestrator) TestSingleChannelAPIKey(
 	}
 
 	return biz.ChannelKeyHealthCheckBuiltinResult{
-		Success: result.Success,
-		Reason:  reason,
-		Latency: result.Latency,
+		Success:    result.Success,
+		Reason:     reason,
+		Latency:    result.Latency,
+		StatusCode: result.StatusCode,
 	}
 }
 
@@ -526,13 +528,21 @@ func (processor *TestChannelOrchestrator) testSingleKey(
 	})
 	if err != nil {
 		rawErr := inbound.TransformError(ctx, err)
-		message := gjson.GetBytes(rawErr.Body, "error.message").String()
+		message := err.Error()
+		statusCode := 0
+		if rawErr != nil {
+			statusCode = rawErr.StatusCode
+			if transformed := gjson.GetBytes(rawErr.Body, "error.message").String(); transformed != "" {
+				message = transformed
+			}
+		}
 
 		return &TestAPIKeyResult{
-			KeyPrefix: keyPrefix,
-			Success:   false,
-			Latency:   time.Since(startTime).Seconds(),
-			Error:     new(message),
+			KeyPrefix:  keyPrefix,
+			Success:    false,
+			Latency:    time.Since(startTime).Seconds(),
+			Error:      new(message),
+			StatusCode: statusCode,
 		}
 	}
 
@@ -549,6 +559,10 @@ func (processor *TestChannelOrchestrator) testSingleKey(
 	}
 
 	latency := time.Since(startTime).Seconds()
+	statusCode := 0
+	if rawResponse.ChatCompletion != nil {
+		statusCode = rawResponse.ChatCompletion.StatusCode
+	}
 
 	// Handle non-streaming response
 	response, err := xjson.To[llm.Response](rawResponse.ChatCompletion.Body)
@@ -556,10 +570,11 @@ func (processor *TestChannelOrchestrator) testSingleKey(
 		errMsg := err.Error()
 
 		return &TestAPIKeyResult{
-			KeyPrefix: keyPrefix,
-			Success:   false,
-			Latency:   latency,
-			Error:     &errMsg,
+			KeyPrefix:  keyPrefix,
+			Success:    false,
+			Latency:    latency,
+			Error:      &errMsg,
+			StatusCode: statusCode,
 		}
 	}
 
@@ -567,17 +582,19 @@ func (processor *TestChannelOrchestrator) testSingleKey(
 		errMsg := "No message in response"
 
 		return &TestAPIKeyResult{
-			KeyPrefix: keyPrefix,
-			Success:   false,
-			Latency:   latency,
-			Error:     &errMsg,
+			KeyPrefix:  keyPrefix,
+			Success:    false,
+			Latency:    latency,
+			Error:      &errMsg,
+			StatusCode: statusCode,
 		}
 	}
 
 	return &TestAPIKeyResult{
-		KeyPrefix: keyPrefix,
-		Success:   true,
-		Latency:   latency,
+		KeyPrefix:  keyPrefix,
+		Success:    true,
+		Latency:    latency,
+		StatusCode: statusCode,
 	}
 }
 

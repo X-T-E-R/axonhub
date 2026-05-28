@@ -147,19 +147,21 @@ func synthesizeGlobalFailurePolicyFromLegacyAutoDisable(auto AutoDisableChannel,
 			StatusCodes:     []int{status.Status},
 		}
 		keyProfiles = append(keyProfiles, objects.FailurePolicyProfile{
-			ID:         fmt.Sprintf("legacy-auto-disable-key-%d", status.Status),
-			Name:       name,
-			Sources:    []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
-			Conditions: conditions,
-			Actions:    []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDisableKey}},
+			ID:                fmt.Sprintf("legacy-auto-disable-key-%d", status.Status),
+			Name:              name,
+			Sources:           []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+			ConditionCombiner: objects.FailurePolicyConditionCombinerAnd,
+			Conditions:        conditions,
+			Actions:           []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDisableKey}},
 		})
 		if includeChannelProfiles {
 			channelProfiles = append(channelProfiles, objects.FailurePolicyProfile{
-				ID:         fmt.Sprintf("legacy-auto-disable-channel-%d", status.Status),
-				Name:       name,
-				Sources:    []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
-				Conditions: conditions,
-				Actions:    []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDisableChannel}},
+				ID:                fmt.Sprintf("legacy-auto-disable-channel-%d", status.Status),
+				Name:              name,
+				Sources:           []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+				ConditionCombiner: objects.FailurePolicyConditionCombinerAnd,
+				Conditions:        conditions,
+				Actions:           []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDisableChannel}},
 			})
 		}
 	}
@@ -183,21 +185,23 @@ func synthesizeChannelFailurePolicyFromLegacyHealthCheck(health *objects.Channel
 			continue
 		}
 		profiles = append(profiles, objects.FailurePolicyProfile{
-			ID:         policy.ID,
-			Name:       policy.Name,
-			Enabled:    policy.Enabled,
-			Sources:    legacySources,
-			Conditions: policy.Conditions,
-			Actions:    failureActionsFromLegacyHealthActions(policy.Actions),
+			ID:                policy.ID,
+			Name:              policy.Name,
+			Enabled:           policy.Enabled,
+			Sources:           legacySources,
+			ConditionCombiner: objects.FailurePolicyConditionCombinerAnd,
+			Conditions:        policy.Conditions,
+			Actions:           failureActionsFromLegacyHealthActions(policy.Actions),
 		})
 	}
 
 	if len(health.Policies) == 0 {
 		threshold := health.FailureThresholdOrDefault()
 		profiles = append(profiles, objects.FailurePolicyProfile{
-			ID:      "legacy-health-check-threshold",
-			Name:    "Legacy health-check failure threshold",
-			Sources: legacySources,
+			ID:                "legacy-health-check-threshold",
+			Name:              "Legacy health-check failure threshold",
+			Sources:           legacySources,
+			ConditionCombiner: objects.FailurePolicyConditionCombinerAnd,
 			Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
 				MinFailureCount: &threshold,
 			},
@@ -303,10 +307,11 @@ func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event fai
 		trigger = objects.ChannelKeyHealthCheckTriggerManual
 	}
 
-	return failurePolicyConditionMatches(profile.Conditions, result, event.FailureCount, trigger, event.AllCheckedKeysFailed, event.KeyStatus)
+	return failurePolicyConditionMatches(profile.ConditionCombiner, profile.Conditions, result, event.FailureCount, trigger, event.AllCheckedKeysFailed, event.KeyStatus)
 }
 
 func failurePolicyConditionMatches(
+	combiner objects.FailurePolicyConditionCombiner,
 	condition objects.ChannelKeyHealthCheckPolicyCondition,
 	result ChannelKeyHealthCheckResult,
 	failureCount int,
@@ -314,50 +319,49 @@ func failurePolicyConditionMatches(
 	allCheckedKeysFailed bool,
 	keyStatus objects.ChannelKeyStatus,
 ) bool {
-	if condition.MinFailureCount != nil && failureCount < *condition.MinFailureCount {
-		return false
+	checks := make([]bool, 0, 9)
+	if condition.MinFailureCount != nil {
+		checks = append(checks, failureCount >= *condition.MinFailureCount)
 	}
-	if condition.Success != nil && result.Success != *condition.Success {
-		return false
+	if condition.Success != nil {
+		checks = append(checks, result.Success == *condition.Success)
 	}
-	if len(condition.StatusCodes) > 0 && !slices.Contains(condition.StatusCodes, result.StatusCode) {
-		return false
+	if len(condition.StatusCodes) > 0 {
+		checks = append(checks, slices.Contains(condition.StatusCodes, result.StatusCode))
 	}
 	if condition.Available != nil {
-		if result.Available == nil || *result.Available != *condition.Available {
-			return false
-		}
+		checks = append(checks, result.Available != nil && *result.Available == *condition.Available)
 	}
 	if condition.BalanceLTE != nil {
 		balance, ok := channelKeyHealthCheckNumericBalance(result.Balance)
-		if !ok || balance > *condition.BalanceLTE {
-			return false
-		}
+		checks = append(checks, ok && balance <= *condition.BalanceLTE)
 	}
 	if condition.BalanceGTE != nil {
 		balance, ok := channelKeyHealthCheckNumericBalance(result.Balance)
-		if !ok || balance < *condition.BalanceGTE {
-			return false
-		}
+		checks = append(checks, ok && balance >= *condition.BalanceGTE)
 	}
-	reasonContains := strings.TrimSpace(condition.ReasonContains)
-	if reasonContains != "" && !strings.Contains(strings.ToLower(result.Reason), strings.ToLower(reasonContains)) {
-		return false
+	if reasonContains := strings.TrimSpace(condition.ReasonContains); reasonContains != "" {
+		checks = append(checks, strings.Contains(strings.ToLower(result.Reason), strings.ToLower(reasonContains)))
 	}
-	if condition.AllCheckedKeysFailed != nil && allCheckedKeysFailed != *condition.AllCheckedKeysFailed {
-		return false
+	if condition.AllCheckedKeysFailed != nil {
+		checks = append(checks, allCheckedKeysFailed == *condition.AllCheckedKeysFailed)
 	}
-	if len(condition.KeyStatuses) > 0 && !slices.Contains(condition.KeyStatuses, keyStatus) {
-		return false
+	if len(condition.KeyStatuses) > 0 {
+		checks = append(checks, slices.Contains(condition.KeyStatuses, keyStatus))
 	}
 	if strings.TrimSpace(condition.Expr) != "" {
 		matches, _ := evaluateChannelKeyHealthCheckPolicyExpr(condition.Expr, result, failureCount, trigger, allCheckedKeysFailed)
-		if !matches {
-			return false
-		}
+		checks = append(checks, matches)
+	}
+	if len(checks) == 0 {
+		return true
 	}
 
-	return true
+	if normalizeFailurePolicyConditionCombiner(combiner) == objects.FailurePolicyConditionCombinerAnd {
+		return !slices.Contains(checks, false)
+	}
+
+	return slices.Contains(checks, true)
 }
 
 func summarizeFailurePolicyMatches(matches []failurePolicyMatch) string {

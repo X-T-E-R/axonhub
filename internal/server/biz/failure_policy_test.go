@@ -112,6 +112,55 @@ func TestFailurePolicyEmptySourcesDoNotMatchManualHealthChecks(t *testing.T) {
 	require.Len(t, requestMatches, 1)
 }
 
+func TestFailurePolicyConditionMatchesDefaultsMissingCombinerToAnd(t *testing.T) {
+	minFailures := 3
+	result := ChannelKeyHealthCheckResult{
+		Success:    false,
+		StatusCode: http.StatusUnauthorized,
+	}
+	condition := objects.ChannelKeyHealthCheckPolicyCondition{
+		MinFailureCount: &minFailures,
+		StatusCodes:     []int{http.StatusTooManyRequests},
+	}
+
+	require.False(t, failurePolicyConditionMatches("", condition, result, minFailures, objects.ChannelKeyHealthCheckTriggerRequest, false, ""))
+	require.True(
+		t,
+		failurePolicyConditionMatches(
+			objects.FailurePolicyConditionCombinerOr,
+			condition,
+			result,
+			minFailures,
+			objects.ChannelKeyHealthCheckTriggerRequest,
+			false,
+			"",
+		),
+	)
+}
+
+func TestCloneChannelSettingsNormalizesLegacyFailurePolicyCombiner(t *testing.T) {
+	settings := &objects.ChannelSettings{
+		FailurePolicy: &objects.ChannelFailurePolicy{
+			KeyProfiles: []objects.FailurePolicyProfile{{
+				ID:      "legacy-profile",
+				Name:    "Legacy profile",
+				Sources: []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+				Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+					StatusCodes: []int{http.StatusUnauthorized},
+				},
+				Actions: []objects.FailurePolicyAction{{Type: objects.FailurePolicyActionDisableKey}},
+			}},
+		},
+	}
+
+	cloned := cloneChannelSettings(settings)
+
+	require.NotNil(t, cloned)
+	require.NotNil(t, cloned.FailurePolicy)
+	require.Len(t, cloned.FailurePolicy.KeyProfiles, 1)
+	require.Equal(t, objects.FailurePolicyConditionCombinerAnd, cloned.FailurePolicy.KeyProfiles[0].ConditionCombiner)
+}
+
 func TestRequestFailurePolicyReportOnlyRecordsKeyHistory(t *testing.T) {
 	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
 	defer client.Close()

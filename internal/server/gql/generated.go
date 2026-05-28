@@ -914,12 +914,13 @@ type ComplexityRoot struct {
 	}
 
 	FailurePolicyProfile struct {
-		Actions    func(childComplexity int) int
-		Conditions func(childComplexity int) int
-		Enabled    func(childComplexity int) int
-		ID         func(childComplexity int) int
-		Name       func(childComplexity int) int
-		Sources    func(childComplexity int) int
+		Actions           func(childComplexity int) int
+		ConditionCombiner func(childComplexity int) int
+		Conditions        func(childComplexity int) int
+		Enabled           func(childComplexity int) int
+		ID                func(childComplexity int) int
+		Name              func(childComplexity int) int
+		Sources           func(childComplexity int) int
 	}
 
 	FastestChannel struct {
@@ -5864,6 +5865,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.FailurePolicyProfile.Actions(childComplexity), true
+	case "FailurePolicyProfile.conditionCombiner":
+		if e.complexity.FailurePolicyProfile.ConditionCombiner == nil {
+			break
+		}
+
+		return e.complexity.FailurePolicyProfile.ConditionCombiner(childComplexity), true
 	case "FailurePolicyProfile.conditions":
 		if e.complexity.FailurePolicyProfile.Conditions == nil {
 			break
@@ -22531,6 +22538,8 @@ func (ec *executionContext) fieldContext_ChannelFailurePolicy_keyProfiles(_ cont
 				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
 			case "sources":
 				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditionCombiner":
+				return ec.fieldContext_FailurePolicyProfile_conditionCombiner(ctx, field)
 			case "conditions":
 				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
 			case "actions":
@@ -22574,6 +22583,8 @@ func (ec *executionContext) fieldContext_ChannelFailurePolicy_channelProfiles(_ 
 				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
 			case "sources":
 				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditionCombiner":
+				return ec.fieldContext_FailurePolicyProfile_conditionCombiner(ctx, field)
 			case "conditions":
 				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
 			case "actions":
@@ -32744,6 +32755,8 @@ func (ec *executionContext) fieldContext_FailurePolicy_keyProfiles(_ context.Con
 				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
 			case "sources":
 				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditionCombiner":
+				return ec.fieldContext_FailurePolicyProfile_conditionCombiner(ctx, field)
 			case "conditions":
 				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
 			case "actions":
@@ -32787,6 +32800,8 @@ func (ec *executionContext) fieldContext_FailurePolicy_channelProfiles(_ context
 				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
 			case "sources":
 				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditionCombiner":
+				return ec.fieldContext_FailurePolicyProfile_conditionCombiner(ctx, field)
 			case "conditions":
 				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
 			case "actions":
@@ -32977,6 +32992,35 @@ func (ec *executionContext) fieldContext_FailurePolicyProfile_sources(_ context.
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type FailurePolicyEventSource does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FailurePolicyProfile_conditionCombiner(ctx context.Context, field graphql.CollectedField, obj *objects.FailurePolicyProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_FailurePolicyProfile_conditionCombiner,
+		func(ctx context.Context) (any, error) {
+			return obj.ConditionCombiner, nil
+		},
+		nil,
+		ec.marshalOFailurePolicyConditionCombiner2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyConditionCombiner,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_FailurePolicyProfile_conditionCombiner(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FailurePolicyProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type FailurePolicyConditionCombiner does not have child fields")
 		},
 	}
 	return fc, nil
@@ -37161,6 +37205,8 @@ func (ec *executionContext) fieldContext_MonitoringRule_keyProfiles(_ context.Co
 				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
 			case "sources":
 				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditionCombiner":
+				return ec.fieldContext_FailurePolicyProfile_conditionCombiner(ctx, field)
 			case "conditions":
 				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
 			case "actions":
@@ -37204,6 +37250,8 @@ func (ec *executionContext) fieldContext_MonitoringRule_channelProfiles(_ contex
 				return ec.fieldContext_FailurePolicyProfile_enabled(ctx, field)
 			case "sources":
 				return ec.fieldContext_FailurePolicyProfile_sources(ctx, field)
+			case "conditionCombiner":
+				return ec.fieldContext_FailurePolicyProfile_conditionCombiner(ctx, field)
 			case "conditions":
 				return ec.fieldContext_FailurePolicyProfile_conditions(ctx, field)
 			case "actions":
@@ -78759,7 +78807,7 @@ func (ec *executionContext) unmarshalInputFailurePolicyProfileInput(ctx context.
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "name", "enabled", "sources", "conditions", "actions"}
+	fieldsInOrder := [...]string{"id", "name", "enabled", "sources", "conditionCombiner", "conditions", "actions"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -78794,6 +78842,13 @@ func (ec *executionContext) unmarshalInputFailurePolicyProfileInput(ctx context.
 				return it, err
 			}
 			it.Sources = data
+		case "conditionCombiner":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("conditionCombiner"))
+			data, err := ec.unmarshalOFailurePolicyConditionCombiner2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyConditionCombiner(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ConditionCombiner = data
 		case "conditions":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("conditions"))
 			data, err := ec.unmarshalOChannelKeyHealthCheckPolicyConditionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckPolicyCondition(ctx, v)
@@ -103262,6 +103317,8 @@ func (ec *executionContext) _FailurePolicyProfile(ctx context.Context, sel ast.S
 			out.Values[i] = ec._FailurePolicyProfile_enabled(ctx, field, obj)
 		case "sources":
 			out.Values[i] = ec._FailurePolicyProfile_sources(ctx, field, obj)
+		case "conditionCombiner":
+			out.Values[i] = ec._FailurePolicyProfile_conditionCombiner(ctx, field, obj)
 		case "conditions":
 			out.Values[i] = ec._FailurePolicyProfile_conditions(ctx, field, obj)
 		case "actions":
@@ -127080,6 +127137,19 @@ func (ec *executionContext) unmarshalOFailurePolicyActionInput2ᚕgithubᚗcom�
 		}
 	}
 	return res, nil
+}
+
+func (ec *executionContext) unmarshalOFailurePolicyConditionCombiner2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyConditionCombiner(ctx context.Context, v any) (objects.FailurePolicyConditionCombiner, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.FailurePolicyConditionCombiner(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFailurePolicyConditionCombiner2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyConditionCombiner(ctx context.Context, sel ast.SelectionSet, v objects.FailurePolicyConditionCombiner) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
 }
 
 func (ec *executionContext) unmarshalOFailurePolicyEventSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐFailurePolicyEventSourceᚄ(ctx context.Context, v any) ([]objects.FailurePolicyEventSource, error) {
