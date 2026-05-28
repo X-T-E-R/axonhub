@@ -17,6 +17,8 @@ import {
 const monitoringNumber = (fallback: number, min = 0) =>
   z.preprocess((value) => (value === '' || value == null ? fallback : value), z.coerce.number().int().min(min).catch(fallback));
 
+const monitoringArray = <T extends z.ZodType>(schema: T) => z.preprocess((value) => value ?? [], z.array(schema).catch([]));
+
 function pickAlias(record: Record<string, unknown>, camel: string, snake: string, fallback: unknown) {
   return record[camel] ?? record[snake] ?? fallback;
 }
@@ -97,9 +99,9 @@ export const monitoringRuleSchema = z.object({
   probeType: z.string().optional().nullable(),
   schedule: z.preprocess((value) => value ?? {}, monitoringRuleScheduleSchema),
   targets: z.preprocess((value) => value ?? {}, monitoringRuleTargetsSchema),
-  probes: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckRuleSchema)),
-  keyProfiles: z.preprocess((value) => value ?? [], z.array(failurePolicyProfileSchema)),
-  channelProfiles: z.preprocess((value) => value ?? [], z.array(failurePolicyProfileSchema)),
+  probes: monitoringArray(channelKeyHealthCheckRuleSchema),
+  keyProfiles: monitoringArray(failurePolicyProfileSchema),
+  channelProfiles: monitoringArray(failurePolicyProfileSchema),
 });
 
 export const monitoringSettingsSchema = z.object({
@@ -323,30 +325,6 @@ const MONITORING_EVENTS_QUERY = `
           balance
           currency
           available
-          balanceSnapshot {
-            provider
-            checkedAt
-            success
-            available
-            statusCode
-            accountStatus
-            accountId
-            primaryBalance {
-              amount
-              currency
-              kind
-              label
-              expiresAt
-            }
-            components {
-              amount
-              currency
-              kind
-              label
-              expiresAt
-            }
-            rawSummary
-          }
           probe
           matchedPolicy
           action

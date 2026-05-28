@@ -394,6 +394,50 @@ func normalizeChannelFailurePolicy(policy *objects.ChannelFailurePolicy) {
 	policy.ChannelProfiles = normalizeFailurePolicyProfiles(policy.ChannelProfiles)
 }
 
+func normalizeChannelSettingsForRead(settings *objects.ChannelSettings) *objects.ChannelSettings {
+	next := cloneChannelSettings(settings)
+	if next == nil {
+		return nil
+	}
+
+	normalizeChannelKeyHealthCheckForRead(next.KeyHealthCheck)
+	normalizeChannelFailurePolicy(next.FailurePolicy)
+
+	return next
+}
+
+func normalizeChannelKeyHealthCheckForRead(health *objects.ChannelKeyHealthCheck) {
+	if health == nil {
+		return
+	}
+
+	if health.IntervalMinutes <= 0 {
+		health.IntervalMinutes = health.IntervalMinutesOrDefault()
+	}
+	health.IntervalMinutes = clampInt(health.IntervalMinutes, minChannelKeyHealthCheckIntervalMinutes, maxChannelKeyHealthCheckIntervalMinutes)
+
+	if health.HistoryLimit < 0 {
+		health.HistoryLimit = 0
+	}
+	health.HistoryLimit = clampInt(health.HistoryLimit, 0, maxChannelKeyHealthCheckHistoryLimit)
+
+	if health.FailureThreshold <= 0 {
+		health.FailureThreshold = health.FailureThresholdOrDefault()
+	}
+	health.FailureThreshold = clampInt(health.FailureThreshold, 1, maxChannelKeyHealthCheckFailureThreshold)
+
+	switch health.FailureAction {
+	case "":
+		health.FailureAction = objects.ChannelKeyHealthCheckFailureActionReportOnly
+	case objects.ChannelKeyHealthCheckFailureActionReportOnly,
+		objects.ChannelKeyHealthCheckFailureActionDisable,
+		objects.ChannelKeyHealthCheckFailureActionArchive,
+		objects.ChannelKeyHealthCheckFailureActionDelete:
+	default:
+		health.FailureAction = objects.ChannelKeyHealthCheckFailureActionReportOnly
+	}
+}
+
 func validateFailurePolicyProfile(profile objects.FailurePolicyProfile) error {
 	if strings.TrimSpace(profile.ID) == "" {
 		return fmt.Errorf("id is required")

@@ -46,9 +46,15 @@ func (svc *ChannelService) QueryChannels(ctx context.Context, input QueryChannel
 
 	// If the model is not specified, return the query result directly.
 	if input.Model == nil || *input.Model == "" {
-		return query.Paginate(ctx, input.After, input.First, input.Before, input.Last,
+		conn, err := query.Paginate(ctx, input.After, input.First, input.Before, input.Last,
 			ent.WithChannelOrder(input.OrderBy),
 		)
+		if err != nil {
+			return nil, err
+		}
+		normalizeChannelConnectionSettingsForRead(conn)
+
+		return conn, nil
 	}
 
 	// When model filtering is required, we fetch all results and filter in-memory, bypassing database pagination.
@@ -105,6 +111,7 @@ func (svc *ChannelService) buildConnectionInMemory(
 	// Return all channels without pagination
 	conn.Edges = make([]*ent.ChannelEdge, len(channels))
 	for i, ch := range channels {
+		ch.Settings = normalizeChannelSettingsForRead(ch.Settings)
 		conn.Edges[i] = ch.ToEdge(order)
 	}
 
@@ -118,4 +125,17 @@ func (svc *ChannelService) buildConnectionInMemory(
 	}
 
 	return conn
+}
+
+func normalizeChannelConnectionSettingsForRead(conn *ent.ChannelConnection) {
+	if conn == nil {
+		return
+	}
+
+	for _, edge := range conn.Edges {
+		if edge == nil || edge.Node == nil {
+			continue
+		}
+		edge.Node.Settings = normalizeChannelSettingsForRead(edge.Node.Settings)
+	}
 }

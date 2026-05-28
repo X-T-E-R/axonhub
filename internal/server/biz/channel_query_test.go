@@ -367,6 +367,35 @@ func TestChannelService_QueryChannels_WithoutModelFilter(t *testing.T) {
 	})
 }
 
+func TestChannelService_QueryChannels_NormalizesLegacyKeyHealthCheckSettings(t *testing.T) {
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := context.Background()
+	ctx = ent.NewContext(ctx, client)
+	ctx = authz.WithTestBypass(ctx)
+
+	createTestChannel(t, client, ctx, "legacy settings", []string{"gpt-4"}, &objects.ChannelSettings{
+		KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+			IntervalMinutes:  -10,
+			HistoryLimit:     500,
+			FailureThreshold: -2,
+			FailureAction:    objects.ChannelKeyHealthCheckFailureAction("legacy_delete_key"),
+		},
+	})
+
+	conn, err := svc.QueryChannels(ctx, QueryChannelsInput{First: lo.ToPtr(10)})
+	require.NoError(t, err)
+	require.Len(t, conn.Edges, 1)
+
+	health := conn.Edges[0].Node.Settings.KeyHealthCheck
+	require.NotNil(t, health)
+	require.Equal(t, 60, health.IntervalMinutes)
+	require.Equal(t, 100, health.HistoryLimit)
+	require.Equal(t, 3, health.FailureThreshold)
+	require.Equal(t, objects.ChannelKeyHealthCheckFailureActionReportOnly, health.FailureAction)
+}
+
 // Helper function to create test channel.
 func createTestChannel(
 	t *testing.T,
