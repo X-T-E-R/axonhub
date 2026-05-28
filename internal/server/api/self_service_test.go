@@ -323,7 +323,24 @@ func TestSelfServiceHandlers_AddChannelsToAccessGroupUsesAccessGroupProjectConte
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 
-	updatedChannel, err := client.Channel.Get(setupCtx, ch.ID)
+	updatedTemplate, err := client.APIKeyProfileTemplate.Get(setupCtx, template.ID)
 	require.NoError(t, err)
-	require.Contains(t, updatedChannel.Tags, fmt.Sprintf("access-group:%d", template.ID))
+	require.Equal(t, []int{ch.ID}, updatedTemplate.Profile.ChannelIDs)
+	require.Empty(t, updatedTemplate.Profile.ChannelTags)
+
+	clearReq := httptest.NewRequest(
+		http.MethodPatch,
+		fmt.Sprintf("/admin/access-groups/%d/channels", template.ID),
+		bytes.NewReader([]byte(`{"channelIds":[]}`)),
+	)
+	clearReq.Header.Set("Content-Type", "application/json")
+	clearRecorder := httptest.NewRecorder()
+	router.ServeHTTP(clearRecorder, clearReq)
+
+	require.Equal(t, http.StatusOK, clearRecorder.Code)
+
+	updatedTemplate, err = client.APIKeyProfileTemplate.Get(setupCtx, template.ID)
+	require.NoError(t, err)
+	require.Empty(t, updatedTemplate.Profile.ChannelIDs)
+	require.Empty(t, updatedTemplate.Profile.ChannelTags)
 }

@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { Check, Copy, Eye, EyeOff, RefreshCw, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { useAuthStore } from '@/stores/authStore';
+import { useProjectStore, useSelectedProjectId } from '@/stores/projectStore';
+import { selfServiceApi, type SelfAPIKey, type SelfQuotaSummary, type SelfRequest, type SelfUsage } from '@/lib/api-client';
+import { extractNumberID, normalizeEntityID } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMyProjects } from '@/features/projects/data/projects';
-import { selfServiceApi, type SelfAPIKey, type SelfQuotaSummary, type SelfRequest, type SelfUsage } from '@/lib/api-client';
-import { extractNumberID, normalizeEntityID } from '@/lib/utils';
-import { useAuthStore } from '@/stores/authStore';
-import { useProjectStore, useSelectedProjectId } from '@/stores/projectStore';
 
 type RevealedSecret = {
   keyId: number;
@@ -32,7 +31,15 @@ type RequestFilters = {
 
 export type UserConsoleSection = 'overview' | 'models' | 'keys' | 'requests' | 'usage' | 'quickstart';
 
-const USER_CONSOLE_SECTION_PATH: Record<UserConsoleSection, '/self-service' | '/self-service/models' | '/self-service/api-keys' | '/self-service/requests' | '/self-service/usage' | '/self-service/quickstart'> = {
+const USER_CONSOLE_SECTION_PATH: Record<
+  UserConsoleSection,
+  | '/self-service'
+  | '/self-service/models'
+  | '/self-service/api-keys'
+  | '/self-service/requests'
+  | '/self-service/usage'
+  | '/self-service/quickstart'
+> = {
   overview: '/self-service',
   models: '/self-service/models',
   keys: '/self-service/api-keys',
@@ -108,13 +115,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
   const [showSecret, setShowSecret] = useState(false);
   const [copiedTarget, setCopiedTarget] = useState<'base-url' | 'api-key' | 'snippet' | null>(null);
 
-  const projectNameById = useMemo(
-    () =>
-      new Map(
-        (myProjects ?? []).map((project) => [project.id, project.name]),
-      ),
-    [myProjects],
-  );
+  const projectNameById = useMemo(() => new Map((myProjects ?? []).map((project) => [project.id, project.name])), [myProjects]);
   const projectOptions = useMemo(
     () =>
       (user?.projects ?? [])
@@ -123,14 +124,19 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
           return { id: projectID, label: formatProjectLabel(projectID, index, projectNameById.get(projectID)) };
         })
         .filter((project) => project.id),
-    [projectNameById, user?.projects],
+    [projectNameById, user?.projects]
   );
   const firstProjectID = projectOptions[0]?.id ?? '';
   const selectedProjectBelongsToUser = useMemo(
     () => Boolean(selectedProjectId && projectOptions.some((project) => project.id === selectedProjectId)),
-    [projectOptions, selectedProjectId],
+    [projectOptions, selectedProjectId]
   );
-  const projectID = user?.isOwner && selectedProjectId ? selectedProjectId : selectedProjectBelongsToUser && selectedProjectId ? selectedProjectId : firstProjectID;
+  const projectID =
+    user?.isOwner && selectedProjectId
+      ? selectedProjectId
+      : selectedProjectBelongsToUser && selectedProjectId
+        ? selectedProjectId
+        : firstProjectID;
   const selectedPresetIdForApi = modelPresetFilter === PRESET_ALL ? undefined : Number(modelPresetFilter);
   const baseURL = useMemo(() => (typeof window === 'undefined' ? '/v1' : `${window.location.origin}/v1`), []);
 
@@ -206,7 +212,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
 
   const requestStatusOptions = useMemo(
     () => Array.from(new Set(requests.data?.map((request) => request.status).filter(Boolean))).sort(),
-    [requests.data],
+    [requests.data]
   );
   const filteredRequests = useMemo(() => {
     const rangeStart = getRangeStart(requestFilters.range);
@@ -226,7 +232,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
       [model.id, model.name, ...(model.developers ?? []), ...(model.accessGroups?.map((group) => group.name) ?? model.groups ?? [])]
         .join(' ')
         .toLowerCase()
-        .includes(search),
+        .includes(search)
     );
   }, [modelSearch, models.data]);
   const visibleModels = filteredModels.slice(0, visibleModelCount);
@@ -357,31 +363,85 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
 
   return (
     <div className='space-y-6 p-6'>
-      <div className='flex flex-wrap items-start justify-between gap-4'>
-        <div className='space-y-2'>
-          <h1 className='text-2xl font-semibold tracking-tight'>{t('selfService.title')}</h1>
-          <p className='text-muted-foreground max-w-3xl text-sm'>{t('selfService.description')}</p>
-        </div>
-      </div>
+      {initialSection === 'overview' && (
+        <div className='space-y-4'>
+          <div className='grid gap-4 md:grid-cols-4'>
+            <MetricCard value={models.isLoading ? '—' : formatNumber(models.data?.length)} label={t('selfService.metrics.models')} />
+            <MetricCard value={keys.isLoading ? '—' : formatNumber(keys.data?.length)} label={t('selfService.metrics.keys')} />
+            <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.requests)} label={t('selfService.metrics.requests')} />
+            <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.totalTokens)} label={t('selfService.metrics.tokens')} />
+          </div>
 
-      <div className='grid gap-4 md:grid-cols-4'>
-        <MetricCard value={models.isLoading ? '—' : formatNumber(models.data?.length)} label={t('selfService.metrics.models')} />
-        <MetricCard value={keys.isLoading ? '—' : formatNumber(keys.data?.length)} label={t('selfService.metrics.keys')} />
-        <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.requests)} label={t('selfService.metrics.requests')} />
-        <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.totalTokens)} label={t('selfService.metrics.tokens')} />
-      </div>
+          <div className='grid gap-4 xl:grid-cols-[1fr_1fr]'>
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('selfService.overview.quickActionsTitle')}</CardTitle>
+                <CardDescription>{t('selfService.overview.quickActionsDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent className='grid gap-3 sm:grid-cols-2'>
+                <ActionButton
+                  title={t('selfService.overview.actions.createKey')}
+                  description={t('selfService.overview.actions.createKeyHelp')}
+                  onClick={() => goToSection('keys')}
+                />
+                <ActionButton
+                  title={t('selfService.overview.actions.browseModels')}
+                  description={t('selfService.overview.actions.browseModelsHelp')}
+                  onClick={() => goToSection('models')}
+                />
+                <ActionButton
+                  title={t('selfService.overview.actions.reviewRequests')}
+                  description={t('selfService.overview.actions.reviewRequestsHelp')}
+                  onClick={() => goToSection('requests')}
+                />
+                <ActionButton
+                  title={t('selfService.overview.actions.copyQuickstart')}
+                  description={t('selfService.overview.actions.copyQuickstartHelp')}
+                  onClick={() => goToSection('quickstart')}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('selfService.overview.accessTitle')}</CardTitle>
+                <CardDescription>{t('selfService.overview.accessDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-3'>
+                <div className='flex flex-wrap gap-2'>
+                  {presets.isLoading && <Badge variant='secondary'>{t('selfService.overview.loadingAccessGroups')}</Badge>}
+                  {!presets.isLoading &&
+                    !presets.isError &&
+                    !hasNoPresets &&
+                    presets.data?.slice(0, 8).map((preset) => (
+                      <Badge key={preset.id} variant='outline'>
+                        {preset.name}
+                      </Badge>
+                    ))}
+                  {hasNoPresets && <Badge variant='secondary'>{t('selfService.empty.noPresets.title')}</Badge>}
+                  {presets.isError && <Badge variant='secondary'>{t('selfService.keys.create.presetsError')}</Badge>}
+                </div>
+                <StatusRow
+                  ok={!hasNoModels}
+                  label={t('selfService.overview.modelsStatus')}
+                  detail={
+                    hasNoModels
+                      ? t('selfService.empty.noModels.description')
+                      : t('selfService.overview.modelsReady', { count: models.data?.length ?? 0 })
+                  }
+                />
+                <StatusRow
+                  ok={!hasNoKeys}
+                  label={t('selfService.overview.keysStatus')}
+                  detail={
+                    hasNoKeys
+                      ? t('selfService.empty.noKeys.description')
+                      : t('selfService.overview.keysReady', { count: keys.data?.length ?? 0 })
+                  }
+                />
+              </CardContent>
+            </Card>
+          </div>
 
-      <Tabs value={initialSection} onValueChange={(value) => goToSection(value as UserConsoleSection)} className='space-y-4'>
-        <TabsList className='flex h-auto w-full flex-wrap justify-start'>
-          <TabsTrigger value='overview'>{t('selfService.tabs.overview')}</TabsTrigger>
-          <TabsTrigger value='models'>{t('selfService.tabs.models')}</TabsTrigger>
-          <TabsTrigger value='keys'>{t('selfService.tabs.keys')}</TabsTrigger>
-          <TabsTrigger value='requests'>{t('selfService.tabs.requests')}</TabsTrigger>
-          <TabsTrigger value='usage'>{t('selfService.tabs.usage')}</TabsTrigger>
-          <TabsTrigger value='quickstart'>{t('selfService.tabs.quickstart')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value='overview' className='space-y-4'>
           <div className='grid gap-4 lg:grid-cols-[1.1fr_0.9fr]'>
             <FirstRequestCard
               baseURL={baseURL}
@@ -394,60 +454,35 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
             />
             <Card>
               <CardHeader>
-                <CardTitle>{t('selfService.overview.statusTitle')}</CardTitle>
-                <CardDescription>{t('selfService.overview.statusDescription')}</CardDescription>
+                <CardTitle>{t('selfService.overview.recentRequestsTitle')}</CardTitle>
+                <CardDescription>{t('selfService.overview.recentRequestsDescription')}</CardDescription>
               </CardHeader>
-              <CardContent className='space-y-3 text-sm'>
-                <StatusRow
-                  ok={!hasNoPresets}
-                  label={t('selfService.overview.presetsStatus')}
-                  detail={
-                    hasNoPresets
-                      ? t('selfService.empty.noPresets.description')
-                      : t('selfService.overview.presetsReady', {
-                          count: presets.data?.length ?? 0,
-                        })
-                  }
-                />
-                <StatusRow
-                  ok={!hasNoModels}
-                  label={t('selfService.overview.modelsStatus')}
-                  detail={
-                    hasNoModels
-                      ? t('selfService.empty.noModels.description')
-                      : t('selfService.overview.modelsReady', {
-                          count: models.data?.length ?? 0,
-                        })
-                  }
-                />
-                <StatusRow
-                  ok={!hasNoKeys}
-                  label={t('selfService.overview.keysStatus')}
-                  detail={
-                    hasNoKeys
-                      ? t('selfService.empty.noKeys.description')
-                      : t('selfService.overview.keysReady', {
-                          count: keys.data?.length ?? 0,
-                        })
-                  }
-                />
-                <StatusRow
-                  ok={!hasNoRequests}
-                  label={t('selfService.overview.requestsStatus')}
-                  detail={
-                    hasNoRequests
-                      ? t('selfService.empty.noRequests.description')
-                      : t('selfService.overview.requestsReady', {
-                          count: requests.data?.length ?? 0,
-                        })
-                  }
-                />
+              <CardContent className='space-y-3'>
+                {requests.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.requests.loading')}</p>}
+                {requests.isError && <p className='text-destructive text-sm'>{t('selfService.requests.error')}</p>}
+                {hasNoRequests && (
+                  <EmptyState
+                    title={t('selfService.empty.noRequests.title')}
+                    description={t('selfService.empty.noRequests.description')}
+                    compact
+                  />
+                )}
+                {requests.data?.slice(0, 5).map((request) => (
+                  <RequestRow key={request.id} request={request} />
+                ))}
+                {!hasNoRequests && (
+                  <Button variant='outline' size='sm' onClick={() => goToSection('requests')}>
+                    {t('selfService.overview.viewAllRequests')}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value='models' className='space-y-4'>
+      {initialSection === 'models' && (
+        <div className='space-y-4'>
           <Card>
             <CardHeader>
               <CardTitle>{t('selfService.models.title')}</CardTitle>
@@ -487,7 +522,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               </div>
 
               {models.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.models.loading')}</p>}
-              {models.isError && <p className='text-sm text-destructive'>{t('selfService.models.error')}</p>}
+              {models.isError && <p className='text-destructive text-sm'>{t('selfService.models.error')}</p>}
               {!models.isLoading && !models.isError && hasNoModels && (
                 <EmptyState
                   title={t('selfService.empty.noModels.title')}
@@ -511,7 +546,8 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                     <div className='flex flex-wrap gap-1'>
                       {((model.accessGroups?.map((group) => group.name) ?? model.groups)?.length
                         ? (model.accessGroups?.map((group) => group.name) ?? model.groups)!
-                        : [t('selfService.models.defaultGroup')]).map((group) => (
+                        : [t('selfService.models.defaultGroup')]
+                      ).map((group) => (
                         <Badge key={`${model.id}-${group}`} variant='outline'>
                           {group}
                         </Badge>
@@ -545,9 +581,11 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value='keys' className='space-y-4'>
+      {initialSection === 'keys' && (
+        <div className='space-y-4'>
           <div className='grid gap-4 xl:grid-cols-[1.1fr_0.9fr]'>
             <Card>
               <CardHeader>
@@ -632,7 +670,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
             </CardHeader>
             <CardContent className='space-y-3'>
               {keys.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.keys.list.loading')}</p>}
-              {keys.isError && <p className='text-sm text-destructive'>{t('selfService.keys.list.error')}</p>}
+              {keys.isError && <p className='text-destructive text-sm'>{t('selfService.keys.list.error')}</p>}
               {hasNoKeys && (
                 <EmptyState title={t('selfService.empty.noKeys.title')} description={t('selfService.empty.noKeys.description')} compact />
               )}
@@ -720,7 +758,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                       </Button>
                     </div>
                     {revealedSecret?.keyId === key.id && (
-                      <div className='rounded-md border border-dashed p-3 text-xs text-muted-foreground'>
+                      <div className='text-muted-foreground rounded-md border border-dashed p-3 text-xs'>
                         {t('selfService.keys.list.secretReady')}
                       </div>
                     )}
@@ -729,9 +767,11 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               })}
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value='requests' className='space-y-4'>
+      {initialSection === 'requests' && (
+        <div className='space-y-4'>
           <Card>
             <CardHeader>
               <CardTitle>{t('selfService.requests.title')}</CardTitle>
@@ -795,7 +835,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               </div>
 
               {requests.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.requests.loading')}</p>}
-              {requests.isError && <p className='text-sm text-destructive'>{t('selfService.requests.error')}</p>}
+              {requests.isError && <p className='text-destructive text-sm'>{t('selfService.requests.error')}</p>}
               {hasNoRequests && (
                 <EmptyState
                   title={t('selfService.empty.noRequests.title')}
@@ -817,9 +857,11 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value='usage' className='space-y-4'>
+      {initialSection === 'usage' && (
+        <div className='space-y-4'>
           <Card>
             <CardHeader>
               <CardTitle>{t('selfService.usage.title')}</CardTitle>
@@ -841,9 +883,11 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               <div className='text-muted-foreground rounded-md border border-dashed p-3 text-sm'>{t('selfService.usage.filterNote')}</div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value='quickstart' className='space-y-4'>
+      {initialSection === 'quickstart' && (
+        <div className='space-y-4'>
           <FirstRequestCard
             baseURL={baseURL}
             copiedTarget={copiedTarget}
@@ -859,13 +903,21 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               <CardDescription>{t('selfService.quickstart.stepsDescription')}</CardDescription>
             </CardHeader>
             <CardContent className='grid gap-3 md:grid-cols-3'>
-              <QuickstartStep index={1} title={t('selfService.quickstart.stepModels')} description={t('selfService.quickstart.stepModelsHelp')} />
+              <QuickstartStep
+                index={1}
+                title={t('selfService.quickstart.stepModels')}
+                description={t('selfService.quickstart.stepModelsHelp')}
+              />
               <QuickstartStep index={2} title={t('selfService.quickstart.stepKey')} description={t('selfService.quickstart.stepKeyHelp')} />
-              <QuickstartStep index={3} title={t('selfService.quickstart.stepRequest')} description={t('selfService.quickstart.stepRequestHelp')} />
+              <QuickstartStep
+                index={3}
+                title={t('selfService.quickstart.stepRequest')}
+                description={t('selfService.quickstart.stepRequestHelp')}
+              />
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }
@@ -878,6 +930,15 @@ function MetricCard({ value, label }: { value: string; label: string }) {
         <CardDescription>{label}</CardDescription>
       </CardHeader>
     </Card>
+  );
+}
+
+function ActionButton({ title, description, onClick }: { title: string; description: string; onClick: () => void }) {
+  return (
+    <button type='button' onClick={onClick} className='hover:bg-muted/60 rounded-md border p-4 text-left transition-colors'>
+      <div className='text-sm font-medium'>{title}</div>
+      <p className='text-muted-foreground mt-1 text-xs'>{description}</p>
+    </button>
   );
 }
 
@@ -917,7 +978,7 @@ function StatusRow({ ok, label, detail }: { ok: boolean; label: string; detail: 
 function QuickstartStep({ index, title, description }: { index: number; title: string; description: string }) {
   return (
     <div className='rounded-md border p-4 text-sm'>
-      <div className='mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground'>
+      <div className='bg-primary text-primary-foreground mb-3 flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold'>
         {index}
       </div>
       <div className='font-medium'>{title}</div>
@@ -979,7 +1040,7 @@ function FirstRequestCard({
                 </Button>
               </div>
             </div>
-            <code className='block rounded bg-muted px-3 py-2 text-xs break-all'>
+            <code className='bg-muted block rounded px-3 py-2 text-xs break-all'>
               {showSecret ? revealedSecret.value : '•'.repeat(Math.max(revealedSecret.value.length, 16))}
             </code>
           </div>
@@ -994,7 +1055,7 @@ function FirstRequestCard({
               {t('common.buttons.copy')}
             </Button>
           </div>
-          <pre className='overflow-x-auto rounded-md bg-muted p-3 text-xs'>
+          <pre className='bg-muted overflow-x-auto rounded-md p-3 text-xs'>
             <code>{snippet}</code>
           </pre>
         </div>

@@ -45,7 +45,20 @@ type updateMyAPIKeyStatusRequest struct {
 }
 
 type addChannelsToAccessGroupRequest struct {
-	ChannelIDs []string `json:"channelIds" binding:"required"`
+	ChannelIDs []string `json:"channelIds"`
+}
+
+type upsertAdminAccessGroupRequest struct {
+	ProjectID            string    `json:"projectId"`
+	Name                 *string   `json:"name"`
+	Description          *string   `json:"description"`
+	SelfServiceVisible   *bool     `json:"selfServiceVisible"`
+	ModelIDs             *[]string `json:"modelIds"`
+	ChannelIDs           *[]string `json:"channelIds"`
+	ChannelTags          *[]string `json:"channelTags"`
+	ChannelTagsMatchMode *string   `json:"channelTagsMatchMode"`
+	LoadBalanceStrategy  *string   `json:"loadBalanceStrategy"`
+	ClearLoadBalance     bool      `json:"clearLoadBalance"`
 }
 
 func (h *SelfServiceHandlers) ListAPIKeys(c *gin.Context) {
@@ -296,6 +309,34 @@ func (h *SelfServiceHandlers) ListAdminAccessGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": items})
 }
 
+func (h *SelfServiceHandlers) CreateAdminAccessGroup(c *gin.Context) {
+	var req upsertAdminAccessGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, errors.New("Invalid request format"))
+		return
+	}
+
+	projectID, ok := h.projectIDFromRequest(c, req.ProjectID)
+	if !ok {
+		return
+	}
+	h.withProjectID(c, projectID)
+
+	input, ok := h.adminAccessGroupInput(c, req)
+	if !ok {
+		return
+	}
+	input.ProjectID = projectID
+
+	item, err := h.APIKeyService.CreateAdminAccessGroup(c.Request.Context(), input)
+	if err != nil {
+		JSONError(c, selfServiceErrorStatus(err), err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": item})
+}
+
 func (h *SelfServiceHandlers) GetAdminAccessGroup(c *gin.Context) {
 	id, ok := parseEntityID(c, c.Param("id"), "APIKeyProfileTemplate")
 	if !ok {
@@ -306,6 +347,35 @@ func (h *SelfServiceHandlers) GetAdminAccessGroup(c *gin.Context) {
 	}
 
 	item, err := h.APIKeyService.GetAdminAccessGroup(c.Request.Context(), id)
+	if err != nil {
+		JSONError(c, selfServiceErrorStatus(err), err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": item})
+}
+
+func (h *SelfServiceHandlers) UpdateAdminAccessGroup(c *gin.Context) {
+	id, ok := parseEntityID(c, c.Param("id"), "APIKeyProfileTemplate")
+	if !ok {
+		return
+	}
+	if !h.withAccessGroupProjectID(c, id) {
+		return
+	}
+
+	var req upsertAdminAccessGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, errors.New("Invalid request format"))
+		return
+	}
+
+	input, ok := h.adminAccessGroupInput(c, req)
+	if !ok {
+		return
+	}
+
+	item, err := h.APIKeyService.UpdateAdminAccessGroup(c.Request.Context(), id, input)
 	if err != nil {
 		JSONError(c, selfServiceErrorStatus(err), err)
 		return
@@ -328,6 +398,10 @@ func (h *SelfServiceHandlers) AddChannelsToAccessGroup(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, errors.New("Invalid request format"))
 		return
 	}
+	if req.ChannelIDs == nil {
+		JSONError(c, http.StatusBadRequest, errors.New("channelIds is required"))
+		return
+	}
 
 	channelIDs := make([]int, 0, len(req.ChannelIDs))
 	for _, raw := range req.ChannelIDs {
@@ -345,6 +419,14 @@ func (h *SelfServiceHandlers) AddChannelsToAccessGroup(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": item})
+}
+
+func (h *SelfServiceHandlers) projectIDFromRequest(c *gin.Context, rawProjectID string) (int, bool) {
+	if rawProjectID != "" {
+		return parseEntityID(c, rawProjectID, "Project")
+	}
+
+	return h.requiredProjectIDFromQuery(c)
 }
 
 func (h *SelfServiceHandlers) projectIDFromQuery(c *gin.Context) (int, bool) {
@@ -380,6 +462,44 @@ func (h *SelfServiceHandlers) accessGroupProfileID(c *gin.Context, req createMyA
 	}
 
 	return parseEntityID(c, raw, "APIKeyProfileTemplate")
+}
+
+func (h *SelfServiceHandlers) adminAccessGroupInput(c *gin.Context, req upsertAdminAccessGroupRequest) (biz.AdminAccessGroupInput, bool) {
+	channelIDs, ok := parseOptionalEntityIDs(c, req.ChannelIDs, "Channel")
+	if !ok {
+		return biz.AdminAccessGroupInput{}, false
+	}
+
+	input := biz.AdminAccessGroupInput{
+		Name:                 req.Name,
+		Description:          req.Description,
+		SelfServiceVisible:   req.SelfServiceVisible,
+		ModelIDs:             req.ModelIDs,
+		ChannelIDs:           channelIDs,
+		ChannelTags:          req.ChannelTags,
+		ChannelTagsMatchMode: req.ChannelTagsMatchMode,
+		LoadBalanceStrategy:  req.LoadBalanceStrategy,
+		ClearLoadBalance:     req.ClearLoadBalance,
+	}
+
+	return input, true
+}
+
+func parseOptionalEntityIDs(c *gin.Context, rawIDs *[]string, typ string) (*[]int, bool) {
+	if rawIDs == nil {
+		return nil, true
+	}
+
+	ids := make([]int, 0, len(*rawIDs))
+	for _, raw := range *rawIDs {
+		id, ok := parseEntityID(c, raw, typ)
+		if !ok {
+			return nil, false
+		}
+		ids = append(ids, id)
+	}
+
+	return &ids, true
 }
 
 func parseOptionalEntityID(c *gin.Context, raw string, typ string) (int, bool) {

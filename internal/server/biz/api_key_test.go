@@ -281,17 +281,124 @@ func TestAPIKeyService_AccessGroupChannelAssignmentCompatibility(t *testing.T) {
 	group, err := apiKeyService.AddChannelsToAccessGroup(setupCtx, template.ID, []int{ch.ID})
 	require.NoError(t, err)
 	require.True(t, group.ChannelAssignment.Assignable)
-	require.Equal(t, []string{fmt.Sprintf("access-group:%d", template.ID)}, group.ChannelAssignment.Tags)
+	require.Equal(t, []int{ch.ID}, group.ChannelAssignment.ChannelIDs)
+	require.Empty(t, group.ChannelAssignment.Tags)
 	require.Equal(t, 1, group.ChannelAssignment.ChannelCount)
 
 	updatedChannel, err := client.Channel.Get(setupCtx, ch.ID)
 	require.NoError(t, err)
-	require.Contains(t, updatedChannel.Tags, group.ChannelAssignment.Tags[0])
+	require.Equal(t, []string{"existing"}, updatedChannel.Tags)
 
 	updatedTemplate, err := client.APIKeyProfileTemplate.Get(setupCtx, template.ID)
 	require.NoError(t, err)
-	require.Equal(t, group.ChannelAssignment.Tags, updatedTemplate.Profile.ChannelTags)
+	require.Equal(t, []int{ch.ID}, updatedTemplate.Profile.ChannelIDs)
+	require.Empty(t, updatedTemplate.Profile.ChannelTags)
 	require.Equal(t, objects.ChannelTagsMatchModeAny, updatedTemplate.Profile.ChannelTagsMatchMode)
+
+	group, err = apiKeyService.AddChannelsToAccessGroup(setupCtx, template.ID, []int{})
+	require.NoError(t, err)
+	require.Empty(t, group.ChannelAssignment.ChannelIDs)
+	require.Zero(t, group.ChannelAssignment.ChannelCount)
+}
+
+func TestAPIKeyService_AdminAccessGroupCreateAndUpdateCompatibility(t *testing.T) {
+	apiKeyService, client := setupTestAPIKeyService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer apiKeyService.Stop()
+	defer client.Close()
+
+	setupCtx := ent.NewContext(context.Background(), client)
+	setupCtx = authz.WithTestBypass(setupCtx)
+
+	testProject, err := client.Project.Create().
+		SetName(uuid.NewString()).
+		SetDescription("admin access groups").
+		SetStatus(project.StatusActive).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	adminUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("admin-access-group-%d@example.com", time.Now().UnixNano())).
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	_, err = client.UserProject.Create().
+		SetUserID(adminUser.ID).
+		SetProjectID(testProject.ID).
+		SetIsOwner(false).
+		SetScopes([]string{string(scopes.ScopeReadAPIKeys), string(scopes.ScopeWriteAPIKeys)}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	adminUserWithEdges, err := client.User.Query().
+		Where(user.IDEQ(adminUser.ID)).
+		WithProjectUsers().
+		WithRoles().
+		Only(setupCtx)
+	require.NoError(t, err)
+
+	adminCtx := ent.NewContext(authz.NewUserContext(context.Background(), adminUserWithEdges.ID), client)
+	adminCtx = contexts.WithUser(adminCtx, adminUserWithEdges)
+	adminCtx = contexts.WithProjectID(adminCtx, testProject.ID)
+
+	name := "fast"
+	description := "Fast group"
+	visible := true
+	modelIDs := []string{"gpt-4o-mini", "claude-3-5-sonnet"}
+	channelTags := []string{"premium"}
+	matchMode := string(objects.ChannelTagsMatchModeAll)
+
+	created, err := apiKeyService.CreateAdminAccessGroup(adminCtx, AdminAccessGroupInput{
+		ProjectID:            testProject.ID,
+		Name:                 &name,
+		Description:          &description,
+		SelfServiceVisible:   &visible,
+		ModelIDs:             &modelIDs,
+		ChannelTags:          &channelTags,
+		ChannelTagsMatchMode: &matchMode,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "fast", created.Name)
+	require.Equal(t, description, created.Description)
+	require.True(t, created.SelfServiceVisible)
+	require.Len(t, created.Profiles, 1)
+	require.Equal(t, 2, created.Profiles[0].ModelCount)
+	require.Equal(t, []string{"premium"}, created.ChannelAssignment.Tags)
+	require.Equal(t, string(objects.ChannelTagsMatchModeAll), created.ChannelAssignment.Mode)
+
+	policy, err := apiKeyService.registrationPolicy(setupCtx)
+	require.NoError(t, err)
+	require.Contains(t, policy.SelfServicePresetNames, "fast")
+
+	newName := "fast-renamed"
+	newDescription := "Renamed group"
+	visible = false
+	modelIDs = []string{"gpt-4.1-mini"}
+
+	updated, err := apiKeyService.UpdateAdminAccessGroup(adminCtx, created.ID, AdminAccessGroupInput{
+		Name:               &newName,
+		Description:        &newDescription,
+		SelfServiceVisible: &visible,
+		ModelIDs:           &modelIDs,
+	})
+	require.NoError(t, err)
+	require.Equal(t, newName, updated.Name)
+	require.Equal(t, newDescription, updated.Description)
+	require.False(t, updated.SelfServiceVisible)
+	require.Equal(t, []string{"gpt-4.1-mini"}, updated.Profiles[0].ModelPreview)
+
+	policy, err = apiKeyService.registrationPolicy(setupCtx)
+	require.NoError(t, err)
+	require.NotContains(t, policy.SelfServicePresetNames, "fast")
+	require.NotContains(t, policy.SelfServicePresetNames, "fast-renamed")
+
+	updatedTemplate, err := client.APIKeyProfileTemplate.Get(setupCtx, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, newName, updatedTemplate.Name)
+	require.Equal(t, newName, updatedTemplate.Profile.Name)
+	require.Equal(t, []string{"gpt-4.1-mini"}, updatedTemplate.Profile.ModelIDs)
+	require.Equal(t, []string{"premium"}, updatedTemplate.Profile.ChannelTags)
 }
 
 func TestAPIKeyService_SelfServiceDisabledRejectsPortalOperations(t *testing.T) {

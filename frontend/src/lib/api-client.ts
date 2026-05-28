@@ -39,7 +39,7 @@ class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
-    public response?: unknown,
+    public response?: unknown
   ) {
     super(message);
     this.name = 'ApiError';
@@ -172,7 +172,7 @@ export const authApi = {
     apiRequest('/admin/auth/registration-policy', { requireAuth: true }),
 
   updateAdminRegistrationPolicy: (
-    data: Omit<AdminRegistrationPolicy, 'inviteCodeRequired' | 'passwordSignupAllowed'>,
+    data: Omit<AdminRegistrationPolicy, 'inviteCodeRequired' | 'passwordSignupAllowed'>
   ): Promise<{ data: AdminRegistrationPolicy }> =>
     apiRequest('/admin/auth/registration-policy', {
       method: 'PUT',
@@ -218,7 +218,7 @@ export const authApi = {
     apiRequest(`/admin/oidc/link/${provider}`, { requireAuth: true }),
 
   exchangeOIDCCode: (
-    code: string,
+    code: string
   ): Promise<{
     data: {
       user: AuthUser;
@@ -242,6 +242,7 @@ export interface SelfAccessGroupProfile {
   id: number;
   name: string;
   modelCount?: number;
+  modelIds?: string[];
   modelPreview?: string[];
   quotaSummary?: SelfQuotaSummary;
 }
@@ -316,6 +317,19 @@ export interface AdminAccessGroup {
   channelAssignment: AccessGroupChannelAssignment;
 }
 
+export interface AdminAccessGroupInput {
+  projectId?: string;
+  name?: string;
+  description?: string;
+  selfServiceVisible?: boolean;
+  modelIds?: string[];
+  channelIds?: string[];
+  channelTags?: string[];
+  channelTagsMatchMode?: string;
+  loadBalanceStrategy?: string;
+  clearLoadBalance?: boolean;
+}
+
 export interface SelfRequest {
   id: number;
   createdAt: string;
@@ -344,23 +358,41 @@ export interface SelfRequestQuery {
 const dataOf = <T>(promise: Promise<{ data: T }>) => promise.then((response) => response.data);
 
 export const selfServiceApi = {
-  routingPresets: (projectId: string): Promise<SelfRoutingPreset[]> =>
+  routingPresets: (projectId?: string): Promise<SelfRoutingPreset[]> =>
     dataOf(
-      apiRequest<{ data: SelfRoutingPreset[] }>(`/admin/self/routing-presets?project_id=${encodeURIComponent(projectId)}`, {
-        requireAuth: true,
-      }),
+      apiRequest<{ data: SelfRoutingPreset[] }>(
+        `/admin/self/routing-presets${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`,
+        {
+          requireAuth: true,
+        }
+      )
     ),
-  accessGroups: (projectId: string): Promise<SelfAccessGroup[]> =>
-    dataOf(apiRequest<{ data: SelfAccessGroup[] }>(`/admin/self/access-groups?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
-  apiKeys: (projectId: string): Promise<SelfAPIKey[]> =>
-    dataOf(apiRequest<{ data: SelfAPIKey[] }>(`/admin/self/api-keys?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
-  createAPIKey: (input: { projectId: string; name: string; presetId: string }): Promise<SelfAPIKey> =>
+  accessGroups: (projectId?: string): Promise<SelfAccessGroup[]> =>
+    dataOf(
+      apiRequest<{ data: SelfAccessGroup[] }>(
+        `/admin/self/access-groups${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`,
+        { requireAuth: true }
+      )
+    ),
+  apiKeys: (projectId?: string): Promise<SelfAPIKey[]> =>
+    dataOf(
+      apiRequest<{ data: SelfAPIKey[] }>(`/admin/self/api-keys${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`, {
+        requireAuth: true,
+      })
+    ),
+  createAPIKey: (input: {
+    projectId?: string;
+    name: string;
+    presetId?: string;
+    accessGroupId?: string;
+    profileId?: string;
+  }): Promise<SelfAPIKey> =>
     dataOf(
       apiRequest<{ data: SelfAPIKey }>('/admin/self/api-keys', {
         method: 'POST',
         requireAuth: true,
         body: input,
-      }),
+      })
     ),
   updateAPIKey: (id: number, input: { name?: string }): Promise<SelfAPIKey> =>
     dataOf(
@@ -368,14 +400,14 @@ export const selfServiceApi = {
         method: 'PATCH',
         requireAuth: true,
         body: input,
-      }),
+      })
     ),
   rotateAPIKey: (id: number): Promise<SelfAPIKey> =>
     dataOf(
       apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/rotate`, {
         method: 'POST',
         requireAuth: true,
-      }),
+      })
     ),
   updateAPIKeyStatus: (id: number, status: string): Promise<SelfAPIKey> =>
     dataOf(
@@ -383,25 +415,67 @@ export const selfServiceApi = {
         method: 'PATCH',
         requireAuth: true,
         body: { status },
-      }),
+      })
     ),
-  models: (projectId: string, presetId?: number): Promise<SelfModel[]> => {
-    const params = new URLSearchParams({ project_id: projectId });
+  models: (projectId?: string, presetId?: number): Promise<SelfModel[]> => {
+    const params = new URLSearchParams();
+    if (projectId) {
+      params.set('project_id', projectId);
+    }
     if (presetId) {
       params.set('preset_id', String(presetId));
     }
-    return dataOf(apiRequest<{ data: SelfModel[] }>(`/admin/self/models?${params.toString()}`, { requireAuth: true }));
+    const query = params.toString();
+    return dataOf(apiRequest<{ data: SelfModel[] }>(`/admin/self/models${query ? `?${query}` : ''}`, { requireAuth: true }));
   },
-  requests: (projectId: string, query: SelfRequestQuery = {}): Promise<SelfRequest[]> => {
-    const params = new URLSearchParams({ project_id: projectId });
+  requests: (projectId?: string, query: SelfRequestQuery = {}): Promise<SelfRequest[]> => {
+    const params = new URLSearchParams();
+    if (projectId) {
+      params.set('project_id', projectId);
+    }
     if (query.limit) params.set('limit', String(query.limit));
-    return dataOf(apiRequest<{ data: SelfRequest[] }>(`/admin/self/requests?${params.toString()}`, { requireAuth: true }));
+    const paramsString = params.toString();
+    return dataOf(
+      apiRequest<{ data: SelfRequest[] }>(`/admin/self/requests${paramsString ? `?${paramsString}` : ''}`, { requireAuth: true })
+    );
   },
-  usage: (projectId: string): Promise<SelfUsage> =>
-    dataOf(apiRequest<{ data: SelfUsage }>(`/admin/self/usage?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+  usage: (projectId?: string): Promise<SelfUsage> =>
+    dataOf(
+      apiRequest<{ data: SelfUsage }>(`/admin/self/usage${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`, {
+        requireAuth: true,
+      })
+    ),
 };
 
 export const accessGroupsApi = {
   list: (projectId: string): Promise<AdminAccessGroup[]> =>
-    dataOf(apiRequest<{ data: AdminAccessGroup[] }>(`/admin/access-groups?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+    dataOf(
+      apiRequest<{ data: AdminAccessGroup[] }>(`/admin/access-groups?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })
+    ),
+  get: (id: number): Promise<AdminAccessGroup> =>
+    dataOf(apiRequest<{ data: AdminAccessGroup }>(`/admin/access-groups/${id}`, { requireAuth: true })),
+  create: (input: AdminAccessGroupInput): Promise<AdminAccessGroup> =>
+    dataOf(
+      apiRequest<{ data: AdminAccessGroup }>('/admin/access-groups', {
+        method: 'POST',
+        requireAuth: true,
+        body: input,
+      })
+    ),
+  update: (id: number, input: AdminAccessGroupInput): Promise<AdminAccessGroup> =>
+    dataOf(
+      apiRequest<{ data: AdminAccessGroup }>(`/admin/access-groups/${id}`, {
+        method: 'PATCH',
+        requireAuth: true,
+        body: input,
+      })
+    ),
+  assignChannels: (id: number, channelIds: string[]): Promise<AdminAccessGroup> =>
+    dataOf(
+      apiRequest<{ data: AdminAccessGroup }>(`/admin/access-groups/${id}/channels`, {
+        method: 'PATCH',
+        requireAuth: true,
+        body: { channelIds },
+      })
+    ),
 };

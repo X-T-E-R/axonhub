@@ -121,7 +121,9 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		}
 
 		adminGroup.GET("/access-groups", handlers.Self.ListAdminAccessGroups)
+		adminGroup.POST("/access-groups", handlers.Self.CreateAdminAccessGroup)
 		adminGroup.GET("/access-groups/:id", handlers.Self.GetAdminAccessGroup)
+		adminGroup.PATCH("/access-groups/:id", handlers.Self.UpdateAdminAccessGroup)
 		adminGroup.PATCH("/access-groups/:id/channels", handlers.Self.AddChannelsToAccessGroup)
 
 		adminGroup.GET("/auth/registration-policy", handlers.Auth.AdminRegistrationPolicy)

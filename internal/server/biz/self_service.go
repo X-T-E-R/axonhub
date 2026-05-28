@@ -62,6 +62,7 @@ type SelfAccessGroupProfile struct {
 	ID           int             `json:"id"`
 	Name         string          `json:"name"`
 	ModelCount   int             `json:"modelCount,omitempty"`
+	ModelIDs     []string        `json:"modelIds,omitempty"`
 	ModelPreview []string        `json:"modelPreview,omitempty"`
 	QuotaSummary *MyQuotaSummary `json:"quotaSummary,omitempty"`
 }
@@ -103,6 +104,19 @@ type MyCreateAPIKeyInput struct {
 	ProjectID int
 	Name      string
 	PresetID  int
+}
+
+type AdminAccessGroupInput struct {
+	ProjectID            int
+	Name                 *string
+	Description          *string
+	SelfServiceVisible   *bool
+	ModelIDs             *[]string
+	ChannelIDs           *[]int
+	ChannelTags          *[]string
+	ChannelTagsMatchMode *string
+	LoadBalanceStrategy  *string
+	ClearLoadBalance     bool
 }
 
 type MyUpdateAPIKeyInput struct {
@@ -700,6 +714,48 @@ func (s *APIKeyService) ListAdminAccessGroups(ctx context.Context, projectID int
 	})
 }
 
+func (s *APIKeyService) CreateAdminAccessGroup(ctx context.Context, input AdminAccessGroupInput) (AdminAccessGroup, error) {
+	if input.ProjectID <= 0 {
+		return AdminAccessGroup{}, fmt.Errorf("project is required")
+	}
+	if input.Name == nil {
+		return AdminAccessGroup{}, fmt.Errorf("access group name is required")
+	}
+
+	name := strings.TrimSpace(*input.Name)
+	if name == "" {
+		return AdminAccessGroup{}, fmt.Errorf("access group name is required")
+	}
+
+	profile, err := buildAccessGroupProfile(input, nil, name)
+	if err != nil {
+		return AdminAccessGroup{}, err
+	}
+
+	description := ""
+	if input.Description != nil {
+		description = strings.TrimSpace(*input.Description)
+	}
+
+	created, err := s.entFromContext(ctx).APIKeyProfileTemplate.Create().
+		SetName(name).
+		SetDescription(description).
+		SetProjectID(input.ProjectID).
+		SetProfile(profile).
+		Save(ctx)
+	if err != nil {
+		return AdminAccessGroup{}, fmt.Errorf("failed to create access group: %w", err)
+	}
+
+	if input.SelfServiceVisible != nil {
+		if err := s.setAccessGroupSelfServiceVisible(ctx, "", created.Name, *input.SelfServiceVisible); err != nil {
+			return AdminAccessGroup{}, err
+		}
+	}
+
+	return s.GetAdminAccessGroup(ctx, created.ID)
+}
+
 func (s *APIKeyService) GetAdminAccessGroup(ctx context.Context, id int) (AdminAccessGroup, error) {
 	template, err := s.entFromContext(ctx).APIKeyProfileTemplate.Get(ctx, id)
 	if err != nil {
@@ -716,23 +772,71 @@ func (s *APIKeyService) GetAdminAccessGroup(ctx context.Context, id int) (AdminA
 	})
 }
 
+func (s *APIKeyService) UpdateAdminAccessGroup(ctx context.Context, id int, input AdminAccessGroupInput) (AdminAccessGroup, error) {
+	template, err := s.entFromContext(ctx).APIKeyProfileTemplate.Get(ctx, id)
+	if err != nil {
+		return AdminAccessGroup{}, fmt.Errorf("failed to get access group: %w", err)
+	}
+
+	oldName := template.Name
+	newName := template.Name
+	if input.Name != nil {
+		newName = strings.TrimSpace(*input.Name)
+		if newName == "" {
+			return AdminAccessGroup{}, fmt.Errorf("access group name is required")
+		}
+	}
+
+	profile, err := buildAccessGroupProfile(input, template.Profile, newName)
+	if err != nil {
+		return AdminAccessGroup{}, err
+	}
+	if input.Name != nil && (strings.TrimSpace(profile.Name) == "" || strings.EqualFold(strings.TrimSpace(profile.Name), oldName)) {
+		profile.Name = newName
+	}
+
+	update := s.entFromContext(ctx).APIKeyProfileTemplate.UpdateOneID(id).
+		SetProfile(profile)
+	if input.Name != nil {
+		update.SetName(newName)
+	}
+	if input.Description != nil {
+		update.SetDescription(strings.TrimSpace(*input.Description))
+	}
+
+	updated, err := update.Save(ctx)
+	if err != nil {
+		return AdminAccessGroup{}, fmt.Errorf("failed to update access group: %w", err)
+	}
+
+	if input.SelfServiceVisible != nil {
+		if err := s.setAccessGroupSelfServiceVisible(ctx, oldName, updated.Name, *input.SelfServiceVisible); err != nil {
+			return AdminAccessGroup{}, err
+		}
+	} else if oldName != updated.Name {
+		policy, err := s.registrationPolicy(ctx)
+		if err != nil {
+			return AdminAccessGroup{}, err
+		}
+		if selfServicePresetAllowed(policy, oldName) {
+			if err := s.setAccessGroupSelfServiceVisible(ctx, oldName, updated.Name, true); err != nil {
+				return AdminAccessGroup{}, err
+			}
+		}
+	}
+
+	return s.GetAdminAccessGroup(ctx, updated.ID)
+}
+
 func (s *APIKeyService) AddChannelsToAccessGroup(ctx context.Context, accessGroupID int, channelIDs []int) (AdminAccessGroup, error) {
 	if accessGroupID <= 0 {
 		return AdminAccessGroup{}, fmt.Errorf("access group is required")
-	}
-	if len(channelIDs) == 0 {
-		return AdminAccessGroup{}, fmt.Errorf("at least one channel is required")
 	}
 
 	client := s.entFromContext(ctx)
 	template, err := client.APIKeyProfileTemplate.Get(ctx, accessGroupID)
 	if err != nil {
 		return AdminAccessGroup{}, fmt.Errorf("failed to get access group: %w", err)
-	}
-
-	assignment := accessGroupChannelAssignment(template)
-	if !assignment.Assignable {
-		return AdminAccessGroup{}, fmt.Errorf("access group cannot be assigned to channels: %s", assignment.Reason)
 	}
 
 	profile := template.Profile.Clone()
@@ -742,42 +846,24 @@ func (s *APIKeyService) AddChannelsToAccessGroup(ctx context.Context, accessGrou
 	if strings.TrimSpace(profile.Name) == "" {
 		profile.Name = template.Name
 	}
-	profileChanged := false
-
-	if len(profile.ChannelTags) == 0 && len(profile.ChannelIDs) == 0 {
-		profile.ChannelTags = append([]string{}, assignment.Tags...)
-		profile.ChannelTagsMatchMode = objects.ChannelTagsMatchModeAny
-		profileChanged = true
-	}
-
 	uniqueChannelIDs := lo.Uniq(channelIDs)
-	if len(profile.ChannelIDs) > 0 {
-		profile.ChannelIDs = lo.Uniq(append(append([]int{}, profile.ChannelIDs...), uniqueChannelIDs...))
-		profileChanged = true
-	}
-	if profileChanged {
-		template, err = client.APIKeyProfileTemplate.UpdateOneID(template.ID).SetProfile(profile).Save(ctx)
+	profile.ChannelIDs = append([]int{}, uniqueChannelIDs...)
+	profile.ChannelTags = []string{}
+	profile.ChannelTagsMatchMode = objects.ChannelTagsMatchModeAny
+
+	if len(uniqueChannelIDs) > 0 {
+		channels, err := client.Channel.Query().Where(channel.IDIn(uniqueChannelIDs...)).All(ctx)
 		if err != nil {
-			return AdminAccessGroup{}, fmt.Errorf("failed to update access group assignment profile: %w", err)
+			return AdminAccessGroup{}, fmt.Errorf("failed to load channels: %w", err)
 		}
-		assignment = accessGroupChannelAssignment(template)
+		if len(channels) != len(uniqueChannelIDs) {
+			return AdminAccessGroup{}, fmt.Errorf("one or more channels were not found")
+		}
 	}
 
-	channels, err := client.Channel.Query().Where(channel.IDIn(uniqueChannelIDs...)).All(ctx)
+	template, err = client.APIKeyProfileTemplate.UpdateOneID(template.ID).SetProfile(profile).Save(ctx)
 	if err != nil {
-		return AdminAccessGroup{}, fmt.Errorf("failed to load channels: %w", err)
-	}
-	if len(channels) != len(uniqueChannelIDs) {
-		return AdminAccessGroup{}, fmt.Errorf("one or more channels were not found")
-	}
-
-	if len(assignment.Tags) > 0 {
-		for _, ch := range channels {
-			tags := lo.Uniq(append(append([]string{}, ch.Tags...), assignment.Tags...))
-			if _, err := client.Channel.UpdateOneID(ch.ID).SetTags(tags).Save(ctx); err != nil {
-				return AdminAccessGroup{}, fmt.Errorf("failed to assign channel %d to access group: %w", ch.ID, err)
-			}
-		}
+		return AdminAccessGroup{}, fmt.Errorf("failed to update access group channel assignment: %w", err)
 	}
 
 	if s.ChannelService != nil {
@@ -841,6 +927,54 @@ func selfServicePresetAllowed(policy RegistrationConfig, name string) bool {
 	}
 
 	return false
+}
+
+func (s *APIKeyService) setAccessGroupSelfServiceVisible(ctx context.Context, oldName string, newName string, visible bool) error {
+	return authz.RunWithSystemBypassVoid(ctx, "admin-access-group-self-service-policy", func(bypassCtx context.Context) error {
+		policy, err := s.registrationPolicy(bypassCtx)
+		if err != nil {
+			return err
+		}
+
+		policy.SelfServicePresetNames = updateAccessGroupExposureNames(policy.SelfServicePresetNames, oldName, newName, visible)
+
+		if s.SystemService != nil {
+			return s.SystemService.SetRegistrationConfig(bypassCtx, policy)
+		}
+
+		s.Registration = policy
+		return nil
+	})
+}
+
+func updateAccessGroupExposureNames(names []string, oldName string, newName string, visible bool) []string {
+	normalizedOldName := strings.ToLower(strings.TrimSpace(oldName))
+	normalizedNewName := strings.ToLower(strings.TrimSpace(newName))
+	if normalizedNewName == "" {
+		return normalizeStringList(names)
+	}
+
+	kept := make([]string, 0, len(names)+1)
+	for _, name := range normalizeStringList(names) {
+		normalizedName := strings.ToLower(strings.TrimSpace(name))
+		if normalizedName == "*" {
+			kept = append(kept, name)
+			continue
+		}
+		if normalizedOldName != "" && normalizedName == normalizedOldName {
+			continue
+		}
+		if normalizedName == normalizedNewName {
+			continue
+		}
+		kept = append(kept, name)
+	}
+
+	if visible {
+		kept = append(kept, strings.TrimSpace(newName))
+	}
+
+	return normalizeStringList(kept)
 }
 
 func (s *APIKeyService) getOwnedUserAPIKey(ctx context.Context, id int) (*ent.APIKey, error) {
@@ -972,6 +1106,56 @@ func summarizeMyAPIKey(key *ent.APIKey, revealedKey string) MyAPIKeySummary {
 	return summary
 }
 
+func buildAccessGroupProfile(input AdminAccessGroupInput, existing *objects.APIKeyProfile, defaultName string) (*objects.APIKeyProfile, error) {
+	profile := existing.Clone()
+	if profile == nil {
+		profile = &objects.APIKeyProfile{}
+	}
+	if strings.TrimSpace(profile.Name) == "" {
+		profile.Name = defaultName
+	}
+
+	if input.ModelIDs != nil {
+		profile.ModelIDs = normalizeStringList(*input.ModelIDs)
+	}
+	if input.ChannelIDs != nil {
+		profile.ChannelIDs = lo.Uniq(append([]int{}, (*input.ChannelIDs)...))
+	}
+	if input.ChannelTags != nil {
+		profile.ChannelTags = normalizeStringList(*input.ChannelTags)
+	}
+	if input.ChannelTagsMatchMode != nil {
+		mode := objects.ChannelTagsMatchMode(strings.TrimSpace(*input.ChannelTagsMatchMode))
+		if !mode.IsValid() {
+			return nil, fmt.Errorf("channelTagsMatchMode is invalid")
+		}
+		profile.ChannelTagsMatchMode = mode
+	}
+	if input.ClearLoadBalance {
+		profile.LoadBalanceStrategy = nil
+	} else if input.LoadBalanceStrategy != nil {
+		strategy := strings.TrimSpace(*input.LoadBalanceStrategy)
+		if strategy == "" {
+			profile.LoadBalanceStrategy = nil
+		} else {
+			profile.LoadBalanceStrategy = lo.ToPtr(strategy)
+		}
+	}
+
+	profiles := []objects.APIKeyProfile{*profile}
+	if err := validateProfileNames(profiles); err != nil {
+		return nil, err
+	}
+	if err := validateProfileFilters(profiles); err != nil {
+		return nil, err
+	}
+	if err := validateProfileQuota(profiles); err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
 func summarizeSelfAccessGroup(tpl *ent.APIKeyProfileTemplate) SelfAccessGroup {
 	return SelfAccessGroup{
 		ID:          tpl.ID,
@@ -996,6 +1180,7 @@ func summarizeSelfAccessGroupProfile(tpl *ent.APIKeyProfileTemplate) SelfAccessG
 	}
 	profile.ModelCount = len(tpl.Profile.ModelIDs)
 	if len(tpl.Profile.ModelIDs) > 0 {
+		profile.ModelIDs = append([]string{}, tpl.Profile.ModelIDs...)
 		previewSize := min(len(tpl.Profile.ModelIDs), 5)
 		profile.ModelPreview = append([]string{}, tpl.Profile.ModelIDs[:previewSize]...)
 	}
@@ -1067,8 +1252,8 @@ func accessGroupChannelAssignment(tpl *ent.APIKeyProfileTemplate) AccessGroupCha
 	}
 
 	if tpl.Profile == nil || (len(tpl.Profile.ChannelTags) == 0 && len(tpl.Profile.ChannelIDs) == 0) {
-		assignment.Tags = []string{generatedAccessGroupTag(tpl.ID)}
-		assignment.Reason = "compatibility assignment uses a generated channel tag"
+		assignment.Mode = "channel_ids"
+		assignment.Reason = "no channels assigned"
 		return assignment
 	}
 
@@ -1076,7 +1261,7 @@ func accessGroupChannelAssignment(tpl *ent.APIKeyProfileTemplate) AccessGroupCha
 		assignment.ChannelIDs = append([]int{}, tpl.Profile.ChannelIDs...)
 		if len(tpl.Profile.ChannelTags) == 0 {
 			assignment.Mode = "channel_ids"
-			assignment.Reason = "compatibility assignment updates the access group's channel ID allow-list"
+			assignment.Reason = "channels are selected directly in this access group"
 			return assignment
 		}
 	}
@@ -1090,10 +1275,6 @@ func accessGroupChannelAssignment(tpl *ent.APIKeyProfileTemplate) AccessGroupCha
 	}
 
 	return assignment
-}
-
-func generatedAccessGroupTag(id int) string {
-	return fmt.Sprintf("access-group:%d", id)
 }
 
 func summarizeMyRoutingPreset(tpl *ent.APIKeyProfileTemplate) MyRoutingPreset {

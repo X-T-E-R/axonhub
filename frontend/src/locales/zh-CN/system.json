@@ -136,7 +136,7 @@
   "system.registration.selfServicePresets.label": "自助服务路由预设",
   "system.registration.selfServicePresets.description": "每行或逗号分隔一个预设名。优先使用明确的预设名或后端提供的可见性标记。只有在审查过全部项目模板后才使用 *。",
   "system.registration.selfServicePresets.noneSelected": "未暴露任何预设。用户会看到“没有路由预设”的明确状态，不能创建 Key。",
-  "system.registration.selfServicePresets.wildcardWarning": "通配符会把项目内全部 Profile Template 暴露给普通用户。这是高级行为，不是安全默认值。",
+  "system.registration.selfServicePresets.wildcardWarning": "通配符会把项目内全部访问组暴露给普通用户。这是高级行为，不是安全默认值。",
   "system.registration.requestDetails.label": "允许用户查看请求详情",
   "system.registration.requestDetails.description": "关闭时，普通用户只能看到自己请求的安全元数据。",
   "system.brand.title": "品牌设置",

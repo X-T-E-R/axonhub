@@ -136,7 +136,7 @@
   "system.registration.selfServicePresets.label": "Self-service routing presets",
   "system.registration.selfServicePresets.description": "One preset name per line or comma. Prefer explicit preset names or backend-provided visibility flags. Use * only for advanced deployments after reviewing every project template.",
   "system.registration.selfServicePresets.noneSelected": "No presets are exposed. Users will see a clear “no routing presets” state and cannot create keys.",
-  "system.registration.selfServicePresets.wildcardWarning": "Wildcard exposure makes every project profile template visible to normal users. Treat it as advanced behavior, not a safe default.",
+  "system.registration.selfServicePresets.wildcardWarning": "Wildcard exposure makes every project Access Group visible to normal users. Treat it as advanced behavior, not a safe default.",
   "system.registration.requestDetails.label": "Let users view request details",
   "system.registration.requestDetails.description": "When disabled, normal users only see safe metadata for their own requests.",
   "system.brand.title": "Brand Settings",
