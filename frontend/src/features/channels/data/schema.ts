@@ -332,6 +332,23 @@ const healthStatusCodeSchema = z
   .preprocess((value) => (value === 0 || value == null ? null : value), z.number().int().nullable())
   .optional();
 
+const legacySafeIntSchema = (fallback: number, min: number, max: number) =>
+  z.preprocess((value) => (value === '' || value == null ? fallback : value), z.coerce.number().int().min(min).max(max).catch(fallback));
+
+const legacySafeArraySchema = <T extends z.ZodType>(schema: T) => z.preprocess((value) => value ?? [], z.array(schema).catch([]));
+
+const channelKeyHealthCheckFailureActionOutputSchema = z.preprocess((value) => {
+  switch (value) {
+    case 'report_only':
+    case 'disable':
+    case 'archive':
+    case 'delete':
+      return value;
+    default:
+      return 'report_only';
+  }
+}, channelKeyHealthCheckFailureActionSchema);
+
 export const channelKeyHealthCheckHeaderSchema = z.object({
   key: z.string().min(1),
   value: z.string(),
@@ -527,16 +544,16 @@ export type ChannelAPIKeyInventoryItem = z.infer<typeof channelAPIKeyInventoryIt
 
 export const channelKeyHealthCheckSchema = z.object({
   enabled: z.preprocess((value) => value ?? false, z.boolean()),
-  intervalMinutes: z.preprocess((value) => value ?? 60, z.number().int().min(5).max(10080)),
-  historyLimit: z.number().int().min(0).max(100).optional().nullable(),
-  failureThreshold: z.preprocess((value) => value ?? 3, z.number().int().min(1).max(20)),
-  failureAction: z.preprocess((value) => value ?? 'report_only', channelKeyHealthCheckFailureActionSchema),
+  intervalMinutes: legacySafeIntSchema(60, 5, 10080),
+  historyLimit: legacySafeIntSchema(20, 0, 100).optional().nullable(),
+  failureThreshold: legacySafeIntSchema(3, 1, 20),
+  failureAction: channelKeyHealthCheckFailureActionOutputSchema,
   includeDisabled: z.preprocess((value) => value ?? false, z.boolean()),
-  rules: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckRuleSchema)),
-  policies: z.preprocess((value) => value ?? [], z.array(channelKeyHealthCheckPolicySchema)),
-  keyMetadata: z.array(channelKeyMetadataSchema).optional().nullable(),
-  archivedKeys: z.array(channelArchivedAPIKeySchema).optional().nullable(),
-  history: z.array(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
+  rules: legacySafeArraySchema(channelKeyHealthCheckRuleSchema),
+  policies: legacySafeArraySchema(channelKeyHealthCheckPolicySchema),
+  keyMetadata: legacySafeArraySchema(channelKeyMetadataSchema).optional().nullable(),
+  archivedKeys: legacySafeArraySchema(channelArchivedAPIKeySchema).optional().nullable(),
+  history: legacySafeArraySchema(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
 });
 export type ChannelKeyHealthCheck = z.infer<typeof channelKeyHealthCheckSchema>;
 
