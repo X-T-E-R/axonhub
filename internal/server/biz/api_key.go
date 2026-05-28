@@ -44,6 +44,7 @@ type APIKeyServiceParams struct {
 	SystemService  *SystemService
 	ProjectService *ProjectService
 	ModelService   *ModelService
+	ChannelService *ChannelService
 	Registration   RegistrationConfig
 	KeyPrefix      string `name:"api_key_prefix"`
 }
@@ -54,6 +55,7 @@ type APIKeyService struct {
 	SystemService  *SystemService
 	ProjectService *ProjectService
 	ModelService   *ModelService
+	ChannelService *ChannelService
 	Registration   RegistrationConfig
 	APIKeyCache    *live.IndexedCache[string, *ent.APIKey]
 	apiKeyNotifier watcher.Notifier[live.CacheEvent[string]]
@@ -68,6 +70,7 @@ func NewAPIKeyService(params APIKeyServiceParams) *APIKeyService {
 		SystemService:  params.SystemService,
 		ProjectService: params.ProjectService,
 		ModelService:   params.ModelService,
+		ChannelService: params.ChannelService,
 		Registration:   params.Registration,
 		keyPrefix:      params.KeyPrefix,
 	}

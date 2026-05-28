@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Eye, EyeOff, RefreshCw, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -27,6 +28,17 @@ type RequestFilters = {
   model: string;
   status: string;
   range: '24h' | '7d' | '30d' | 'all';
+};
+
+export type UserConsoleSection = 'overview' | 'models' | 'keys' | 'requests' | 'usage' | 'quickstart';
+
+const USER_CONSOLE_SECTION_PATH: Record<UserConsoleSection, '/self-service' | '/self-service/models' | '/self-service/api-keys' | '/self-service/requests' | '/self-service/usage' | '/self-service/quickstart'> = {
+  overview: '/self-service',
+  models: '/self-service/models',
+  keys: '/self-service/api-keys',
+  requests: '/self-service/requests',
+  usage: '/self-service/usage',
+  quickstart: '/self-service/quickstart',
 };
 
 const MODEL_PAGE_SIZE = 12;
@@ -71,8 +83,9 @@ const isSelfServiceDisabledError = (error: unknown) => {
   );
 };
 
-export default function NormalUserPortal() {
+export default function NormalUserPortal({ initialSection = 'overview' }: { initialSection?: UserConsoleSection }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuthStore((state) => state.auth);
   const selectedProjectId = useSelectedProjectId();
@@ -117,7 +130,7 @@ export default function NormalUserPortal() {
     () => Boolean(selectedProjectId && projectOptions.some((project) => project.id === selectedProjectId)),
     [projectOptions, selectedProjectId],
   );
-  const projectID = selectedProjectBelongsToUser && selectedProjectId ? selectedProjectId : firstProjectID;
+  const projectID = user?.isOwner && selectedProjectId ? selectedProjectId : selectedProjectBelongsToUser && selectedProjectId ? selectedProjectId : firstProjectID;
   const selectedPresetIdForApi = modelPresetFilter === PRESET_ALL ? undefined : Number(modelPresetFilter);
   const baseURL = useMemo(() => (typeof window === 'undefined' ? '/v1' : `${window.location.origin}/v1`), []);
 
@@ -139,7 +152,7 @@ export default function NormalUserPortal() {
     setVisibleModelCount(MODEL_PAGE_SIZE);
   }, [modelPresetFilter, modelSearch]);
 
-  const enabled = Boolean(projectID);
+  const enabled = Boolean(projectID || user?.isOwner);
   const presets = useQuery({
     queryKey: ['self', 'routing-presets', projectID],
     queryFn: () => selfServiceApi.routingPresets(projectID),
@@ -210,7 +223,10 @@ export default function NormalUserPortal() {
     const search = modelSearch.trim().toLowerCase();
     if (!search) return models.data ?? [];
     return (models.data ?? []).filter((model) =>
-      [model.id, model.name, ...(model.developers ?? []), ...(model.groups ?? [])].join(' ').toLowerCase().includes(search),
+      [model.id, model.name, ...(model.developers ?? []), ...(model.accessGroups?.map((group) => group.name) ?? model.groups ?? [])]
+        .join(' ')
+        .toLowerCase()
+        .includes(search),
     );
   }, [modelSearch, models.data]);
   const visibleModels = filteredModels.slice(0, visibleModelCount);
@@ -229,6 +245,15 @@ export default function NormalUserPortal() {
     } catch {
       toast.error(t('selfService.toasts.copyFailed'));
     }
+  };
+
+  const goToSection = (section: UserConsoleSection) => {
+    navigate({ to: USER_CONSOLE_SECTION_PATH[section] });
+  };
+
+  const selectPresetForKeyCreation = (presetID: number) => {
+    setCreatePresetID(String(presetID));
+    goToSection('keys');
   };
 
   const createKey = useMutation({
@@ -337,23 +362,6 @@ export default function NormalUserPortal() {
           <h1 className='text-2xl font-semibold tracking-tight'>{t('selfService.title')}</h1>
           <p className='text-muted-foreground max-w-3xl text-sm'>{t('selfService.description')}</p>
         </div>
-        {projectOptions.length > 1 && (
-          <div className='w-full space-y-2 sm:w-64'>
-            <Label htmlFor='self-project'>{t('selfService.project.label')}</Label>
-            <Select value={projectID} onValueChange={setSelectedProjectId}>
-              <SelectTrigger id='self-project' className='w-full' aria-label={t('selfService.project.label')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {projectOptions.map((project) => (
-                  <SelectItem key={project.id} value={project.id}>
-                    {project.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
       </div>
 
       <div className='grid gap-4 md:grid-cols-4'>
@@ -363,13 +371,14 @@ export default function NormalUserPortal() {
         <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.totalTokens)} label={t('selfService.metrics.tokens')} />
       </div>
 
-      <Tabs defaultValue='overview' className='space-y-4'>
+      <Tabs value={initialSection} onValueChange={(value) => goToSection(value as UserConsoleSection)} className='space-y-4'>
         <TabsList className='flex h-auto w-full flex-wrap justify-start'>
           <TabsTrigger value='overview'>{t('selfService.tabs.overview')}</TabsTrigger>
           <TabsTrigger value='models'>{t('selfService.tabs.models')}</TabsTrigger>
           <TabsTrigger value='keys'>{t('selfService.tabs.keys')}</TabsTrigger>
           <TabsTrigger value='requests'>{t('selfService.tabs.requests')}</TabsTrigger>
           <TabsTrigger value='usage'>{t('selfService.tabs.usage')}</TabsTrigger>
+          <TabsTrigger value='quickstart'>{t('selfService.tabs.quickstart')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value='overview' className='space-y-4'>
@@ -500,7 +509,9 @@ export default function NormalUserPortal() {
                     <div className='font-medium'>{model.name || model.id}</div>
                     <div className='text-muted-foreground text-xs break-all'>{model.id}</div>
                     <div className='flex flex-wrap gap-1'>
-                      {(model.groups?.length ? model.groups : [t('selfService.models.defaultGroup')]).map((group) => (
+                      {((model.accessGroups?.map((group) => group.name) ?? model.groups)?.length
+                        ? (model.accessGroups?.map((group) => group.name) ?? model.groups)!
+                        : [t('selfService.models.defaultGroup')]).map((group) => (
                         <Badge key={`${model.id}-${group}`} variant='outline'>
                           {group}
                         </Badge>
@@ -508,7 +519,7 @@ export default function NormalUserPortal() {
                     </div>
                     {model.developers?.length ? <p className='text-muted-foreground text-xs'>{model.developers.join(', ')}</p> : null}
                     {model.presetId && (
-                      <Button variant='outline' size='sm' onClick={() => setCreatePresetID(String(model.presetId))}>
+                      <Button variant='outline' size='sm' onClick={() => selectPresetForKeyCreation(model.presetId!)}>
                         {t('selfService.models.usePreset')}
                       </Button>
                     )}
@@ -831,6 +842,29 @@ export default function NormalUserPortal() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value='quickstart' className='space-y-4'>
+          <FirstRequestCard
+            baseURL={baseURL}
+            copiedTarget={copiedTarget}
+            onCopy={copyText}
+            revealedSecret={revealedSecret}
+            showSecret={showSecret}
+            setShowSecret={setShowSecret}
+            snippet={firstRequestSnippet}
+          />
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('selfService.quickstart.stepsTitle')}</CardTitle>
+              <CardDescription>{t('selfService.quickstart.stepsDescription')}</CardDescription>
+            </CardHeader>
+            <CardContent className='grid gap-3 md:grid-cols-3'>
+              <QuickstartStep index={1} title={t('selfService.quickstart.stepModels')} description={t('selfService.quickstart.stepModelsHelp')} />
+              <QuickstartStep index={2} title={t('selfService.quickstart.stepKey')} description={t('selfService.quickstart.stepKeyHelp')} />
+              <QuickstartStep index={3} title={t('selfService.quickstart.stepRequest')} description={t('selfService.quickstart.stepRequestHelp')} />
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );
@@ -876,6 +910,18 @@ function StatusRow({ ok, label, detail }: { ok: boolean; label: string; detail: 
         <div className='text-muted-foreground text-xs'>{detail}</div>
       </div>
       <Badge variant={ok ? 'default' : 'secondary'}>{ok ? t('selfService.overview.ok') : t('selfService.overview.action')}</Badge>
+    </div>
+  );
+}
+
+function QuickstartStep({ index, title, description }: { index: number; title: string; description: string }) {
+  return (
+    <div className='rounded-md border p-4 text-sm'>
+      <div className='mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground'>
+        {index}
+      </div>
+      <div className='font-medium'>{title}</div>
+      <p className='text-muted-foreground mt-1 text-xs'>{description}</p>
     </div>
   );
 }

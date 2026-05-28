@@ -74,9 +74,9 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup> */}
             <DropdownMenuSeparator />
-              <DropdownMenuGroup>
+            <DropdownMenuGroup>
               <DropdownMenuItem asChild>
-                <Link to='/settings/profile'>
+                <Link to='/settings/profile' search={{ oidc_link: undefined }}>
                   <BadgeCheck />
                   {t('sidebar.userMenu.account')}
                 </Link>

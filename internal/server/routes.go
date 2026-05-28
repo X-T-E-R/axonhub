@@ -113,10 +113,16 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			selfGroup.PATCH("/api-keys/:id/status", handlers.Self.UpdateAPIKeyStatus)
 			selfGroup.POST("/api-keys/:id/rotate", handlers.Self.RotateAPIKey)
 			selfGroup.GET("/routing-presets", handlers.Self.ListRoutingPresets)
+			selfGroup.GET("/access-groups", handlers.Self.ListAccessGroups)
+			selfGroup.POST("/access-groups/:id/api-keys", handlers.Self.CreateAPIKeyForAccessGroup)
 			selfGroup.GET("/models", handlers.Self.ListModels)
 			selfGroup.GET("/requests", handlers.Self.ListRequests)
 			selfGroup.GET("/usage", handlers.Self.Usage)
 		}
+
+		adminGroup.GET("/access-groups", handlers.Self.ListAdminAccessGroups)
+		adminGroup.GET("/access-groups/:id", handlers.Self.GetAdminAccessGroup)
+		adminGroup.PATCH("/access-groups/:id/channels", handlers.Self.AddChannelsToAccessGroup)
 
 		adminGroup.GET("/auth/registration-policy", handlers.Auth.AdminRegistrationPolicy)
 		adminGroup.PUT("/auth/registration-policy", handlers.Auth.UpdateRegistrationPolicy)

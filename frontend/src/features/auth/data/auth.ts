@@ -73,8 +73,8 @@ export function useSignIn() {
 
       toast.success(i18n.t('common.success.signedIn'));
 
-      // Owners see the admin dashboard; normal users see the self-service portal.
-      const redirectPath = '/';
+      // Owners see the admin dashboard; normal users start in the User Console.
+      const redirectPath = data.user.isOwner ? '/' : '/self-service';
       router.navigate({ to: redirectPath });
     },
     onError: (error: any) => {
@@ -102,7 +102,7 @@ export function useSignUp() {
       }
 
       toast.success(i18n.t('common.success.signedIn'));
-      router.navigate({ to: '/' });
+      router.navigate({ to: data.user.isOwner ? '/' : '/self-service' });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to sign up');
@@ -187,8 +187,8 @@ export function useOIDCExchange() {
 
       toast.success(i18n.t('common.success.signedIn'));
 
-      // Owners see the admin dashboard; normal users see the self-service portal.
-      const redirectPath = '/';
+      // Owners see the admin dashboard; normal users start in the User Console.
+      const redirectPath = data.user.isOwner ? '/' : '/self-service';
       router.navigate({ to: redirectPath });
     },
     onError: (error: unknown) => {

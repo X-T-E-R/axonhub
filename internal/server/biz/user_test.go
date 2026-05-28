@@ -97,6 +97,43 @@ func TestConvertUserToUserInfo_BasicUser(t *testing.T) {
 	require.Empty(t, userInfo.Projects)
 }
 
+func TestUserService_UpdateCurrentUserProfileDoesNotRequireAdminScopes(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
+	defer client.Close()
+
+	userService := NewUserService(UserServiceParams{
+		CacheConfig: xcache.Config{Mode: xcache.ModeMemory},
+		Ent:         client,
+	})
+
+	setupCtx := ent.NewContext(context.Background(), client)
+	setupCtx = authz.WithTestBypass(setupCtx)
+
+	normalUser, err := client.User.Create().
+		SetEmail("self-profile@test.com").
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		SetIsOwner(false).
+		SetScopes([]string{}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	ctx := ent.NewContext(authz.NewUserContext(context.Background(), normalUser.ID), client)
+	ctx = contexts.WithUser(ctx, normalUser)
+
+	firstName := "Self"
+	language := "zh-CN"
+	updated, err := userService.UpdateCurrentUserProfile(ctx, ent.UpdateUserInput{
+		FirstName:      &firstName,
+		PreferLanguage: &language,
+	})
+	require.NoError(t, err)
+	require.Equal(t, firstName, updated.FirstName)
+	require.Equal(t, language, updated.PreferLanguage)
+	require.False(t, updated.IsOwner)
+	require.Empty(t, updated.Scopes)
+}
+
 func TestConvertUserToUserInfo_WithGlobalRoles(t *testing.T) {
 	_, client := setupTestUserService(t)
 	defer client.Close()

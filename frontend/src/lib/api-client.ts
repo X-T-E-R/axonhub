@@ -238,6 +238,29 @@ export interface SelfQuotaSummary {
   period?: string;
 }
 
+export interface SelfAccessGroupProfile {
+  id: number;
+  name: string;
+  modelCount?: number;
+  modelPreview?: string[];
+  quotaSummary?: SelfQuotaSummary;
+}
+
+export interface SelfAccessGroup {
+  id: number;
+  projectId: number;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  profiles: SelfAccessGroupProfile[];
+}
+
+export interface SelfModelAccessGroupRef {
+  id: number;
+  name: string;
+  profileId: number;
+}
+
 export interface SelfRoutingPreset {
   id: number;
   name: string;
@@ -268,6 +291,29 @@ export interface SelfModel {
   developers?: string[];
   groups?: string[];
   presetId?: number;
+  accessGroupId?: number;
+  profileId?: number;
+  accessGroups?: SelfModelAccessGroupRef[];
+}
+
+export interface AccessGroupChannelAssignment {
+  mode: string;
+  tags?: string[];
+  channelIds?: number[];
+  assignable: boolean;
+  channelCount: number;
+  reason?: string;
+}
+
+export interface AdminAccessGroup {
+  id: number;
+  projectId: number;
+  name: string;
+  description: string;
+  enabled: boolean;
+  selfServiceVisible: boolean;
+  profiles: SelfAccessGroupProfile[];
+  channelAssignment: AccessGroupChannelAssignment;
 }
 
 export interface SelfRequest {
@@ -304,6 +350,8 @@ export const selfServiceApi = {
         requireAuth: true,
       }),
     ),
+  accessGroups: (projectId: string): Promise<SelfAccessGroup[]> =>
+    dataOf(apiRequest<{ data: SelfAccessGroup[] }>(`/admin/self/access-groups?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
   apiKeys: (projectId: string): Promise<SelfAPIKey[]> =>
     dataOf(apiRequest<{ data: SelfAPIKey[] }>(`/admin/self/api-keys?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
   createAPIKey: (input: { projectId: string; name: string; presetId: string }): Promise<SelfAPIKey> =>
@@ -351,4 +399,9 @@ export const selfServiceApi = {
   },
   usage: (projectId: string): Promise<SelfUsage> =>
     dataOf(apiRequest<{ data: SelfUsage }>(`/admin/self/usage?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
+};
+
+export const accessGroupsApi = {
+  list: (projectId: string): Promise<AdminAccessGroup[]> =>
+    dataOf(apiRequest<{ data: AdminAccessGroup[] }>(`/admin/access-groups?project_id=${encodeURIComponent(projectId)}`, { requireAuth: true })),
 };

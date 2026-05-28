@@ -8,6 +8,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/role"
 	"github.com/looplj/axonhub/internal/ent/user"
@@ -158,6 +160,58 @@ func (s *UserService) UpdateUser(ctx context.Context, id int, input ent.UpdateUs
 	s.invalidateUserCache(ctx, id)
 
 	return user, nil
+}
+
+func (s *UserService) UpdateCurrentUserProfile(ctx context.Context, input ent.UpdateUserInput) (*ent.User, error) {
+	currentUser, ok := contexts.GetUser(ctx)
+	if !ok || currentUser == nil {
+		return nil, fmt.Errorf("user not found in context")
+	}
+
+	return authz.RunWithSystemBypass(ctx, "update-current-user-profile", func(bypassCtx context.Context) (*ent.User, error) {
+		mut := s.entFromContext(bypassCtx).User.UpdateOneID(currentUser.ID).
+			SetNillableFirstName(input.FirstName).
+			SetNillableLastName(input.LastName).
+			SetNillablePreferLanguage(input.PreferLanguage)
+
+		if input.ClearAvatar {
+			mut.ClearAvatar()
+		} else {
+			mut.SetNillableAvatar(input.Avatar)
+		}
+
+		updated, err := mut.Save(bypassCtx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update current user profile: %w", err)
+		}
+
+		s.invalidateUserCache(bypassCtx, currentUser.ID)
+		return updated, nil
+	})
+}
+
+func (s *UserService) UpdateCurrentUserPassword(ctx context.Context, newPassword string) (*ent.User, error) {
+	currentUser, ok := contexts.GetUser(ctx)
+	if !ok || currentUser == nil {
+		return nil, fmt.Errorf("user not found in context")
+	}
+
+	hashedPassword, err := HashPassword(newPassword)
+	if err != nil {
+		return nil, err
+	}
+
+	return authz.RunWithSystemBypass(ctx, "update-current-user-password", func(bypassCtx context.Context) (*ent.User, error) {
+		updated, err := s.entFromContext(bypassCtx).User.UpdateOneID(currentUser.ID).
+			SetPassword(hashedPassword).
+			Save(bypassCtx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update current user password: %w", err)
+		}
+
+		s.invalidateUserCache(bypassCtx, currentUser.ID)
+		return updated, nil
+	})
 }
 
 // UpdateUserStatus updates the status of a user.

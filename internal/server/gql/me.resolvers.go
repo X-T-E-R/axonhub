@@ -27,7 +27,7 @@ func (r *mutationResolver) UpdateMe(ctx context.Context, input UpdateMeInput) (*
 		return nil, fmt.Errorf("user not found in context")
 	}
 
-	return r.userService.UpdateUser(ctx, user.ID, ent.UpdateUserInput{
+	return r.userService.UpdateCurrentUserProfile(ctx, ent.UpdateUserInput{
 		FirstName:      input.FirstName,
 		LastName:       input.LastName,
 		PreferLanguage: input.PreferLanguage,
@@ -56,9 +56,7 @@ func (r *mutationResolver) UpdateMyPassword(ctx context.Context, input UpdateMyP
 		}
 	}
 
-	_, err := r.userService.UpdateUser(ctx, user.ID, ent.UpdateUserInput{
-		Password: &input.NewPassword,
-	})
+	_, err := r.userService.UpdateCurrentUserPassword(ctx, input.NewPassword)
 	if err != nil {
 		return false, err
 	}

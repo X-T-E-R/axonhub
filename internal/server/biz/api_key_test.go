@@ -15,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -105,13 +106,20 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 	require.NotContains(t, string(presetJSON), "channelTags")
 	require.NotContains(t, string(presetJSON), "modelIDs")
 
+	accessGroups, err := apiKeyService.ListMyAccessGroups(ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, accessGroups, 1)
+	require.Equal(t, template.ID, accessGroups[0].ID)
+	require.Equal(t, testProject.ID, accessGroups[0].ProjectID)
+	require.Len(t, accessGroups[0].Profiles, 1)
+
 	created, err := apiKeyService.CreateMyAPIKey(ctx, MyCreateAPIKeyInput{
-		ProjectID: testProject.ID,
-		Name:      "my app",
-		PresetID:  template.ID,
+		Name:     "my app",
+		PresetID: template.ID,
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, created.Key)
+	require.Equal(t, testProject.ID, created.ProjectID)
 	require.Equal(t, "fast", created.ActiveProfile)
 	createdJSON, err := json.Marshal(created)
 	require.NoError(t, err)
@@ -153,6 +161,22 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 		Save(setupCtx)
 	require.NoError(t, err)
 
+	_, err = client.APIKey.Create().
+		SetName("service app").
+		SetKey("ah-service-app").
+		SetUserID(testUser.ID).
+		SetProjectID(testProject.ID).
+		SetType(apikey.TypeServiceAccount).
+		SetStatus(apikey.StatusEnabled).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	keys, err = apiKeyService.ListMyAPIKeys(ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	require.Equal(t, created.ID, keys[0].ID)
+	require.Equal(t, apikey.TypeUser.String(), keys[0].Type)
+
 	duplicateRename := "other app"
 	_, err = apiKeyService.UpdateMyAPIKey(ctx, created.ID, MyUpdateAPIKeyInput{Name: &duplicateRename})
 	require.Error(t, err)
@@ -169,6 +193,105 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 
 	_, err = apiKeyService.UpdateMyAPIKeyStatus(ctx, created.ID, apikey.StatusEnabled)
 	require.Error(t, err)
+}
+
+func TestAPIKeyService_OwnerCanUseSelfServiceWithoutProjectMembership(t *testing.T) {
+	apiKeyService, client := setupTestAPIKeyService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer apiKeyService.Stop()
+	defer client.Close()
+
+	setupCtx := ent.NewContext(context.Background(), client)
+	setupCtx = authz.WithTestBypass(setupCtx)
+
+	ownerUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("owner-self-%d@example.com", time.Now().UnixNano())).
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		SetIsOwner(true).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	testProject, err := client.Project.Create().
+		SetName(uuid.NewString()).
+		SetDescription("owner self service").
+		SetStatus(project.StatusActive).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	template, err := client.APIKeyProfileTemplate.Create().
+		SetName("fast").
+		SetDescription("Fast preset").
+		SetProject(testProject).
+		SetProfile(&objects.APIKeyProfile{Name: "fast", ModelIDs: []string{"gpt-4o-mini"}}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	ctx := ent.NewContext(authz.NewUserContext(context.Background(), ownerUser.ID), client)
+	ctx = contexts.WithUser(ctx, ownerUser)
+
+	groups, err := apiKeyService.ListMyAccessGroups(ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.Equal(t, testProject.ID, groups[0].ProjectID)
+
+	created, err := apiKeyService.CreateMyAPIKey(ctx, MyCreateAPIKeyInput{
+		Name:     "owner console key",
+		PresetID: template.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, ownerUser.ID, client.APIKey.GetX(setupCtx, created.ID).UserID)
+	require.Equal(t, testProject.ID, created.ProjectID)
+}
+
+func TestAPIKeyService_AccessGroupChannelAssignmentCompatibility(t *testing.T) {
+	apiKeyService, client := setupTestAPIKeyService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer apiKeyService.Stop()
+	defer client.Close()
+
+	setupCtx := ent.NewContext(context.Background(), client)
+	setupCtx = authz.WithTestBypass(setupCtx)
+
+	testProject, err := client.Project.Create().
+		SetName(uuid.NewString()).
+		SetDescription("access group assignment").
+		SetStatus(project.StatusActive).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	template, err := client.APIKeyProfileTemplate.Create().
+		SetName("fast").
+		SetDescription("Fast preset").
+		SetProject(testProject).
+		SetProfile(&objects.APIKeyProfile{Name: "fast"}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName(uuid.NewString()).
+		SetBaseURL("https://example.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKey: "secret"}).
+		SetSupportedModels([]string{"gpt-4o-mini"}).
+		SetManualModels([]string{}).
+		SetDefaultTestModel("gpt-4o-mini").
+		SetTags([]string{"existing"}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	group, err := apiKeyService.AddChannelsToAccessGroup(setupCtx, template.ID, []int{ch.ID})
+	require.NoError(t, err)
+	require.True(t, group.ChannelAssignment.Assignable)
+	require.Equal(t, []string{fmt.Sprintf("access-group:%d", template.ID)}, group.ChannelAssignment.Tags)
+	require.Equal(t, 1, group.ChannelAssignment.ChannelCount)
+
+	updatedChannel, err := client.Channel.Get(setupCtx, ch.ID)
+	require.NoError(t, err)
+	require.Contains(t, updatedChannel.Tags, group.ChannelAssignment.Tags[0])
+
+	updatedTemplate, err := client.APIKeyProfileTemplate.Get(setupCtx, template.ID)
+	require.NoError(t, err)
+	require.Equal(t, group.ChannelAssignment.Tags, updatedTemplate.Profile.ChannelTags)
+	require.Equal(t, objects.ChannelTagsMatchModeAny, updatedTemplate.Profile.ChannelTagsMatchMode)
 }
 
 func TestAPIKeyService_SelfServiceDisabledRejectsPortalOperations(t *testing.T) {

@@ -12,6 +12,7 @@ import {
   IconBaselineDensityMedium,
   IconAi,
   IconNote,
+  IconChartBar,
 } from '@tabler/icons-react';
 import { Command } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -74,27 +75,45 @@ export function useSidebarData(): SidebarData {
     },
   ];
 
-  if (user && !user.isOwner) {
-    return {
-      user: sidebarUser,
-      teams,
-      navGroups: [
-        {
-          title: t('sidebar.groups.selfService'),
-          items: [
-            {
-              title: t('sidebar.items.portal'),
-              url: '/self-service',
-              icon: IconKey,
-            } as NavLink,
-          ],
-        },
-      ],
-    };
-  }
+  const userConsoleGroup: NavGroup = {
+    title: t('sidebar.groups.selfService'),
+    items: [
+      {
+        title: t('sidebar.items.portal'),
+        url: '/self-service',
+        icon: IconLayoutDashboard,
+      } as NavLink,
+      {
+        title: t('sidebar.items.apiKeys'),
+        url: '/self-service/api-keys',
+        icon: IconKey,
+      } as NavLink,
+      {
+        title: t('sidebar.items.modelMarketplace'),
+        url: '/self-service/models',
+        icon: IconRobot,
+      } as NavLink,
+      {
+        title: t('sidebar.items.myRequests'),
+        url: '/self-service/requests',
+        icon: IconActivity,
+      } as NavLink,
+      {
+        title: t('sidebar.items.usage'),
+        url: '/self-service/usage',
+        icon: IconChartBar,
+      } as NavLink,
+      {
+        title: t('sidebar.items.quickstart'),
+        url: '/self-service/quickstart',
+        icon: IconNote,
+      } as NavLink,
+    ],
+  };
 
   // 原始导航组配置
   const rawNavGroups: NavGroup[] = [
+    userConsoleGroup,
     {
       title: t('sidebar.groups.admin'),
       items: [
@@ -102,11 +121,6 @@ export function useSidebarData(): SidebarData {
           title: t('sidebar.items.dashboard'),
           url: '/',
           icon: IconLayoutDashboard,
-        } as NavLink,
-        {
-          title: t('sidebar.items.userPortal'),
-          url: '/self-service',
-          icon: IconKey,
         } as NavLink,
         {
           title: t('sidebar.items.projects'),
@@ -137,6 +151,11 @@ export function useSidebarData(): SidebarData {
           title: t('sidebar.items.users'),
           url: '/users',
           icon: IconUsers,
+        } as NavLink,
+        {
+          title: t('sidebar.items.accessGroups'),
+          url: '/access-groups',
+          icon: IconShield,
         } as NavLink,
         {
           title: t('sidebar.items.roles'),

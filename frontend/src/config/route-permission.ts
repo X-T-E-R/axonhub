@@ -37,6 +37,11 @@ export const routeConfigs: RouteGroup[] = [
         mode: 'hidden',
       },
       {
+        path: '/access-groups',
+        requiredScopes: ['read_settings'],
+        mode: 'hidden',
+      },
+      {
         path: '/roles',
         requiredScopes: ['read_roles'],
         mode: 'hidden',
@@ -148,6 +153,21 @@ export const routeConfigs: RouteGroup[] = [
     routes: [
       {
         path: '/self-service',
+      },
+      {
+        path: '/self-service/api-keys',
+      },
+      {
+        path: '/self-service/models',
+      },
+      {
+        path: '/self-service/requests',
+      },
+      {
+        path: '/self-service/usage',
+      },
+      {
+        path: '/self-service/quickstart',
       },
     ],
   },
