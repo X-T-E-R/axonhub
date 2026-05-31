@@ -57,10 +57,11 @@ jobs:
       - name: Fetch official upstream
         run: |
           git remote add official https://github.com/looplj/axonhub.git
-          git fetch official unstable
+          git fetch official unstable:refs/remotes/official/unstable
 
       - name: Merge upstream unstable
         id: merge
+        shell: bash
         run: |
           if git merge-base --is-ancestor official/unstable HEAD; then
             echo "already_current=true" >> "$GITHUB_OUTPUT"
@@ -68,7 +69,16 @@ jobs:
             exit 0
           fi
 
-          git merge --no-edit official/unstable
+          if ! git merge --no-edit official/unstable; then
+            echo "::error::Merge conflict while syncing official/unstable into ${TARGET_BRANCH}."
+            echo "::group::Conflicted files"
+            git diff --name-only --diff-filter=U | sed 's/^/- /'
+            echo "::endgroup::"
+            echo "::group::Git status"
+            git status --short
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "already_current=false" >> "$GITHUB_OUTPUT"
 
       - name: Push merged branch

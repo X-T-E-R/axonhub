@@ -57,6 +57,7 @@ const BRAND_SETTINGS_QUERY = `
     brandSettings {
       brandName
       brandLogo
+      title
     }
   }
 `;
@@ -222,6 +223,7 @@ const PREVIEW_GC_CLEANUP_QUERY = `
 export interface BrandSettings {
   brandName?: string;
   brandLogo?: string;
+  title?: string;
 }
 
 export interface SystemGeneralSettings {
@@ -265,6 +267,7 @@ export interface CleanupOption {
 export interface UpdateBrandSettingsInput {
   brandName?: string;
   brandLogo?: string;
+  title?: string;
 }
 
 export interface UpdateStoragePolicyInput {
@@ -431,11 +434,12 @@ export interface ClearCachePayload {
 }
 
 // Hooks
-export function useBrandSettings() {
+export function useBrandSettings(options?: { enabled?: boolean }) {
   const { handleError } = useErrorHandler();
 
   return useQuery({
     queryKey: ['brandSettings'],
+    enabled: options?.enabled,
     queryFn: async () => {
       try {
         const data = await graphqlRequest<{ brandSettings: BrandSettings }>(BRAND_SETTINGS_QUERY);

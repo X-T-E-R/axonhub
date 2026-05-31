@@ -55,7 +55,7 @@ import {
 import { Channel, ChannelType, ApiFormat, createChannelInputSchema, updateChannelInputSchema } from '../data/schema';
 import { ProxyConfig, useOAuthFlow } from '../hooks/use-oauth-flow';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
-import { matchesModelPattern } from '../utils/pattern';
+import { isValidModelPattern, matchesModelPattern } from '../utils/pattern';
 import { ProxyType } from './channels-proxy-dialog';
 import { CopilotDeviceFlow } from './copilot-device-flow';
 import { ManualModelBadge } from './manual-model-badge';
@@ -158,6 +158,46 @@ function getAxonHubBehaviorSettings(settings?: Channel['settings'] | null): Axon
     storeExecutionResponseBody: settings?.storeExecutionResponseBody ?? null,
     storeExecutionStreamChunks: settings?.storeExecutionStreamChunks ?? null,
   };
+}
+
+type ApiFormatOption = ApiFormat | 'openai/responses:websocket';
+type ResponsesTransport = 'http' | 'websocket';
+
+const OPENAI_RESPONSES_WEBSOCKET: ApiFormatOption = 'openai/responses:websocket';
+// A single trailing # suppresses automatic version suffix appending while still
+// allowing the Responses transformer to append /responses. Do not replace these
+// defaults with ## unless the upstream URL should be used fully raw.
+const OPENAI_RESPONSES_WEBSOCKET_BASE_URL = 'wss://api.openai.com/v1#';
+const CODEX_RESPONSES_WEBSOCKET_BASE_URL = 'wss://chatgpt.com/backend-api/codex#';
+
+function getResponsesTransportFromBaseURL(baseURL?: string): ResponsesTransport {
+  return baseURL?.trim().toLowerCase().startsWith('ws') ? 'websocket' : 'http';
+}
+
+function baseURLMatchesResponsesTransport(baseURL: string | undefined, transport: ResponsesTransport): boolean {
+  const normalized = baseURL?.trim().toLowerCase() ?? '';
+  if (transport === 'websocket') {
+    return normalized.startsWith('ws://') || normalized.startsWith('wss://');
+  }
+  return normalized.startsWith('http://') || normalized.startsWith('https://');
+}
+
+function getResponsesTransportBaseURLError(transport: ResponsesTransport): string {
+  return transport === 'websocket'
+    ? 'channels.dialogs.fields.baseURL.errors.websocketScheme'
+    : 'channels.dialogs.fields.baseURL.errors.httpScheme';
+}
+
+function getResponsesTransportFromChannel(channel?: Pick<Channel, 'baseURL' | 'endpoints'>): ResponsesTransport {
+  const responsesEndpoint = channel?.endpoints?.find((endpoint) => endpoint.apiFormat === OPENAI_RESPONSES);
+  if (responsesEndpoint?.transport === 'http' || responsesEndpoint?.transport === 'websocket') return responsesEndpoint.transport;
+  return getResponsesTransportFromBaseURL(channel?.baseURL);
+}
+
+function getResponsesWebSocketBaseURL(channelType: ChannelType): string | undefined {
+  if (channelType === 'codex') return CODEX_RESPONSES_WEBSOCKET_BASE_URL;
+  if (channelType === 'openai_responses') return OPENAI_RESPONSES_WEBSOCKET_BASE_URL;
+  return undefined;
 }
 
 // Custom hook for debounced value
@@ -447,6 +487,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     }
     return 'openai/chat_completions';
   });
+  const [responsesTransport, setResponsesTransport] = useState<ResponsesTransport>(() => getResponsesTransportFromChannel(initialRow));
   const [useGeminiVertex, setUseGeminiVertex] = useState(() => {
     if (initialRow) {
       return initialRow.type === 'gemini_vertex';
@@ -473,6 +514,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     setSelectedProvider(provider);
     const apiFormat = CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || OPENAI_CHAT_COMPLETIONS;
     setSelectedApiFormat(apiFormat);
+    setResponsesTransport(getResponsesTransportFromChannel(initialRow));
     setUseGeminiVertex(initialRow.type === 'gemini_vertex');
     setUseAnthropicAws(initialRow.type === 'anthropic_aws');
     setUseKimiCoding(initialRow.type === 'moonshot_coding');
@@ -577,11 +619,37 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     return getApiFormatsForProvider(selectedProvider);
   }, [selectedProvider]);
 
+  const availableApiFormatOptions = useMemo<ApiFormatOption[]>(() => {
+    if (selectedProvider !== 'openai') return availableApiFormats;
+
+    const options: ApiFormatOption[] = [];
+    for (const format of availableApiFormats) {
+      options.push(format);
+      if (format === OPENAI_RESPONSES) {
+        options.push(OPENAI_RESPONSES_WEBSOCKET);
+      }
+    }
+    return options;
+  }, [availableApiFormats, selectedProvider]);
+
+  const selectedApiFormatOption: ApiFormatOption =
+    selectedApiFormat === OPENAI_RESPONSES && responsesTransport === 'websocket' ? OPENAI_RESPONSES_WEBSOCKET : selectedApiFormat;
+
   const getApiFormatLabel = useCallback(
     (format: ApiFormat) => {
       return t(`channels.dialogs.fields.apiFormat.formats.${format}`);
     },
     [t]
+  );
+
+  const getApiFormatOptionLabel = useCallback(
+    (format: ApiFormatOption) => {
+      if (format === OPENAI_RESPONSES_WEBSOCKET) {
+        return t('channels.dialogs.fields.apiFormat.formats.openai/responses_websocket');
+      }
+      return getApiFormatLabel(format);
+    },
+    [getApiFormatLabel, t]
   );
 
   // Determine the actual channel type based on provider and API format
@@ -803,12 +871,18 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
   const baseURLPlaceholder = useMemo(() => {
     const currentType = selectedType || derivedChannelType;
+    if (selectedApiFormat === OPENAI_RESPONSES && responsesTransport === 'websocket') {
+      const websocketBaseURL = getResponsesWebSocketBaseURL(currentType);
+      if (websocketBaseURL) {
+        return websocketBaseURL;
+      }
+    }
     const defaultURL = getDefaultBaseURL(currentType);
     if (defaultURL) {
       return defaultURL;
     }
     return t('channels.dialogs.fields.baseURL.placeholder');
-  }, [selectedType, derivedChannelType, t]);
+  }, [selectedType, derivedChannelType, selectedApiFormat, responsesTransport, t]);
 
   // Sync form type when provider or API format changes
   const handleProviderChange = useCallback(
@@ -832,6 +906,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         setSelectedApiFormat(OPENAI_RESPONSES);
         form.setValue('type', 'codex');
         if (!isEdit) {
+          const baseURL = responsesTransport === 'websocket' ? getResponsesWebSocketBaseURL('codex') : getDefaultBaseURL('codex');
+          if (baseURL && !isDuplicate) {
+            form.setValue('baseURL', baseURL, { shouldDirty: true });
+          }
           setFetchedModels([]);
           setUseFetchedModels(false);
         }
@@ -897,16 +975,21 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       isEdit,
       selectedApiFormat,
       isOAuthChannel,
+      responsesTransport,
       applyAxonHubBehaviorPreset,
     ]
   );
 
   const handleApiFormatChange = useCallback(
-    (format: ApiFormat) => {
+    (formatOption: ApiFormatOption) => {
       if (isOAuthChannel) return;
       if (selectedProvider === 'codex' || selectedProvider === 'antigravity') return;
 
+      const format = formatOption === OPENAI_RESPONSES_WEBSOCKET ? OPENAI_RESPONSES : formatOption;
+      const nextResponsesTransport = formatOption === OPENAI_RESPONSES_WEBSOCKET ? 'websocket' : 'http';
+
       setSelectedApiFormat(format);
+      setResponsesTransport(nextResponsesTransport);
 
       // Reset vertex checkbox if not gemini/contents
       if (format !== 'gemini/contents') {
@@ -935,7 +1018,12 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             applyAxonHubBehaviorPreset('lowLatency');
           }
           const baseURLFieldState = form.getFieldState('baseURL', form.formState);
-          if (!baseURLFieldState.isDirty && !isDuplicate) {
+          if (nextResponsesTransport === 'websocket') {
+            const baseURL = getResponsesWebSocketBaseURL(newChannelType);
+            if (baseURL) {
+              form.resetField('baseURL', { defaultValue: baseURL });
+            }
+          } else if (!baseURLFieldState.isDirty && !isDuplicate) {
             const baseURL = getDefaultBaseURL(newChannelType);
             if (baseURL) {
               form.resetField('baseURL', { defaultValue: baseURL });
@@ -955,6 +1043,20 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       isOAuthChannel,
       applyAxonHubBehaviorPreset,
     ]
+  );
+
+  const handleResponsesTransportChange = useCallback(
+    (transport: ResponsesTransport) => {
+      if (isOAuthChannel) return;
+      setResponsesTransport(transport);
+
+      const channelType = selectedProvider === 'codex' ? 'codex' : selectedType || derivedChannelType;
+      const baseURL = transport === 'websocket' ? getResponsesWebSocketBaseURL(channelType) : getDefaultBaseURL(channelType);
+      if (baseURL && !isDuplicate) {
+        form.setValue('baseURL', baseURL, { shouldDirty: true });
+      }
+    },
+    [derivedChannelType, form, isDuplicate, isOAuthChannel, selectedProvider, selectedType]
   );
 
   const handleGeminiVertexChange = useCallback(
@@ -1048,7 +1150,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     const channelTypeForURL: ChannelType | undefined = providerToChannelType[selectedProvider];
 
     if (channelTypeForURL) {
-      const baseURL = getDefaultBaseURL(channelTypeForURL);
+      const baseURL =
+        channelTypeForURL === 'codex' && responsesTransport === 'websocket'
+          ? getResponsesWebSocketBaseURL(channelTypeForURL)
+          : getDefaultBaseURL(channelTypeForURL);
       if (baseURL) {
         // Use setValue instead of resetField to avoid infinite loop
         const currentURL = form.getValues('baseURL');
@@ -1057,7 +1162,18 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     }
-  }, [isEdit, isDuplicate, isCodexType, selectedProvider, authMode, form, codexOAuth, claudecodeOAuth, antigravityOAuth]);
+  }, [
+    isEdit,
+    isDuplicate,
+    isCodexType,
+    selectedProvider,
+    authMode,
+    form,
+    codexOAuth,
+    claudecodeOAuth,
+    antigravityOAuth,
+    responsesTransport,
+  ]);
 
   const renderOAuthSection = useCallback(
     (oauth: ReturnType<typeof useOAuthFlow>, description: string) => (
@@ -1154,10 +1270,19 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         !isDuplicate
       ) {
         const currentType = selectedType || derivedChannelType;
-        const baseURL = getDefaultBaseURL(currentType);
+        const baseURL =
+          isCodexType && responsesTransport === 'websocket' ? getResponsesWebSocketBaseURL('codex') : getDefaultBaseURL(currentType);
         if (baseURL) {
           dataWithModels.baseURL = baseURL;
         }
+      }
+
+      if (selectedApiFormat === OPENAI_RESPONSES && !baseURLMatchesResponsesTransport(dataWithModels.baseURL, responsesTransport)) {
+        form.setError('baseURL', {
+          type: 'manual',
+          message: t(getResponsesTransportBaseURLError(responsesTransport)),
+        });
+        return;
       }
 
       if (isEdit && currentRow) {
@@ -1644,12 +1769,14 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             if (initialRow) {
               setSelectedProvider(getProviderFromChannelType(initialRow.type) || 'openai');
               setSelectedApiFormat(CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || OPENAI_CHAT_COMPLETIONS);
+              setResponsesTransport(getResponsesTransportFromChannel(initialRow));
               setUseGeminiVertex(initialRow.type === 'gemini_vertex');
               setUseAnthropicAws(initialRow.type === 'anthropic_aws');
               setUseKimiCoding(initialRow.type === 'moonshot_coding');
             } else {
               setSelectedProvider('openai');
               setSelectedApiFormat(OPENAI_CHAT_COMPLETIONS);
+              setResponsesTransport('http');
               setUseGeminiVertex(false);
               setUseAnthropicAws(false);
               setUseKimiCoding(false);
@@ -1738,15 +1865,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                           <div className='max-w-64 space-y-1 md:col-span-6 md:max-w-none'>
                             <SelectDropdown
                               key={selectedProvider}
-                              defaultValue={selectedApiFormat}
-                              onValueChange={(value) => handleApiFormatChange(value as ApiFormat)}
+                              defaultValue={selectedApiFormatOption}
+                              onValueChange={(value) => handleApiFormatChange(value as ApiFormatOption)}
                               disabled={!!isOAuthChannel}
                               placeholder={t('channels.dialogs.fields.apiFormat.placeholder')}
                               data-testid='api-format-select'
                               isControlled={true}
-                              items={availableApiFormats.map((format) => ({
+                              items={availableApiFormatOptions.map((format) => ({
                                 value: format,
-                                label: getApiFormatLabel(format),
+                                label: getApiFormatOptionLabel(format),
                               }))}
                             />
                             {selectedApiFormat === 'gemini/contents' && (
@@ -1799,9 +1926,24 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                           <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
                             {t('channels.dialogs.fields.apiFormat.label')}
                           </FormLabel>
-                          <div className='space-y-1 md:col-span-6'>
-                            <div className='text-sm'>{getApiFormatLabel(OPENAI_RESPONSES)}</div>
-                            <p className='text-muted-foreground mt-1 text-xs'>{t('channels.dialogs.fields.apiFormat.editDisabled')}</p>
+                          <div className='max-w-64 space-y-1 md:col-span-6 md:max-w-none'>
+                            <SelectDropdown
+                              defaultValue={responsesTransport === 'websocket' ? OPENAI_RESPONSES_WEBSOCKET : OPENAI_RESPONSES}
+                              onValueChange={(value) =>
+                                handleResponsesTransportChange(value === OPENAI_RESPONSES_WEBSOCKET ? 'websocket' : 'http')
+                              }
+                              disabled={!!isOAuthChannel}
+                              placeholder={t('channels.dialogs.fields.apiFormat.placeholder')}
+                              data-testid='api-format-select'
+                              isControlled={true}
+                              items={[
+                                { value: OPENAI_RESPONSES, label: getApiFormatLabel(OPENAI_RESPONSES) },
+                                { value: OPENAI_RESPONSES_WEBSOCKET, label: getApiFormatOptionLabel(OPENAI_RESPONSES_WEBSOCKET) },
+                              ]}
+                            />
+                            {isOAuthChannel && (
+                              <p className='text-muted-foreground mt-1 text-xs'>{t('channels.dialogs.fields.apiFormat.editDisabled')}</p>
+                            )}
                           </div>
                         </FormItem>
                       )}
@@ -2026,7 +2168,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                   setAuthMode(mode);
                                   if (mode !== 'third-party') {
                                     const currentType = selectedType || derivedChannelType;
-                                    const defaultURL = getDefaultBaseURL(currentType);
+                                    const defaultURL =
+                                      isCodexType && responsesTransport === 'websocket'
+                                        ? getResponsesWebSocketBaseURL('codex')
+                                        : getDefaultBaseURL(currentType);
                                     if (defaultURL) {
                                       form.setValue('baseURL', defaultURL);
                                     }
@@ -2421,16 +2566,12 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                         onChange={(e) => {
                                           const val = e.target.value;
                                           field.onChange(val);
-                                          // Validate regex pattern
                                           if (val === '') {
                                             setPatternError(null);
+                                          } else if (isValidModelPattern(val)) {
+                                            setPatternError(null);
                                           } else {
-                                            try {
-                                              new RegExp(val);
-                                              setPatternError(null);
-                                            } catch {
-                                              setPatternError(t('channels.dialogs.fields.autoSyncModelPattern.invalid'));
-                                            }
+                                            setPatternError(t('channels.dialogs.fields.autoSyncModelPattern.invalid'));
                                           }
                                         }}
                                         className='font-mono text-sm'
@@ -2781,9 +2922,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                               className='mt-1'
                             />
                             <p className='text-muted-foreground text-sm'>{t('channels.dialogs.disableRetries.description')}</p>
-                          </div>
-                        </FormItem>
-                      )}
+                            </div>
+                          </FormItem>
+                        )}
 
                       <FormField
                         control={form.control}
