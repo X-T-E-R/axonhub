@@ -19,7 +19,7 @@ function ProtectedSystem() {
   const search = Route.useSearch();
 
   return (
-    <RouteGuard requiredScopes={['read_settings']}>
+    <RouteGuard routePath='/system' requiredScopes={['read_settings']} scopeLevel='system'>
       <SystemManagement initialTab={search.tab as SystemTabKey | undefined} />
     </RouteGuard>
   );

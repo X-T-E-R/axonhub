@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { graphqlRequest } from '@/gql/graphql';
+import { graphqlRequest, GraphQLRequestError } from '@/gql/graphql';
 import { toast } from 'sonner';
 import { getTokenFromStorage } from '@/stores/authStore';
 import i18n from '@/lib/i18n';
@@ -57,6 +57,7 @@ const BRAND_SETTINGS_QUERY = `
     brandSettings {
       brandName
       brandLogo
+      title
     }
   }
 `;
@@ -95,6 +96,8 @@ const RETRY_POLICY_QUERY = `
       maxChannelRetries
       maxSingleChannelRetries
       retryDelayMs
+      streamFirstEventTimeoutSeconds
+      nonStreamResponseTimeoutSeconds
       loadBalancerStrategy
       enabled
       emptyResponseDetection
@@ -222,6 +225,7 @@ const PREVIEW_GC_CLEANUP_QUERY = `
 export interface BrandSettings {
   brandName?: string;
   brandLogo?: string;
+  title?: string;
 }
 
 export interface SystemGeneralSettings {
@@ -248,6 +252,16 @@ export interface UpdateVideoStorageSettingsInput {
   scanLimit?: number;
 }
 
+export interface SecuritySettings {
+  blockedIPs: string[];
+  showRequestLogIPBanIcon: boolean;
+}
+
+export interface UpdateSecuritySettingsInput {
+  blockedIPs?: string[];
+  showRequestLogIPBanIcon?: boolean;
+}
+
 export interface StoragePolicy {
   storeChunks: boolean;
   livePreview: boolean;
@@ -265,6 +279,7 @@ export interface CleanupOption {
 export interface UpdateBrandSettingsInput {
   brandName?: string;
   brandLogo?: string;
+  title?: string;
 }
 
 export interface UpdateStoragePolicyInput {
@@ -332,6 +347,8 @@ export interface RetryPolicy {
   maxChannelRetries: number;
   maxSingleChannelRetries: number;
   retryDelayMs: number;
+  streamFirstEventTimeoutSeconds: number;
+  nonStreamResponseTimeoutSeconds: number;
   loadBalancerStrategy: string;
   enabled: boolean;
   autoDisableChannel: AutoDisableChannel;
@@ -359,6 +376,8 @@ export interface RetryPolicyInput {
   maxChannelRetries?: number;
   maxSingleChannelRetries?: number;
   retryDelayMs?: number;
+  streamFirstEventTimeoutSeconds?: number;
+  nonStreamResponseTimeoutSeconds?: number;
   loadBalancerStrategy?: string;
   enabled?: boolean;
   autoDisableChannel?: AutoDisableChannelInput;
@@ -436,6 +455,7 @@ export function useBrandSettings(options: { enabled?: boolean } = {}) {
 
   return useQuery({
     queryKey: ['brandSettings'],
+    enabled: options?.enabled,
     queryFn: async () => {
       try {
         const data = await graphqlRequest<{ brandSettings: BrandSettings }>(BRAND_SETTINGS_QUERY);
@@ -915,6 +935,21 @@ const UPDATE_VIDEO_STORAGE_SETTINGS_MUTATION = `
   }
 `;
 
+const SECURITY_SETTINGS_QUERY = `
+  query SecuritySettings {
+    securitySettings {
+      blockedIPs
+      showRequestLogIPBanIcon
+    }
+  }
+`;
+
+const UPDATE_SECURITY_SETTINGS_MUTATION = `
+  mutation UpdateSecuritySettings($input: UpdateSecuritySettingsInput!) {
+    updateSecuritySettings(input: $input)
+  }
+`;
+
 export interface ModelSettings {
   fallbackToChannelsOnModelNotFound: boolean;
   queryAllChannelModels: boolean;
@@ -1052,6 +1087,10 @@ export function useGeneralSettings() {
         const data = await graphqlRequest<{ systemGeneralSettings: SystemGeneralSettings }>(SYSTEM_GENERAL_SETTINGS_QUERY);
         return data.systemGeneralSettings;
       } catch (error) {
+        // Only suppress permission errors (403) — surface 500, network, etc. as toasts
+        if (error instanceof GraphQLRequestError && error.status === 403) {
+          throw error;
+        }
         handleError(error, i18n.t('common.errors.internalServerError'));
         throw error;
       }
@@ -1113,6 +1152,41 @@ export function useUpdateVideoStorageSettings() {
   });
 }
 
+export function useSecuritySettings() {
+  const { handleError } = useErrorHandler();
+
+  return useQuery({
+    queryKey: ['securitySettings'],
+    queryFn: async () => {
+      try {
+        const data = await graphqlRequest<{ securitySettings: SecuritySettings }>(SECURITY_SETTINGS_QUERY);
+        return data.securitySettings;
+      } catch (error) {
+        handleError(error, i18n.t('common.errors.internalServerError'));
+        throw error;
+      }
+    },
+  });
+}
+
+export function useUpdateSecuritySettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: UpdateSecuritySettingsInput) => {
+      const data = await graphqlRequest<{ updateSecuritySettings: boolean }>(UPDATE_SECURITY_SETTINGS_MUTATION, { input });
+      return data.updateSecuritySettings;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['securitySettings'] });
+      toast.success(i18n.t('common.success.systemUpdated'));
+    },
+    onError: () => {
+      toast.error(i18n.t('common.errors.systemUpdateFailed'));
+    },
+  });
+}
+
 // Backup and Restore
 const BACKUP_MUTATION = `
   mutation Backup($input: BackupOptionsInput!) {
@@ -1139,6 +1213,7 @@ export interface BackupOptionsInput {
   includeModels: boolean;
   includeAPIKeys: boolean;
   includeUsageStats: boolean;
+  includeRequestLogs: boolean;
 }
 
 export interface BackupPayload {
@@ -1153,6 +1228,7 @@ export interface RestoreOptionsInput {
   includeModels: boolean;
   includeAPIKeys: boolean;
   includeUsageStats: boolean;
+  includeRequestLogs: boolean;
   channelConflictStrategy: 'skip' | 'overwrite' | 'error';
   modelConflictStrategy: 'skip' | 'overwrite' | 'error';
   modelPriceConflictStrategy: 'skip' | 'overwrite' | 'error';
@@ -1250,6 +1326,7 @@ const AUTO_BACKUP_SETTINGS_QUERY = `
       includeAPIKeys
       includeModelPrices
       includeUsageStats
+      includeRequestLogs
       retentionDays
       lastBackupAt
       lastBackupError
@@ -1283,6 +1360,7 @@ export interface AutoBackupSettings {
   includeAPIKeys: boolean;
   includeModelPrices: boolean;
   includeUsageStats: boolean;
+  includeRequestLogs: boolean;
   retentionDays: number;
   lastBackupAt?: string;
   lastBackupError?: string;
@@ -1297,6 +1375,7 @@ export interface UpdateAutoBackupSettingsInput {
   includeAPIKeys?: boolean;
   includeModelPrices?: boolean;
   includeUsageStats?: boolean;
+  includeRequestLogs?: boolean;
   retentionDays?: number;
 }
 

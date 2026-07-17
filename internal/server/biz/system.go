@@ -29,6 +29,10 @@ import (
 )
 
 const (
+	maxRetryResponseTimeoutSeconds = 600
+)
+
+const (
 	// SystemKeyInitialized is the key used to store the initialized flag in the system table.
 	SystemKeyInitialized = "system_initialized"
 
@@ -45,6 +49,9 @@ const (
 
 	// SystemKeyBrandLogo is the key for the brand logo (base64 encoded).
 	SystemKeyBrandLogo = "system_brand_logo"
+
+	// SystemKeyTitle is the key for the browser page title.
+	SystemKeyTitle = "system_title"
 
 	// SystemKeyStoreChunks is the key used to store the store_chunks flag in the system table.
 	// If set to true, the system will store chunks in the database.
@@ -110,6 +117,10 @@ const (
 	// SystemKeyRegistrationPolicy is the key used to store self-service registration policy.
 	// The value is JSON-encoded RegistrationConfig struct.
 	SystemKeyRegistrationPolicy = "registration_policy"
+
+	// SystemKeySecuritySettings is the key used to store security settings.
+	// The value is JSON-encoded SecuritySettings struct.
+	SystemKeySecuritySettings = "security_settings"
 )
 
 // SystemGeneralSettings represents general system configuration settings.
@@ -201,6 +212,19 @@ type QuotaEnforcementSettings struct {
 	Mode QuotaEnforcementMode `json:"mode"`
 }
 
+// SecuritySettings represents system-wide request access controls.
+type SecuritySettings struct {
+	// BlockedIPs contains IP addresses or CIDR ranges that cannot use external APIs.
+	BlockedIPs []string `json:"blocked_ips"`
+	// ShowRequestLogIPBanIcon controls whether the request log IP column shows the quick ban action.
+	ShowRequestLogIPBanIcon bool `json:"show_request_log_ip_ban_icon"`
+}
+
+type securitySettingsJSON struct {
+	BlockedIPs              []string `json:"blocked_ips"`
+	ShowRequestLogIPBanIcon *bool    `json:"show_request_log_ip_ban_icon"`
+}
+
 // BackupFrequency represents how often automatic backups should run.
 type BackupFrequency string
 
@@ -224,6 +248,7 @@ type AutoBackupSettings struct {
 	IncludeAPIKeys     bool `json:"include_api_keys"`
 	IncludeModelPrices bool `json:"include_model_prices"`
 	IncludeUsageStats  bool `json:"include_usage_stats"`
+	IncludeRequestLogs bool `json:"include_request_logs"`
 	// RetentionDays defines how many days to keep backups (0 = keep all)
 	RetentionDays int `json:"retention_days"`
 	// LastBackupAt is the timestamp of the last successful backup
@@ -241,6 +266,7 @@ type autoBackupSettingsJSON struct {
 	IncludeAPIKeys     bool            `json:"include_api_keys"`
 	IncludeModelPrices bool            `json:"include_model_prices"`
 	IncludeUsageStats  *bool           `json:"include_usage_stats"`
+	IncludeRequestLogs *bool           `json:"include_request_logs"`
 	RetentionDays      int             `json:"retention_days"`
 	LastBackupAt       *time.Time      `json:"last_backup_at,omitempty"`
 	LastBackupError    string          `json:"last_backup_error,omitempty"`
@@ -272,6 +298,9 @@ const (
 	// LoadBalancerStrategyCircuitBreaker is a dynamic load balancer strategy that monitors the health of channels and fails over to a backup channel when the primary channel is unhealthy.
 	LoadBalancerStrategyCircuitBreaker = "circuit-breaker"
 
+	// LoadBalancerStrategyRoundRobin is a simple load balancer strategy that rotates channels based on historical request counts.
+	LoadBalancerStrategyRoundRobin = "round-robin"
+
 	// UpstreamErrorModePassthrough keeps provider errors unchanged.
 	UpstreamErrorModePassthrough = "passthrough"
 
@@ -294,8 +323,14 @@ type RetryPolicy struct {
 	MaxSingleChannelRetries int `json:"max_single_channel_retries"`
 	// RetryDelayMs defines the delay between retries in milliseconds
 	RetryDelayMs int `json:"retry_delay_ms"`
+	// StreamFirstEventTimeoutSeconds defines the timeout for the first streaming response event in seconds.
+	// Set to 0 to disable. Values above 600 seconds are clamped.
+	StreamFirstEventTimeoutSeconds int `json:"stream_first_event_timeout_seconds"`
+	// NonStreamResponseTimeoutSeconds defines the timeout for non-streaming responses in seconds.
+	// Set to 0 to disable. Values above 600 seconds are clamped.
+	NonStreamResponseTimeoutSeconds int `json:"non_stream_response_timeout_seconds"`
 	// LoadBalancerStrategy defines which channel load balancer strategy to use.
-	// Supported values: "adaptive", "failover", "circuit-breaker".
+	// Supported values: "adaptive", "failover", "circuit-breaker", "round-robin".
 	LoadBalancerStrategy string `json:"load_balancer_strategy"`
 
 	// AutoDisableChannel controls whether to auto-disable a channel or API key when it exceeds the maximum number of retries.
@@ -828,6 +863,28 @@ func (s *SystemService) SetBrandLogo(ctx context.Context, brandLogo string) erro
 	return s.setSystemValue(ctx, SystemKeyBrandLogo, brandLogo)
 }
 
+// Title retrieves the browser page title.
+func (s *SystemService) Title(ctx context.Context) (string, error) {
+	ctx = authz.WithSystemBypass(ctx, "system-title")
+	client := s.entFromContext(ctx)
+
+	sys, err := client.System.Query().Where(system.KeyEQ(SystemKeyTitle)).Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", fmt.Errorf("failed to get title: %w", err)
+	}
+
+	return sys.Value, nil
+}
+
+// SetTitle sets the browser page title.
+func (s *SystemService) SetTitle(ctx context.Context, title string) error {
+	return s.setSystemValue(ctx, SystemKeyTitle, title)
+}
+
 func (s *SystemService) getSystemValue(ctx context.Context, key string) (string, error) {
 	cacheKey := "system:" + key
 	if v, err := s.Cache.Get(ctx, cacheKey); err == nil {
@@ -990,6 +1047,20 @@ func normalizeRetryPolicy(policy *RetryPolicy) {
 	// The weighted load balancer strategy is deprecated. Use the failover strategy instead.
 	if policy.LoadBalancerStrategy == "weighted" {
 		policy.LoadBalancerStrategy = LoadBalancerStrategyFailover
+	}
+
+	if policy.StreamFirstEventTimeoutSeconds < 0 {
+		policy.StreamFirstEventTimeoutSeconds = 0
+	}
+	if policy.StreamFirstEventTimeoutSeconds > maxRetryResponseTimeoutSeconds {
+		policy.StreamFirstEventTimeoutSeconds = maxRetryResponseTimeoutSeconds
+	}
+
+	if policy.NonStreamResponseTimeoutSeconds < 0 {
+		policy.NonStreamResponseTimeoutSeconds = 0
+	}
+	if policy.NonStreamResponseTimeoutSeconds > maxRetryResponseTimeoutSeconds {
+		policy.NonStreamResponseTimeoutSeconds = maxRetryResponseTimeoutSeconds
 	}
 
 	if policy.AutoDisableChannel.Statuses == nil {
@@ -1350,6 +1421,10 @@ func (s *SystemService) AutoBackupSettings(ctx context.Context) (*AutoBackupSett
 	if stored.IncludeUsageStats != nil {
 		includeUsageStats = *stored.IncludeUsageStats
 	}
+	includeRequestLogs := defaultAutoBackupSettings.IncludeRequestLogs
+	if stored.IncludeRequestLogs != nil {
+		includeRequestLogs = *stored.IncludeRequestLogs
+	}
 
 	settings := AutoBackupSettings{
 		Enabled:            stored.Enabled,
@@ -1360,6 +1435,7 @@ func (s *SystemService) AutoBackupSettings(ctx context.Context) (*AutoBackupSett
 		IncludeAPIKeys:     stored.IncludeAPIKeys,
 		IncludeModelPrices: stored.IncludeModelPrices,
 		IncludeUsageStats:  includeUsageStats,
+		IncludeRequestLogs: includeRequestLogs,
 		RetentionDays:      stored.RetentionDays,
 		LastBackupAt:       stored.LastBackupAt,
 		LastBackupError:    stored.LastBackupError,
@@ -1549,6 +1625,85 @@ func (s *SystemService) SetQuotaEnforcementSettings(ctx context.Context, setting
 	}
 
 	return s.setSystemValue(ctx, SystemKeyQuotaEnforcementSettings, string(jsonBytes))
+}
+
+// SecuritySettings retrieves the security settings.
+func (s *SystemService) SecuritySettings(ctx context.Context) (*SecuritySettings, error) {
+	value, err := s.getSystemValue(ctx, SystemKeySecuritySettings)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return lo.ToPtr(defaultSecuritySettings), nil
+		}
+
+		return nil, fmt.Errorf("failed to get security settings: %w", err)
+	}
+
+	var storedSettings securitySettingsJSON
+	if err := json.Unmarshal([]byte(value), &storedSettings); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal security settings: %w", err)
+	}
+
+	settings := defaultSecuritySettings
+	settings.BlockedIPs = storedSettings.BlockedIPs
+	if storedSettings.ShowRequestLogIPBanIcon != nil {
+		settings.ShowRequestLogIPBanIcon = *storedSettings.ShowRequestLogIPBanIcon
+	}
+
+	normalizeSecuritySettings(&settings)
+
+	return &settings, nil
+}
+
+// SecuritySettingsOrDefault retrieves the security settings or returns the default.
+func (s *SystemService) SecuritySettingsOrDefault(ctx context.Context) *SecuritySettings {
+	settings, err := s.SecuritySettings(ctx)
+	if err != nil {
+		log.Warn(ctx, "failed to get security settings", log.Cause(err))
+
+		return lo.ToPtr(defaultSecuritySettings)
+	}
+
+	return settings
+}
+
+// SetSecuritySettings sets the security settings.
+func (s *SystemService) SetSecuritySettings(ctx context.Context, settings SecuritySettings) error {
+	normalizeSecuritySettings(&settings)
+
+	jsonBytes, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("failed to marshal security settings: %w", err)
+	}
+
+	return s.setSystemValue(ctx, SystemKeySecuritySettings, string(jsonBytes))
+}
+
+func normalizeSecuritySettings(settings *SecuritySettings) {
+	if settings == nil {
+		return
+	}
+
+	if settings.BlockedIPs == nil {
+		settings.BlockedIPs = []string{}
+	}
+
+	seen := make(map[string]struct{}, len(settings.BlockedIPs))
+	blockedIPs := make([]string, 0, len(settings.BlockedIPs))
+	for _, value := range settings.BlockedIPs {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+
+		if _, ok := seen[value]; ok {
+			continue
+		}
+
+		seen[value] = struct{}{}
+		blockedIPs = append(blockedIPs, value)
+	}
+
+	settings.BlockedIPs = blockedIPs
 }
 
 // UpdateAutoBackupLastRun updates the last backup timestamp and error status.

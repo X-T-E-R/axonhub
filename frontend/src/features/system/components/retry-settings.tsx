@@ -23,6 +23,8 @@ export function RetrySettings() {
     maxChannelRetries: 3,
     maxSingleChannelRetries: 2,
     retryDelayMs: 1000,
+    streamFirstEventTimeoutSeconds: 0,
+    nonStreamResponseTimeoutSeconds: 0,
     loadBalancerStrategy: 'adaptive',
     emptyResponseDetection: false,
     emptyResponseTextPatterns: [],
@@ -43,6 +45,8 @@ export function RetrySettings() {
         maxChannelRetries: retryPolicy.maxChannelRetries,
         maxSingleChannelRetries: retryPolicy.maxSingleChannelRetries,
         retryDelayMs: retryPolicy.retryDelayMs,
+        streamFirstEventTimeoutSeconds: retryPolicy.streamFirstEventTimeoutSeconds,
+        nonStreamResponseTimeoutSeconds: retryPolicy.nonStreamResponseTimeoutSeconds,
         loadBalancerStrategy: retryPolicy.loadBalancerStrategy,
         emptyResponseDetection: retryPolicy.emptyResponseDetection,
         emptyResponseTextPatterns: retryPolicy.emptyResponseTextPatterns || [],
@@ -214,6 +218,7 @@ export function RetrySettings() {
                     <SelectItem value='adaptive'>{t('system.retry.loadBalancerStrategy.options.adaptive')}</SelectItem>
                     <SelectItem value='failover'>{t('system.retry.loadBalancerStrategy.options.failover')}</SelectItem>
                     <SelectItem value='circuit-breaker'>{t('system.retry.loadBalancerStrategy.options.circuitBreaker')}</SelectItem>
+                    <SelectItem value='round-robin'>{t('system.retry.loadBalancerStrategy.options.roundRobin')}</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -273,6 +278,43 @@ export function RetrySettings() {
                     className='w-32'
                   />
                   <span className='text-muted-foreground text-sm'>ms</span>
+                </div>
+              </div>
+
+              {/* Response Timeouts */}
+              <div className='grid gap-4 md:grid-cols-2'>
+                <div className='space-y-2'>
+                  <Label htmlFor='stream-first-event-timeout'>{t('system.retry.streamFirstEventTimeoutSeconds.label')}</Label>
+                  <div className='text-muted-foreground mb-2 text-sm'>{t('system.retry.streamFirstEventTimeoutSeconds.description')}</div>
+                  <div className='flex items-center space-x-2'>
+                    <Input
+                      id='stream-first-event-timeout'
+                      type='number'
+                      min='0'
+                      max='600'
+                      value={formData.streamFirstEventTimeoutSeconds}
+                      onChange={(e) => handleInputChange('streamFirstEventTimeoutSeconds', parseInt(e.target.value) || 0)}
+                      className='w-32'
+                    />
+                    <span className='text-muted-foreground text-sm'>s</span>
+                  </div>
+                </div>
+
+                <div className='space-y-2'>
+                  <Label htmlFor='non-stream-response-timeout'>{t('system.retry.nonStreamResponseTimeoutSeconds.label')}</Label>
+                  <div className='text-muted-foreground mb-2 text-sm'>{t('system.retry.nonStreamResponseTimeoutSeconds.description')}</div>
+                  <div className='flex items-center space-x-2'>
+                    <Input
+                      id='non-stream-response-timeout'
+                      type='number'
+                      min='0'
+                      max='600'
+                      value={formData.nonStreamResponseTimeoutSeconds}
+                      onChange={(e) => handleInputChange('nonStreamResponseTimeoutSeconds', parseInt(e.target.value) || 0)}
+                      className='w-32'
+                    />
+                    <span className='text-muted-foreground text-sm'>s</span>
+                  </div>
                 </div>
               </div>
 

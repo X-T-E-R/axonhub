@@ -8,6 +8,7 @@ import SystemProvider from './context/system-context';
 
 type SystemTabKey =
   | 'brand'
+  | 'security'
   | 'storage'
   | 'retry'
   | 'webhook'

@@ -3,7 +3,9 @@ package biz
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -74,6 +76,10 @@ type Channel struct {
 
 	// cachedDisabledKeySet caches disabled key lookup set for O(1) check
 	cachedDisabledKeySet map[string]struct{}
+
+	// apiKeyOverride, if non-empty, forces all outbound transformers to use this key
+	// instead of the channel's normal key selection. Used by the channel key test flow.
+	apiKeyOverride string
 }
 
 type ChannelServiceParams struct {
@@ -99,8 +105,6 @@ func NewChannelService(params ChannelServiceParams) *ChannelService {
 		apiKeyErrorCounts:  make(map[int]map[string]map[int]int),
 		perfCh:             make(chan *PerformanceRecord, 1024),
 	}
-	svc.initChannelPerformances(context.Background())
-
 	watcherMode := params.CacheConfig.Mode
 	if watcherMode == "" {
 		watcherMode = xcache.ModeMemory
@@ -274,10 +278,54 @@ func (svc *ChannelService) onEnabledChannelsSwap(old, new []*Channel) {
 		}
 	}
 
-	for _, ch := range old {
+	if len(old) == 0 {
+		return
+	}
+
+	oldChannels := append([]*Channel(nil), old...)
+	go svc.cleanupSwappedChannels(oldChannels)
+}
+
+func (svc *ChannelService) cleanupSwappedChannels(channels []*Channel) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error(context.Background(), "channel cache cleanup panicked", log.Any("panic", r))
+		}
+	}()
+
+	for _, ch := range channels {
 		if ch != nil && ch.stopTokenProvider != nil {
 			ch.stopTokenProvider()
 		}
+		stopChannelOutbounds(ch)
+	}
+}
+
+type stoppableOutbound interface {
+	Stop()
+}
+
+func stopChannelOutbounds(ch *Channel) {
+	if ch == nil {
+		return
+	}
+
+	seen := map[stoppableOutbound]struct{}{}
+	stopOutbound := func(out transformer.Outbound) {
+		stoppable, ok := out.(stoppableOutbound)
+		if !ok || stoppable == nil {
+			return
+		}
+		if _, ok := seen[stoppable]; ok {
+			return
+		}
+		seen[stoppable] = struct{}{}
+		stoppable.Stop()
+	}
+
+	stopOutbound(ch.Outbound)
+	for _, out := range ch.Outbounds {
+		stopOutbound(out)
 	}
 }
 
@@ -332,6 +380,19 @@ func (svc *ChannelService) GetChannel(ctx context.Context, channelID int) (*Chan
 	}
 
 	return svc.buildChannelWithOutbounds(entity)
+}
+
+// GetChannelWithKey returns a channel with the outbound transformer's API key
+// forced to the given key. This is used by the channel key test flow to test
+// a specific key. Each call creates a fresh channel instance, so the override
+// does not affect other requests.
+func (svc *ChannelService) GetChannelWithKey(ctx context.Context, channelID int, apiKey string) (*Channel, error) {
+	entity, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("channel not found: %w", err)
+	}
+
+	return svc.buildChannelWithOutbounds(entity, apiKey)
 }
 
 // ListModelsInput represents the input for listing models with filters.
@@ -458,6 +519,14 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 		if err := ValidateRateLimit(input.Settings.RateLimit); err != nil {
 			return nil, fmt.Errorf("invalid rate limit: %w", err)
 		}
+
+		if err := NormalizeRetryableStatusCodes(input.Settings); err != nil {
+			return nil, err
+		}
+
+		if err := NormalizeRetryableErrorPatterns(input.Settings); err != nil {
+			return nil, err
+		}
 	}
 
 	if input.Endpoints != nil {
@@ -513,14 +582,87 @@ func (svc *ChannelService) CreateChannel(ctx context.Context, input ent.CreateCh
 		return nil, xerrors.DuplicateNameError("channel", input.Name)
 	}
 
-	channel, err := svc.createChannel(ctx, input)
+	var created *ent.Channel
+	err = svc.RunInTransaction(ctx, func(ctx context.Context) error {
+		channel, err := svc.createChannel(ctx, input)
+		if err != nil {
+			return err
+		}
+
+		if _, err := svc.ensureChannelModelPrices(ctx, channel.ID, input.SupportedModels); err != nil {
+			return err
+		}
+
+		created = channel
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
+	if ent.TxFromContext(ctx) == nil {
+		created.Unwrap()
+	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
-	return channel, nil
+	return created, nil
+}
+
+// NormalizeRetryableStatusCodes validates, deduplicates, and sorts additional
+// retryable HTTP status codes configured on a channel.
+func NormalizeRetryableStatusCodes(settings *objects.ChannelSettings) error {
+	if settings == nil || len(settings.RetryableStatusCodes) == 0 {
+		return nil
+	}
+
+	codes := slices.Clone(settings.RetryableStatusCodes)
+	for _, code := range codes {
+		if code < 400 || code > 599 {
+			return fmt.Errorf("invalid retryable status code %d: must be between 400 and 599", code)
+		}
+	}
+
+	slices.Sort(codes)
+	settings.RetryableStatusCodes = slices.Compact(codes)
+
+	return nil
+}
+
+// NormalizeRetryableErrorPatterns validates, deduplicates, and trims additional
+// retryable error text matchers configured on a channel.
+func NormalizeRetryableErrorPatterns(settings *objects.ChannelSettings) error {
+	if settings == nil || len(settings.RetryableErrorPatterns) == 0 {
+		return nil
+	}
+
+	patterns := make([]objects.RetryableErrorPattern, 0, len(settings.RetryableErrorPatterns))
+	seen := make(map[string]struct{}, len(settings.RetryableErrorPatterns))
+
+	for _, pattern := range settings.RetryableErrorPatterns {
+		pattern.Pattern = strings.TrimSpace(pattern.Pattern)
+		if pattern.Pattern == "" {
+			continue
+		}
+
+		if pattern.Regex {
+			if _, err := regexp.Compile(pattern.Pattern); err != nil {
+				return fmt.Errorf("invalid retryable error regex %q: %w", pattern.Pattern, err)
+			}
+		}
+
+		key := fmt.Sprintf("%t\x00%s", pattern.Regex, pattern.Pattern)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		patterns = append(patterns, pattern)
+	}
+
+	settings.RetryableErrorPatterns = patterns
+
+	return nil
 }
 
 // UpdateChannel updates an existing channel with the provided input.
@@ -544,26 +686,6 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 		}
 	}
 
-	mut := svc.entFromContext(ctx).Channel.UpdateOneID(id).
-		SetNillableType(input.Type).
-		SetNillableBaseURL(input.BaseURL).
-		SetNillableName(input.Name).
-		SetNillableDefaultTestModel(input.DefaultTestModel).
-		SetNillableOrderingWeight(input.OrderingWeight).
-		SetNillableAutoSyncSupportedModels(input.AutoSyncSupportedModels)
-
-	if input.SupportedModels != nil {
-		mut.SetSupportedModels(input.SupportedModels)
-	}
-
-	if input.ManualModels != nil {
-		mut.SetManualModels(input.ManualModels)
-	}
-
-	if input.Tags != nil {
-		mut.SetTags(input.Tags)
-	}
-
 	if input.Settings != nil {
 		// Always normalize and validate override settings.
 		if input.Settings.BodyOverrideOperations != nil {
@@ -582,46 +704,98 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 			return nil, fmt.Errorf("invalid rate limit: %w", err)
 		}
 
-		mut.SetSettings(input.Settings)
-	}
+		if err := NormalizeRetryableStatusCodes(input.Settings); err != nil {
+			return nil, err
+		}
 
-	if input.Policies != nil {
-		mut.SetPolicies(*input.Policies)
-	}
-
-	if input.Credentials != nil {
-		mut.SetCredentials(*input.Credentials)
-	}
-
-	if input.Remark != nil {
-		mut.SetRemark(*input.Remark)
-	}
-
-	if input.ClearRemark {
-		mut.ClearRemark()
-	}
-
-	if input.ClearAutoSyncModelPattern {
-		mut.ClearAutoSyncModelPattern()
-	} else if input.AutoSyncModelPattern != nil {
-		mut.SetAutoSyncModelPattern(*input.AutoSyncModelPattern)
+		if err := NormalizeRetryableErrorPatterns(input.Settings); err != nil {
+			return nil, err
+		}
 	}
 
 	if input.Endpoints != nil {
 		if err := ValidateEndpoints(input.Endpoints); err != nil {
 			return nil, fmt.Errorf("invalid endpoints: %w", err)
 		}
-
-		mut.SetEndpoints(input.Endpoints)
 	}
 
-	if input.ClearErrorMessage {
-		mut.ClearErrorMessage()
-	}
+	var updated *ent.Channel
+	err := svc.RunInTransaction(ctx, func(ctx context.Context) error {
+		db := svc.entFromContext(ctx)
+		mut := db.Channel.UpdateOneID(id).
+			SetNillableType(input.Type).
+			SetNillableBaseURL(input.BaseURL).
+			SetNillableName(input.Name).
+			SetNillableDefaultTestModel(input.DefaultTestModel).
+			SetNillableOrderingWeight(input.OrderingWeight).
+			SetNillableAutoSyncSupportedModels(input.AutoSyncSupportedModels)
 
-	channel, err := mut.Save(ctx)
+		if input.SupportedModels != nil {
+			mut.SetSupportedModels(input.SupportedModels)
+		}
+
+		if input.ManualModels != nil {
+			mut.SetManualModels(input.ManualModels)
+		}
+
+		if input.Tags != nil {
+			mut.SetTags(input.Tags)
+		}
+
+		if input.Settings != nil {
+			mut.SetSettings(input.Settings)
+		}
+
+		if input.Policies != nil {
+			mut.SetPolicies(*input.Policies)
+		}
+
+		if input.Credentials != nil {
+			mut.SetCredentials(*input.Credentials)
+		}
+
+		if input.Remark != nil {
+			mut.SetRemark(*input.Remark)
+		}
+
+		if input.ClearRemark {
+			mut.ClearRemark()
+		}
+
+		if input.ClearAutoSyncModelPattern {
+			mut.ClearAutoSyncModelPattern()
+		} else if input.AutoSyncModelPattern != nil {
+			mut.SetAutoSyncModelPattern(*input.AutoSyncModelPattern)
+		}
+
+		if input.Endpoints != nil {
+			mut.SetEndpoints(input.Endpoints)
+		}
+
+		if input.ClearErrorMessage {
+			mut.ClearErrorMessage()
+		}
+
+		channel, err := mut.Save(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to update channel: %w", err)
+		}
+
+		if input.SupportedModels != nil {
+			if _, err := svc.ensureChannelModelPrices(ctx, id, input.SupportedModels); err != nil {
+				return err
+			}
+		}
+
+		updated = channel
+
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to update channel: %w", err)
+		return nil, err
+	}
+	if ent.TxFromContext(ctx) == nil {
+		updated.Unwrap()
 	}
 
 	// Intentionally NO forgetLimiter call: ChannelLimiterManager.GetOrCreate
@@ -629,9 +803,9 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 	// next request. Calling Forget on every update (including unrelated
 	// settings) would orphan in-flight slots and let the next batch of
 	// requests transiently exceed MaxConcurrent.
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
-	return channel, nil
+	return updated, nil
 }
 
 // UpdateChannelStatus updates the status of a channel.
@@ -661,9 +835,32 @@ func (svc *ChannelService) asyncReloadChannels() {
 	}
 }
 
+// reloadChannelsAfterCommit waits for a caller-owned Ent transaction, including
+// the GraphQL Transactioner, before publishing the channel cache refresh.
+func (svc *ChannelService) reloadChannelsAfterCommit(ctx context.Context) {
+	tx := ent.TxFromContext(ctx)
+	if tx == nil {
+		svc.asyncReloadChannels()
+
+		return
+	}
+
+	tx.OnCommit(func(next ent.Committer) ent.Committer {
+		return ent.CommitFunc(func(ctx context.Context, tx *ent.Tx) error {
+			if err := next.Commit(ctx, tx); err != nil {
+				return err
+			}
+
+			svc.asyncReloadChannels()
+
+			return nil
+		})
+	})
+}
+
 // SaveChannelEndpoints updates the endpoints field for a channel.
-// Validates that api_format values are unique and do not conflict with the
-// channel type's default endpoints.
+// Validates user-configured endpoint overrides before storing them. Runtime
+// endpoint resolution merges matching api_format entries with defaults.
 func (svc *ChannelService) SaveChannelEndpoints(ctx context.Context, input SaveChannelEndpointsInput) (*ent.Channel, error) {
 	if err := ValidateEndpoints(input.Endpoints); err != nil {
 		return nil, fmt.Errorf("invalid endpoints: %w", err)
@@ -672,15 +869,6 @@ func (svc *ChannelService) SaveChannelEndpoints(ctx context.Context, input SaveC
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, input.ChannelID.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
-	}
-
-	defaults := DefaultEndpointsForChannelType(ch.Type)
-	for _, userEP := range input.Endpoints {
-		for _, defaultEP := range defaults {
-			if userEP.APIFormat == defaultEP.APIFormat {
-				return nil, fmt.Errorf("endpoint api_format %q conflicts with default endpoint for channel type %s", userEP.APIFormat, ch.Type)
-			}
-		}
 	}
 
 	ch, err = svc.entFromContext(ctx).Channel.UpdateOne(ch).

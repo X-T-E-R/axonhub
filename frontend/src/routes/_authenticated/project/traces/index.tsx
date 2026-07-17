@@ -6,7 +6,7 @@ import TracesManagement from '@/features/traces';
 function ProtectedProjectTraces() {
   return (
     <ProjectGuard>
-      <RouteGuard routePath='/project/traces'>
+      <RouteGuard routePath='/project/traces' requiredScopes={['read_requests']} scopeLevel='any'>
         <TracesManagement />
       </RouteGuard>
     </ProjectGuard>

@@ -37,6 +37,7 @@ import { Route as AuthenticatedChatsIndexRouteImport } from './routes/_authentic
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedApiKeysIndexRouteImport } from './routes/_authenticated/api-keys/index'
 import { Route as AuthenticatedAccessGroupsIndexRouteImport } from './routes/_authenticated/access-groups/index'
+import { Route as AuthenticatedAnalyticsIndexRouteImport } from './routes/_authenticated/analytics/index'
 import { Route as OauthOidcIdpCallbackRouteImport } from './routes/oauth/oidc/idp-callback'
 import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated/settings/profile'
 import { Route as AuthenticatedSettingsNotificationsRouteImport } from './routes/_authenticated/settings/notifications'
@@ -50,6 +51,7 @@ import { Route as AuthenticatedSelfServiceQuickstartIndexRouteImport } from './r
 import { Route as AuthenticatedSelfServiceModelsIndexRouteImport } from './routes/_authenticated/self-service/models/index'
 import { Route as AuthenticatedSelfServiceApiKeysIndexRouteImport } from './routes/_authenticated/self-service/api-keys/index'
 import { Route as AuthenticatedProjectUsersIndexRouteImport } from './routes/_authenticated/project/users/index'
+import { Route as AuthenticatedProjectUsageStatsIndexRouteImport } from './routes/_authenticated/project/usage-stats/index'
 import { Route as AuthenticatedProjectTracesIndexRouteImport } from './routes/_authenticated/project/traces/index'
 import { Route as AuthenticatedProjectThreadsIndexRouteImport } from './routes/_authenticated/project/threads/index'
 import { Route as AuthenticatedProjectRolesIndexRouteImport } from './routes/_authenticated/project/roles/index'
@@ -213,6 +215,12 @@ const AuthenticatedAccessGroupsIndexRoute =
     path: '/access-groups/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAnalyticsIndexRoute =
+  AuthenticatedAnalyticsIndexRouteImport.update({
+    id: '/analytics/',
+    path: '/analytics/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const OauthOidcIdpCallbackRoute = OauthOidcIdpCallbackRouteImport.update({
   id: '/oauth/oidc/idp-callback',
   path: '/oauth/oidc/idp-callback',
@@ -288,6 +296,12 @@ const AuthenticatedProjectUsersIndexRoute =
   AuthenticatedProjectUsersIndexRouteImport.update({
     id: '/project/users/',
     path: '/project/users/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProjectUsageStatsIndexRoute =
+  AuthenticatedProjectUsageStatsIndexRouteImport.update({
+    id: '/project/usage-stats/',
+    path: '/project/usage-stats/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedProjectTracesIndexRoute =
@@ -371,6 +385,7 @@ export interface FileRoutesByFullPath {
   '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/oauth/oidc/idp-callback': typeof OauthOidcIdpCallbackRoute
+  '/analytics/': typeof AuthenticatedAnalyticsIndexRoute
   '/access-groups/': typeof AuthenticatedAccessGroupsIndexRoute
   '/api-keys/': typeof AuthenticatedApiKeysIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -396,12 +411,13 @@ export interface FileRoutesByFullPath {
   '/project/roles/': typeof AuthenticatedProjectRolesIndexRoute
   '/project/threads/': typeof AuthenticatedProjectThreadsIndexRoute
   '/project/traces/': typeof AuthenticatedProjectTracesIndexRoute
-  '/project/users/': typeof AuthenticatedProjectUsersIndexRoute
+  '/project/usage-stats/': typeof AuthenticatedProjectUsageStatsIndexRoute
   '/self-service/api-keys/': typeof AuthenticatedSelfServiceApiKeysIndexRoute
   '/self-service/models/': typeof AuthenticatedSelfServiceModelsIndexRoute
   '/self-service/quickstart/': typeof AuthenticatedSelfServiceQuickstartIndexRoute
   '/self-service/requests/': typeof AuthenticatedSelfServiceRequestsIndexRoute
   '/self-service/usage/': typeof AuthenticatedSelfServiceUsageIndexRoute
+  '/project/users/': typeof AuthenticatedProjectUsersIndexRoute
 }
 export interface FileRoutesByTo {
   '/forgot-password': typeof authForgotPasswordRoute
@@ -422,6 +438,7 @@ export interface FileRoutesByTo {
   '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/oauth/oidc/idp-callback': typeof OauthOidcIdpCallbackRoute
+  '/analytics': typeof AuthenticatedAnalyticsIndexRoute
   '/access-groups': typeof AuthenticatedAccessGroupsIndexRoute
   '/api-keys': typeof AuthenticatedApiKeysIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -447,12 +464,13 @@ export interface FileRoutesByTo {
   '/project/roles': typeof AuthenticatedProjectRolesIndexRoute
   '/project/threads': typeof AuthenticatedProjectThreadsIndexRoute
   '/project/traces': typeof AuthenticatedProjectTracesIndexRoute
-  '/project/users': typeof AuthenticatedProjectUsersIndexRoute
+  '/project/usage-stats': typeof AuthenticatedProjectUsageStatsIndexRoute
   '/self-service/api-keys': typeof AuthenticatedSelfServiceApiKeysIndexRoute
   '/self-service/models': typeof AuthenticatedSelfServiceModelsIndexRoute
   '/self-service/quickstart': typeof AuthenticatedSelfServiceQuickstartIndexRoute
   '/self-service/requests': typeof AuthenticatedSelfServiceRequestsIndexRoute
   '/self-service/usage': typeof AuthenticatedSelfServiceUsageIndexRoute
+  '/project/users': typeof AuthenticatedProjectUsersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -476,6 +494,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
   '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/oauth/oidc/idp-callback': typeof OauthOidcIdpCallbackRoute
+  '/_authenticated/analytics/': typeof AuthenticatedAnalyticsIndexRoute
   '/_authenticated/access-groups/': typeof AuthenticatedAccessGroupsIndexRoute
   '/_authenticated/api-keys/': typeof AuthenticatedApiKeysIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -501,17 +520,19 @@ export interface FileRoutesById {
   '/_authenticated/project/roles/': typeof AuthenticatedProjectRolesIndexRoute
   '/_authenticated/project/threads/': typeof AuthenticatedProjectThreadsIndexRoute
   '/_authenticated/project/traces/': typeof AuthenticatedProjectTracesIndexRoute
-  '/_authenticated/project/users/': typeof AuthenticatedProjectUsersIndexRoute
+  '/_authenticated/project/usage-stats/': typeof AuthenticatedProjectUsageStatsIndexRoute
   '/_authenticated/self-service/api-keys/': typeof AuthenticatedSelfServiceApiKeysIndexRoute
   '/_authenticated/self-service/models/': typeof AuthenticatedSelfServiceModelsIndexRoute
   '/_authenticated/self-service/quickstart/': typeof AuthenticatedSelfServiceQuickstartIndexRoute
   '/_authenticated/self-service/requests/': typeof AuthenticatedSelfServiceRequestsIndexRoute
   '/_authenticated/self-service/usage/': typeof AuthenticatedSelfServiceUsageIndexRoute
+  '/_authenticated/project/users/': typeof AuthenticatedProjectUsersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/self-service'
     | '/settings'
     | '/forgot-password'
     | '/initialization'
@@ -530,6 +551,7 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/profile'
     | '/oauth/oidc/idp-callback'
+    | '/analytics/'
     | '/access-groups/'
     | '/api-keys/'
     | '/channels/'
@@ -555,6 +577,7 @@ export interface FileRouteTypes {
     | '/project/roles/'
     | '/project/threads/'
     | '/project/traces/'
+    | '/project/usage-stats/'
     | '/project/users/'
     | '/self-service/api-keys/'
     | '/self-service/models/'
@@ -581,6 +604,7 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/profile'
     | '/oauth/oidc/idp-callback'
+    | '/analytics'
     | '/access-groups'
     | '/api-keys'
     | '/channels'
@@ -592,7 +616,6 @@ export interface FileRouteTypes {
     | '/projects'
     | '/prompt-protection-rules'
     | '/roles'
-    | '/self-service'
     | '/settings'
     | '/system'
     | '/users'
@@ -606,6 +629,7 @@ export interface FileRouteTypes {
     | '/project/roles'
     | '/project/threads'
     | '/project/traces'
+    | '/project/usage-stats'
     | '/project/users'
     | '/self-service/api-keys'
     | '/self-service/models'
@@ -634,6 +658,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/notifications'
     | '/_authenticated/settings/profile'
     | '/oauth/oidc/idp-callback'
+    | '/_authenticated/analytics/'
     | '/_authenticated/access-groups/'
     | '/_authenticated/api-keys/'
     | '/_authenticated/channels/'
@@ -659,6 +684,7 @@ export interface FileRouteTypes {
     | '/_authenticated/project/roles/'
     | '/_authenticated/project/threads/'
     | '/_authenticated/project/traces/'
+    | '/_authenticated/project/usage-stats/'
     | '/_authenticated/project/users/'
     | '/_authenticated/self-service/api-keys/'
     | '/_authenticated/self-service/models/'
@@ -879,6 +905,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccessGroupsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/analytics/': {
+      id: '/_authenticated/analytics/'
+      path: '/analytics'
+      fullPath: '/analytics/'
+      preLoaderRoute: typeof AuthenticatedAnalyticsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/oauth/oidc/idp-callback': {
       id: '/oauth/oidc/idp-callback'
       path: '/oauth/oidc/idp-callback'
@@ -968,6 +1001,13 @@ declare module '@tanstack/react-router' {
       path: '/project/users'
       fullPath: '/project/users/'
       preLoaderRoute: typeof AuthenticatedProjectUsersIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/project/usage-stats/': {
+      id: '/_authenticated/project/usage-stats/'
+      path: '/project/usage-stats'
+      fullPath: '/project/usage-stats/'
+      preLoaderRoute: typeof AuthenticatedProjectUsageStatsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/project/traces/': {
@@ -1073,6 +1113,8 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardChannelSuccessRatesRoute: typeof AuthenticatedDashboardChannelSuccessRatesRoute
   AuthenticatedRequestsRequestIdRoute: typeof AuthenticatedRequestsRequestIdRoute
   AuthenticatedAccessGroupsIndexRoute: typeof AuthenticatedAccessGroupsIndexRoute
+  AuthenticatedSelfServiceIndexRoute: typeof AuthenticatedSelfServiceIndexRoute
+  AuthenticatedAnalyticsIndexRoute: typeof AuthenticatedAnalyticsIndexRoute
   AuthenticatedApiKeysIndexRoute: typeof AuthenticatedApiKeysIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
@@ -1083,7 +1125,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute
   AuthenticatedPromptProtectionRulesIndexRoute: typeof AuthenticatedPromptProtectionRulesIndexRoute
   AuthenticatedRolesIndexRoute: typeof AuthenticatedRolesIndexRoute
-  AuthenticatedSelfServiceIndexRoute: typeof AuthenticatedSelfServiceIndexRoute
   AuthenticatedSystemIndexRoute: typeof AuthenticatedSystemIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedProjectRequestsRequestIdRoute: typeof AuthenticatedProjectRequestsRequestIdRoute
@@ -1096,12 +1137,13 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProjectRolesIndexRoute: typeof AuthenticatedProjectRolesIndexRoute
   AuthenticatedProjectThreadsIndexRoute: typeof AuthenticatedProjectThreadsIndexRoute
   AuthenticatedProjectTracesIndexRoute: typeof AuthenticatedProjectTracesIndexRoute
-  AuthenticatedProjectUsersIndexRoute: typeof AuthenticatedProjectUsersIndexRoute
+  AuthenticatedProjectUsageStatsIndexRoute: typeof AuthenticatedProjectUsageStatsIndexRoute
   AuthenticatedSelfServiceApiKeysIndexRoute: typeof AuthenticatedSelfServiceApiKeysIndexRoute
   AuthenticatedSelfServiceModelsIndexRoute: typeof AuthenticatedSelfServiceModelsIndexRoute
   AuthenticatedSelfServiceQuickstartIndexRoute: typeof AuthenticatedSelfServiceQuickstartIndexRoute
   AuthenticatedSelfServiceRequestsIndexRoute: typeof AuthenticatedSelfServiceRequestsIndexRoute
   AuthenticatedSelfServiceUsageIndexRoute: typeof AuthenticatedSelfServiceUsageIndexRoute
+  AuthenticatedProjectUsersIndexRoute: typeof AuthenticatedProjectUsersIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -1112,6 +1154,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedDashboardChannelSuccessRatesRoute,
   AuthenticatedRequestsRequestIdRoute: AuthenticatedRequestsRequestIdRoute,
   AuthenticatedAccessGroupsIndexRoute: AuthenticatedAccessGroupsIndexRoute,
+  AuthenticatedSelfServiceIndexRoute: AuthenticatedSelfServiceIndexRoute,
+  AuthenticatedAnalyticsIndexRoute: AuthenticatedAnalyticsIndexRoute,
   AuthenticatedApiKeysIndexRoute: AuthenticatedApiKeysIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
@@ -1123,7 +1167,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPromptProtectionRulesIndexRoute:
     AuthenticatedPromptProtectionRulesIndexRoute,
   AuthenticatedRolesIndexRoute: AuthenticatedRolesIndexRoute,
-  AuthenticatedSelfServiceIndexRoute: AuthenticatedSelfServiceIndexRoute,
   AuthenticatedSystemIndexRoute: AuthenticatedSystemIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedProjectRequestsRequestIdRoute:
@@ -1141,7 +1184,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedProjectRolesIndexRoute: AuthenticatedProjectRolesIndexRoute,
   AuthenticatedProjectThreadsIndexRoute: AuthenticatedProjectThreadsIndexRoute,
   AuthenticatedProjectTracesIndexRoute: AuthenticatedProjectTracesIndexRoute,
-  AuthenticatedProjectUsersIndexRoute: AuthenticatedProjectUsersIndexRoute,
+  AuthenticatedProjectUsageStatsIndexRoute:
+    AuthenticatedProjectUsageStatsIndexRoute,
   AuthenticatedSelfServiceApiKeysIndexRoute:
     AuthenticatedSelfServiceApiKeysIndexRoute,
   AuthenticatedSelfServiceModelsIndexRoute:
@@ -1152,6 +1196,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedSelfServiceRequestsIndexRoute,
   AuthenticatedSelfServiceUsageIndexRoute:
     AuthenticatedSelfServiceUsageIndexRoute,
+  AuthenticatedProjectUsersIndexRoute: AuthenticatedProjectUsersIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

@@ -11,6 +11,18 @@ import (
 // This error triggers channel retry when empty response detection is enabled.
 var ErrEmptyResponse = errors.New("empty response detected")
 
+// ErrStreamFirstEventTimeout indicates a streaming response did not produce the first event in time.
+var ErrStreamFirstEventTimeout = errors.New("stream first event timeout")
+
+// ErrNonStreamResponseTimeout indicates a non-streaming response did not complete in time.
+var ErrNonStreamResponseTimeout = errors.New("non-stream response timeout")
+
+// ErrEmptyStreamChunks indicates an auto-upgraded streaming request produced no inbound chunks.
+var ErrEmptyStreamChunks = errors.New("empty stream chunks")
+
+// ErrEmptyAggregatedBody indicates inbound chunk aggregation produced an empty body.
+var ErrEmptyAggregatedBody = errors.New("empty aggregated body")
+
 func hasMessageContent(msg *llm.Message) bool {
 	return hasMessageContentWithPatterns(msg, nil)
 }
@@ -42,6 +54,10 @@ func hasMessageContentWithPatterns(msg *llm.Message, emptyTextPatterns []string)
 		return true
 	}
 
+	if msg.ReasoningSignature != nil && *msg.ReasoningSignature != "" {
+		return true
+	}
+
 	if messageTextHasContent(&msg.Refusal, matcher) {
 		return true
 	}
@@ -59,7 +75,7 @@ func hasResponseContent(resp *llm.Response) bool {
 }
 
 func hasResponseContentWithPatterns(resp *llm.Response, emptyTextPatterns []string) bool {
-	if resp == nil || resp == llm.DoneResponse {
+	if resp == nil || resp == llm.DoneResponse || resp.Object == "[DONE]" {
 		return false
 	}
 
@@ -83,6 +99,29 @@ func hasResponseContentWithPatterns(resp *llm.Response, emptyTextPatterns []stri
 	}
 
 	if resp.Compact != nil && len(resp.Compact.Output) > 0 {
+		return true
+	}
+
+	if resp.Speech != nil && len(resp.Speech.Audio) > 0 {
+		return true
+	}
+
+	if resp.Transcription != nil && (resp.Transcription.Text != "" || len(resp.Transcription.Raw) > 0) {
+		return true
+	}
+
+	// Only audio deltas count as content. A bare "speech.audio.done" event with
+	// no audio chunks must still be treated as empty so empty-response detection
+	// can retry instead of completing a request with audio_bytes=0.
+	if resp.SpeechStreamEvent != nil && resp.SpeechStreamEvent.AudioBase64 != "" {
+		return true
+	}
+
+	if resp.SpeechAudioChunk != nil && len(resp.SpeechAudioChunk.Audio) > 0 {
+		return true
+	}
+
+	if resp.TranscriptionStreamEvent != nil && (resp.TranscriptionStreamEvent.Delta != "" || resp.TranscriptionStreamEvent.Text != "" || resp.TranscriptionStreamEvent.Type != "") {
 		return true
 	}
 
@@ -214,7 +253,7 @@ func bufferedResponsesTextContent(responses []*llm.Response) (string, bool) {
 }
 
 func responseTextContent(resp *llm.Response) (string, bool) {
-	if resp == nil || resp == llm.DoneResponse {
+	if resp == nil || resp == llm.DoneResponse || resp.Object == "[DONE]" {
 		return "", true
 	}
 
@@ -236,6 +275,26 @@ func responseTextContent(resp *llm.Response) (string, bool) {
 	}
 
 	if resp.Compact != nil && len(resp.Compact.Output) > 0 {
+		return "", false
+	}
+
+	if resp.Speech != nil && len(resp.Speech.Audio) > 0 {
+		return "", false
+	}
+
+	if resp.Transcription != nil && (resp.Transcription.Text != "" || len(resp.Transcription.Raw) > 0) {
+		return "", false
+	}
+
+	if resp.SpeechStreamEvent != nil && resp.SpeechStreamEvent.AudioBase64 != "" {
+		return "", false
+	}
+
+	if resp.SpeechAudioChunk != nil && len(resp.SpeechAudioChunk.Audio) > 0 {
+		return "", false
+	}
+
+	if resp.TranscriptionStreamEvent != nil && (resp.TranscriptionStreamEvent.Delta != "" || resp.TranscriptionStreamEvent.Text != "" || resp.TranscriptionStreamEvent.Type != "") {
 		return "", false
 	}
 
@@ -274,6 +333,7 @@ func messageTextContent(msg *llm.Message) (string, bool) {
 	if len(msg.ToolCalls) > 0 ||
 		msg.ReasoningContent != nil ||
 		msg.Reasoning != nil ||
+		msg.ReasoningSignature != nil ||
 		msg.Audio != nil {
 		return "", false
 	}

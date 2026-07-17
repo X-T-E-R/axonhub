@@ -6,7 +6,7 @@ import RequestDetailPage from '@/features/requests/components/request-detail-pag
 function ProtectedRequestDetail() {
   return (
     <ProjectGuard>
-      <RouteGuard routePath='/project/requests'>
+      <RouteGuard routePath='/project/requests' requiredScopes={['read_requests']} scopeLevel='any'>
         <RequestDetailPage />
       </RouteGuard>
     </ProjectGuard>
@@ -14,5 +14,6 @@ function ProtectedRequestDetail() {
 }
 
 export const Route = createFileRoute('/_authenticated/project/requests/$requestId')({
+  validateSearch: (search: Record<string, unknown>) => search,
   component: ProtectedRequestDetail,
 });

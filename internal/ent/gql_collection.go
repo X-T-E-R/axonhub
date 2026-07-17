@@ -4158,6 +4158,16 @@ func (_q *RequestExecutionQuery) collectField(ctx context.Context, oneNode bool,
 				selectedFields = append(selectedFields, requestexecution.FieldRequestHeaders)
 				fieldSeen[requestexecution.FieldRequestHeaders] = struct{}{}
 			}
+		case "requestURL":
+			if _, ok := fieldSeen[requestexecution.FieldRequestURL]; !ok {
+				selectedFields = append(selectedFields, requestexecution.FieldRequestURL)
+				fieldSeen[requestexecution.FieldRequestURL] = struct{}{}
+			}
+		case "passThroughApplied":
+			if _, ok := fieldSeen[requestexecution.FieldPassThroughApplied]; !ok {
+				selectedFields = append(selectedFields, requestexecution.FieldPassThroughApplied)
+				fieldSeen[requestexecution.FieldPassThroughApplied] = struct{}{}
+			}
 		case "id":
 		case "__typename":
 		default:
@@ -4781,6 +4791,11 @@ func (_q *ThreadQuery) collectField(ctx context.Context, oneNode bool, opCtx *gr
 				selectedFields = append(selectedFields, thread.FieldThreadID)
 				fieldSeen[thread.FieldThreadID] = struct{}{}
 			}
+		case "status":
+			if _, ok := fieldSeen[thread.FieldStatus]; !ok {
+				selectedFields = append(selectedFields, thread.FieldStatus)
+				fieldSeen[thread.FieldStatus] = struct{}{}
+			}
 		case "id":
 		case "__typename":
 		default:
@@ -5008,6 +5023,11 @@ func (_q *TraceQuery) collectField(ctx context.Context, oneNode bool, opCtx *gra
 			if _, ok := fieldSeen[trace.FieldThreadID]; !ok {
 				selectedFields = append(selectedFields, trace.FieldThreadID)
 				fieldSeen[trace.FieldThreadID] = struct{}{}
+			}
+		case "status":
+			if _, ok := fieldSeen[trace.FieldStatus]; !ok {
+				selectedFields = append(selectedFields, trace.FieldStatus)
+				fieldSeen[trace.FieldStatus] = struct{}{}
 			}
 		case "id":
 		case "__typename":

@@ -41,6 +41,10 @@ func (p *PersistentOutboundTransformer) isPassThroughEnabled(ctx context.Context
 		return false
 	}
 
+	if !passThroughStreamAligned(p.state.OriginalRequestStream, llmReq.Stream) {
+		return false
+	}
+
 	var enabled bool
 
 	switch {
@@ -118,6 +122,7 @@ func applyAxonHubFullPassThroughRequest(outbound *PersistentOutboundTransformer)
 		request.Body = body
 		request.RequestType = string(llmReq.RequestType)
 		request.APIFormat = string(llmReq.APIFormat)
+		outbound.state.PassThroughApplied = true
 
 		if request.Headers == nil {
 			request.Headers = make(http.Header)
@@ -214,6 +219,13 @@ func buildAxonHubFullPassThroughURL(baseURL, escapedPath, rawQuery string) (stri
 	return base.String(), nil
 }
 
+func passThroughStreamAligned(originalStream, effectiveStream *bool) bool {
+	originalEnabled := originalStream != nil && *originalStream
+	effectiveEnabled := effectiveStream != nil && *effectiveStream
+
+	return originalEnabled == effectiveEnabled
+}
+
 // applyPassThroughRequestBody creates a middleware that reuses the original inbound request body when
 // the channel enables pass-through and the inbound and outbound API formats are identical.
 // For formats that encode the selected model in the request body, the mapped llmReq.Model is
@@ -229,6 +241,13 @@ func applyPassThroughRequestBody(outbound *PersistentOutboundTransformer, system
 
 		channel := outbound.GetCurrentChannel()
 		llmReq := outbound.state.LlmRequest
+
+		// Multipart bodies cannot be reused: the outbound transformer rebuilds the
+		// multipart payload with a new boundary in Content-Type, so replaying the inbound
+		// bytes would mismatch the header, and form fields cannot be patched via sjson.
+		if !passThroughBodySupported(llmReq.APIFormat) {
+			return request, nil
+		}
 
 		log.Debug(ctx, "applying pass-through body",
 			log.String("channel", channel.Name),
@@ -247,6 +266,7 @@ func applyPassThroughRequestBody(outbound *PersistentOutboundTransformer, system
 		}
 
 		request.Body = body
+		outbound.state.PassThroughApplied = true
 
 		return request, nil
 	})
@@ -271,6 +291,21 @@ func mergePassThroughRequestBody(rawBody []byte, apiFormat llm.APIFormat, model 
 	return nextBody, nil
 }
 
+// passThroughBodySupported reports whether the raw inbound body can safely replace the
+// outbound request body. Multipart formats are excluded.
+func passThroughBodySupported(apiFormat llm.APIFormat) bool {
+	//nolint:exhaustive // only multipart formats are excluded.
+	switch apiFormat {
+	case llm.APIFormatOpenAITranscription,
+		llm.APIFormatOpenAITranslation,
+		llm.APIFormatOpenAIImageEdit,
+		llm.APIFormatOpenAIImageVariation:
+		return false
+	default:
+		return true
+	}
+}
+
 func passThroughBodyNeedsModelPatch(apiFormat llm.APIFormat) bool {
 	//nolint:exhaustive // ohter format do not need model field.
 	switch apiFormat {
@@ -282,7 +317,10 @@ func passThroughBodyNeedsModelPatch(apiFormat llm.APIFormat) bool {
 		llm.APIFormatOpenAIImageGeneration,
 		llm.APIFormatJinaEmbedding,
 		llm.APIFormatJinaRerank,
-		llm.APIFormatAnthropicMessage:
+		llm.APIFormatAnthropicMessage,
+		// Speech (TTS) has a JSON body with a model field; transcription/translation
+		// use multipart bodies that cannot be patched via sjson, so they are excluded.
+		llm.APIFormatOpenAISpeech:
 		return true
 	default:
 		return false

@@ -16,7 +16,7 @@ var (
 		{Name: "deleted_at", Type: field.TypeInt, Default: 0},
 		{Name: "key", Type: field.TypeString},
 		{Name: "name", Type: field.TypeString},
-		{Name: "type", Type: field.TypeEnum, Enums: []string{"user", "service_account", "noauth"}, Default: "user"},
+		{Name: "type", Type: field.TypeEnum, Enums: []string{"user", "service_account", "noauth", "personal"}, Default: "user"},
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"enabled", "disabled", "archived"}, Default: "enabled"},
 		{Name: "scopes", Type: field.TypeJSON, Nullable: true},
 		{Name: "profiles", Type: field.TypeJSON, Nullable: true},
@@ -98,7 +98,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "deleted_at", Type: field.TypeInt, Default: 0},
-		{Name: "type", Type: field.TypeEnum, Enums: []string{"openai", "openai_responses", "atlascloud", "axonhub", "codex", "vercel", "anthropic", "anthropic_aws", "anthropic_gcp", "gemini_openai", "gemini", "gemini_vertex", "deepseek", "deepseek_anthropic", "deepinfra", "qiniu", "fireworks", "doubao", "doubao_anthropic", "moonshot", "moonshot_anthropic", "zhipu", "zai", "zhipu_anthropic", "zai_anthropic", "anthropic_fake", "openai_fake", "openrouter", "xiaomi", "xiaomi_anthropic", "xai", "ppio", "siliconflow", "volcengine", "volcengine_anthropic", "longcat", "longcat_anthropic", "minimax", "minimax_anthropic", "aihubmix", "aihubmix_anthropic", "burncloud", "modelscope", "bailian", "bailian_anthropic", "moonshot_coding", "jina", "github", "github_copilot", "claudecode", "cerebras", "antigravity", "nanogpt", "nanogpt_responses", "opencode_go", "ollama"}},
+		{Name: "type", Type: field.TypeEnum, Enums: []string{"openai", "openai_responses", "atlascloud", "axonhub", "cline", "codex", "vercel", "anthropic", "anthropic_aws", "anthropic_gcp", "gemini_openai", "gemini", "gemini_vertex", "deepseek", "deepseek_anthropic", "deepinfra", "qiniu", "fireworks", "doubao", "doubao_anthropic", "moonshot", "moonshot_anthropic", "zhipu", "zai", "zhipu_anthropic", "zai_anthropic", "anthropic_fake", "openai_fake", "openrouter", "xiaomi", "xiaomi_anthropic", "xai", "ppio", "siliconflow", "volcengine", "volcengine_anthropic", "longcat", "longcat_anthropic", "minimax", "minimax_anthropic", "aihubmix", "aihubmix_anthropic", "burncloud", "modelscope", "bailian", "bailian_anthropic", "moonshot_coding", "jina", "github", "github_copilot", "claudecode", "cerebras", "antigravity", "nanogpt", "nanogpt_responses", "opencode_go", "opencode_go_anthropic", "ollama", "evolink", "evolink_anthropic"}},
 		{Name: "base_url", Type: field.TypeString, Nullable: true},
 		{Name: "name", Type: field.TypeString},
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"enabled", "disabled", "archived"}, Default: "disabled"},
@@ -444,7 +444,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "deleted_at", Type: field.TypeInt, Default: 0},
-		{Name: "provider_type", Type: field.TypeEnum, Enums: []string{"claudecode", "codex", "github_copilot", "nanogpt", "wafer", "synthetic", "neuralwatt"}},
+		{Name: "provider_type", Type: field.TypeEnum, Enums: []string{"claudecode", "codex", "github_copilot", "nanogpt", "cline", "wafer", "synthetic", "neuralwatt", "apertis", "opencode_go", "kimi_code"}},
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"available", "warning", "exhausted", "unknown"}},
 		{Name: "quota_data", Type: field.TypeJSON},
 		{Name: "next_reset_at", Type: field.TypeTime, Nullable: true},
@@ -593,6 +593,8 @@ var (
 		{Name: "metrics_first_token_latency_ms", Type: field.TypeInt64, Nullable: true},
 		{Name: "metrics_reasoning_duration_ms", Type: field.TypeInt64, Nullable: true},
 		{Name: "request_headers", Type: field.TypeJSON, Nullable: true},
+		{Name: "request_url", Type: field.TypeString, Nullable: true},
+		{Name: "pass_through_applied", Type: field.TypeBool, Default: false},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "data_storage_id", Type: field.TypeInt, Nullable: true},
 		{Name: "request_id", Type: field.TypeInt},
@@ -605,19 +607,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "request_executions_channels_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[18]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[20]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_data_storages_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[19]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[21]},
 				RefColumns: []*schema.Column{DataStoragesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_requests_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[20]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[22]},
 				RefColumns: []*schema.Column{RequestsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -626,17 +628,17 @@ var (
 			{
 				Name:    "request_executions_by_request_id_status_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[20], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[22], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_request_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[20], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[22], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[18], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[20], RequestExecutionsColumns[1]},
 			},
 		},
 	}
@@ -698,6 +700,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "thread_id", Type: field.TypeString, Unique: true},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"active", "archived", "retained"}, Default: "active"},
 		{Name: "project_id", Type: field.TypeInt},
 	}
 	// ThreadsTable holds the schema information for the "threads" table.
@@ -708,7 +711,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "threads_projects_threads",
-				Columns:    []*schema.Column{ThreadsColumns[4]},
+				Columns:    []*schema.Column{ThreadsColumns[5]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -717,12 +720,17 @@ var (
 			{
 				Name:    "threads_by_project_id",
 				Unique:  false,
-				Columns: []*schema.Column{ThreadsColumns[4]},
+				Columns: []*schema.Column{ThreadsColumns[5]},
 			},
 			{
 				Name:    "threads_by_thread_id",
 				Unique:  true,
 				Columns: []*schema.Column{ThreadsColumns[3]},
+			},
+			{
+				Name:    "threads_by_project_id_status",
+				Unique:  false,
+				Columns: []*schema.Column{ThreadsColumns[5], ThreadsColumns[4]},
 			},
 		},
 	}
@@ -732,6 +740,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "trace_id", Type: field.TypeString, Unique: true},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"active", "archived", "retained"}, Default: "active"},
 		{Name: "project_id", Type: field.TypeInt},
 		{Name: "thread_id", Type: field.TypeInt, Nullable: true},
 	}
@@ -743,13 +752,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "traces_projects_traces",
-				Columns:    []*schema.Column{TracesColumns[4]},
+				Columns:    []*schema.Column{TracesColumns[5]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "traces_threads_traces",
-				Columns:    []*schema.Column{TracesColumns[5]},
+				Columns:    []*schema.Column{TracesColumns[6]},
 				RefColumns: []*schema.Column{ThreadsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -758,7 +767,7 @@ var (
 			{
 				Name:    "traces_by_project_id",
 				Unique:  false,
-				Columns: []*schema.Column{TracesColumns[4]},
+				Columns: []*schema.Column{TracesColumns[5]},
 			},
 			{
 				Name:    "traces_by_trace_id",
@@ -768,7 +777,12 @@ var (
 			{
 				Name:    "traces_by_thread_id",
 				Unique:  false,
-				Columns: []*schema.Column{TracesColumns[5]},
+				Columns: []*schema.Column{TracesColumns[6]},
+			},
+			{
+				Name:    "traces_by_project_id_status",
+				Unique:  false,
+				Columns: []*schema.Column{TracesColumns[5], TracesColumns[4]},
 			},
 		},
 	}

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -74,6 +75,13 @@ func WithEmptyResponseDetection(emptyResponseTextPatterns ...string) Option {
 	}
 }
 
+func WithResponseTimeouts(streamFirstEventTimeout, nonStreamTimeout time.Duration) Option {
+	return func(p *pipeline) {
+		p.streamFirstEventTimeout = streamFirstEventTimeout
+		p.nonStreamTimeout = nonStreamTimeout
+	}
+}
+
 // Factory creates pipeline instances.
 type Factory struct {
 	Executor Executor
@@ -117,6 +125,8 @@ type pipeline struct {
 	retryDelay                time.Duration
 	emptyResponseDetection    bool
 	emptyResponseTextPatterns []string
+	streamFirstEventTimeout   time.Duration
+	nonStreamTimeout          time.Duration
 }
 
 type Result struct {
@@ -261,6 +271,8 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 		return nil, err
 	}
 
+	originalStream := llmRequest.Stream
+
 	var lastErr error
 
 	channelSwitches := 0
@@ -268,6 +280,8 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 
 	// Step 3: Process the request
 	for {
+		llmRequest.Stream = originalStream
+
 		result, err := p.processRequest(ctx, llmRequest)
 		if err == nil {
 			return result, nil
@@ -282,20 +296,23 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 
 		// Determine retry strategy
 		canRetry := false
+		timeoutRetry := isResponseTimeoutError(lastErr)
 
 		// 1. Try same-channel retry first if supported
-		if channelRetryable, ok := p.Outbound.(ChannelRetryable); ok {
-			if sameChannelRetries < p.getMaxSameChannelRetries() && channelRetryable.CanRetry(lastErr) {
-				if err := channelRetryable.PrepareForRetry(ctx); err == nil {
-					sameChannelRetries++
-					canRetry = true
+		if !timeoutRetry {
+			if channelRetryable, ok := p.Outbound.(ChannelRetryable); ok {
+				if sameChannelRetries < p.getMaxSameChannelRetries() && channelRetryable.CanRetry(lastErr) {
+					if err := channelRetryable.PrepareForRetry(ctx); err == nil {
+						sameChannelRetries++
+						canRetry = true
 
-					slog.DebugContext(ctx, "retrying same channel",
-						slog.Int("same_channel_attempt", sameChannelRetries),
-						slog.Int("max_same_channel_retries", p.getMaxSameChannelRetries()),
-					)
-				} else {
-					slog.WarnContext(ctx, "failed to prepare same channel retry, will try channel switch", slog.Any("error", err))
+						slog.DebugContext(ctx, "retrying same channel",
+							slog.Int("same_channel_attempt", sameChannelRetries),
+							slog.Int("max_same_channel_retries", p.getMaxSameChannelRetries()),
+						)
+					} else {
+						slog.WarnContext(ctx, "failed to prepare same channel retry, will try channel switch", slog.Any("error", err))
+					}
 				}
 			}
 		}
@@ -341,6 +358,8 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 }
 
 func (p *pipeline) processRequest(ctx context.Context, request *llm.Request) (*Result, error) {
+	originalWantStream := request.Stream != nil && *request.Stream
+
 	httpReq, err := p.Outbound.TransformRequest(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform request: %w", err)
@@ -366,25 +385,51 @@ func (p *pipeline) processRequest(ctx context.Context, request *llm.Request) (*R
 		executor = c.CustomizeExecutor(executor)
 	}
 
+	effectiveWantStream := request.Stream != nil && *request.Stream
+
 	var result *Result
-	if request.Stream != nil && *request.Stream {
+	switch {
+	case originalWantStream:
 		result = &Result{
 			Stream: true,
 		}
 
-		stream, err := p.stream(ctx, executor, httpReq)
+		stream, err := p.stream(ctx, executor, httpReq, p.streamFirstEventTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("failed to stream request: %w", err)
 		}
 
 		result.EventStream = stream
-	} else {
+	case effectiveWantStream:
 		result = &Result{
 			Stream: false,
 		}
 
-		response, err := p.notStream(ctx, executor, httpReq)
+		timeoutCtx, cancel := p.withNonStreamTimeout(ctx)
+		response, err := p.autoAggregateStream(timeoutCtx, executor, httpReq)
+		cancel()
 		if err != nil {
+			if p.isNonStreamTimeout(timeoutCtx) {
+				return nil, ErrNonStreamResponseTimeout
+			}
+
+			return nil, fmt.Errorf("failed to auto-aggregate streaming response: %w", err)
+		}
+
+		result.Response = response
+	default:
+		result = &Result{
+			Stream: false,
+		}
+
+		timeoutCtx, cancel := p.withNonStreamTimeout(ctx)
+		response, err := p.notStream(timeoutCtx, executor, httpReq)
+		cancel()
+		if err != nil {
+			if p.isNonStreamTimeout(timeoutCtx) {
+				return nil, ErrNonStreamResponseTimeout
+			}
+
 			return nil, err
 		}
 
@@ -397,4 +442,20 @@ func (p *pipeline) processRequest(ctx context.Context, request *llm.Request) (*R
 // getMaxSameChannelRetries returns the maximum number of same-channel retries.
 func (p *pipeline) getMaxSameChannelRetries() int {
 	return p.maxSameChannelRetries
+}
+
+func isResponseTimeoutError(err error) bool {
+	return errors.Is(err, ErrStreamFirstEventTimeout) || errors.Is(err, ErrNonStreamResponseTimeout)
+}
+
+func (p *pipeline) withNonStreamTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if p.nonStreamTimeout <= 0 {
+		return ctx, func() {}
+	}
+
+	return context.WithTimeoutCause(ctx, p.nonStreamTimeout, ErrNonStreamResponseTimeout)
+}
+
+func (p *pipeline) isNonStreamTimeout(ctx context.Context) bool {
+	return p.nonStreamTimeout > 0 && errors.Is(context.Cause(ctx), ErrNonStreamResponseTimeout)
 }

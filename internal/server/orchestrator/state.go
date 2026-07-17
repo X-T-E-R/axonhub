@@ -33,6 +33,10 @@ type PersistenceState struct {
 	RawRequest    *httpclient.Request
 	LlmRequest    *llm.Request
 
+	// OriginalRequestStream stores the client's original stream intent before any
+	// candidate-specific forcing to provider-side streaming happens.
+	OriginalRequestStream *bool
+
 	// Persistence state
 	Request     *ent.Request
 	RequestExec *ent.RequestExecution
@@ -74,4 +78,7 @@ type PersistenceState struct {
 	// captureRawProviderStream. Must be called in PrepareForRetry and NextChannel so the
 	// abandoned goroutine exits promptly and releases its upstream HTTP connection.
 	RawStreamCancel context.CancelFunc
+
+	// PassThroughApplied records whether the inbound request body was substituted during pass-through.
+	PassThroughApplied bool
 }

@@ -65,6 +65,7 @@ var defaultAutoBackupSettings = AutoBackupSettings{
 	IncludeAPIKeys:     false,
 	IncludeModelPrices: true,
 	IncludeUsageStats:  false,
+	IncludeRequestLogs: false,
 	RetentionDays:      30,
 }
 
@@ -78,4 +79,9 @@ var defaultVideoStorageSettings = VideoStorageSettings{
 var defaultQuotaEnforcementSettings = QuotaEnforcementSettings{
 	Enabled: false,
 	Mode:    QuotaEnforcementModeExhaustedOnly,
+}
+
+var defaultSecuritySettings = SecuritySettings{
+	BlockedIPs:              []string{},
+	ShowRequestLogIPBanIcon: true,
 }

@@ -236,6 +236,7 @@ func convertAssistantMessage(msg llm.Message) []Item {
 				Type:      "function_call",
 				CallID:    tc.ID,
 				Name:      tc.Function.Name,
+				Namespace: tc.Function.Namespace,
 				Arguments: tc.Function.Arguments,
 			})
 		}
@@ -329,6 +330,7 @@ func convertImageGenerationToTool(src llm.Tool) Tool {
 		tool.Model = src.ImageGeneration.Model
 		tool.Background = src.ImageGeneration.Background
 		tool.InputFidelity = src.ImageGeneration.InputFidelity
+		tool.InputImageMask = src.ImageGeneration.InputImageMask
 		tool.Moderation = src.ImageGeneration.Moderation
 		tool.OutputCompression = src.ImageGeneration.OutputCompression
 		tool.OutputFormat = src.ImageGeneration.OutputFormat
@@ -502,8 +504,14 @@ func convertStreamOptions(src *llm.StreamOptions, metadata map[string]any) *Stre
 // Only one of "reasoning.effort" and "reasoning.max_tokens" can be specified.
 // Priority is given to effort when both are present.
 func convertReasoning(req *llm.Request) *Reasoning {
+	reasoningContext := ""
+	if requestExt := openAIResponsesRequestExtensions(req); requestExt != nil {
+		reasoningContext = requestExt.ReasoningContext
+	}
+
 	// Check if any reasoning-related fields are present
-	hasReasoningFields := req.ReasoningEffort != "" ||
+	hasReasoningFields := reasoningContext != "" ||
+		req.ReasoningEffort != "" ||
 		req.ReasoningBudget != nil ||
 		req.ReasoningSummary != nil
 	if !hasReasoningFields {
@@ -511,6 +519,7 @@ func convertReasoning(req *llm.Request) *Reasoning {
 	}
 
 	reasoning := &Reasoning{
+		Context:   reasoningContext,
 		Effort:    req.ReasoningEffort,
 		MaxTokens: req.ReasoningBudget,
 	}
@@ -572,26 +581,27 @@ func appendOutputText(textContent *strings.Builder, visibleTextRuneCount *int64,
 }
 
 func appendResponseWebSearchCallMetadata(transformerMetadata map[string]any, outputItem Item) {
-	if transformerMetadata == nil || outputItem.Action == nil {
+	if transformerMetadata == nil || outputItem.Action == nil || outputItem.Action.WebSearch == nil {
 		return
 	}
 
+	src := outputItem.Action.WebSearch
 	action := &WebSearchAction{
-		Type:  outputItem.Action.Type,
-		Query: outputItem.Action.Query,
+		Type:  src.Type,
+		Query: src.Query,
 	}
-	if len(outputItem.Action.Queries) > 0 {
-		action.Queries = append([]string(nil), outputItem.Action.Queries...)
+	if len(src.Queries) > 0 {
+		action.Queries = append([]string(nil), src.Queries...)
 	}
-	if len(outputItem.Action.Sources) > 0 {
-		action.Sources = append([]WebSearchSource(nil), outputItem.Action.Sources...)
+	if len(src.Sources) > 0 {
+		action.Sources = append([]WebSearchSource(nil), src.Sources...)
 	}
 
 	call := Item{
 		ID:     outputItem.ID,
 		Type:   outputItem.Type,
 		Status: outputItem.Status,
-		Action: action,
+		Action: NewWebSearchAction(action),
 	}
 
 	existing, _ := transformerMetadata[responsesWebSearchCallsTransformerMetadataKey].([]Item)
@@ -648,6 +658,7 @@ func convertOutputToMessage(output []Item, transformerMetadata map[string]any) l
 				Type: "function",
 				Function: llm.FunctionCall{
 					Name:      outputItem.Name,
+					Namespace: outputItem.Namespace,
 					Arguments: outputItem.Arguments,
 				},
 			})

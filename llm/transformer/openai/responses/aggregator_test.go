@@ -42,6 +42,34 @@ func TestAggregateStreamChunks(t *testing.T) {
 	}
 }
 
+func TestAggregateStreamChunks_CancelledFallbackUsesCanonicalStatus(t *testing.T) {
+	resultBytes, _, err := AggregateStreamChunks(t.Context(), []*httpclient.StreamEvent{
+		{Type: "response.cancelled", Data: []byte(`{"type":"response.cancelled","response":{"id":"resp_canceled","object":"response","created_at":1700000000,"model":"gpt-5","output":[]}}`)},
+	})
+	require.NoError(t, err)
+
+	var body Response
+	require.NoError(t, json.Unmarshal(resultBytes, &body))
+	require.NotNil(t, body.Status)
+	require.Equal(t, "canceled", *body.Status)
+}
+
+func TestAggregateStreamChunks_CancelledSnapshotPreservesStatus(t *testing.T) {
+	resultBytes, _, err := AggregateStreamChunks(t.Context(), []*httpclient.StreamEvent{
+		{Type: "response.created", Data: []byte(`{"type":"response.created","response":{"id":"resp_canceled","object":"response","created_at":1700000000,"model":"gpt-5","status":"in_progress","output":[]}}`)},
+		{Type: "response.cancelled", Data: []byte(`{"type":"response.cancelled","response":{"id":"resp_canceled","object":"response","created_at":1700000001,"model":"gpt-5-codex","status":"canceled","output":[]}}`)},
+	})
+	require.NoError(t, err)
+
+	var body Response
+	require.NoError(t, json.Unmarshal(resultBytes, &body))
+	require.Equal(t, "resp_canceled", body.ID)
+	require.Equal(t, "gpt-5-codex", body.Model)
+	require.Equal(t, int64(1700000001), body.CreatedAt)
+	require.NotNil(t, body.Status)
+	require.Equal(t, "canceled", *body.Status)
+}
+
 func TestAggregateStreamChunks_WithTestData(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -773,4 +801,85 @@ func TestAggregateStreamChunks_ReasoningSummaryMultipleParts(t *testing.T) {
 	require.Equal(t, "**Analyzing output logic**", resp.Output[0].Summary[0].Text)
 	require.Equal(t, "summary_text", resp.Output[0].Summary[1].Type)
 	require.Equal(t, "", resp.Output[0].Summary[1].Text)
+}
+
+func TestAggregateStreamChunks_ImageGenerationCall(t *testing.T) {
+	chunks := []*httpclient.StreamEvent{
+		{
+			Type: "response.created",
+			Data: []byte(`{
+				"type": "response.created",
+				"sequence_number": 0,
+				"response": {
+					"id": "resp_img_gen_001",
+					"object": "response",
+					"created_at": 1760000000,
+					"model": "gpt-image-2",
+					"status": "in_progress",
+					"output": []
+				}
+			}`),
+		},
+		{
+			Type: "response.output_item.added",
+			Data: []byte(`{
+				"type": "response.output_item.added",
+				"sequence_number": 1,
+				"output_index": 0,
+				"item": {
+					"id": "img_call_001",
+					"type": "image_generation_call",
+					"status": "in_progress",
+					"call_id": "call_abc"
+				}
+			}`),
+		},
+		{
+			Type: "response.output_item.done",
+			Data: []byte(`{
+				"type": "response.output_item.done",
+				"sequence_number": 2,
+				"output_index": 0,
+				"item": {
+					"id": "img_call_001",
+					"type": "image_generation_call",
+					"status": "completed",
+					"call_id": "call_abc",
+					"result": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+				}
+			}`),
+		},
+		{
+			Type: "response.completed",
+			Data: []byte(`{
+				"type": "response.completed",
+				"sequence_number": 3,
+				"response": {
+					"id": "resp_img_gen_001",
+					"object": "response",
+					"created_at": 1760000000,
+					"model": "gpt-image-2",
+					"status": "completed",
+					"output": []
+				}
+			}`),
+		},
+	}
+
+	resultBytes, _, err := AggregateStreamChunks(t.Context(), chunks)
+	require.NoError(t, err)
+	require.NotNil(t, resultBytes)
+
+	var resp Response
+
+	err = json.Unmarshal(resultBytes, &resp)
+	require.NoError(t, err)
+
+	require.Equal(t, "resp_img_gen_001", resp.ID)
+	require.Len(t, resp.Output, 1)
+	require.Equal(t, "image_generation_call", resp.Output[0].Type)
+	require.Equal(t, "completed", *resp.Output[0].Status)
+	require.Equal(t, "call_abc", resp.Output[0].CallID)
+	require.NotNil(t, resp.Output[0].Result)
+	require.Equal(t, "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", *resp.Output[0].Result)
 }

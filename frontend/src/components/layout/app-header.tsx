@@ -84,7 +84,7 @@ export function AppHeader() {
 
         {/* 右侧控件 */}
         <div className='flex items-center gap-2 pr-6'>
-          {canViewProviderQuotas && <QuotaBadges onRefresh={handleRefresh} isRefreshing={isRefreshing} />}
+		  {canViewProviderQuotas && <QuotaBadges onRefresh={handleRefresh} isRefreshing={isRefreshing} />}
 
           {/* Desktop-only controls - hidden on mobile */}
           {!isMobile && (

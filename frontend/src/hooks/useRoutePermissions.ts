@@ -25,8 +25,24 @@ export function useRoutePermissions() {
     return project?.scopes || [];
   }, [selectedProjectId, user?.projects]);
 
+  const isProjectOwner = useMemo(() => {
+    if (isOwner) {
+      return true;
+    }
+    if (!selectedProjectId || !user?.projects) {
+      return false;
+    }
+    const project = user.projects.find((p) => normalizeEntityID(p.projectID) === selectedProjectId);
+    return project?.isOwner || false;
+  }, [isOwner, selectedProjectId, user?.projects]);
+
   // 检查路由权限（根据 scopeLevel 决定检查哪个级别的权限）
   const hasRouteAccess = (routeConfig: RouteConfig, groupScopeLevel?: ScopeLevel): boolean => {
+    // 检查项目所有者权限限制
+    if (routeConfig.requireProjectOwner && !isProjectOwner) {
+      return false;
+    }
+
     if (!routeConfig.requiredScopes || routeConfig.requiredScopes.length === 0) {
       return true;
     }
@@ -81,14 +97,14 @@ export function useRoutePermissions() {
         mode: routeConfig.mode,
       };
     };
-  }, [systemScopes, projectScopes, isOwner]);
+  }, [systemScopes, projectScopes, isOwner, isProjectOwner]);
 
   // 检查路由组权限
   const checkGroupAccess = useMemo(() => {
     return (group: RouteGroup): boolean => {
       return hasGroupAccess(group);
     };
-  }, [systemScopes, projectScopes, isOwner]);
+  }, [systemScopes, projectScopes, isOwner, isProjectOwner]);
 
   // 过滤导航项
   const filterNavItems = useMemo(() => {
@@ -144,7 +160,10 @@ export function useRoutePermissions() {
 
   return {
     userScopes: [...systemScopes, ...projectScopes],
+    systemScopes,
+    projectScopes,
     isOwner,
+    isProjectOwner,
     checkRouteAccess,
     checkGroupAccess,
     filterNavItems,

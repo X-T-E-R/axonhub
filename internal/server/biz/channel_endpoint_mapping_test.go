@@ -27,6 +27,9 @@ func TestDefaultEndpointsForChannelType_UseLLMAPIFormatValues(t *testing.T) {
 				llm.APIFormatOpenAIImageEdit.String(),
 				llm.APIFormatOpenAIImageVariation.String(),
 				llm.APIFormatOpenAIVideo.String(),
+				llm.APIFormatOpenAISpeech.String(),
+				llm.APIFormatOpenAITranscription.String(),
+				llm.APIFormatOpenAITranslation.String(),
 			},
 		},
 		{
@@ -66,6 +69,11 @@ func TestDefaultEndpointsForChannelType_UseLLMAPIFormatValues(t *testing.T) {
 			},
 		},
 		{
+			name:     "cline exposes chat only",
+			typ:      channel.TypeCline,
+			expected: []string{llm.APIFormatOpenAIChatCompletion.String()},
+		},
+		{
 			name:     "minimax exposes chat only",
 			typ:      channel.TypeMinimax,
 			expected: []string{llm.APIFormatOpenAIChatCompletion.String()},
@@ -79,6 +87,15 @@ func TestDefaultEndpointsForChannelType_UseLLMAPIFormatValues(t *testing.T) {
 			name:     "nanogpt responses defaults to responses",
 			typ:      channel.TypeNanogptResponses,
 			expected: []string{llm.APIFormatOpenAIResponse.String()},
+		},
+		{
+			name: "codex exposes responses plus image generation and edit",
+			typ:  channel.TypeCodex,
+			expected: []string{
+				llm.APIFormatOpenAIResponse.String(),
+				llm.APIFormatOpenAIImageGeneration.String(),
+				llm.APIFormatOpenAIImageEdit.String(),
+			},
 		},
 		{
 			name:     "jina exposes rerank and embedding",
@@ -103,6 +120,9 @@ func TestDefaultEndpointsForChannelType_UseLLMAPIFormatValues(t *testing.T) {
 				llm.APIFormatOpenAIImageEdit.String(),
 				llm.APIFormatOpenAIImageVariation.String(),
 				llm.APIFormatOpenAIVideo.String(),
+				llm.APIFormatOpenAISpeech.String(),
+				llm.APIFormatOpenAITranscription.String(),
+				llm.APIFormatOpenAITranslation.String(),
 			},
 		},
 		{
@@ -125,6 +145,9 @@ func TestDefaultEndpointsForChannelType_UseLLMAPIFormatValues(t *testing.T) {
 				llm.APIFormatOpenAIImageGeneration.String(),
 				llm.APIFormatOpenAIImageEdit.String(),
 				llm.APIFormatOpenAIVideo.String(),
+				llm.APIFormatOpenAISpeech.String(),
+				llm.APIFormatOpenAITranscription.String(),
+				llm.APIFormatOpenAITranslation.String(),
 				llm.APIFormatAnthropicMessage.String(),
 				llm.APIFormatJinaRerank.String(),
 				llm.APIFormatJinaEmbedding.String(),
@@ -188,6 +211,28 @@ func TestValidateEndpoints(t *testing.T) {
 		require.Contains(t, err.Error(), "path must not be a full URL")
 	})
 
+	t.Run("websocket transport only supports responses", func(t *testing.T) {
+		err := ValidateEndpoints([]objects.ChannelEndpoint{
+			{APIFormat: llm.APIFormatOpenAIChatCompletion.String(), Transport: objects.ChannelEndpointTransportWebSocket},
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "websocket transport only supports")
+	})
+
+	t.Run("websocket responses endpoint passes validation", func(t *testing.T) {
+		err := ValidateEndpoints([]objects.ChannelEndpoint{
+			{APIFormat: llm.APIFormatOpenAIResponse.String(), Transport: objects.ChannelEndpointTransportWebSocket},
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("websocket compact responses endpoint passes validation", func(t *testing.T) {
+		err := ValidateEndpoints([]objects.ChannelEndpoint{
+			{APIFormat: llm.APIFormatOpenAIResponseCompact.String(), Transport: objects.ChannelEndpointTransportWebSocket},
+		})
+		require.NoError(t, err)
+	})
+
 	t.Run("valid endpoints pass validation", func(t *testing.T) {
 		err := ValidateEndpoints([]objects.ChannelEndpoint{
 			{APIFormat: llm.APIFormatOpenAIChatCompletion.String()},
@@ -199,6 +244,27 @@ func TestValidateEndpoints(t *testing.T) {
 	t.Run("empty endpoints list passes validation", func(t *testing.T) {
 		err := ValidateEndpoints(nil)
 		require.NoError(t, err)
+	})
+}
+
+func TestPrimaryEndpointTransport(t *testing.T) {
+	t.Run("infers websocket from primary base url", func(t *testing.T) {
+		transport := primaryEndpointTransport(&ent.Channel{
+			BaseURL: "wss://api.openai.com/v1#",
+		}, llm.APIFormatOpenAIResponse.String())
+
+		require.Equal(t, objects.ChannelEndpointTransportWebSocket, transport)
+	})
+
+	t.Run("uses matching endpoint transport override", func(t *testing.T) {
+		transport := primaryEndpointTransport(&ent.Channel{
+			BaseURL: "https://api.openai.com/v1",
+			Endpoints: []objects.ChannelEndpoint{
+				{APIFormat: llm.APIFormatOpenAIResponse.String(), Transport: objects.ChannelEndpointTransportWebSocket},
+			},
+		}, llm.APIFormatOpenAIResponse.String())
+
+		require.Equal(t, objects.ChannelEndpointTransportWebSocket, transport)
 	})
 }
 
@@ -221,6 +287,9 @@ func TestResolveEndpoints_MergesDefaultsAndUserOverrides(t *testing.T) {
 		{APIFormat: llm.APIFormatOpenAIImageEdit.String()},
 		{APIFormat: llm.APIFormatOpenAIImageVariation.String()},
 		{APIFormat: llm.APIFormatOpenAIVideo.String()},
+		{APIFormat: llm.APIFormatOpenAISpeech.String()},
+		{APIFormat: llm.APIFormatOpenAITranscription.String()},
+		{APIFormat: llm.APIFormatOpenAITranslation.String()},
 		{APIFormat: llm.APIFormatGeminiContents.String(), Path: "/v1/gemini"},
 	}, endpoints)
 }
@@ -236,6 +305,9 @@ func TestSupportedAPIFormats_UsesLLMAPIFormatValues(t *testing.T) {
 		llm.APIFormatOpenAIImageEdit.String(),
 		llm.APIFormatOpenAIImageVariation.String(),
 		llm.APIFormatOpenAIVideo.String(),
+		llm.APIFormatOpenAISpeech.String(),
+		llm.APIFormatOpenAITranscription.String(),
+		llm.APIFormatOpenAITranslation.String(),
 		llm.APIFormatAnthropicMessage.String(),
 		llm.APIFormatGeminiContents.String(),
 		llm.APIFormatGeminiEmbedding.String(),

@@ -162,14 +162,19 @@ func (s *UserService) UpdateUser(ctx context.Context, id int, input ent.UpdateUs
 	return user, nil
 }
 
-func (s *UserService) UpdateCurrentUserProfile(ctx context.Context, input ent.UpdateUserInput) (*ent.User, error) {
+// UpdateOwnProfile updates fields users are allowed to change for their own account.
+func (s *UserService) UpdateOwnProfile(ctx context.Context, input ent.UpdateUserInput) (*ent.User, error) {
 	currentUser, ok := contexts.GetUser(ctx)
 	if !ok || currentUser == nil {
 		return nil, fmt.Errorf("user not found in context")
 	}
 
-	return authz.RunWithSystemBypass(ctx, "update-current-user-profile", func(bypassCtx context.Context) (*ent.User, error) {
-		mut := s.entFromContext(bypassCtx).User.UpdateOneID(currentUser.ID).
+	id := currentUser.ID
+
+	return authz.RunWithSystemBypass(ctx, "update-own-profile", func(ctx context.Context) (*ent.User, error) {
+		client := s.entFromContext(ctx)
+
+		mut := client.User.UpdateOneID(id).
 			SetNillableFirstName(input.FirstName).
 			SetNillableLastName(input.LastName).
 			SetNillablePreferLanguage(input.PreferLanguage)
@@ -180,37 +185,24 @@ func (s *UserService) UpdateCurrentUserProfile(ctx context.Context, input ent.Up
 			mut.SetNillableAvatar(input.Avatar)
 		}
 
-		updated, err := mut.Save(bypassCtx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update current user profile: %w", err)
+		if input.Password != nil {
+			hashedPassword, err := HashPassword(*input.Password)
+			if err != nil {
+				return nil, err
+			}
+
+			mut.SetPassword(hashedPassword)
 		}
 
-		s.invalidateUserCache(bypassCtx, currentUser.ID)
-		return updated, nil
-	})
-}
-
-func (s *UserService) UpdateCurrentUserPassword(ctx context.Context, newPassword string) (*ent.User, error) {
-	currentUser, ok := contexts.GetUser(ctx)
-	if !ok || currentUser == nil {
-		return nil, fmt.Errorf("user not found in context")
-	}
-
-	hashedPassword, err := HashPassword(newPassword)
-	if err != nil {
-		return nil, err
-	}
-
-	return authz.RunWithSystemBypass(ctx, "update-current-user-password", func(bypassCtx context.Context) (*ent.User, error) {
-		updated, err := s.entFromContext(bypassCtx).User.UpdateOneID(currentUser.ID).
-			SetPassword(hashedPassword).
-			Save(bypassCtx)
+		user, err := mut.Save(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to update current user password: %w", err)
+			return nil, fmt.Errorf("failed to update user profile: %w", err)
 		}
 
-		s.invalidateUserCache(bypassCtx, currentUser.ID)
-		return updated, nil
+		// Invalidate cache
+		s.invalidateUserCache(ctx, id)
+
+		return user, nil
 	})
 }
 

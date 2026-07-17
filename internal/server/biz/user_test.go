@@ -97,7 +97,7 @@ func TestConvertUserToUserInfo_BasicUser(t *testing.T) {
 	require.Empty(t, userInfo.Projects)
 }
 
-func TestUserService_UpdateCurrentUserProfileDoesNotRequireAdminScopes(t *testing.T) {
+func TestUserService_UpdateOwnProfileDoesNotRequireAdminScopes(t *testing.T) {
 	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
 	defer client.Close()
 
@@ -123,7 +123,7 @@ func TestUserService_UpdateCurrentUserProfileDoesNotRequireAdminScopes(t *testin
 
 	firstName := "Self"
 	language := "zh-CN"
-	updated, err := userService.UpdateCurrentUserProfile(ctx, ent.UpdateUserInput{
+	updated, err := userService.UpdateOwnProfile(ctx, ent.UpdateUserInput{
 		FirstName:      &firstName,
 		PreferLanguage: &language,
 	})

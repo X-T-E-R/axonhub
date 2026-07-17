@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -18,7 +19,9 @@ import (
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xerrors"
 	"github.com/looplj/axonhub/internal/pkg/xregexp"
+	"github.com/looplj/axonhub/internal/pkg/xtime"
 	"github.com/looplj/axonhub/internal/scopes"
+	"github.com/looplj/axonhub/llm/httpclient"
 )
 
 type ModelServiceParams struct {
@@ -188,11 +191,24 @@ func validateFilterLeaf(condition objects.Condition) error {
 		return fmt.Errorf("condition field is required")
 	}
 
+	if strings.HasPrefix(condition.Field, objects.ModelAssociationConditionFieldRequestHeaderPrefix) {
+		return validateRequestHeaderLeaf(condition)
+	}
+
 	switch condition.Field {
-	case "prompt_tokens":
+	case objects.ModelAssociationConditionFieldPromptTokens:
 		return validatePromptTokensLeaf(condition)
-	case "stream":
-		return validateStreamLeaf(condition)
+	case objects.ModelAssociationConditionFieldStream:
+		return validateBoolEqualityLeaf(condition, objects.ModelAssociationConditionFieldStream)
+	case objects.ModelAssociationConditionFieldRequestFormat:
+		return validateStringEqualityLeaf(condition, objects.ModelAssociationConditionFieldRequestFormat)
+	case objects.ModelAssociationConditionFieldDailyTime:
+		return validateDailyTimeLeaf(condition)
+	case objects.ModelAssociationConditionFieldHasImage,
+		objects.ModelAssociationConditionFieldHasVideo,
+		objects.ModelAssociationConditionFieldHasDocument,
+		objects.ModelAssociationConditionFieldHasAudio:
+		return validateBoolEqualityLeaf(condition, condition.Field)
 	default:
 		return fmt.Errorf("unsupported condition field %q", condition.Field)
 	}
@@ -221,19 +237,79 @@ func validatePromptTokensLeaf(condition objects.Condition) error {
 	return nil
 }
 
-func validateStreamLeaf(condition objects.Condition) error {
+func validateBoolEqualityLeaf(condition objects.Condition, field string) error {
 	switch condition.Operator {
 	case "eq", "ne", "=", "==", "!=":
 	default:
-		return fmt.Errorf("unsupported condition operator %q for stream", condition.Operator)
+		return fmt.Errorf("unsupported condition operator %q for %s", condition.Operator, field)
 	}
 
 	switch condition.Value.(type) {
 	case bool:
 		return nil
 	default:
-		return fmt.Errorf("condition value for stream must be a boolean, got %T", condition.Value)
+		return fmt.Errorf("condition value for %s must be a boolean, got %T", field, condition.Value)
 	}
+}
+
+func validateStringEqualityLeaf(condition objects.Condition, field string) error {
+	switch condition.Operator {
+	case "eq", "ne", "=", "==", "!=":
+	default:
+		return fmt.Errorf("unsupported condition operator %q for %s", condition.Operator, field)
+	}
+
+	value, ok := condition.Value.(string)
+	if !ok || value == "" {
+		return fmt.Errorf("condition value for %s must be a non-empty string", field)
+	}
+
+	return nil
+}
+
+func validateDailyTimeLeaf(condition objects.Condition) error {
+	switch condition.Operator {
+	case "within", "not_within":
+	default:
+		return fmt.Errorf("unsupported condition operator %q for daily_time", condition.Operator)
+	}
+
+	value, ok := condition.Value.(string)
+	if !ok || value == "" {
+		return fmt.Errorf("condition value for daily_time must be a daily time range")
+	}
+
+	if _, _, err := xtime.ParseDailyTimeRange(value); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateRequestHeaderLeaf(condition objects.Condition) error {
+	switch strings.TrimSpace(strings.ToLower(condition.Operator)) {
+	case "eq", "ne", "=", "==", "!=", "<>", "contains", "not_contains", "start_with", "end_with":
+	default:
+		return fmt.Errorf("unsupported condition operator %q for request_header", condition.Operator)
+	}
+
+	headerName := strings.TrimSpace(strings.TrimPrefix(condition.Field, objects.ModelAssociationConditionFieldRequestHeaderPrefix))
+	if headerName == "" {
+		return fmt.Errorf("request header name is required")
+	}
+	if len(headerName) > 256 {
+		return fmt.Errorf("request header name is too long")
+	}
+	if httpclient.IsSensitiveHeader(headerName) {
+		return fmt.Errorf("request header %q is sensitive and cannot be used in conditions", headerName)
+	}
+
+	value, ok := condition.Value.(string)
+	if !ok || value == "" {
+		return fmt.Errorf("condition value for request_header must be a non-empty string")
+	}
+
+	return nil
 }
 
 func filterValueToInt64(value any) (int64, bool) {
@@ -285,14 +361,7 @@ func (svc *ModelService) CreateModel(ctx context.Context, input ent.CreateModelI
 	}
 
 	createBuilder := svc.entFromContext(ctx).Model.Create().
-		SetDeveloper(input.Developer).
-		SetModelID(input.ModelID).
-		SetIcon(input.Icon).
-		SetType(*input.Type).
-		SetName(input.Name).
-		SetGroup(input.Group).
-		SetModelCard(input.ModelCard).
-		SetSettings(input.Settings)
+		SetInput(input)
 
 	if input.Remark != nil {
 		createBuilder.SetRemark(*input.Remark)
@@ -350,14 +419,7 @@ func (svc *ModelService) BulkCreateModels(ctx context.Context, inputs []*ent.Cre
 	bulk := make([]*ent.ModelCreate, len(inputs))
 	for i, input := range inputs {
 		createBuilder := svc.entFromContext(ctx).Model.Create().
-			SetDeveloper(input.Developer).
-			SetModelID(input.ModelID).
-			SetIcon(input.Icon).
-			SetType(*input.Type).
-			SetName(input.Name).
-			SetGroup(input.Group).
-			SetModelCard(input.ModelCard).
-			SetSettings(input.Settings)
+			SetInput(*input)
 
 		if input.Remark != nil {
 			createBuilder.SetRemark(*input.Remark)

@@ -6,7 +6,7 @@ import ThreadsManagement from '@/features/threads';
 function ProtectedProjectThreads() {
   return (
     <ProjectGuard>
-      <RouteGuard routePath='/project/threads'>
+      <RouteGuard routePath='/project/threads' requiredScopes={['read_requests']} scopeLevel='any'>
         <ThreadsManagement />
       </RouteGuard>
     </ProjectGuard>

@@ -6,7 +6,7 @@ import RequestsManagement from '@/features/requests';
 function ProtectedProjectRequests() {
   return (
     <ProjectGuard>
-      <RouteGuard routePath='/project/requests'>
+      <RouteGuard routePath='/project/requests' requiredScopes={['read_requests']} scopeLevel='any'>
         <RequestsManagement />
       </RouteGuard>
     </ProjectGuard>
@@ -14,5 +14,6 @@ function ProtectedProjectRequests() {
 }
 
 export const Route = createFileRoute('/_authenticated/project/requests/')({
+  validateSearch: (search: Record<string, unknown>) => search,
   component: ProtectedProjectRequests,
 });

@@ -4,7 +4,7 @@ import ModelsManagement from '@/features/models';
 
 function ProtectedModelsManagement() {
   return (
-    <RouteGuard routePath='/models'>
+    <RouteGuard routePath='/models' requiredScopes={['read_channels']} scopeLevel='system'>
       <ModelsManagement />
     </RouteGuard>
   );
