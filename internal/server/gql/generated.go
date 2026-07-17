@@ -103,20 +103,27 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	APIKey struct {
-		CreatedAt func(childComplexity int) int
-		ID        func(childComplexity int) int
-		Key       func(childComplexity int) int
-		Name      func(childComplexity int) int
-		Profiles  func(childComplexity int) int
-		Project   func(childComplexity int) int
-		ProjectID func(childComplexity int) int
-		Requests  func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
-		Scopes    func(childComplexity int) int
-		Status    func(childComplexity int) int
-		Type      func(childComplexity int) int
-		UpdatedAt func(childComplexity int) int
-		User      func(childComplexity int) int
-		UserID    func(childComplexity int) int
+		AccessGroup            func(childComplexity int) int
+		AccessGroupID          func(childComplexity int) int
+		AccessGroupRevision    func(childComplexity int) int
+		ClassificationAt       func(childComplexity int) int
+		ClassificationByUserID func(childComplexity int) int
+		CreatedAt              func(childComplexity int) int
+		ID                     func(childComplexity int) int
+		Key                    func(childComplexity int) int
+		Name                   func(childComplexity int) int
+		ProfileMode            func(childComplexity int) int
+		Profiles               func(childComplexity int) int
+		Project                func(childComplexity int) int
+		ProjectID              func(childComplexity int) int
+		ProvisioningSource     func(childComplexity int) int
+		Requests               func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
+		Scopes                 func(childComplexity int) int
+		Status                 func(childComplexity int) int
+		Type                   func(childComplexity int) int
+		UpdatedAt              func(childComplexity int) int
+		User                   func(childComplexity int) int
+		UserID                 func(childComplexity int) int
 	}
 
 	APIKeyConnection struct {
@@ -149,14 +156,17 @@ type ComplexityRoot struct {
 	}
 
 	APIKeyProfileTemplate struct {
-		CreatedAt   func(childComplexity int) int
-		Description func(childComplexity int) int
-		ID          func(childComplexity int) int
-		Name        func(childComplexity int) int
-		Profile     func(childComplexity int) int
-		Project     func(childComplexity int) int
-		ProjectID   func(childComplexity int) int
-		UpdatedAt   func(childComplexity int) int
+		APIKeys            func(childComplexity int) int
+		CreatedAt          func(childComplexity int) int
+		Description        func(childComplexity int) int
+		ID                 func(childComplexity int) int
+		Name               func(childComplexity int) int
+		Profile            func(childComplexity int) int
+		Project            func(childComplexity int) int
+		ProjectID          func(childComplexity int) int
+		Revision           func(childComplexity int) int
+		SelfServiceVisible func(childComplexity int) int
+		UpdatedAt          func(childComplexity int) int
 	}
 
 	APIKeyProfileTemplateConnection struct {
@@ -2058,6 +2068,8 @@ type APIKeyResolver interface {
 	UserID(ctx context.Context, obj *ent.APIKey) (*objects.GUID, error)
 	ProjectID(ctx context.Context, obj *ent.APIKey) (*objects.GUID, error)
 
+	AccessGroupID(ctx context.Context, obj *ent.APIKey) (*objects.GUID, error)
+
 	User(ctx context.Context, obj *ent.APIKey) (*ent.User, error)
 }
 type APIKeyProfileTemplateResolver interface {
@@ -2452,6 +2464,36 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	_ = ec
 	switch typeName + "." + field {
 
+	case "APIKey.accessGroup":
+		if e.complexity.APIKey.AccessGroup == nil {
+			break
+		}
+
+		return e.complexity.APIKey.AccessGroup(childComplexity), true
+	case "APIKey.accessGroupID":
+		if e.complexity.APIKey.AccessGroupID == nil {
+			break
+		}
+
+		return e.complexity.APIKey.AccessGroupID(childComplexity), true
+	case "APIKey.accessGroupRevision":
+		if e.complexity.APIKey.AccessGroupRevision == nil {
+			break
+		}
+
+		return e.complexity.APIKey.AccessGroupRevision(childComplexity), true
+	case "APIKey.classificationAt":
+		if e.complexity.APIKey.ClassificationAt == nil {
+			break
+		}
+
+		return e.complexity.APIKey.ClassificationAt(childComplexity), true
+	case "APIKey.classificationByUserID":
+		if e.complexity.APIKey.ClassificationByUserID == nil {
+			break
+		}
+
+		return e.complexity.APIKey.ClassificationByUserID(childComplexity), true
 	case "APIKey.createdAt":
 		if e.complexity.APIKey.CreatedAt == nil {
 			break
@@ -2476,6 +2518,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.APIKey.Name(childComplexity), true
+	case "APIKey.profileMode":
+		if e.complexity.APIKey.ProfileMode == nil {
+			break
+		}
+
+		return e.complexity.APIKey.ProfileMode(childComplexity), true
 	case "APIKey.profiles":
 		if e.complexity.APIKey.Profiles == nil {
 			break
@@ -2494,6 +2542,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.APIKey.ProjectID(childComplexity), true
+	case "APIKey.provisioningSource":
+		if e.complexity.APIKey.ProvisioningSource == nil {
+			break
+		}
+
+		return e.complexity.APIKey.ProvisioningSource(childComplexity), true
 	case "APIKey.requests":
 		if e.complexity.APIKey.Requests == nil {
 			break
@@ -2648,6 +2702,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.APIKeyProfileQuotaUsage.Window(childComplexity), true
 
+	case "APIKeyProfileTemplate.apiKeys":
+		if e.complexity.APIKeyProfileTemplate.APIKeys == nil {
+			break
+		}
+
+		return e.complexity.APIKeyProfileTemplate.APIKeys(childComplexity), true
 	case "APIKeyProfileTemplate.createdAt":
 		if e.complexity.APIKeyProfileTemplate.CreatedAt == nil {
 			break
@@ -2690,6 +2750,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.APIKeyProfileTemplate.ProjectID(childComplexity), true
+	case "APIKeyProfileTemplate.revision":
+		if e.complexity.APIKeyProfileTemplate.Revision == nil {
+			break
+		}
+
+		return e.complexity.APIKeyProfileTemplate.Revision(childComplexity), true
+	case "APIKeyProfileTemplate.selfServiceVisible":
+		if e.complexity.APIKeyProfileTemplate.SelfServiceVisible == nil {
+			break
+		}
+
+		return e.complexity.APIKeyProfileTemplate.SelfServiceVisible(childComplexity), true
 	case "APIKeyProfileTemplate.updatedAt":
 		if e.complexity.APIKeyProfileTemplate.UpdatedAt == nil {
 			break
@@ -11151,6 +11223,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputAPIKeyOrder,
 		ec.unmarshalInputAPIKeyProfileInput,
 		ec.unmarshalInputAPIKeyProfileTemplateOrder,
+		ec.unmarshalInputAPIKeyProfileTemplateRevisionOrder,
+		ec.unmarshalInputAPIKeyProfileTemplateRevisionWhereInput,
 		ec.unmarshalInputAPIKeyProfileTemplateWhereInput,
 		ec.unmarshalInputAPIKeyQuotaCalendarDurationInput,
 		ec.unmarshalInputAPIKeyQuotaInput,
@@ -15216,6 +15290,180 @@ func (ec *executionContext) fieldContext_APIKey_profiles(_ context.Context, fiel
 	return fc, nil
 }
 
+func (ec *executionContext) _APIKey_provisioningSource(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_provisioningSource,
+		func(ctx context.Context) (any, error) {
+			return obj.ProvisioningSource, nil
+		},
+		nil,
+		ec.marshalNAPIKeyProvisioningSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_provisioningSource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type APIKeyProvisioningSource does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKey_profileMode(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_profileMode,
+		func(ctx context.Context) (any, error) {
+			return obj.ProfileMode, nil
+		},
+		nil,
+		ec.marshalNAPIKeyProfileMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_profileMode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type APIKeyProfileMode does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKey_accessGroupID(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_accessGroupID,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.APIKey().AccessGroupID(ctx, obj)
+		},
+		nil,
+		ec.marshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_accessGroupID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKey_accessGroupRevision(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_accessGroupRevision,
+		func(ctx context.Context) (any, error) {
+			return obj.AccessGroupRevision, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_accessGroupRevision(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKey_classificationAt(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_classificationAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ClassificationAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_classificationAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKey_classificationByUserID(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_classificationByUserID,
+		func(ctx context.Context) (any, error) {
+			return obj.ClassificationByUserID, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_classificationByUserID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _APIKey_user(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -15397,6 +15645,59 @@ func (ec *executionContext) fieldContext_APIKey_requests(ctx context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _APIKey_accessGroup(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_accessGroup,
+		func(ctx context.Context) (any, error) {
+			return obj.AccessGroup(ctx)
+		},
+		nil,
+		ec.marshalOAPIKeyProfileTemplate2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplate,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_accessGroup(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_APIKeyProfileTemplate_id(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_APIKeyProfileTemplate_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_APIKeyProfileTemplate_updatedAt(ctx, field)
+			case "name":
+				return ec.fieldContext_APIKeyProfileTemplate_name(ctx, field)
+			case "description":
+				return ec.fieldContext_APIKeyProfileTemplate_description(ctx, field)
+			case "projectID":
+				return ec.fieldContext_APIKeyProfileTemplate_projectID(ctx, field)
+			case "profile":
+				return ec.fieldContext_APIKeyProfileTemplate_profile(ctx, field)
+			case "revision":
+				return ec.fieldContext_APIKeyProfileTemplate_revision(ctx, field)
+			case "selfServiceVisible":
+				return ec.fieldContext_APIKeyProfileTemplate_selfServiceVisible(ctx, field)
+			case "project":
+				return ec.fieldContext_APIKeyProfileTemplate_project(ctx, field)
+			case "apiKeys":
+				return ec.fieldContext_APIKeyProfileTemplate_apiKeys(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type APIKeyProfileTemplate", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _APIKeyConnection_edges(ctx context.Context, field graphql.CollectedField, obj *ent.APIKeyConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -15546,12 +15847,26 @@ func (ec *executionContext) fieldContext_APIKeyEdge_node(_ context.Context, fiel
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -16197,6 +16512,64 @@ func (ec *executionContext) fieldContext_APIKeyProfileTemplate_profile(_ context
 	return fc, nil
 }
 
+func (ec *executionContext) _APIKeyProfileTemplate_revision(ctx context.Context, field graphql.CollectedField, obj *ent.APIKeyProfileTemplate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKeyProfileTemplate_revision,
+		func(ctx context.Context) (any, error) {
+			return obj.Revision, nil
+		},
+		nil,
+		ec.marshalNInt2int64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKeyProfileTemplate_revision(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKeyProfileTemplate",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKeyProfileTemplate_selfServiceVisible(ctx context.Context, field graphql.CollectedField, obj *ent.APIKeyProfileTemplate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKeyProfileTemplate_selfServiceVisible,
+		func(ctx context.Context) (any, error) {
+			return obj.SelfServiceVisible, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKeyProfileTemplate_selfServiceVisible(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKeyProfileTemplate",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _APIKeyProfileTemplate_project(ctx context.Context, field graphql.CollectedField, obj *ent.APIKeyProfileTemplate) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -16257,6 +16630,79 @@ func (ec *executionContext) fieldContext_APIKeyProfileTemplate_project(_ context
 				return ec.fieldContext_Project_projectUsers(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Project", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKeyProfileTemplate_apiKeys(ctx context.Context, field graphql.CollectedField, obj *ent.APIKeyProfileTemplate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKeyProfileTemplate_apiKeys,
+		func(ctx context.Context) (any, error) {
+			return obj.APIKeys(ctx)
+		},
+		nil,
+		ec.marshalOAPIKey2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKeyProfileTemplate_apiKeys(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKeyProfileTemplate",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_APIKey_id(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_APIKey_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_APIKey_updatedAt(ctx, field)
+			case "userID":
+				return ec.fieldContext_APIKey_userID(ctx, field)
+			case "projectID":
+				return ec.fieldContext_APIKey_projectID(ctx, field)
+			case "key":
+				return ec.fieldContext_APIKey_key(ctx, field)
+			case "name":
+				return ec.fieldContext_APIKey_name(ctx, field)
+			case "type":
+				return ec.fieldContext_APIKey_type(ctx, field)
+			case "status":
+				return ec.fieldContext_APIKey_status(ctx, field)
+			case "scopes":
+				return ec.fieldContext_APIKey_scopes(ctx, field)
+			case "profiles":
+				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
+			case "user":
+				return ec.fieldContext_APIKey_user(ctx, field)
+			case "project":
+				return ec.fieldContext_APIKey_project(ctx, field)
+			case "requests":
+				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
 	}
 	return fc, nil
@@ -16403,8 +16849,14 @@ func (ec *executionContext) fieldContext_APIKeyProfileTemplateEdge_node(_ contex
 				return ec.fieldContext_APIKeyProfileTemplate_projectID(ctx, field)
 			case "profile":
 				return ec.fieldContext_APIKeyProfileTemplate_profile(ctx, field)
+			case "revision":
+				return ec.fieldContext_APIKeyProfileTemplate_revision(ctx, field)
+			case "selfServiceVisible":
+				return ec.fieldContext_APIKeyProfileTemplate_selfServiceVisible(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKeyProfileTemplate_project(ctx, field)
+			case "apiKeys":
+				return ec.fieldContext_APIKeyProfileTemplate_apiKeys(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKeyProfileTemplate", field.Name)
 		},
@@ -31968,12 +32420,26 @@ func (ec *executionContext) fieldContext_Mutation_createAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -32039,12 +32505,26 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -32110,12 +32590,26 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyStatus(ctx context
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -32181,12 +32675,26 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyProfiles(ctx conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -32252,12 +32760,26 @@ func (ec *executionContext) fieldContext_Mutation_rotateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -33882,8 +34404,14 @@ func (ec *executionContext) fieldContext_Mutation_createApiKeyProfileTemplate(ct
 				return ec.fieldContext_APIKeyProfileTemplate_projectID(ctx, field)
 			case "profile":
 				return ec.fieldContext_APIKeyProfileTemplate_profile(ctx, field)
+			case "revision":
+				return ec.fieldContext_APIKeyProfileTemplate_revision(ctx, field)
+			case "selfServiceVisible":
+				return ec.fieldContext_APIKeyProfileTemplate_selfServiceVisible(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKeyProfileTemplate_project(ctx, field)
+			case "apiKeys":
+				return ec.fieldContext_APIKeyProfileTemplate_apiKeys(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKeyProfileTemplate", field.Name)
 		},
@@ -33941,8 +34469,14 @@ func (ec *executionContext) fieldContext_Mutation_updateApiKeyProfileTemplate(ct
 				return ec.fieldContext_APIKeyProfileTemplate_projectID(ctx, field)
 			case "profile":
 				return ec.fieldContext_APIKeyProfileTemplate_profile(ctx, field)
+			case "revision":
+				return ec.fieldContext_APIKeyProfileTemplate_revision(ctx, field)
+			case "selfServiceVisible":
+				return ec.fieldContext_APIKeyProfileTemplate_selfServiceVisible(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKeyProfileTemplate_project(ctx, field)
+			case "apiKeys":
+				return ec.fieldContext_APIKeyProfileTemplate_apiKeys(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKeyProfileTemplate", field.Name)
 		},
@@ -34000,8 +34534,14 @@ func (ec *executionContext) fieldContext_Mutation_deleteApiKeyProfileTemplate(ct
 				return ec.fieldContext_APIKeyProfileTemplate_projectID(ctx, field)
 			case "profile":
 				return ec.fieldContext_APIKeyProfileTemplate_profile(ctx, field)
+			case "revision":
+				return ec.fieldContext_APIKeyProfileTemplate_revision(ctx, field)
+			case "selfServiceVisible":
+				return ec.fieldContext_APIKeyProfileTemplate_selfServiceVisible(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKeyProfileTemplate_project(ctx, field)
+			case "apiKeys":
+				return ec.fieldContext_APIKeyProfileTemplate_apiKeys(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKeyProfileTemplate", field.Name)
 		},
@@ -34067,12 +34607,26 @@ func (ec *executionContext) fieldContext_Mutation_loadApiKeyProfileTemplate(ctx 
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -46460,12 +47014,26 @@ func (ec *executionContext) fieldContext_Request_apiKey(_ context.Context, field
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "provisioningSource":
+				return ec.fieldContext_APIKey_provisioningSource(ctx, field)
+			case "profileMode":
+				return ec.fieldContext_APIKey_profileMode(ctx, field)
+			case "accessGroupID":
+				return ec.fieldContext_APIKey_accessGroupID(ctx, field)
+			case "accessGroupRevision":
+				return ec.fieldContext_APIKey_accessGroupRevision(ctx, field)
+			case "classificationAt":
+				return ec.fieldContext_APIKey_classificationAt(ctx, field)
+			case "classificationByUserID":
+				return ec.fieldContext_APIKey_classificationByUserID(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
 				return ec.fieldContext_APIKey_project(ctx, field)
 			case "requests":
 				return ec.fieldContext_APIKey_requests(ctx, field)
+			case "accessGroup":
+				return ec.fieldContext_APIKey_accessGroup(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type APIKey", field.Name)
 		},
@@ -61393,6 +61961,709 @@ func (ec *executionContext) unmarshalInputAPIKeyProfileTemplateOrder(ctx context
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputAPIKeyProfileTemplateRevisionOrder(ctx context.Context, obj any) (APIKeyProfileTemplateRevisionOrder, error) {
+	var it APIKeyProfileTemplateRevisionOrder
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["direction"]; !present {
+		asMap["direction"] = "ASC"
+	}
+
+	fieldsInOrder := [...]string{"direction", "field"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "direction":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("direction"))
+			data, err := ec.unmarshalNOrderDirection2entgoᚗioᚋcontribᚋentgqlᚐOrderDirection(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Direction = data
+		case "field":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("field"))
+			data, err := ec.unmarshalNAPIKeyProfileTemplateRevisionOrderField2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐAPIKeyProfileTemplateRevisionOrderField(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Field = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputAPIKeyProfileTemplateRevisionWhereInput(ctx context.Context, obj any) (ent.APIKeyProfileTemplateRevisionWhereInput, error) {
+	var it ent.APIKeyProfileTemplateRevisionWhereInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "templateID", "templateIDNEQ", "templateIDIn", "templateIDNotIn", "revision", "revisionNEQ", "revisionIn", "revisionNotIn", "revisionGT", "revisionGTE", "revisionLT", "revisionLTE", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "description", "descriptionNEQ", "descriptionIn", "descriptionNotIn", "descriptionGT", "descriptionGTE", "descriptionLT", "descriptionLTE", "descriptionContains", "descriptionHasPrefix", "descriptionHasSuffix", "descriptionEqualFold", "descriptionContainsFold", "createdByUserID", "createdByUserIDNEQ", "createdByUserIDIn", "createdByUserIDNotIn", "createdByUserIDGT", "createdByUserIDGTE", "createdByUserIDLT", "createdByUserIDLTE", "createdByUserIDIsNil", "createdByUserIDNotNil", "hasProject", "hasProjectWith", "hasTemplate", "hasTemplateWith"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "not":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("not"))
+			data, err := ec.unmarshalOAPIKeyProfileTemplateRevisionWhereInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Not = data
+		case "and":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("and"))
+			data, err := ec.unmarshalOAPIKeyProfileTemplateRevisionWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.And = data
+		case "or":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("or"))
+			data, err := ec.unmarshalOAPIKeyProfileTemplateRevisionWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Or = data
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.ID = converted
+		case "idNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idNEQ"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.IDNEQ = converted
+		case "idIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.IDIn = converted
+		case "idNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idNotIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.IDNotIn = converted
+		case "idGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idGT"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.IDGT = converted
+		case "idGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idGTE"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.IDGTE = converted
+		case "idLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idLT"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.IDLT = converted
+		case "idLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idLTE"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.IDLTE = converted
+		case "createdAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAt = data
+		case "createdAtNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAtNEQ"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAtNEQ = data
+		case "createdAtIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAtIn"))
+			data, err := ec.unmarshalOTime2ᚕtimeᚐTimeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAtIn = data
+		case "createdAtNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAtNotIn"))
+			data, err := ec.unmarshalOTime2ᚕtimeᚐTimeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAtNotIn = data
+		case "createdAtGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAtGT"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAtGT = data
+		case "createdAtGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAtGTE"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAtGTE = data
+		case "createdAtLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAtLT"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAtLT = data
+		case "createdAtLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdAtLTE"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedAtLTE = data
+		case "updatedAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAt = data
+		case "updatedAtNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAtNEQ"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAtNEQ = data
+		case "updatedAtIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAtIn"))
+			data, err := ec.unmarshalOTime2ᚕtimeᚐTimeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAtIn = data
+		case "updatedAtNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAtNotIn"))
+			data, err := ec.unmarshalOTime2ᚕtimeᚐTimeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAtNotIn = data
+		case "updatedAtGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAtGT"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAtGT = data
+		case "updatedAtGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAtGTE"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAtGTE = data
+		case "updatedAtLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAtLT"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAtLT = data
+		case "updatedAtLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updatedAtLTE"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdatedAtLTE = data
+		case "projectID":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectID"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.ProjectID = converted
+		case "projectIDNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectIDNEQ"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.ProjectIDNEQ = converted
+		case "projectIDIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectIDIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.ProjectIDIn = converted
+		case "projectIDNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectIDNotIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.ProjectIDNotIn = converted
+		case "templateID":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("templateID"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.TemplateID = converted
+		case "templateIDNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("templateIDNEQ"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.TemplateIDNEQ = converted
+		case "templateIDIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("templateIDIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.TemplateIDIn = converted
+		case "templateIDNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("templateIDNotIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.TemplateIDNotIn = converted
+		case "revision":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revision"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Revision = data
+		case "revisionNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionNEQ"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionNEQ = data
+		case "revisionIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionIn"))
+			data, err := ec.unmarshalOInt2ᚕint64ᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionIn = data
+		case "revisionNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionNotIn"))
+			data, err := ec.unmarshalOInt2ᚕint64ᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionNotIn = data
+		case "revisionGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionGT"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionGT = data
+		case "revisionGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionGTE"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionGTE = data
+		case "revisionLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionLT"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionLT = data
+		case "revisionLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionLTE"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionLTE = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "nameNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameNEQ"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameNEQ = data
+		case "nameIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameIn"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameIn = data
+		case "nameNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameNotIn"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameNotIn = data
+		case "nameGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameGT"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameGT = data
+		case "nameGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameGTE"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameGTE = data
+		case "nameLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameLT"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameLT = data
+		case "nameLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameLTE"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameLTE = data
+		case "nameContains":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameContains"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameContains = data
+		case "nameHasPrefix":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameHasPrefix"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameHasPrefix = data
+		case "nameHasSuffix":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameHasSuffix"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameHasSuffix = data
+		case "nameEqualFold":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameEqualFold"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameEqualFold = data
+		case "nameContainsFold":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nameContainsFold"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NameContainsFold = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		case "descriptionNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionNEQ"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionNEQ = data
+		case "descriptionIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionIn"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionIn = data
+		case "descriptionNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionNotIn"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionNotIn = data
+		case "descriptionGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionGT"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionGT = data
+		case "descriptionGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionGTE"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionGTE = data
+		case "descriptionLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionLT"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionLT = data
+		case "descriptionLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionLTE"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionLTE = data
+		case "descriptionContains":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionContains"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionContains = data
+		case "descriptionHasPrefix":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionHasPrefix"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionHasPrefix = data
+		case "descriptionHasSuffix":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionHasSuffix"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionHasSuffix = data
+		case "descriptionEqualFold":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionEqualFold"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionEqualFold = data
+		case "descriptionContainsFold":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("descriptionContainsFold"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DescriptionContainsFold = data
+		case "createdByUserID":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserID"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserID = data
+		case "createdByUserIDNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDNEQ"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDNEQ = data
+		case "createdByUserIDIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDIn"))
+			data, err := ec.unmarshalOInt2ᚕintᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDIn = data
+		case "createdByUserIDNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDNotIn"))
+			data, err := ec.unmarshalOInt2ᚕintᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDNotIn = data
+		case "createdByUserIDGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDGT"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDGT = data
+		case "createdByUserIDGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDGTE"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDGTE = data
+		case "createdByUserIDLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDLT"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDLT = data
+		case "createdByUserIDLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDLTE"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDLTE = data
+		case "createdByUserIDIsNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDIsNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDIsNil = data
+		case "createdByUserIDNotNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("createdByUserIDNotNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CreatedByUserIDNotNil = data
+		case "hasProject":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasProject"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasProject = data
+		case "hasProjectWith":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasProjectWith"))
+			data, err := ec.unmarshalOProjectWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐProjectWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasProjectWith = data
+		case "hasTemplate":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasTemplate"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasTemplate = data
+		case "hasTemplateWith":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasTemplateWith"))
+			data, err := ec.unmarshalOAPIKeyProfileTemplateWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasTemplateWith = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputAPIKeyProfileTemplateWhereInput(ctx context.Context, obj any) (ent.APIKeyProfileTemplateWhereInput, error) {
 	var it ent.APIKeyProfileTemplateWhereInput
 	asMap := map[string]any{}
@@ -61400,7 +62671,7 @@ func (ec *executionContext) unmarshalInputAPIKeyProfileTemplateWhereInput(ctx co
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "description", "descriptionNEQ", "descriptionIn", "descriptionNotIn", "descriptionGT", "descriptionGTE", "descriptionLT", "descriptionLTE", "descriptionContains", "descriptionHasPrefix", "descriptionHasSuffix", "descriptionEqualFold", "descriptionContainsFold", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "hasProject", "hasProjectWith"}
+	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "description", "descriptionNEQ", "descriptionIn", "descriptionNotIn", "descriptionGT", "descriptionGTE", "descriptionLT", "descriptionLTE", "descriptionContains", "descriptionHasPrefix", "descriptionHasSuffix", "descriptionEqualFold", "descriptionContainsFold", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "revision", "revisionNEQ", "revisionIn", "revisionNotIn", "revisionGT", "revisionGTE", "revisionLT", "revisionLTE", "selfServiceVisible", "selfServiceVisibleNEQ", "hasProject", "hasProjectWith", "hasAPIKeys", "hasAPIKeysWith", "hasRevisions", "hasRevisionsWith"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -61854,6 +63125,76 @@ func (ec *executionContext) unmarshalInputAPIKeyProfileTemplateWhereInput(ctx co
 				return it, graphql.ErrorOnPath(ctx, err)
 			}
 			it.ProjectIDNotIn = converted
+		case "revision":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revision"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Revision = data
+		case "revisionNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionNEQ"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionNEQ = data
+		case "revisionIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionIn"))
+			data, err := ec.unmarshalOInt2ᚕint64ᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionIn = data
+		case "revisionNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionNotIn"))
+			data, err := ec.unmarshalOInt2ᚕint64ᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionNotIn = data
+		case "revisionGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionGT"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionGT = data
+		case "revisionGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionGTE"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionGTE = data
+		case "revisionLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionLT"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionLT = data
+		case "revisionLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("revisionLTE"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RevisionLTE = data
+		case "selfServiceVisible":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selfServiceVisible"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SelfServiceVisible = data
+		case "selfServiceVisibleNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selfServiceVisibleNEQ"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SelfServiceVisibleNEQ = data
 		case "hasProject":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasProject"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -61868,6 +63209,34 @@ func (ec *executionContext) unmarshalInputAPIKeyProfileTemplateWhereInput(ctx co
 				return it, err
 			}
 			it.HasProjectWith = data
+		case "hasAPIKeys":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasAPIKeys"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasAPIKeys = data
+		case "hasAPIKeysWith":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasAPIKeysWith"))
+			data, err := ec.unmarshalOAPIKeyWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasAPIKeysWith = data
+		case "hasRevisions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasRevisions"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasRevisions = data
+		case "hasRevisionsWith":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasRevisionsWith"))
+			data, err := ec.unmarshalOAPIKeyProfileTemplateRevisionWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasRevisionsWith = data
 		}
 	}
 
@@ -62072,7 +63441,7 @@ func (ec *executionContext) unmarshalInputAPIKeyWhereInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "userID", "userIDNEQ", "userIDIn", "userIDNotIn", "userIDIsNil", "userIDNotNil", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "key", "keyNEQ", "keyIn", "keyNotIn", "keyGT", "keyGTE", "keyLT", "keyLTE", "keyContains", "keyHasPrefix", "keyHasSuffix", "keyEqualFold", "keyContainsFold", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "type", "typeNEQ", "typeIn", "typeNotIn", "status", "statusNEQ", "statusIn", "statusNotIn", "hasUser", "hasUserWith", "hasProject", "hasProjectWith", "hasRequests", "hasRequestsWith"}
+	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "userID", "userIDNEQ", "userIDIn", "userIDNotIn", "userIDIsNil", "userIDNotNil", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "key", "keyNEQ", "keyIn", "keyNotIn", "keyGT", "keyGTE", "keyLT", "keyLTE", "keyContains", "keyHasPrefix", "keyHasSuffix", "keyEqualFold", "keyContainsFold", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "type", "typeNEQ", "typeIn", "typeNotIn", "status", "statusNEQ", "statusIn", "statusNotIn", "provisioningSource", "provisioningSourceNEQ", "provisioningSourceIn", "provisioningSourceNotIn", "profileMode", "profileModeNEQ", "profileModeIn", "profileModeNotIn", "accessGroupID", "accessGroupIDNEQ", "accessGroupIDIn", "accessGroupIDNotIn", "accessGroupIDIsNil", "accessGroupIDNotNil", "accessGroupRevision", "accessGroupRevisionNEQ", "accessGroupRevisionIn", "accessGroupRevisionNotIn", "accessGroupRevisionGT", "accessGroupRevisionGTE", "accessGroupRevisionLT", "accessGroupRevisionLTE", "accessGroupRevisionIsNil", "accessGroupRevisionNotNil", "classificationAt", "classificationAtNEQ", "classificationAtIn", "classificationAtNotIn", "classificationAtGT", "classificationAtGTE", "classificationAtLT", "classificationAtLTE", "classificationAtIsNil", "classificationAtNotNil", "classificationByUserID", "classificationByUserIDNEQ", "classificationByUserIDIn", "classificationByUserIDNotIn", "classificationByUserIDGT", "classificationByUserIDGTE", "classificationByUserIDLT", "classificationByUserIDLTE", "classificationByUserIDIsNil", "classificationByUserIDNotNil", "hasUser", "hasUserWith", "hasProject", "hasProjectWith", "hasRequests", "hasRequestsWith", "hasAccessGroup", "hasAccessGroupWith"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -62640,6 +64009,330 @@ func (ec *executionContext) unmarshalInputAPIKeyWhereInput(ctx context.Context, 
 				return it, err
 			}
 			it.StatusNotIn = data
+		case "provisioningSource":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("provisioningSource"))
+			data, err := ec.unmarshalOAPIKeyProvisioningSource2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProvisioningSource = data
+		case "provisioningSourceNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("provisioningSourceNEQ"))
+			data, err := ec.unmarshalOAPIKeyProvisioningSource2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProvisioningSourceNEQ = data
+		case "provisioningSourceIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("provisioningSourceIn"))
+			data, err := ec.unmarshalOAPIKeyProvisioningSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSourceᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProvisioningSourceIn = data
+		case "provisioningSourceNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("provisioningSourceNotIn"))
+			data, err := ec.unmarshalOAPIKeyProvisioningSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSourceᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProvisioningSourceNotIn = data
+		case "profileMode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("profileMode"))
+			data, err := ec.unmarshalOAPIKeyProfileMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProfileMode = data
+		case "profileModeNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("profileModeNEQ"))
+			data, err := ec.unmarshalOAPIKeyProfileMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProfileModeNEQ = data
+		case "profileModeIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("profileModeIn"))
+			data, err := ec.unmarshalOAPIKeyProfileMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileModeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProfileModeIn = data
+		case "profileModeNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("profileModeNotIn"))
+			data, err := ec.unmarshalOAPIKeyProfileMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileModeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProfileModeNotIn = data
+		case "accessGroupID":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupID"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.AccessGroupID = converted
+		case "accessGroupIDNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupIDNEQ"))
+			data, err := ec.unmarshalOID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrToIntPtr(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.AccessGroupIDNEQ = converted
+		case "accessGroupIDIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupIDIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.AccessGroupIDIn = converted
+		case "accessGroupIDNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupIDNotIn"))
+			data, err := ec.unmarshalOID2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUIDᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			converted, err := objects.ConvertGUIDPtrsToInts(data)
+			if err != nil {
+				return it, graphql.ErrorOnPath(ctx, err)
+			}
+			it.AccessGroupIDNotIn = converted
+		case "accessGroupIDIsNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupIDIsNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupIDIsNil = data
+		case "accessGroupIDNotNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupIDNotNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupIDNotNil = data
+		case "accessGroupRevision":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevision"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevision = data
+		case "accessGroupRevisionNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionNEQ"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionNEQ = data
+		case "accessGroupRevisionIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionIn"))
+			data, err := ec.unmarshalOInt2ᚕint64ᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionIn = data
+		case "accessGroupRevisionNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionNotIn"))
+			data, err := ec.unmarshalOInt2ᚕint64ᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionNotIn = data
+		case "accessGroupRevisionGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionGT"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionGT = data
+		case "accessGroupRevisionGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionGTE"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionGTE = data
+		case "accessGroupRevisionLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionLT"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionLT = data
+		case "accessGroupRevisionLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionLTE"))
+			data, err := ec.unmarshalOInt2ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionLTE = data
+		case "accessGroupRevisionIsNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionIsNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionIsNil = data
+		case "accessGroupRevisionNotNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessGroupRevisionNotNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessGroupRevisionNotNil = data
+		case "classificationAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAt = data
+		case "classificationAtNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtNEQ"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtNEQ = data
+		case "classificationAtIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtIn"))
+			data, err := ec.unmarshalOTime2ᚕtimeᚐTimeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtIn = data
+		case "classificationAtNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtNotIn"))
+			data, err := ec.unmarshalOTime2ᚕtimeᚐTimeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtNotIn = data
+		case "classificationAtGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtGT"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtGT = data
+		case "classificationAtGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtGTE"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtGTE = data
+		case "classificationAtLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtLT"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtLT = data
+		case "classificationAtLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtLTE"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtLTE = data
+		case "classificationAtIsNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtIsNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtIsNil = data
+		case "classificationAtNotNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationAtNotNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationAtNotNil = data
+		case "classificationByUserID":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserID"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserID = data
+		case "classificationByUserIDNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDNEQ"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDNEQ = data
+		case "classificationByUserIDIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDIn"))
+			data, err := ec.unmarshalOInt2ᚕintᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDIn = data
+		case "classificationByUserIDNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDNotIn"))
+			data, err := ec.unmarshalOInt2ᚕintᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDNotIn = data
+		case "classificationByUserIDGT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDGT"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDGT = data
+		case "classificationByUserIDGTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDGTE"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDGTE = data
+		case "classificationByUserIDLT":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDLT"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDLT = data
+		case "classificationByUserIDLTE":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDLTE"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDLTE = data
+		case "classificationByUserIDIsNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDIsNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDIsNil = data
+		case "classificationByUserIDNotNil":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("classificationByUserIDNotNil"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClassificationByUserIDNotNil = data
 		case "hasUser":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasUser"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -62682,6 +64375,20 @@ func (ec *executionContext) unmarshalInputAPIKeyWhereInput(ctx context.Context, 
 				return it, err
 			}
 			it.HasRequestsWith = data
+		case "hasAccessGroup":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasAccessGroup"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasAccessGroup = data
+		case "hasAccessGroupWith":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasAccessGroupWith"))
+			data, err := ec.unmarshalOAPIKeyProfileTemplateWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasAccessGroupWith = data
 		}
 	}
 
@@ -67555,7 +69262,7 @@ func (ec *executionContext) unmarshalInputCreateAPIKeyProfileTemplateInput(ctx c
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "description", "projectID"}
+	fieldsInOrder := [...]string{"name", "description", "selfServiceVisible", "projectID"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -67576,6 +69283,13 @@ func (ec *executionContext) unmarshalInputCreateAPIKeyProfileTemplateInput(ctx c
 				return it, err
 			}
 			it.Description = data
+		case "selfServiceVisible":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selfServiceVisible"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SelfServiceVisible = data
 		case "projectID":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectID"))
 			data, err := ec.unmarshalNID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
@@ -72549,7 +74263,7 @@ func (ec *executionContext) unmarshalInputProjectWhereInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "description", "descriptionNEQ", "descriptionIn", "descriptionNotIn", "descriptionGT", "descriptionGTE", "descriptionLT", "descriptionLTE", "descriptionContains", "descriptionHasPrefix", "descriptionHasSuffix", "descriptionEqualFold", "descriptionContainsFold", "status", "statusNEQ", "statusIn", "statusNotIn", "hasUsers", "hasUsersWith", "hasRoles", "hasRolesWith", "hasAPIKeys", "hasAPIKeysWith", "hasRequests", "hasRequestsWith", "hasUsageLogs", "hasUsageLogsWith", "hasThreads", "hasThreadsWith", "hasTraces", "hasTracesWith", "hasPrompts", "hasPromptsWith", "hasAPIKeyProfileTemplates", "hasAPIKeyProfileTemplatesWith", "hasProjectUsers", "hasProjectUsersWith"}
+	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "description", "descriptionNEQ", "descriptionIn", "descriptionNotIn", "descriptionGT", "descriptionGTE", "descriptionLT", "descriptionLTE", "descriptionContains", "descriptionHasPrefix", "descriptionHasSuffix", "descriptionEqualFold", "descriptionContainsFold", "status", "statusNEQ", "statusIn", "statusNotIn", "hasUsers", "hasUsersWith", "hasRoles", "hasRolesWith", "hasAPIKeys", "hasAPIKeysWith", "hasRequests", "hasRequestsWith", "hasUsageLogs", "hasUsageLogsWith", "hasThreads", "hasThreadsWith", "hasTraces", "hasTracesWith", "hasPrompts", "hasPromptsWith", "hasAPIKeyProfileTemplates", "hasAPIKeyProfileTemplatesWith", "hasAPIKeyProfileTemplateRevisions", "hasAPIKeyProfileTemplateRevisionsWith", "hasProjectUsers", "hasProjectUsersWith"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -73113,6 +74827,20 @@ func (ec *executionContext) unmarshalInputProjectWhereInput(ctx context.Context,
 				return it, err
 			}
 			it.HasAPIKeyProfileTemplatesWith = data
+		case "hasAPIKeyProfileTemplateRevisions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasAPIKeyProfileTemplateRevisions"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasAPIKeyProfileTemplateRevisions = data
+		case "hasAPIKeyProfileTemplateRevisionsWith":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasAPIKeyProfileTemplateRevisionsWith"))
+			data, err := ec.unmarshalOAPIKeyProfileTemplateRevisionWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.HasAPIKeyProfileTemplateRevisionsWith = data
 		case "hasProjectUsers":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasProjectUsers"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -81177,7 +82905,7 @@ func (ec *executionContext) unmarshalInputUpdateAPIKeyProfileTemplateInput(ctx c
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "description"}
+	fieldsInOrder := [...]string{"name", "description", "selfServiceVisible"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -81198,6 +82926,13 @@ func (ec *executionContext) unmarshalInputUpdateAPIKeyProfileTemplateInput(ctx c
 				return it, err
 			}
 			it.Description = data
+		case "selfServiceVisible":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selfServiceVisible"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SelfServiceVisible = data
 		}
 	}
 
@@ -87380,6 +89115,55 @@ func (ec *executionContext) _APIKey(ctx context.Context, sel ast.SelectionSet, o
 			out.Values[i] = ec._APIKey_scopes(ctx, field, obj)
 		case "profiles":
 			out.Values[i] = ec._APIKey_profiles(ctx, field, obj)
+		case "provisioningSource":
+			out.Values[i] = ec._APIKey_provisioningSource(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "profileMode":
+			out.Values[i] = ec._APIKey_profileMode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "accessGroupID":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._APIKey_accessGroupID(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "accessGroupRevision":
+			out.Values[i] = ec._APIKey_accessGroupRevision(ctx, field, obj)
+		case "classificationAt":
+			out.Values[i] = ec._APIKey_classificationAt(ctx, field, obj)
+		case "classificationByUserID":
+			out.Values[i] = ec._APIKey_classificationByUserID(ctx, field, obj)
 		case "user":
 			field := field
 
@@ -87462,6 +89246,39 @@ func (ec *executionContext) _APIKey(ctx context.Context, sel ast.SelectionSet, o
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "accessGroup":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._APIKey_accessGroup(ctx, field, obj)
 				return res
 			}
 
@@ -87807,6 +89624,16 @@ func (ec *executionContext) _APIKeyProfileTemplate(ctx context.Context, sel ast.
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "profile":
 			out.Values[i] = ec._APIKeyProfileTemplate_profile(ctx, field, obj)
+		case "revision":
+			out.Values[i] = ec._APIKeyProfileTemplate_revision(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "selfServiceVisible":
+			out.Values[i] = ec._APIKeyProfileTemplate_selfServiceVisible(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "project":
 			field := field
 
@@ -87820,6 +89647,39 @@ func (ec *executionContext) _APIKeyProfileTemplate(ctx context.Context, sel ast.
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "apiKeys":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._APIKeyProfileTemplate_apiKeys(ctx, field, obj)
 				return res
 			}
 
@@ -106817,6 +108677,16 @@ func (ec *executionContext) unmarshalNAPIKeyProfileInput2githubᚗcomᚋlooplj�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNAPIKeyProfileMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx context.Context, v any) (apikey.ProfileMode, error) {
+	var res apikey.ProfileMode
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNAPIKeyProfileMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx context.Context, sel ast.SelectionSet, v apikey.ProfileMode) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNAPIKeyProfileQuotaUsage2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐAPIKeyProfileQuotaUsageᚄ(ctx context.Context, sel ast.SelectionSet, v []*APIKeyProfileQuotaUsage) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -106915,9 +108785,34 @@ func (ec *executionContext) marshalNAPIKeyProfileTemplateOrderField2ᚖgithubᚗ
 	return v
 }
 
+func (ec *executionContext) unmarshalNAPIKeyProfileTemplateRevisionOrderField2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐAPIKeyProfileTemplateRevisionOrderField(ctx context.Context, v any) (APIKeyProfileTemplateRevisionOrderField, error) {
+	var res APIKeyProfileTemplateRevisionOrderField
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNAPIKeyProfileTemplateRevisionOrderField2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐAPIKeyProfileTemplateRevisionOrderField(ctx context.Context, sel ast.SelectionSet, v APIKeyProfileTemplateRevisionOrderField) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNAPIKeyProfileTemplateRevisionWhereInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInput(ctx context.Context, v any) (*ent.APIKeyProfileTemplateRevisionWhereInput, error) {
+	res, err := ec.unmarshalInputAPIKeyProfileTemplateRevisionWhereInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNAPIKeyProfileTemplateWhereInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateWhereInput(ctx context.Context, v any) (*ent.APIKeyProfileTemplateWhereInput, error) {
 	res, err := ec.unmarshalInputAPIKeyProfileTemplateWhereInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNAPIKeyProvisioningSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx context.Context, v any) (apikey.ProvisioningSource, error) {
+	var res apikey.ProvisioningSource
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNAPIKeyProvisioningSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx context.Context, sel ast.SelectionSet, v apikey.ProvisioningSource) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNAPIKeyQuota2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐAPIKeyQuota(ctx context.Context, sel ast.SelectionSet, v *objects.APIKeyQuota) graphql.Marshaler {
@@ -113100,6 +114995,53 @@ func (ec *executionContext) marshalN__TypeKind2string(ctx context.Context, sel a
 	return res
 }
 
+func (ec *executionContext) marshalOAPIKey2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyᚄ(ctx context.Context, sel ast.SelectionSet, v []*ent.APIKey) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNAPIKey2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKey(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) marshalOAPIKey2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKey(ctx context.Context, sel ast.SelectionSet, v *ent.APIKey) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -113243,6 +115185,87 @@ func (ec *executionContext) unmarshalOAPIKeyProfileInput2ᚖgithubᚗcomᚋloopl
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalOAPIKeyProfileMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileModeᚄ(ctx context.Context, v any) ([]apikey.ProfileMode, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]apikey.ProfileMode, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNAPIKeyProfileMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalOAPIKeyProfileMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileModeᚄ(ctx context.Context, sel ast.SelectionSet, v []apikey.ProfileMode) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNAPIKeyProfileMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOAPIKeyProfileMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx context.Context, v any) (*apikey.ProfileMode, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(apikey.ProfileMode)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOAPIKeyProfileMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProfileMode(ctx context.Context, sel ast.SelectionSet, v *apikey.ProfileMode) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
 func (ec *executionContext) marshalOAPIKeyProfileTemplate2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplate(ctx context.Context, sel ast.SelectionSet, v *ent.APIKeyProfileTemplate) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -113306,6 +115329,32 @@ func (ec *executionContext) unmarshalOAPIKeyProfileTemplateOrder2ᚖgithubᚗcom
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalOAPIKeyProfileTemplateRevisionWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInputᚄ(ctx context.Context, v any) ([]*ent.APIKeyProfileTemplateRevisionWhereInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]*ent.APIKeyProfileTemplateRevisionWhereInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNAPIKeyProfileTemplateRevisionWhereInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalOAPIKeyProfileTemplateRevisionWhereInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateRevisionWhereInput(ctx context.Context, v any) (*ent.APIKeyProfileTemplateRevisionWhereInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputAPIKeyProfileTemplateRevisionWhereInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalOAPIKeyProfileTemplateWhereInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐAPIKeyProfileTemplateWhereInputᚄ(ctx context.Context, v any) ([]*ent.APIKeyProfileTemplateWhereInput, error) {
 	if v == nil {
 		return nil, nil
@@ -113337,6 +115386,87 @@ func (ec *executionContext) marshalOAPIKeyProfiles2ᚖgithubᚗcomᚋloopljᚋax
 		return graphql.Null
 	}
 	return ec._APIKeyProfiles(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOAPIKeyProvisioningSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSourceᚄ(ctx context.Context, v any) ([]apikey.ProvisioningSource, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]apikey.ProvisioningSource, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNAPIKeyProvisioningSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalOAPIKeyProvisioningSource2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSourceᚄ(ctx context.Context, sel ast.SelectionSet, v []apikey.ProvisioningSource) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNAPIKeyProvisioningSource2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOAPIKeyProvisioningSource2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx context.Context, v any) (*apikey.ProvisioningSource, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(apikey.ProvisioningSource)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOAPIKeyProvisioningSource2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐProvisioningSource(ctx context.Context, sel ast.SelectionSet, v *apikey.ProvisioningSource) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) marshalOAPIKeyQuota2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐAPIKeyQuota(ctx context.Context, sel ast.SelectionSet, v *objects.APIKeyQuota) graphql.Marshaler {

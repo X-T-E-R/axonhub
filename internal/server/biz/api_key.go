@@ -42,27 +42,29 @@ const (
 type APIKeyServiceParams struct {
 	fx.In
 
-	CacheConfig    xcache.Config
-	Ent            *ent.Client
-	SystemService  *SystemService
-	ProjectService *ProjectService
-	ModelService   *ModelService
-	ChannelService *ChannelService
-	Registration   RegistrationConfig
-	KeyPrefix      string `name:"api_key_prefix"`
+	CacheConfig        xcache.Config
+	Ent                *ent.Client
+	SystemService      *SystemService
+	ProjectService     *ProjectService
+	ModelService       *ModelService
+	ChannelService     *ChannelService
+	DataStorageService *DataStorageService
+	Registration       RegistrationConfig
+	KeyPrefix          string `name:"api_key_prefix"`
 }
 
 type APIKeyService struct {
 	*AbstractService
 
-	SystemService  *SystemService
-	ProjectService *ProjectService
-	ModelService   *ModelService
-	ChannelService *ChannelService
-	Registration   RegistrationConfig
-	APIKeyCache    *live.IndexedCache[string, *ent.APIKey]
-	apiKeyNotifier watcher.Notifier[live.CacheEvent[string]]
-	keyPrefix      string
+	SystemService      *SystemService
+	ProjectService     *ProjectService
+	ModelService       *ModelService
+	ChannelService     *ChannelService
+	DataStorageService *DataStorageService
+	Registration       RegistrationConfig
+	APIKeyCache        *live.IndexedCache[string, *ent.APIKey]
+	apiKeyNotifier     watcher.Notifier[live.CacheEvent[string]]
+	keyPrefix          string
 }
 
 func NewAPIKeyService(params APIKeyServiceParams) *APIKeyService {
@@ -70,12 +72,13 @@ func NewAPIKeyService(params APIKeyServiceParams) *APIKeyService {
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
-		SystemService:  params.SystemService,
-		ProjectService: params.ProjectService,
-		ModelService:   params.ModelService,
-		ChannelService: params.ChannelService,
-		Registration:   params.Registration,
-		keyPrefix:      params.KeyPrefix,
+		SystemService:      params.SystemService,
+		ProjectService:     params.ProjectService,
+		ModelService:       params.ModelService,
+		ChannelService:     params.ChannelService,
+		DataStorageService: params.DataStorageService,
+		Registration:       params.Registration,
+		keyPrefix:          params.KeyPrefix,
 	}
 
 	cacheMode := params.CacheConfig.Mode
@@ -270,6 +273,8 @@ func (s *APIKeyService) CreateLLMAPIKey(ctx context.Context, owner *ent.APIKey, 
 			SetUserID(owner.UserID).
 			SetProjectID(owner.ProjectID).
 			SetType(apikey.TypeUser).
+			SetProvisioningSource(apikey.ProvisioningSourceAdmin).
+			SetProfileMode(apikey.ProfileModeSnapshot).
 			SetScopes([]string{
 				string(scopes.ScopeReadChannels),
 				string(scopes.ScopeWriteRequests),
@@ -373,6 +378,8 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, input ent.CreateAPIKey
 			SetKey(generatedKey).
 			SetUserID(user.ID).
 			SetProjectID(input.ProjectID)
+		create.SetProvisioningSource(apikey.ProvisioningSourceAdmin).
+			SetProfileMode(apikey.ProfileModeSnapshot)
 
 		if input.Type != nil {
 			create.SetType(*input.Type)
@@ -733,6 +740,35 @@ func (s *APIKeyService) GetAPIKey(ctx context.Context, key string) (*ent.APIKey,
 	return &apiKey, nil
 }
 
+// EnsureCoherentAPIKey performs the database-backed revision check required for
+// live Access Groups. Snapshot keys retain the normal cache-only fast path.
+func (s *APIKeyService) EnsureCoherentAPIKey(ctx context.Context, key *ent.APIKey) (*ent.APIKey, error) {
+	if key == nil || key.ProfileMode != apikey.ProfileModeAccessGroup || key.AccessGroupID == nil || key.AccessGroupRevision == nil {
+		return key, nil
+	}
+	return authz.RunWithSystemBypass(ctx, "api-key-access-group-coherence", func(bypassCtx context.Context) (*ent.APIKey, error) {
+		group, err := s.entFromContext(bypassCtx).APIKeyProfileTemplate.Get(bypassCtx, *key.AccessGroupID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load access group head: %w", err)
+		}
+		if group.ProjectID != key.ProjectID {
+			return nil, fmt.Errorf("access group project mismatch: %w", ErrInvalidAPIKey)
+		}
+		if group.Revision == *key.AccessGroupRevision {
+			return key, nil
+		}
+		fresh, err := s.entFromContext(bypassCtx).APIKey.Query().Where(apikey.IDEQ(key.ID), apikey.KeyEQ(key.Key)).Only(bypassCtx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reload stale API key: %w", err)
+		}
+		if fresh.AccessGroupRevision == nil || *fresh.AccessGroupRevision != group.Revision {
+			return nil, fmt.Errorf("access group materialization is stale: %w", ErrInvalidAPIKey)
+		}
+		s.APIKeyCache.Set(buildAPIKeyCacheKey(fresh.Key), fresh)
+		return fresh, nil
+	})
+}
+
 // GetForRead loads an API key by id, key, or name for read-only access. Exactly
 // one of id, key, or name must be non-nil.
 //
@@ -950,6 +986,8 @@ func (s *APIKeyService) EnsureNoAuthAPIKey(ctx context.Context) (*ent.APIKey, er
 		SetProjectID(proj.ID).
 		SetType(apikey.TypeNoauth).
 		SetStatus(apikey.StatusEnabled).
+		SetProvisioningSource(apikey.ProvisioningSourceAdmin).
+		SetProfileMode(apikey.ProfileModeSnapshot).
 		SetScopes([]string{string(scopes.ScopeWriteRequests), string(scopes.ScopeReadChannels)}).
 		Save(ctx)
 	if err != nil {

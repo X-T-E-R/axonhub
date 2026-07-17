@@ -34,6 +34,10 @@ type APIKeyProfileTemplate struct {
 	ProjectID int `json:"project_id,omitempty"`
 	// Profile holds the value of the "profile" field.
 	Profile *objects.APIKeyProfile `json:"profile,omitempty"`
+	// Revision holds the value of the "revision" field.
+	Revision int64 `json:"revision,omitempty"`
+	// SelfServiceVisible holds the value of the "self_service_visible" field.
+	SelfServiceVisible bool `json:"self_service_visible,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the APIKeyProfileTemplateQuery when eager-loading is set.
 	Edges        APIKeyProfileTemplateEdges `json:"edges"`
@@ -44,11 +48,18 @@ type APIKeyProfileTemplate struct {
 type APIKeyProfileTemplateEdges struct {
 	// Project holds the value of the project edge.
 	Project *Project `json:"project,omitempty"`
+	// APIKeys holds the value of the api_keys edge.
+	APIKeys []*APIKey `json:"api_keys,omitempty"`
+	// Revisions holds the value of the revisions edge.
+	Revisions []*APIKeyProfileTemplateRevision `json:"revisions,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [3]bool
 	// totalCount holds the count of the edges above.
-	totalCount [1]map[string]int
+	totalCount [2]map[string]int
+
+	namedAPIKeys   map[string][]*APIKey
+	namedRevisions map[string][]*APIKeyProfileTemplateRevision
 }
 
 // ProjectOrErr returns the Project value or an error if the edge
@@ -62,6 +73,24 @@ func (e APIKeyProfileTemplateEdges) ProjectOrErr() (*Project, error) {
 	return nil, &NotLoadedError{edge: "project"}
 }
 
+// APIKeysOrErr returns the APIKeys value or an error if the edge
+// was not loaded in eager-loading.
+func (e APIKeyProfileTemplateEdges) APIKeysOrErr() ([]*APIKey, error) {
+	if e.loadedTypes[1] {
+		return e.APIKeys, nil
+	}
+	return nil, &NotLoadedError{edge: "api_keys"}
+}
+
+// RevisionsOrErr returns the Revisions value or an error if the edge
+// was not loaded in eager-loading.
+func (e APIKeyProfileTemplateEdges) RevisionsOrErr() ([]*APIKeyProfileTemplateRevision, error) {
+	if e.loadedTypes[2] {
+		return e.Revisions, nil
+	}
+	return nil, &NotLoadedError{edge: "revisions"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*APIKeyProfileTemplate) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -69,7 +98,9 @@ func (*APIKeyProfileTemplate) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case apikeyprofiletemplate.FieldProfile:
 			values[i] = new([]byte)
-		case apikeyprofiletemplate.FieldID, apikeyprofiletemplate.FieldDeletedAt, apikeyprofiletemplate.FieldProjectID:
+		case apikeyprofiletemplate.FieldSelfServiceVisible:
+			values[i] = new(sql.NullBool)
+		case apikeyprofiletemplate.FieldID, apikeyprofiletemplate.FieldDeletedAt, apikeyprofiletemplate.FieldProjectID, apikeyprofiletemplate.FieldRevision:
 			values[i] = new(sql.NullInt64)
 		case apikeyprofiletemplate.FieldName, apikeyprofiletemplate.FieldDescription:
 			values[i] = new(sql.NullString)
@@ -140,6 +171,18 @@ func (_m *APIKeyProfileTemplate) assignValues(columns []string, values []any) er
 					return fmt.Errorf("unmarshal field profile: %w", err)
 				}
 			}
+		case apikeyprofiletemplate.FieldRevision:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field revision", values[i])
+			} else if value.Valid {
+				_m.Revision = value.Int64
+			}
+		case apikeyprofiletemplate.FieldSelfServiceVisible:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field self_service_visible", values[i])
+			} else if value.Valid {
+				_m.SelfServiceVisible = value.Bool
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -156,6 +199,16 @@ func (_m *APIKeyProfileTemplate) Value(name string) (ent.Value, error) {
 // QueryProject queries the "project" edge of the APIKeyProfileTemplate entity.
 func (_m *APIKeyProfileTemplate) QueryProject() *ProjectQuery {
 	return NewAPIKeyProfileTemplateClient(_m.config).QueryProject(_m)
+}
+
+// QueryAPIKeys queries the "api_keys" edge of the APIKeyProfileTemplate entity.
+func (_m *APIKeyProfileTemplate) QueryAPIKeys() *APIKeyQuery {
+	return NewAPIKeyProfileTemplateClient(_m.config).QueryAPIKeys(_m)
+}
+
+// QueryRevisions queries the "revisions" edge of the APIKeyProfileTemplate entity.
+func (_m *APIKeyProfileTemplate) QueryRevisions() *APIKeyProfileTemplateRevisionQuery {
+	return NewAPIKeyProfileTemplateClient(_m.config).QueryRevisions(_m)
 }
 
 // Update returns a builder for updating this APIKeyProfileTemplate.
@@ -201,8 +254,62 @@ func (_m *APIKeyProfileTemplate) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("profile=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Profile))
+	builder.WriteString(", ")
+	builder.WriteString("revision=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Revision))
+	builder.WriteString(", ")
+	builder.WriteString("self_service_visible=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SelfServiceVisible))
 	builder.WriteByte(')')
 	return builder.String()
+}
+
+// NamedAPIKeys returns the APIKeys named value or an error if the edge was not
+// loaded in eager-loading with this name.
+func (_m *APIKeyProfileTemplate) NamedAPIKeys(name string) ([]*APIKey, error) {
+	if _m.Edges.namedAPIKeys == nil {
+		return nil, &NotLoadedError{edge: name}
+	}
+	nodes, ok := _m.Edges.namedAPIKeys[name]
+	if !ok {
+		return nil, &NotLoadedError{edge: name}
+	}
+	return nodes, nil
+}
+
+func (_m *APIKeyProfileTemplate) appendNamedAPIKeys(name string, edges ...*APIKey) {
+	if _m.Edges.namedAPIKeys == nil {
+		_m.Edges.namedAPIKeys = make(map[string][]*APIKey)
+	}
+	if len(edges) == 0 {
+		_m.Edges.namedAPIKeys[name] = []*APIKey{}
+	} else {
+		_m.Edges.namedAPIKeys[name] = append(_m.Edges.namedAPIKeys[name], edges...)
+	}
+}
+
+// NamedRevisions returns the Revisions named value or an error if the edge was not
+// loaded in eager-loading with this name.
+func (_m *APIKeyProfileTemplate) NamedRevisions(name string) ([]*APIKeyProfileTemplateRevision, error) {
+	if _m.Edges.namedRevisions == nil {
+		return nil, &NotLoadedError{edge: name}
+	}
+	nodes, ok := _m.Edges.namedRevisions[name]
+	if !ok {
+		return nil, &NotLoadedError{edge: name}
+	}
+	return nodes, nil
+}
+
+func (_m *APIKeyProfileTemplate) appendNamedRevisions(name string, edges ...*APIKeyProfileTemplateRevision) {
+	if _m.Edges.namedRevisions == nil {
+		_m.Edges.namedRevisions = make(map[string][]*APIKeyProfileTemplateRevision)
+	}
+	if len(edges) == 0 {
+		_m.Edges.namedRevisions[name] = []*APIKeyProfileTemplateRevision{}
+	} else {
+		_m.Edges.namedRevisions[name] = append(_m.Edges.namedRevisions[name], edges...)
+	}
 }
 
 // APIKeyProfileTemplates is a parsable slice of APIKeyProfileTemplate.

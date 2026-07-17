@@ -45,10 +45,30 @@ func (_m *APIKey) Requests(
 	return _m.QueryRequests().Paginate(ctx, after, first, before, last, opts...)
 }
 
+func (_m *APIKey) AccessGroup(ctx context.Context) (*APIKeyProfileTemplate, error) {
+	result, err := _m.Edges.AccessGroupOrErr()
+	if IsNotLoaded(err) {
+		result, err = _m.QueryAccessGroup().Only(ctx)
+	}
+	return result, MaskNotFound(err)
+}
+
 func (_m *APIKeyProfileTemplate) Project(ctx context.Context) (*Project, error) {
 	result, err := _m.Edges.ProjectOrErr()
 	if IsNotLoaded(err) {
 		result, err = _m.QueryProject().Only(ctx)
+	}
+	return result, err
+}
+
+func (_m *APIKeyProfileTemplate) APIKeys(ctx context.Context) (result []*APIKey, err error) {
+	if fc := graphql.GetFieldContext(ctx); fc != nil && fc.Field.Alias != "" {
+		result, err = _m.NamedAPIKeys(graphql.GetFieldContext(ctx).Field.Alias)
+	} else {
+		result, err = _m.Edges.APIKeysOrErr()
+	}
+	if IsNotLoaded(err) {
+		result, err = _m.QueryAPIKeys().All(ctx)
 	}
 	return result, err
 }

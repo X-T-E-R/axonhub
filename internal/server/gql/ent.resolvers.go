@@ -40,6 +40,11 @@ func (r *aPIKeyResolver) ProjectID(ctx context.Context, obj *ent.APIKey) (*objec
 	}, nil
 }
 
+// AccessGroupID is the resolver for the accessGroupID field.
+func (r *aPIKeyResolver) AccessGroupID(ctx context.Context, obj *ent.APIKey) (*objects.GUID, error) {
+	panic(fmt.Errorf("not implemented: AccessGroupID - accessGroupID"))
+}
+
 // User is the resolver for the user field.
 // Returns nil if the user has been soft-deleted.
 func (r *aPIKeyResolver) User(ctx context.Context, obj *ent.APIKey) (*ent.User, error) {

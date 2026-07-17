@@ -73,6 +73,19 @@ func (APIKey) Fields() []ent.Field {
 			Annotations(
 				entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput),
 			),
+		field.Enum("provisioning_source").
+			Values("admin", "self_service", "legacy_unknown").
+			Default("legacy_unknown").
+			Comment("How this key was provisioned; legacy_unknown is the safe default for old writers").
+			Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
+		field.Enum("profile_mode").
+			Values("snapshot", "access_group").
+			Default("snapshot").
+			Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
+		field.Int("access_group_id").Optional().Nillable().Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
+		field.Int64("access_group_revision").Optional().Nillable().Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
+		field.Time("classification_at").Optional().Nillable().Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
+		field.Int("classification_by_user_id").Optional().Nillable().Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
 	}
 }
 
@@ -99,6 +112,11 @@ func (APIKey) Edges() []ent.Edge {
 				entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput),
 				entgql.RelayConnection(),
 			),
+		edge.From("access_group", APIKeyProfileTemplate.Type).
+			Ref("api_keys").
+			Field("access_group_id").
+			Unique().
+			Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
 	}
 }
 
@@ -114,8 +132,8 @@ func (APIKey) Annotations() []schema.Annotation {
 func (APIKey) Policy() ent.Policy {
 	return scopes.Policy{
 		Query: scopes.QueryPolicy{
-			scopes.UserPersonalAPIKeyReadRule(scopes.ScopeReadAPIKeys),  // User 主体：project_id 过滤 + personal key 仅创建者可见
-			scopes.APIKeyProjectScopeReadRule(scopes.ScopeReadAPIKeys),  // API key 主体：用于 OpenAPI 走 service account 读 APIKey
+			scopes.UserPersonalAPIKeyReadRule(scopes.ScopeReadAPIKeys), // User 主体：project_id 过滤 + personal key 仅创建者可见
+			scopes.APIKeyProjectScopeReadRule(scopes.ScopeReadAPIKeys), // API key 主体：用于 OpenAPI 走 service account 读 APIKey
 			scopes.OwnerRule(), // owner 用户可以访问所有 API Keys
 		},
 		Mutation: scopes.MutationPolicy{

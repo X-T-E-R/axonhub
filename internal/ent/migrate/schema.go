@@ -20,6 +20,12 @@ var (
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"enabled", "disabled", "archived"}, Default: "enabled"},
 		{Name: "scopes", Type: field.TypeJSON, Nullable: true},
 		{Name: "profiles", Type: field.TypeJSON, Nullable: true},
+		{Name: "provisioning_source", Type: field.TypeEnum, Enums: []string{"admin", "self_service", "legacy_unknown"}, Default: "legacy_unknown"},
+		{Name: "profile_mode", Type: field.TypeEnum, Enums: []string{"snapshot", "access_group"}, Default: "snapshot"},
+		{Name: "access_group_revision", Type: field.TypeInt64, Nullable: true},
+		{Name: "classification_at", Type: field.TypeTime, Nullable: true},
+		{Name: "classification_by_user_id", Type: field.TypeInt, Nullable: true},
+		{Name: "access_group_id", Type: field.TypeInt, Nullable: true},
 		{Name: "project_id", Type: field.TypeInt, Default: 1},
 		{Name: "user_id", Type: field.TypeInt, Nullable: true},
 	}
@@ -30,14 +36,20 @@ var (
 		PrimaryKey: []*schema.Column{APIKeysColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
+				Symbol:     "api_keys_api_key_profile_templates_api_keys",
+				Columns:    []*schema.Column{APIKeysColumns[15]},
+				RefColumns: []*schema.Column{APIKeyProfileTemplatesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
 				Symbol:     "api_keys_projects_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[10]},
+				Columns:    []*schema.Column{APIKeysColumns[16]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "api_keys_users_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[11]},
+				Columns:    []*schema.Column{APIKeysColumns[17]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -46,12 +58,12 @@ var (
 			{
 				Name:    "api_keys_by_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[11]},
+				Columns: []*schema.Column{APIKeysColumns[17]},
 			},
 			{
 				Name:    "api_keys_by_project_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[10]},
+				Columns: []*schema.Column{APIKeysColumns[16]},
 			},
 			{
 				Name:    "api_keys_by_key",
@@ -69,6 +81,8 @@ var (
 		{Name: "name", Type: field.TypeString},
 		{Name: "description", Type: field.TypeString, Default: ""},
 		{Name: "profile", Type: field.TypeJSON, Nullable: true},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+		{Name: "self_service_visible", Type: field.TypeBool, Default: false},
 		{Name: "project_id", Type: field.TypeInt},
 	}
 	// APIKeyProfileTemplatesTable holds the schema information for the "api_key_profile_templates" table.
@@ -79,7 +93,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "api_key_profile_templates_projects_api_key_profile_templates",
-				Columns:    []*schema.Column{APIKeyProfileTemplatesColumns[7]},
+				Columns:    []*schema.Column{APIKeyProfileTemplatesColumns[9]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -88,7 +102,52 @@ var (
 			{
 				Name:    "api_key_profile_templates_by_project_name",
 				Unique:  true,
-				Columns: []*schema.Column{APIKeyProfileTemplatesColumns[7], APIKeyProfileTemplatesColumns[4], APIKeyProfileTemplatesColumns[3]},
+				Columns: []*schema.Column{APIKeyProfileTemplatesColumns[9], APIKeyProfileTemplatesColumns[4], APIKeyProfileTemplatesColumns[3]},
+			},
+		},
+	}
+	// APIKeyProfileTemplateRevisionsColumns holds the columns for the "api_key_profile_template_revisions" table.
+	APIKeyProfileTemplateRevisionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "revision", Type: field.TypeInt64},
+		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Default: ""},
+		{Name: "profile", Type: field.TypeJSON},
+		{Name: "created_by_user_id", Type: field.TypeInt, Nullable: true},
+		{Name: "template_id", Type: field.TypeInt},
+		{Name: "project_id", Type: field.TypeInt},
+	}
+	// APIKeyProfileTemplateRevisionsTable holds the schema information for the "api_key_profile_template_revisions" table.
+	APIKeyProfileTemplateRevisionsTable = &schema.Table{
+		Name:       "api_key_profile_template_revisions",
+		Columns:    APIKeyProfileTemplateRevisionsColumns,
+		PrimaryKey: []*schema.Column{APIKeyProfileTemplateRevisionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "api_key_profile_template_revisions_api_key_profile_templates_revisions",
+				Columns:    []*schema.Column{APIKeyProfileTemplateRevisionsColumns[8]},
+				RefColumns: []*schema.Column{APIKeyProfileTemplatesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "api_key_profile_template_revisions_projects_api_key_profile_template_revisions",
+				Columns:    []*schema.Column{APIKeyProfileTemplateRevisionsColumns[9]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "apikeyprofiletemplaterevision_template_id_revision",
+				Unique:  true,
+				Columns: []*schema.Column{APIKeyProfileTemplateRevisionsColumns[8], APIKeyProfileTemplateRevisionsColumns[3]},
+			},
+			{
+				Name:    "apikeyprofiletemplaterevision_project_id_template_id",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeyProfileTemplateRevisionsColumns[9], APIKeyProfileTemplateRevisionsColumns[8]},
 			},
 		},
 	}
@@ -502,6 +561,8 @@ var (
 		{Name: "content_storage_id", Type: field.TypeInt, Nullable: true},
 		{Name: "content_storage_key", Type: field.TypeString, Nullable: true},
 		{Name: "content_saved_at", Type: field.TypeTime, Nullable: true},
+		{Name: "routing_context", Type: field.TypeJSON, Nullable: true},
+		{Name: "evidence_disposition", Type: field.TypeJSON, Nullable: true},
 		{Name: "api_key_id", Type: field.TypeInt, Nullable: true},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "data_storage_id", Type: field.TypeInt, Nullable: true},
@@ -516,31 +577,31 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "requests_api_keys_requests",
-				Columns:    []*schema.Column{RequestsColumns[22]},
+				Columns:    []*schema.Column{RequestsColumns[24]},
 				RefColumns: []*schema.Column{APIKeysColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_channels_requests",
-				Columns:    []*schema.Column{RequestsColumns[23]},
+				Columns:    []*schema.Column{RequestsColumns[25]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_data_storages_requests",
-				Columns:    []*schema.Column{RequestsColumns[24]},
+				Columns:    []*schema.Column{RequestsColumns[26]},
 				RefColumns: []*schema.Column{DataStoragesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_projects_requests",
-				Columns:    []*schema.Column{RequestsColumns[25]},
+				Columns:    []*schema.Column{RequestsColumns[27]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "requests_traces_requests",
-				Columns:    []*schema.Column{RequestsColumns[26]},
+				Columns:    []*schema.Column{RequestsColumns[28]},
 				RefColumns: []*schema.Column{TracesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -549,22 +610,22 @@ var (
 			{
 				Name:    "requests_by_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[22], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[24], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_project_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[25], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[27], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[23], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[25], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_trace_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[26], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[28], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_created_at",
@@ -595,6 +656,7 @@ var (
 		{Name: "request_headers", Type: field.TypeJSON, Nullable: true},
 		{Name: "request_url", Type: field.TypeString, Nullable: true},
 		{Name: "pass_through_applied", Type: field.TypeBool, Default: false},
+		{Name: "evidence_disposition", Type: field.TypeJSON, Nullable: true},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "data_storage_id", Type: field.TypeInt, Nullable: true},
 		{Name: "request_id", Type: field.TypeInt},
@@ -607,19 +669,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "request_executions_channels_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[20]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[21]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_data_storages_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[21]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[22]},
 				RefColumns: []*schema.Column{DataStoragesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_requests_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[22]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[23]},
 				RefColumns: []*schema.Column{RequestsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -628,17 +690,17 @@ var (
 			{
 				Name:    "request_executions_by_request_id_status_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[22], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[23], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_request_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[22], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[23], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[20], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[21], RequestExecutionsColumns[1]},
 			},
 		},
 	}
@@ -1012,6 +1074,7 @@ var (
 	Tables = []*schema.Table{
 		APIKeysTable,
 		APIKeyProfileTemplatesTable,
+		APIKeyProfileTemplateRevisionsTable,
 		ChannelsTable,
 		ChannelModelPricesTable,
 		ChannelModelPriceVersionsTable,
@@ -1039,9 +1102,12 @@ var (
 )
 
 func init() {
-	APIKeysTable.ForeignKeys[0].RefTable = ProjectsTable
-	APIKeysTable.ForeignKeys[1].RefTable = UsersTable
+	APIKeysTable.ForeignKeys[0].RefTable = APIKeyProfileTemplatesTable
+	APIKeysTable.ForeignKeys[1].RefTable = ProjectsTable
+	APIKeysTable.ForeignKeys[2].RefTable = UsersTable
 	APIKeyProfileTemplatesTable.ForeignKeys[0].RefTable = ProjectsTable
+	APIKeyProfileTemplateRevisionsTable.ForeignKeys[0].RefTable = APIKeyProfileTemplatesTable
+	APIKeyProfileTemplateRevisionsTable.ForeignKeys[1].RefTable = ProjectsTable
 	ChannelModelPricesTable.ForeignKeys[0].RefTable = ChannelsTable
 	ChannelModelPriceVersionsTable.ForeignKeys[0].RefTable = ChannelModelPricesTable
 	ChannelOverrideTemplatesTable.ForeignKeys[0].RefTable = UsersTable

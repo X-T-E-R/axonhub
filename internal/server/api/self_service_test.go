@@ -85,6 +85,20 @@ func TestSelfServiceHandlers_ListAPIKeysReturnsForbiddenWhenSelfServiceDisabled(
 	require.Equal(t, "self-service is disabled", body["error"]["message"])
 }
 
+func TestSelfServiceHandlers_GetRequestUsesStableDisabledError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/admin/self/requests/1", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "1"}}
+
+	(&SelfServiceHandlers{APIKeyService: &biz.APIKeyService{Registration: biz.RegistrationConfig{SelfServiceEnabled: false}}}).GetRequest(ctx)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+	require.Contains(t, recorder.Body.String(), `"type":"SELF_SERVICE_REQUEST_DETAILS_DISABLED"`)
+}
+
 func TestSelfServiceHandlers_ListAdminAccessGroupsUsesQueryProjectIDForProjectScopedAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

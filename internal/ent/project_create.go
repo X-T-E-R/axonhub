@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -248,6 +249,21 @@ func (_c *ProjectCreate) AddAPIKeyProfileTemplates(v ...*APIKeyProfileTemplate) 
 		ids[i] = v[i].ID
 	}
 	return _c.AddAPIKeyProfileTemplateIDs(ids...)
+}
+
+// AddAPIKeyProfileTemplateRevisionIDs adds the "api_key_profile_template_revisions" edge to the APIKeyProfileTemplateRevision entity by IDs.
+func (_c *ProjectCreate) AddAPIKeyProfileTemplateRevisionIDs(ids ...int) *ProjectCreate {
+	_c.mutation.AddAPIKeyProfileTemplateRevisionIDs(ids...)
+	return _c
+}
+
+// AddAPIKeyProfileTemplateRevisions adds the "api_key_profile_template_revisions" edges to the APIKeyProfileTemplateRevision entity.
+func (_c *ProjectCreate) AddAPIKeyProfileTemplateRevisions(v ...*APIKeyProfileTemplateRevision) *ProjectCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddAPIKeyProfileTemplateRevisionIDs(ids...)
 }
 
 // AddProjectUserIDs adds the "project_users" edge to the UserProject entity by IDs.
@@ -550,6 +566,22 @@ func (_c *ProjectCreate) createSpec() (*Project, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplate.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.APIKeyProfileTemplateRevisionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.APIKeyProfileTemplateRevisionsTable,
+			Columns: []string{project.APIKeyProfileTemplateRevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

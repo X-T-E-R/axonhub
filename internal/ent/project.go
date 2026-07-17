@@ -59,24 +59,27 @@ type ProjectEdges struct {
 	Prompts []*Prompt `json:"prompts,omitempty"`
 	// APIKeyProfileTemplates holds the value of the api_key_profile_templates edge.
 	APIKeyProfileTemplates []*APIKeyProfileTemplate `json:"api_key_profile_templates,omitempty"`
+	// APIKeyProfileTemplateRevisions holds the value of the api_key_profile_template_revisions edge.
+	APIKeyProfileTemplateRevisions []*APIKeyProfileTemplateRevision `json:"api_key_profile_template_revisions,omitempty"`
 	// ProjectUsers holds the value of the project_users edge.
 	ProjectUsers []*UserProject `json:"project_users,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [10]bool
+	loadedTypes [11]bool
 	// totalCount holds the count of the edges above.
 	totalCount [10]map[string]int
 
-	namedUsers                  map[string][]*User
-	namedRoles                  map[string][]*Role
-	namedAPIKeys                map[string][]*APIKey
-	namedRequests               map[string][]*Request
-	namedUsageLogs              map[string][]*UsageLog
-	namedThreads                map[string][]*Thread
-	namedTraces                 map[string][]*Trace
-	namedPrompts                map[string][]*Prompt
-	namedAPIKeyProfileTemplates map[string][]*APIKeyProfileTemplate
-	namedProjectUsers           map[string][]*UserProject
+	namedUsers                          map[string][]*User
+	namedRoles                          map[string][]*Role
+	namedAPIKeys                        map[string][]*APIKey
+	namedRequests                       map[string][]*Request
+	namedUsageLogs                      map[string][]*UsageLog
+	namedThreads                        map[string][]*Thread
+	namedTraces                         map[string][]*Trace
+	namedPrompts                        map[string][]*Prompt
+	namedAPIKeyProfileTemplates         map[string][]*APIKeyProfileTemplate
+	namedAPIKeyProfileTemplateRevisions map[string][]*APIKeyProfileTemplateRevision
+	namedProjectUsers                   map[string][]*UserProject
 }
 
 // UsersOrErr returns the Users value or an error if the edge
@@ -160,10 +163,19 @@ func (e ProjectEdges) APIKeyProfileTemplatesOrErr() ([]*APIKeyProfileTemplate, e
 	return nil, &NotLoadedError{edge: "api_key_profile_templates"}
 }
 
+// APIKeyProfileTemplateRevisionsOrErr returns the APIKeyProfileTemplateRevisions value or an error if the edge
+// was not loaded in eager-loading.
+func (e ProjectEdges) APIKeyProfileTemplateRevisionsOrErr() ([]*APIKeyProfileTemplateRevision, error) {
+	if e.loadedTypes[9] {
+		return e.APIKeyProfileTemplateRevisions, nil
+	}
+	return nil, &NotLoadedError{edge: "api_key_profile_template_revisions"}
+}
+
 // ProjectUsersOrErr returns the ProjectUsers value or an error if the edge
 // was not loaded in eager-loading.
 func (e ProjectEdges) ProjectUsersOrErr() ([]*UserProject, error) {
-	if e.loadedTypes[9] {
+	if e.loadedTypes[10] {
 		return e.ProjectUsers, nil
 	}
 	return nil, &NotLoadedError{edge: "project_users"}
@@ -303,6 +315,11 @@ func (_m *Project) QueryPrompts() *PromptQuery {
 // QueryAPIKeyProfileTemplates queries the "api_key_profile_templates" edge of the Project entity.
 func (_m *Project) QueryAPIKeyProfileTemplates() *APIKeyProfileTemplateQuery {
 	return NewProjectClient(_m.config).QueryAPIKeyProfileTemplates(_m)
+}
+
+// QueryAPIKeyProfileTemplateRevisions queries the "api_key_profile_template_revisions" edge of the Project entity.
+func (_m *Project) QueryAPIKeyProfileTemplateRevisions() *APIKeyProfileTemplateRevisionQuery {
+	return NewProjectClient(_m.config).QueryAPIKeyProfileTemplateRevisions(_m)
 }
 
 // QueryProjectUsers queries the "project_users" edge of the Project entity.
@@ -570,6 +587,30 @@ func (_m *Project) appendNamedAPIKeyProfileTemplates(name string, edges ...*APIK
 		_m.Edges.namedAPIKeyProfileTemplates[name] = []*APIKeyProfileTemplate{}
 	} else {
 		_m.Edges.namedAPIKeyProfileTemplates[name] = append(_m.Edges.namedAPIKeyProfileTemplates[name], edges...)
+	}
+}
+
+// NamedAPIKeyProfileTemplateRevisions returns the APIKeyProfileTemplateRevisions named value or an error if the edge was not
+// loaded in eager-loading with this name.
+func (_m *Project) NamedAPIKeyProfileTemplateRevisions(name string) ([]*APIKeyProfileTemplateRevision, error) {
+	if _m.Edges.namedAPIKeyProfileTemplateRevisions == nil {
+		return nil, &NotLoadedError{edge: name}
+	}
+	nodes, ok := _m.Edges.namedAPIKeyProfileTemplateRevisions[name]
+	if !ok {
+		return nil, &NotLoadedError{edge: name}
+	}
+	return nodes, nil
+}
+
+func (_m *Project) appendNamedAPIKeyProfileTemplateRevisions(name string, edges ...*APIKeyProfileTemplateRevision) {
+	if _m.Edges.namedAPIKeyProfileTemplateRevisions == nil {
+		_m.Edges.namedAPIKeyProfileTemplateRevisions = make(map[string][]*APIKeyProfileTemplateRevision)
+	}
+	if len(edges) == 0 {
+		_m.Edges.namedAPIKeyProfileTemplateRevisions[name] = []*APIKeyProfileTemplateRevision{}
+	} else {
+		_m.Edges.namedAPIKeyProfileTemplateRevisions[name] = append(_m.Edges.namedAPIKeyProfileTemplateRevisions[name], edges...)
 	}
 }
 

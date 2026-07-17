@@ -1135,6 +1135,26 @@ func ContentSavedAtNotNil() predicate.Request {
 	return predicate.Request(sql.FieldNotNull(FieldContentSavedAt))
 }
 
+// RoutingContextIsNil applies the IsNil predicate on the "routing_context" field.
+func RoutingContextIsNil() predicate.Request {
+	return predicate.Request(sql.FieldIsNull(FieldRoutingContext))
+}
+
+// RoutingContextNotNil applies the NotNil predicate on the "routing_context" field.
+func RoutingContextNotNil() predicate.Request {
+	return predicate.Request(sql.FieldNotNull(FieldRoutingContext))
+}
+
+// EvidenceDispositionIsNil applies the IsNil predicate on the "evidence_disposition" field.
+func EvidenceDispositionIsNil() predicate.Request {
+	return predicate.Request(sql.FieldIsNull(FieldEvidenceDisposition))
+}
+
+// EvidenceDispositionNotNil applies the NotNil predicate on the "evidence_disposition" field.
+func EvidenceDispositionNotNil() predicate.Request {
+	return predicate.Request(sql.FieldNotNull(FieldEvidenceDisposition))
+}
+
 // HasAPIKey applies the HasEdge predicate on the "api_key" edge.
 func HasAPIKey() predicate.Request {
 	return predicate.Request(func(s *sql.Selector) {

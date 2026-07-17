@@ -66,6 +66,8 @@ type RequestExecution struct {
 	RequestURL string `json:"request_url,omitempty"`
 	// Whether pass-through was active for this execution attempt
 	PassThroughApplied bool `json:"pass_through_applied,omitempty"`
+	// EvidenceDisposition holds the value of the "evidence_disposition" field.
+	EvidenceDisposition *objects.EvidenceDisposition `json:"evidence_disposition,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the RequestExecutionQuery when eager-loading is set.
 	Edges        RequestExecutionEdges `json:"edges"`
@@ -125,7 +127,7 @@ func (*RequestExecution) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case requestexecution.FieldRequestBody, requestexecution.FieldResponseBody, requestexecution.FieldResponseChunks, requestexecution.FieldRequestHeaders:
+		case requestexecution.FieldRequestBody, requestexecution.FieldResponseBody, requestexecution.FieldResponseChunks, requestexecution.FieldRequestHeaders, requestexecution.FieldEvidenceDisposition:
 			values[i] = new([]byte)
 		case requestexecution.FieldStream, requestexecution.FieldPassThroughApplied:
 			values[i] = new(sql.NullBool)
@@ -300,6 +302,14 @@ func (_m *RequestExecution) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.PassThroughApplied = value.Bool
 			}
+		case requestexecution.FieldEvidenceDisposition:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field evidence_disposition", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.EvidenceDisposition); err != nil {
+					return fmt.Errorf("unmarshal field evidence_disposition: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -424,6 +434,9 @@ func (_m *RequestExecution) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("pass_through_applied=")
 	builder.WriteString(fmt.Sprintf("%v", _m.PassThroughApplied))
+	builder.WriteString(", ")
+	builder.WriteString("evidence_disposition=")
+	builder.WriteString(fmt.Sprintf("%v", _m.EvidenceDisposition))
 	builder.WriteByte(')')
 	return builder.String()
 }

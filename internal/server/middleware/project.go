@@ -12,6 +12,10 @@ import (
 )
 
 func WithProjectID() gin.HandlerFunc {
+	return WithProjectIDResponder(nil)
+}
+
+func WithProjectIDResponder(responder ErrorResponder) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		projectIDStr := c.GetHeader("X-Project-ID")
 		if projectIDStr == "" {
@@ -21,7 +25,7 @@ func WithProjectID() gin.HandlerFunc {
 
 		projectID, parseErr := objects.ParseGUID(projectIDStr)
 		if parseErr != nil || projectID.Type != ent.TypeProject {
-			AbortWithError(c, http.StatusBadRequest, errors.New("Invalid project ID"))
+			respondMiddlewareError(c, responder, http.StatusBadRequest, errors.New("Invalid project ID"))
 			return
 		}
 

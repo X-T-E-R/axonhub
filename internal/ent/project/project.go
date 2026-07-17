@@ -51,6 +51,8 @@ const (
 	EdgePrompts = "prompts"
 	// EdgeAPIKeyProfileTemplates holds the string denoting the api_key_profile_templates edge name in mutations.
 	EdgeAPIKeyProfileTemplates = "api_key_profile_templates"
+	// EdgeAPIKeyProfileTemplateRevisions holds the string denoting the api_key_profile_template_revisions edge name in mutations.
+	EdgeAPIKeyProfileTemplateRevisions = "api_key_profile_template_revisions"
 	// EdgeProjectUsers holds the string denoting the project_users edge name in mutations.
 	EdgeProjectUsers = "project_users"
 	// Table holds the table name of the project in the database.
@@ -114,6 +116,13 @@ const (
 	APIKeyProfileTemplatesInverseTable = "api_key_profile_templates"
 	// APIKeyProfileTemplatesColumn is the table column denoting the api_key_profile_templates relation/edge.
 	APIKeyProfileTemplatesColumn = "project_id"
+	// APIKeyProfileTemplateRevisionsTable is the table that holds the api_key_profile_template_revisions relation/edge.
+	APIKeyProfileTemplateRevisionsTable = "api_key_profile_template_revisions"
+	// APIKeyProfileTemplateRevisionsInverseTable is the table name for the APIKeyProfileTemplateRevision entity.
+	// It exists in this package in order to avoid circular dependency with the "apikeyprofiletemplaterevision" package.
+	APIKeyProfileTemplateRevisionsInverseTable = "api_key_profile_template_revisions"
+	// APIKeyProfileTemplateRevisionsColumn is the table column denoting the api_key_profile_template_revisions relation/edge.
+	APIKeyProfileTemplateRevisionsColumn = "project_id"
 	// ProjectUsersTable is the table that holds the project_users relation/edge.
 	ProjectUsersTable = "user_projects"
 	// ProjectUsersInverseTable is the table name for the UserProject entity.
@@ -367,6 +376,20 @@ func ByAPIKeyProfileTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderO
 	}
 }
 
+// ByAPIKeyProfileTemplateRevisionsCount orders the results by api_key_profile_template_revisions count.
+func ByAPIKeyProfileTemplateRevisionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAPIKeyProfileTemplateRevisionsStep(), opts...)
+	}
+}
+
+// ByAPIKeyProfileTemplateRevisions orders the results by api_key_profile_template_revisions terms.
+func ByAPIKeyProfileTemplateRevisions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAPIKeyProfileTemplateRevisionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByProjectUsersCount orders the results by project_users count.
 func ByProjectUsersCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -441,6 +464,13 @@ func newAPIKeyProfileTemplatesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(APIKeyProfileTemplatesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, APIKeyProfileTemplatesTable, APIKeyProfileTemplatesColumn),
+	)
+}
+func newAPIKeyProfileTemplateRevisionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(APIKeyProfileTemplateRevisionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, APIKeyProfileTemplateRevisionsTable, APIKeyProfileTemplateRevisionsColumn),
 	)
 }
 func newProjectUsersStep() *sqlgraph.Step {

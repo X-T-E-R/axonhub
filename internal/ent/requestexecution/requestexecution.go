@@ -61,6 +61,8 @@ const (
 	FieldRequestURL = "request_url"
 	// FieldPassThroughApplied holds the string denoting the pass_through_applied field in the database.
 	FieldPassThroughApplied = "pass_through_applied"
+	// FieldEvidenceDisposition holds the string denoting the evidence_disposition field in the database.
+	FieldEvidenceDisposition = "evidence_disposition"
 	// EdgeRequest holds the string denoting the request edge name in mutations.
 	EdgeRequest = "request"
 	// EdgeChannel holds the string denoting the channel edge name in mutations.
@@ -117,6 +119,7 @@ var Columns = []string{
 	FieldRequestHeaders,
 	FieldRequestURL,
 	FieldPassThroughApplied,
+	FieldEvidenceDisposition,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).

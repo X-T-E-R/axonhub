@@ -9,6 +9,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/looplj/axonhub/internal/contexts"
+	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/biz"
@@ -42,6 +43,11 @@ type updateMyAPIKeyRequest struct {
 
 type updateMyAPIKeyStatusRequest struct {
 	Status string `json:"status" binding:"required"`
+}
+
+type classifyLegacyAPIKeyRequest struct {
+	Mode          string `json:"mode" binding:"required"`
+	AccessGroupID string `json:"accessGroupId"`
 }
 
 type addChannelsToAccessGroupRequest struct {
@@ -229,6 +235,93 @@ func (h *SelfServiceHandlers) RotateAPIKey(c *gin.Context) {
 		return
 	}
 
+	c.JSON(http.StatusOK, gin.H{"data": item})
+}
+
+func (h *SelfServiceHandlers) RevealAPIKey(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	id, ok := parseEntityID(c, c.Param("id"), "APIKey")
+	if !ok {
+		return
+	}
+	item, err := h.APIKeyService.RevealMyAPIKey(c.Request.Context(), id)
+	if err != nil {
+		JSONError(c, selfServiceErrorStatus(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, item)
+}
+
+func (h *SelfServiceHandlers) ClassifyLegacyAPIKey(c *gin.Context) {
+	h.classifyLegacyAPIKey(c, false)
+}
+
+func (h *SelfServiceHandlers) ClassifyMyLegacyAPIKey(c *gin.Context) {
+	h.classifyLegacyAPIKey(c, true)
+}
+
+func (h *SelfServiceHandlers) classifyLegacyAPIKey(c *gin.Context, selfOnly bool) {
+	id, ok := parseEntityID(c, c.Param("id"), "APIKey")
+	if !ok {
+		return
+	}
+	var req classifyLegacyAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, errors.New("Invalid request format"))
+		return
+	}
+	var groupID *int
+	if req.AccessGroupID != "" {
+		parsed, ok := parseEntityID(c, req.AccessGroupID, "APIKeyProfileTemplate")
+		if !ok {
+			return
+		}
+		groupID = &parsed
+	}
+	var item biz.MyAPIKeySummary
+	var err error
+	if selfOnly {
+		item, err = h.APIKeyService.ClassifyMyLegacyAPIKey(c.Request.Context(), id, biz.LegacyAPIKeyClassificationInput{Mode: req.Mode, AccessGroupID: groupID})
+	} else {
+		item, err = h.APIKeyService.ClassifyLegacyAPIKey(c.Request.Context(), id, biz.LegacyAPIKeyClassificationInput{Mode: req.Mode, AccessGroupID: groupID})
+	}
+	if err != nil {
+		JSONError(c, selfServiceErrorStatus(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": item})
+}
+
+func (h *SelfServiceHandlers) DetachAPIKeyAccessGroup(c *gin.Context) {
+	id, ok := parseEntityID(c, c.Param("id"), "APIKey")
+	if !ok {
+		return
+	}
+	item, err := h.APIKeyService.DetachAPIKeyAccessGroup(c.Request.Context(), id)
+	if err != nil {
+		JSONError(c, selfServiceErrorStatus(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": item})
+}
+
+func (h *SelfServiceHandlers) GetRequest(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	id, ok := parseEntityID(c, c.Param("id"), "Request")
+	if !ok {
+		return
+	}
+	item, err := h.APIKeyService.GetMyRequestDetail(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, biz.ErrSelfServiceRequestDetailsDisabled) {
+			_ = c.Error(err)
+			c.JSON(http.StatusForbidden, objects.ErrorResponse{Error: objects.Error{Type: "SELF_SERVICE_REQUEST_DETAILS_DISABLED", Message: err.Error()}})
+			return
+		}
+		JSONError(c, selfServiceErrorStatus(err), err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"data": item})
 }
 
@@ -530,7 +623,16 @@ func parseEntityID(c *gin.Context, raw string, typ string) (int, bool) {
 }
 
 func selfServiceErrorStatus(err error) int {
+	if errors.Is(err, biz.ErrAPIKeyArchived) {
+		return http.StatusGone
+	}
+	if errors.Is(err, biz.ErrNotFoundOrNotAuthorized) || ent.IsNotFound(err) {
+		return http.StatusNotFound
+	}
 	if errors.Is(err, biz.ErrSelfServiceDisabled) {
+		return http.StatusForbidden
+	}
+	if errors.Is(err, biz.ErrSelfServiceRequestDetailsDisabled) {
 		return http.StatusForbidden
 	}
 

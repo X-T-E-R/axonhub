@@ -79,6 +79,7 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 	template, err := client.APIKeyProfileTemplate.Create().
 		SetName("fast").
 		SetDescription("Fast preset").
+		SetSelfServiceVisible(true).
 		SetProject(testProject).
 		SetProfile(&objects.APIKeyProfile{Name: "fast", ModelIDs: []string{"gpt-4o-mini"}}).
 		Save(setupCtx)
@@ -175,7 +176,7 @@ func TestAPIKeyService_CreateMyAPIKeyFromPresetScopesToCurrentUser(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
 	require.Equal(t, created.ID, keys[0].ID)
-	require.Equal(t, apikey.TypeUser.String(), keys[0].Type)
+	require.Equal(t, apikey.TypePersonal.String(), keys[0].Type)
 
 	duplicateRename := "other app"
 	_, err = apiKeyService.UpdateMyAPIKey(ctx, created.ID, MyUpdateAPIKeyInput{Name: &duplicateRename})
@@ -221,6 +222,7 @@ func TestAPIKeyService_OwnerCanUseSelfServiceWithoutProjectMembership(t *testing
 	template, err := client.APIKeyProfileTemplate.Create().
 		SetName("fast").
 		SetDescription("Fast preset").
+		SetSelfServiceVisible(true).
 		SetProject(testProject).
 		SetProfile(&objects.APIKeyProfile{Name: "fast", ModelIDs: []string{"gpt-4o-mini"}}).
 		Save(setupCtx)
@@ -369,7 +371,7 @@ func TestAPIKeyService_AdminAccessGroupCreateAndUpdateCompatibility(t *testing.T
 
 	policy, err := apiKeyService.registrationPolicy(setupCtx)
 	require.NoError(t, err)
-	require.Contains(t, policy.SelfServicePresetNames, "fast")
+	require.Equal(t, []string{"fast"}, policy.SelfServicePresetNames)
 
 	newName := "fast-renamed"
 	newDescription := "Renamed group"
@@ -390,7 +392,7 @@ func TestAPIKeyService_AdminAccessGroupCreateAndUpdateCompatibility(t *testing.T
 
 	policy, err = apiKeyService.registrationPolicy(setupCtx)
 	require.NoError(t, err)
-	require.NotContains(t, policy.SelfServicePresetNames, "fast")
+	require.Contains(t, policy.SelfServicePresetNames, "fast")
 	require.NotContains(t, policy.SelfServicePresetNames, "fast-renamed")
 
 	updatedTemplate, err := client.APIKeyProfileTemplate.Get(setupCtx, created.ID)

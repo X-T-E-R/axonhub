@@ -17,6 +17,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
@@ -50,6 +51,8 @@ type Client struct {
 	APIKey *APIKeyClient
 	// APIKeyProfileTemplate is the client for interacting with the APIKeyProfileTemplate builders.
 	APIKeyProfileTemplate *APIKeyProfileTemplateClient
+	// APIKeyProfileTemplateRevision is the client for interacting with the APIKeyProfileTemplateRevision builders.
+	APIKeyProfileTemplateRevision *APIKeyProfileTemplateRevisionClient
 	// Channel is the client for interacting with the Channel builders.
 	Channel *ChannelClient
 	// ChannelModelPrice is the client for interacting with the ChannelModelPrice builders.
@@ -109,6 +112,7 @@ func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.APIKey = NewAPIKeyClient(c.config)
 	c.APIKeyProfileTemplate = NewAPIKeyProfileTemplateClient(c.config)
+	c.APIKeyProfileTemplateRevision = NewAPIKeyProfileTemplateRevisionClient(c.config)
 	c.Channel = NewChannelClient(c.config)
 	c.ChannelModelPrice = NewChannelModelPriceClient(c.config)
 	c.ChannelModelPriceVersion = NewChannelModelPriceVersionClient(c.config)
@@ -221,32 +225,33 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                      ctx,
-		config:                   cfg,
-		APIKey:                   NewAPIKeyClient(cfg),
-		APIKeyProfileTemplate:    NewAPIKeyProfileTemplateClient(cfg),
-		Channel:                  NewChannelClient(cfg),
-		ChannelModelPrice:        NewChannelModelPriceClient(cfg),
-		ChannelModelPriceVersion: NewChannelModelPriceVersionClient(cfg),
-		ChannelOverrideTemplate:  NewChannelOverrideTemplateClient(cfg),
-		ChannelProbe:             NewChannelProbeClient(cfg),
-		DataStorage:              NewDataStorageClient(cfg),
-		Model:                    NewModelClient(cfg),
-		OIDCIdentity:             NewOIDCIdentityClient(cfg),
-		Project:                  NewProjectClient(cfg),
-		Prompt:                   NewPromptClient(cfg),
-		PromptProtectionRule:     NewPromptProtectionRuleClient(cfg),
-		ProviderQuotaStatus:      NewProviderQuotaStatusClient(cfg),
-		Request:                  NewRequestClient(cfg),
-		RequestExecution:         NewRequestExecutionClient(cfg),
-		Role:                     NewRoleClient(cfg),
-		System:                   NewSystemClient(cfg),
-		Thread:                   NewThreadClient(cfg),
-		Trace:                    NewTraceClient(cfg),
-		UsageLog:                 NewUsageLogClient(cfg),
-		User:                     NewUserClient(cfg),
-		UserProject:              NewUserProjectClient(cfg),
-		UserRole:                 NewUserRoleClient(cfg),
+		ctx:                           ctx,
+		config:                        cfg,
+		APIKey:                        NewAPIKeyClient(cfg),
+		APIKeyProfileTemplate:         NewAPIKeyProfileTemplateClient(cfg),
+		APIKeyProfileTemplateRevision: NewAPIKeyProfileTemplateRevisionClient(cfg),
+		Channel:                       NewChannelClient(cfg),
+		ChannelModelPrice:             NewChannelModelPriceClient(cfg),
+		ChannelModelPriceVersion:      NewChannelModelPriceVersionClient(cfg),
+		ChannelOverrideTemplate:       NewChannelOverrideTemplateClient(cfg),
+		ChannelProbe:                  NewChannelProbeClient(cfg),
+		DataStorage:                   NewDataStorageClient(cfg),
+		Model:                         NewModelClient(cfg),
+		OIDCIdentity:                  NewOIDCIdentityClient(cfg),
+		Project:                       NewProjectClient(cfg),
+		Prompt:                        NewPromptClient(cfg),
+		PromptProtectionRule:          NewPromptProtectionRuleClient(cfg),
+		ProviderQuotaStatus:           NewProviderQuotaStatusClient(cfg),
+		Request:                       NewRequestClient(cfg),
+		RequestExecution:              NewRequestExecutionClient(cfg),
+		Role:                          NewRoleClient(cfg),
+		System:                        NewSystemClient(cfg),
+		Thread:                        NewThreadClient(cfg),
+		Trace:                         NewTraceClient(cfg),
+		UsageLog:                      NewUsageLogClient(cfg),
+		User:                          NewUserClient(cfg),
+		UserProject:                   NewUserProjectClient(cfg),
+		UserRole:                      NewUserRoleClient(cfg),
 	}, nil
 }
 
@@ -264,32 +269,33 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                      ctx,
-		config:                   cfg,
-		APIKey:                   NewAPIKeyClient(cfg),
-		APIKeyProfileTemplate:    NewAPIKeyProfileTemplateClient(cfg),
-		Channel:                  NewChannelClient(cfg),
-		ChannelModelPrice:        NewChannelModelPriceClient(cfg),
-		ChannelModelPriceVersion: NewChannelModelPriceVersionClient(cfg),
-		ChannelOverrideTemplate:  NewChannelOverrideTemplateClient(cfg),
-		ChannelProbe:             NewChannelProbeClient(cfg),
-		DataStorage:              NewDataStorageClient(cfg),
-		Model:                    NewModelClient(cfg),
-		OIDCIdentity:             NewOIDCIdentityClient(cfg),
-		Project:                  NewProjectClient(cfg),
-		Prompt:                   NewPromptClient(cfg),
-		PromptProtectionRule:     NewPromptProtectionRuleClient(cfg),
-		ProviderQuotaStatus:      NewProviderQuotaStatusClient(cfg),
-		Request:                  NewRequestClient(cfg),
-		RequestExecution:         NewRequestExecutionClient(cfg),
-		Role:                     NewRoleClient(cfg),
-		System:                   NewSystemClient(cfg),
-		Thread:                   NewThreadClient(cfg),
-		Trace:                    NewTraceClient(cfg),
-		UsageLog:                 NewUsageLogClient(cfg),
-		User:                     NewUserClient(cfg),
-		UserProject:              NewUserProjectClient(cfg),
-		UserRole:                 NewUserRoleClient(cfg),
+		ctx:                           ctx,
+		config:                        cfg,
+		APIKey:                        NewAPIKeyClient(cfg),
+		APIKeyProfileTemplate:         NewAPIKeyProfileTemplateClient(cfg),
+		APIKeyProfileTemplateRevision: NewAPIKeyProfileTemplateRevisionClient(cfg),
+		Channel:                       NewChannelClient(cfg),
+		ChannelModelPrice:             NewChannelModelPriceClient(cfg),
+		ChannelModelPriceVersion:      NewChannelModelPriceVersionClient(cfg),
+		ChannelOverrideTemplate:       NewChannelOverrideTemplateClient(cfg),
+		ChannelProbe:                  NewChannelProbeClient(cfg),
+		DataStorage:                   NewDataStorageClient(cfg),
+		Model:                         NewModelClient(cfg),
+		OIDCIdentity:                  NewOIDCIdentityClient(cfg),
+		Project:                       NewProjectClient(cfg),
+		Prompt:                        NewPromptClient(cfg),
+		PromptProtectionRule:          NewPromptProtectionRuleClient(cfg),
+		ProviderQuotaStatus:           NewProviderQuotaStatusClient(cfg),
+		Request:                       NewRequestClient(cfg),
+		RequestExecution:              NewRequestExecutionClient(cfg),
+		Role:                          NewRoleClient(cfg),
+		System:                        NewSystemClient(cfg),
+		Thread:                        NewThreadClient(cfg),
+		Trace:                         NewTraceClient(cfg),
+		UsageLog:                      NewUsageLogClient(cfg),
+		User:                          NewUserClient(cfg),
+		UserProject:                   NewUserProjectClient(cfg),
+		UserRole:                      NewUserRoleClient(cfg),
 	}, nil
 }
 
@@ -319,9 +325,9 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelModelPrice,
-		c.ChannelModelPriceVersion, c.ChannelOverrideTemplate, c.ChannelProbe,
-		c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
+		c.APIKey, c.APIKeyProfileTemplate, c.APIKeyProfileTemplateRevision, c.Channel,
+		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
+		c.ChannelProbe, c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -334,9 +340,9 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelModelPrice,
-		c.ChannelModelPriceVersion, c.ChannelOverrideTemplate, c.ChannelProbe,
-		c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
+		c.APIKey, c.APIKeyProfileTemplate, c.APIKeyProfileTemplateRevision, c.Channel,
+		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
+		c.ChannelProbe, c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -352,6 +358,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.APIKey.mutate(ctx, m)
 	case *APIKeyProfileTemplateMutation:
 		return c.APIKeyProfileTemplate.mutate(ctx, m)
+	case *APIKeyProfileTemplateRevisionMutation:
+		return c.APIKeyProfileTemplateRevision.mutate(ctx, m)
 	case *ChannelMutation:
 		return c.Channel.mutate(ctx, m)
 	case *ChannelModelPriceMutation:
@@ -557,6 +565,22 @@ func (c *APIKeyClient) QueryRequests(_m *APIKey) *RequestQuery {
 	return query
 }
 
+// QueryAccessGroup queries the access_group edge of a APIKey.
+func (c *APIKeyClient) QueryAccessGroup(_m *APIKey) *APIKeyProfileTemplateQuery {
+	query := (&APIKeyProfileTemplateClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikey.Table, apikey.FieldID, id),
+			sqlgraph.To(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, apikey.AccessGroupTable, apikey.AccessGroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *APIKeyClient) Hooks() []Hook {
 	hooks := c.hooks.APIKey
@@ -708,6 +732,38 @@ func (c *APIKeyProfileTemplateClient) QueryProject(_m *APIKeyProfileTemplate) *P
 	return query
 }
 
+// QueryAPIKeys queries the api_keys edge of a APIKeyProfileTemplate.
+func (c *APIKeyProfileTemplateClient) QueryAPIKeys(_m *APIKeyProfileTemplate) *APIKeyQuery {
+	query := (&APIKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID, id),
+			sqlgraph.To(apikey.Table, apikey.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, apikeyprofiletemplate.APIKeysTable, apikeyprofiletemplate.APIKeysColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRevisions queries the revisions edge of a APIKeyProfileTemplate.
+func (c *APIKeyProfileTemplateClient) QueryRevisions(_m *APIKeyProfileTemplate) *APIKeyProfileTemplateRevisionQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID, id),
+			sqlgraph.To(apikeyprofiletemplaterevision.Table, apikeyprofiletemplaterevision.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, apikeyprofiletemplate.RevisionsTable, apikeyprofiletemplate.RevisionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *APIKeyProfileTemplateClient) Hooks() []Hook {
 	hooks := c.hooks.APIKeyProfileTemplate
@@ -732,6 +788,172 @@ func (c *APIKeyProfileTemplateClient) mutate(ctx context.Context, m *APIKeyProfi
 		return (&APIKeyProfileTemplateDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown APIKeyProfileTemplate mutation op: %q", m.Op())
+	}
+}
+
+// APIKeyProfileTemplateRevisionClient is a client for the APIKeyProfileTemplateRevision schema.
+type APIKeyProfileTemplateRevisionClient struct {
+	config
+}
+
+// NewAPIKeyProfileTemplateRevisionClient returns a client for the APIKeyProfileTemplateRevision from the given config.
+func NewAPIKeyProfileTemplateRevisionClient(c config) *APIKeyProfileTemplateRevisionClient {
+	return &APIKeyProfileTemplateRevisionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `apikeyprofiletemplaterevision.Hooks(f(g(h())))`.
+func (c *APIKeyProfileTemplateRevisionClient) Use(hooks ...Hook) {
+	c.hooks.APIKeyProfileTemplateRevision = append(c.hooks.APIKeyProfileTemplateRevision, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `apikeyprofiletemplaterevision.Intercept(f(g(h())))`.
+func (c *APIKeyProfileTemplateRevisionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.APIKeyProfileTemplateRevision = append(c.inters.APIKeyProfileTemplateRevision, interceptors...)
+}
+
+// Create returns a builder for creating a APIKeyProfileTemplateRevision entity.
+func (c *APIKeyProfileTemplateRevisionClient) Create() *APIKeyProfileTemplateRevisionCreate {
+	mutation := newAPIKeyProfileTemplateRevisionMutation(c.config, OpCreate)
+	return &APIKeyProfileTemplateRevisionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of APIKeyProfileTemplateRevision entities.
+func (c *APIKeyProfileTemplateRevisionClient) CreateBulk(builders ...*APIKeyProfileTemplateRevisionCreate) *APIKeyProfileTemplateRevisionCreateBulk {
+	return &APIKeyProfileTemplateRevisionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *APIKeyProfileTemplateRevisionClient) MapCreateBulk(slice any, setFunc func(*APIKeyProfileTemplateRevisionCreate, int)) *APIKeyProfileTemplateRevisionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &APIKeyProfileTemplateRevisionCreateBulk{err: fmt.Errorf("calling to APIKeyProfileTemplateRevisionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*APIKeyProfileTemplateRevisionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &APIKeyProfileTemplateRevisionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for APIKeyProfileTemplateRevision.
+func (c *APIKeyProfileTemplateRevisionClient) Update() *APIKeyProfileTemplateRevisionUpdate {
+	mutation := newAPIKeyProfileTemplateRevisionMutation(c.config, OpUpdate)
+	return &APIKeyProfileTemplateRevisionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *APIKeyProfileTemplateRevisionClient) UpdateOne(_m *APIKeyProfileTemplateRevision) *APIKeyProfileTemplateRevisionUpdateOne {
+	mutation := newAPIKeyProfileTemplateRevisionMutation(c.config, OpUpdateOne, withAPIKeyProfileTemplateRevision(_m))
+	return &APIKeyProfileTemplateRevisionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *APIKeyProfileTemplateRevisionClient) UpdateOneID(id int) *APIKeyProfileTemplateRevisionUpdateOne {
+	mutation := newAPIKeyProfileTemplateRevisionMutation(c.config, OpUpdateOne, withAPIKeyProfileTemplateRevisionID(id))
+	return &APIKeyProfileTemplateRevisionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for APIKeyProfileTemplateRevision.
+func (c *APIKeyProfileTemplateRevisionClient) Delete() *APIKeyProfileTemplateRevisionDelete {
+	mutation := newAPIKeyProfileTemplateRevisionMutation(c.config, OpDelete)
+	return &APIKeyProfileTemplateRevisionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *APIKeyProfileTemplateRevisionClient) DeleteOne(_m *APIKeyProfileTemplateRevision) *APIKeyProfileTemplateRevisionDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *APIKeyProfileTemplateRevisionClient) DeleteOneID(id int) *APIKeyProfileTemplateRevisionDeleteOne {
+	builder := c.Delete().Where(apikeyprofiletemplaterevision.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &APIKeyProfileTemplateRevisionDeleteOne{builder}
+}
+
+// Query returns a query builder for APIKeyProfileTemplateRevision.
+func (c *APIKeyProfileTemplateRevisionClient) Query() *APIKeyProfileTemplateRevisionQuery {
+	return &APIKeyProfileTemplateRevisionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAPIKeyProfileTemplateRevision},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a APIKeyProfileTemplateRevision entity by its id.
+func (c *APIKeyProfileTemplateRevisionClient) Get(ctx context.Context, id int) (*APIKeyProfileTemplateRevision, error) {
+	return c.Query().Where(apikeyprofiletemplaterevision.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *APIKeyProfileTemplateRevisionClient) GetX(ctx context.Context, id int) *APIKeyProfileTemplateRevision {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryProject queries the project edge of a APIKeyProfileTemplateRevision.
+func (c *APIKeyProfileTemplateRevisionClient) QueryProject(_m *APIKeyProfileTemplateRevision) *ProjectQuery {
+	query := (&ProjectClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikeyprofiletemplaterevision.Table, apikeyprofiletemplaterevision.FieldID, id),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, apikeyprofiletemplaterevision.ProjectTable, apikeyprofiletemplaterevision.ProjectColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTemplate queries the template edge of a APIKeyProfileTemplateRevision.
+func (c *APIKeyProfileTemplateRevisionClient) QueryTemplate(_m *APIKeyProfileTemplateRevision) *APIKeyProfileTemplateQuery {
+	query := (&APIKeyProfileTemplateClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikeyprofiletemplaterevision.Table, apikeyprofiletemplaterevision.FieldID, id),
+			sqlgraph.To(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, apikeyprofiletemplaterevision.TemplateTable, apikeyprofiletemplaterevision.TemplateColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *APIKeyProfileTemplateRevisionClient) Hooks() []Hook {
+	hooks := c.hooks.APIKeyProfileTemplateRevision
+	return append(hooks[:len(hooks):len(hooks)], apikeyprofiletemplaterevision.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *APIKeyProfileTemplateRevisionClient) Interceptors() []Interceptor {
+	return c.inters.APIKeyProfileTemplateRevision
+}
+
+func (c *APIKeyProfileTemplateRevisionClient) mutate(ctx context.Context, m *APIKeyProfileTemplateRevisionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&APIKeyProfileTemplateRevisionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&APIKeyProfileTemplateRevisionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&APIKeyProfileTemplateRevisionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&APIKeyProfileTemplateRevisionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown APIKeyProfileTemplateRevision mutation op: %q", m.Op())
 	}
 }
 
@@ -2281,6 +2503,22 @@ func (c *ProjectClient) QueryAPIKeyProfileTemplates(_m *Project) *APIKeyProfileT
 			sqlgraph.From(project.Table, project.FieldID, id),
 			sqlgraph.To(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.APIKeyProfileTemplatesTable, project.APIKeyProfileTemplatesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAPIKeyProfileTemplateRevisions queries the api_key_profile_template_revisions edge of a Project.
+func (c *ProjectClient) QueryAPIKeyProfileTemplateRevisions(_m *Project) *APIKeyProfileTemplateRevisionQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, id),
+			sqlgraph.To(apikeyprofiletemplaterevision.Table, apikeyprofiletemplaterevision.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.APIKeyProfileTemplateRevisionsTable, project.APIKeyProfileTemplateRevisionsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -4624,17 +4862,17 @@ func (c *UserRoleClient) mutate(ctx context.Context, m *UserRoleMutation) (Value
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		APIKey, APIKeyProfileTemplate, Channel, ChannelModelPrice,
-		ChannelModelPriceVersion, ChannelOverrideTemplate, ChannelProbe, DataStorage,
-		Model, OIDCIdentity, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
-		UsageLog, User, UserProject, UserRole []ent.Hook
+		APIKey, APIKeyProfileTemplate, APIKeyProfileTemplateRevision, Channel,
+		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
+		ChannelProbe, DataStorage, Model, OIDCIdentity, Project, Prompt,
+		PromptProtectionRule, ProviderQuotaStatus, Request, RequestExecution, Role,
+		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Hook
 	}
 	inters struct {
-		APIKey, APIKeyProfileTemplate, Channel, ChannelModelPrice,
-		ChannelModelPriceVersion, ChannelOverrideTemplate, ChannelProbe, DataStorage,
-		Model, OIDCIdentity, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
-		UsageLog, User, UserProject, UserRole []ent.Interceptor
+		APIKey, APIKeyProfileTemplate, APIKeyProfileTemplateRevision, Channel,
+		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
+		ChannelProbe, DataStorage, Model, OIDCIdentity, Project, Prompt,
+		PromptProtectionRule, ProviderQuotaStatus, Request, RequestExecution, Role,
+		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Interceptor
 	}
 )

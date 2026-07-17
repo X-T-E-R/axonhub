@@ -33,6 +33,18 @@ func (f APIKeyProfileTemplateFunc) Mutate(ctx context.Context, m ent.Mutation) (
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.APIKeyProfileTemplateMutation", m)
 }
 
+// The APIKeyProfileTemplateRevisionFunc type is an adapter to allow the use of ordinary
+// function as APIKeyProfileTemplateRevision mutator.
+type APIKeyProfileTemplateRevisionFunc func(context.Context, *ent.APIKeyProfileTemplateRevisionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f APIKeyProfileTemplateRevisionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.APIKeyProfileTemplateRevisionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.APIKeyProfileTemplateRevisionMutation", m)
+}
+
 // The ChannelFunc type is an adapter to allow the use of ordinary
 // function as Channel mutator.
 type ChannelFunc func(context.Context, *ent.ChannelMutation) (ent.Value, error)

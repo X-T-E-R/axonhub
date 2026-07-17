@@ -8,6 +8,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
@@ -130,6 +131,48 @@ func init() {
 	apikeyprofiletemplateDescProfile := apikeyprofiletemplateFields[3].Descriptor()
 	// apikeyprofiletemplate.DefaultProfile holds the default value on creation for the profile field.
 	apikeyprofiletemplate.DefaultProfile = apikeyprofiletemplateDescProfile.Default.(*objects.APIKeyProfile)
+	// apikeyprofiletemplateDescRevision is the schema descriptor for revision field.
+	apikeyprofiletemplateDescRevision := apikeyprofiletemplateFields[4].Descriptor()
+	// apikeyprofiletemplate.DefaultRevision holds the default value on creation for the revision field.
+	apikeyprofiletemplate.DefaultRevision = apikeyprofiletemplateDescRevision.Default.(int64)
+	// apikeyprofiletemplate.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	apikeyprofiletemplate.RevisionValidator = apikeyprofiletemplateDescRevision.Validators[0].(func(int64) error)
+	// apikeyprofiletemplateDescSelfServiceVisible is the schema descriptor for self_service_visible field.
+	apikeyprofiletemplateDescSelfServiceVisible := apikeyprofiletemplateFields[5].Descriptor()
+	// apikeyprofiletemplate.DefaultSelfServiceVisible holds the default value on creation for the self_service_visible field.
+	apikeyprofiletemplate.DefaultSelfServiceVisible = apikeyprofiletemplateDescSelfServiceVisible.Default.(bool)
+	apikeyprofiletemplaterevisionMixin := schema.APIKeyProfileTemplateRevision{}.Mixin()
+	apikeyprofiletemplaterevision.Policy = privacy.NewPolicies(schema.APIKeyProfileTemplateRevision{})
+	apikeyprofiletemplaterevision.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := apikeyprofiletemplaterevision.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	apikeyprofiletemplaterevisionMixinFields0 := apikeyprofiletemplaterevisionMixin[0].Fields()
+	_ = apikeyprofiletemplaterevisionMixinFields0
+	apikeyprofiletemplaterevisionFields := schema.APIKeyProfileTemplateRevision{}.Fields()
+	_ = apikeyprofiletemplaterevisionFields
+	// apikeyprofiletemplaterevisionDescCreatedAt is the schema descriptor for created_at field.
+	apikeyprofiletemplaterevisionDescCreatedAt := apikeyprofiletemplaterevisionMixinFields0[0].Descriptor()
+	// apikeyprofiletemplaterevision.DefaultCreatedAt holds the default value on creation for the created_at field.
+	apikeyprofiletemplaterevision.DefaultCreatedAt = apikeyprofiletemplaterevisionDescCreatedAt.Default.(func() time.Time)
+	// apikeyprofiletemplaterevisionDescUpdatedAt is the schema descriptor for updated_at field.
+	apikeyprofiletemplaterevisionDescUpdatedAt := apikeyprofiletemplaterevisionMixinFields0[1].Descriptor()
+	// apikeyprofiletemplaterevision.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	apikeyprofiletemplaterevision.DefaultUpdatedAt = apikeyprofiletemplaterevisionDescUpdatedAt.Default.(func() time.Time)
+	// apikeyprofiletemplaterevision.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	apikeyprofiletemplaterevision.UpdateDefaultUpdatedAt = apikeyprofiletemplaterevisionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// apikeyprofiletemplaterevisionDescRevision is the schema descriptor for revision field.
+	apikeyprofiletemplaterevisionDescRevision := apikeyprofiletemplaterevisionFields[2].Descriptor()
+	// apikeyprofiletemplaterevision.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	apikeyprofiletemplaterevision.RevisionValidator = apikeyprofiletemplaterevisionDescRevision.Validators[0].(func(int64) error)
+	// apikeyprofiletemplaterevisionDescDescription is the schema descriptor for description field.
+	apikeyprofiletemplaterevisionDescDescription := apikeyprofiletemplaterevisionFields[4].Descriptor()
+	// apikeyprofiletemplaterevision.DefaultDescription holds the default value on creation for the description field.
+	apikeyprofiletemplaterevision.DefaultDescription = apikeyprofiletemplaterevisionDescDescription.Default.(string)
 	channelMixin := schema.Channel{}.Mixin()
 	channel.Policy = privacy.NewPolicies(schema.Channel{})
 	channel.Hooks[0] = func(next ent.Mutator) ent.Mutator {

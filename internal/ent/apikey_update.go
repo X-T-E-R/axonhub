@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/objects"
@@ -145,6 +146,128 @@ func (_u *APIKeyUpdate) ClearProfiles() *APIKeyUpdate {
 	return _u
 }
 
+// SetProvisioningSource sets the "provisioning_source" field.
+func (_u *APIKeyUpdate) SetProvisioningSource(v apikey.ProvisioningSource) *APIKeyUpdate {
+	_u.mutation.SetProvisioningSource(v)
+	return _u
+}
+
+// SetNillableProvisioningSource sets the "provisioning_source" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableProvisioningSource(v *apikey.ProvisioningSource) *APIKeyUpdate {
+	if v != nil {
+		_u.SetProvisioningSource(*v)
+	}
+	return _u
+}
+
+// SetProfileMode sets the "profile_mode" field.
+func (_u *APIKeyUpdate) SetProfileMode(v apikey.ProfileMode) *APIKeyUpdate {
+	_u.mutation.SetProfileMode(v)
+	return _u
+}
+
+// SetNillableProfileMode sets the "profile_mode" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableProfileMode(v *apikey.ProfileMode) *APIKeyUpdate {
+	if v != nil {
+		_u.SetProfileMode(*v)
+	}
+	return _u
+}
+
+// SetAccessGroupID sets the "access_group_id" field.
+func (_u *APIKeyUpdate) SetAccessGroupID(v int) *APIKeyUpdate {
+	_u.mutation.SetAccessGroupID(v)
+	return _u
+}
+
+// SetNillableAccessGroupID sets the "access_group_id" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableAccessGroupID(v *int) *APIKeyUpdate {
+	if v != nil {
+		_u.SetAccessGroupID(*v)
+	}
+	return _u
+}
+
+// ClearAccessGroupID clears the value of the "access_group_id" field.
+func (_u *APIKeyUpdate) ClearAccessGroupID() *APIKeyUpdate {
+	_u.mutation.ClearAccessGroupID()
+	return _u
+}
+
+// SetAccessGroupRevision sets the "access_group_revision" field.
+func (_u *APIKeyUpdate) SetAccessGroupRevision(v int64) *APIKeyUpdate {
+	_u.mutation.ResetAccessGroupRevision()
+	_u.mutation.SetAccessGroupRevision(v)
+	return _u
+}
+
+// SetNillableAccessGroupRevision sets the "access_group_revision" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableAccessGroupRevision(v *int64) *APIKeyUpdate {
+	if v != nil {
+		_u.SetAccessGroupRevision(*v)
+	}
+	return _u
+}
+
+// AddAccessGroupRevision adds value to the "access_group_revision" field.
+func (_u *APIKeyUpdate) AddAccessGroupRevision(v int64) *APIKeyUpdate {
+	_u.mutation.AddAccessGroupRevision(v)
+	return _u
+}
+
+// ClearAccessGroupRevision clears the value of the "access_group_revision" field.
+func (_u *APIKeyUpdate) ClearAccessGroupRevision() *APIKeyUpdate {
+	_u.mutation.ClearAccessGroupRevision()
+	return _u
+}
+
+// SetClassificationAt sets the "classification_at" field.
+func (_u *APIKeyUpdate) SetClassificationAt(v time.Time) *APIKeyUpdate {
+	_u.mutation.SetClassificationAt(v)
+	return _u
+}
+
+// SetNillableClassificationAt sets the "classification_at" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableClassificationAt(v *time.Time) *APIKeyUpdate {
+	if v != nil {
+		_u.SetClassificationAt(*v)
+	}
+	return _u
+}
+
+// ClearClassificationAt clears the value of the "classification_at" field.
+func (_u *APIKeyUpdate) ClearClassificationAt() *APIKeyUpdate {
+	_u.mutation.ClearClassificationAt()
+	return _u
+}
+
+// SetClassificationByUserID sets the "classification_by_user_id" field.
+func (_u *APIKeyUpdate) SetClassificationByUserID(v int) *APIKeyUpdate {
+	_u.mutation.ResetClassificationByUserID()
+	_u.mutation.SetClassificationByUserID(v)
+	return _u
+}
+
+// SetNillableClassificationByUserID sets the "classification_by_user_id" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableClassificationByUserID(v *int) *APIKeyUpdate {
+	if v != nil {
+		_u.SetClassificationByUserID(*v)
+	}
+	return _u
+}
+
+// AddClassificationByUserID adds value to the "classification_by_user_id" field.
+func (_u *APIKeyUpdate) AddClassificationByUserID(v int) *APIKeyUpdate {
+	_u.mutation.AddClassificationByUserID(v)
+	return _u
+}
+
+// ClearClassificationByUserID clears the value of the "classification_by_user_id" field.
+func (_u *APIKeyUpdate) ClearClassificationByUserID() *APIKeyUpdate {
+	_u.mutation.ClearClassificationByUserID()
+	return _u
+}
+
 // AddRequestIDs adds the "requests" edge to the Request entity by IDs.
 func (_u *APIKeyUpdate) AddRequestIDs(ids ...int) *APIKeyUpdate {
 	_u.mutation.AddRequestIDs(ids...)
@@ -158,6 +281,11 @@ func (_u *APIKeyUpdate) AddRequests(v ...*Request) *APIKeyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddRequestIDs(ids...)
+}
+
+// SetAccessGroup sets the "access_group" edge to the APIKeyProfileTemplate entity.
+func (_u *APIKeyUpdate) SetAccessGroup(v *APIKeyProfileTemplate) *APIKeyUpdate {
+	return _u.SetAccessGroupID(v.ID)
 }
 
 // Mutation returns the APIKeyMutation object of the builder.
@@ -184,6 +312,12 @@ func (_u *APIKeyUpdate) RemoveRequests(v ...*Request) *APIKeyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveRequestIDs(ids...)
+}
+
+// ClearAccessGroup clears the "access_group" edge to the APIKeyProfileTemplate entity.
+func (_u *APIKeyUpdate) ClearAccessGroup() *APIKeyUpdate {
+	_u.mutation.ClearAccessGroup()
+	return _u
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -238,6 +372,16 @@ func (_u *APIKeyUpdate) check() error {
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ProvisioningSource(); ok {
+		if err := apikey.ProvisioningSourceValidator(v); err != nil {
+			return &ValidationError{Name: "provisioning_source", err: fmt.Errorf(`ent: validator failed for field "APIKey.provisioning_source": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ProfileMode(); ok {
+		if err := apikey.ProfileModeValidator(v); err != nil {
+			return &ValidationError{Name: "profile_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.profile_mode": %w`, err)}
 		}
 	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
@@ -302,6 +446,36 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.ProfilesCleared() {
 		_spec.ClearField(apikey.FieldProfiles, field.TypeJSON)
 	}
+	if value, ok := _u.mutation.ProvisioningSource(); ok {
+		_spec.SetField(apikey.FieldProvisioningSource, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ProfileMode(); ok {
+		_spec.SetField(apikey.FieldProfileMode, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.AccessGroupRevision(); ok {
+		_spec.SetField(apikey.FieldAccessGroupRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAccessGroupRevision(); ok {
+		_spec.AddField(apikey.FieldAccessGroupRevision, field.TypeInt64, value)
+	}
+	if _u.mutation.AccessGroupRevisionCleared() {
+		_spec.ClearField(apikey.FieldAccessGroupRevision, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.ClassificationAt(); ok {
+		_spec.SetField(apikey.FieldClassificationAt, field.TypeTime, value)
+	}
+	if _u.mutation.ClassificationAtCleared() {
+		_spec.ClearField(apikey.FieldClassificationAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ClassificationByUserID(); ok {
+		_spec.SetField(apikey.FieldClassificationByUserID, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedClassificationByUserID(); ok {
+		_spec.AddField(apikey.FieldClassificationByUserID, field.TypeInt, value)
+	}
+	if _u.mutation.ClassificationByUserIDCleared() {
+		_spec.ClearField(apikey.FieldClassificationByUserID, field.TypeInt)
+	}
 	if _u.mutation.RequestsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -340,6 +514,35 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(request.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AccessGroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.AccessGroupTable,
+			Columns: []string{apikey.AccessGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplate.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AccessGroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.AccessGroupTable,
+			Columns: []string{apikey.AccessGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplate.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -482,6 +685,128 @@ func (_u *APIKeyUpdateOne) ClearProfiles() *APIKeyUpdateOne {
 	return _u
 }
 
+// SetProvisioningSource sets the "provisioning_source" field.
+func (_u *APIKeyUpdateOne) SetProvisioningSource(v apikey.ProvisioningSource) *APIKeyUpdateOne {
+	_u.mutation.SetProvisioningSource(v)
+	return _u
+}
+
+// SetNillableProvisioningSource sets the "provisioning_source" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableProvisioningSource(v *apikey.ProvisioningSource) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetProvisioningSource(*v)
+	}
+	return _u
+}
+
+// SetProfileMode sets the "profile_mode" field.
+func (_u *APIKeyUpdateOne) SetProfileMode(v apikey.ProfileMode) *APIKeyUpdateOne {
+	_u.mutation.SetProfileMode(v)
+	return _u
+}
+
+// SetNillableProfileMode sets the "profile_mode" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableProfileMode(v *apikey.ProfileMode) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetProfileMode(*v)
+	}
+	return _u
+}
+
+// SetAccessGroupID sets the "access_group_id" field.
+func (_u *APIKeyUpdateOne) SetAccessGroupID(v int) *APIKeyUpdateOne {
+	_u.mutation.SetAccessGroupID(v)
+	return _u
+}
+
+// SetNillableAccessGroupID sets the "access_group_id" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableAccessGroupID(v *int) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetAccessGroupID(*v)
+	}
+	return _u
+}
+
+// ClearAccessGroupID clears the value of the "access_group_id" field.
+func (_u *APIKeyUpdateOne) ClearAccessGroupID() *APIKeyUpdateOne {
+	_u.mutation.ClearAccessGroupID()
+	return _u
+}
+
+// SetAccessGroupRevision sets the "access_group_revision" field.
+func (_u *APIKeyUpdateOne) SetAccessGroupRevision(v int64) *APIKeyUpdateOne {
+	_u.mutation.ResetAccessGroupRevision()
+	_u.mutation.SetAccessGroupRevision(v)
+	return _u
+}
+
+// SetNillableAccessGroupRevision sets the "access_group_revision" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableAccessGroupRevision(v *int64) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetAccessGroupRevision(*v)
+	}
+	return _u
+}
+
+// AddAccessGroupRevision adds value to the "access_group_revision" field.
+func (_u *APIKeyUpdateOne) AddAccessGroupRevision(v int64) *APIKeyUpdateOne {
+	_u.mutation.AddAccessGroupRevision(v)
+	return _u
+}
+
+// ClearAccessGroupRevision clears the value of the "access_group_revision" field.
+func (_u *APIKeyUpdateOne) ClearAccessGroupRevision() *APIKeyUpdateOne {
+	_u.mutation.ClearAccessGroupRevision()
+	return _u
+}
+
+// SetClassificationAt sets the "classification_at" field.
+func (_u *APIKeyUpdateOne) SetClassificationAt(v time.Time) *APIKeyUpdateOne {
+	_u.mutation.SetClassificationAt(v)
+	return _u
+}
+
+// SetNillableClassificationAt sets the "classification_at" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableClassificationAt(v *time.Time) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetClassificationAt(*v)
+	}
+	return _u
+}
+
+// ClearClassificationAt clears the value of the "classification_at" field.
+func (_u *APIKeyUpdateOne) ClearClassificationAt() *APIKeyUpdateOne {
+	_u.mutation.ClearClassificationAt()
+	return _u
+}
+
+// SetClassificationByUserID sets the "classification_by_user_id" field.
+func (_u *APIKeyUpdateOne) SetClassificationByUserID(v int) *APIKeyUpdateOne {
+	_u.mutation.ResetClassificationByUserID()
+	_u.mutation.SetClassificationByUserID(v)
+	return _u
+}
+
+// SetNillableClassificationByUserID sets the "classification_by_user_id" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableClassificationByUserID(v *int) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetClassificationByUserID(*v)
+	}
+	return _u
+}
+
+// AddClassificationByUserID adds value to the "classification_by_user_id" field.
+func (_u *APIKeyUpdateOne) AddClassificationByUserID(v int) *APIKeyUpdateOne {
+	_u.mutation.AddClassificationByUserID(v)
+	return _u
+}
+
+// ClearClassificationByUserID clears the value of the "classification_by_user_id" field.
+func (_u *APIKeyUpdateOne) ClearClassificationByUserID() *APIKeyUpdateOne {
+	_u.mutation.ClearClassificationByUserID()
+	return _u
+}
+
 // AddRequestIDs adds the "requests" edge to the Request entity by IDs.
 func (_u *APIKeyUpdateOne) AddRequestIDs(ids ...int) *APIKeyUpdateOne {
 	_u.mutation.AddRequestIDs(ids...)
@@ -495,6 +820,11 @@ func (_u *APIKeyUpdateOne) AddRequests(v ...*Request) *APIKeyUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.AddRequestIDs(ids...)
+}
+
+// SetAccessGroup sets the "access_group" edge to the APIKeyProfileTemplate entity.
+func (_u *APIKeyUpdateOne) SetAccessGroup(v *APIKeyProfileTemplate) *APIKeyUpdateOne {
+	return _u.SetAccessGroupID(v.ID)
 }
 
 // Mutation returns the APIKeyMutation object of the builder.
@@ -521,6 +851,12 @@ func (_u *APIKeyUpdateOne) RemoveRequests(v ...*Request) *APIKeyUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveRequestIDs(ids...)
+}
+
+// ClearAccessGroup clears the "access_group" edge to the APIKeyProfileTemplate entity.
+func (_u *APIKeyUpdateOne) ClearAccessGroup() *APIKeyUpdateOne {
+	_u.mutation.ClearAccessGroup()
+	return _u
 }
 
 // Where appends a list predicates to the APIKeyUpdate builder.
@@ -588,6 +924,16 @@ func (_u *APIKeyUpdateOne) check() error {
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ProvisioningSource(); ok {
+		if err := apikey.ProvisioningSourceValidator(v); err != nil {
+			return &ValidationError{Name: "provisioning_source", err: fmt.Errorf(`ent: validator failed for field "APIKey.provisioning_source": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ProfileMode(); ok {
+		if err := apikey.ProfileModeValidator(v); err != nil {
+			return &ValidationError{Name: "profile_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.profile_mode": %w`, err)}
 		}
 	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
@@ -669,6 +1015,36 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	if _u.mutation.ProfilesCleared() {
 		_spec.ClearField(apikey.FieldProfiles, field.TypeJSON)
 	}
+	if value, ok := _u.mutation.ProvisioningSource(); ok {
+		_spec.SetField(apikey.FieldProvisioningSource, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ProfileMode(); ok {
+		_spec.SetField(apikey.FieldProfileMode, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.AccessGroupRevision(); ok {
+		_spec.SetField(apikey.FieldAccessGroupRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAccessGroupRevision(); ok {
+		_spec.AddField(apikey.FieldAccessGroupRevision, field.TypeInt64, value)
+	}
+	if _u.mutation.AccessGroupRevisionCleared() {
+		_spec.ClearField(apikey.FieldAccessGroupRevision, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.ClassificationAt(); ok {
+		_spec.SetField(apikey.FieldClassificationAt, field.TypeTime, value)
+	}
+	if _u.mutation.ClassificationAtCleared() {
+		_spec.ClearField(apikey.FieldClassificationAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ClassificationByUserID(); ok {
+		_spec.SetField(apikey.FieldClassificationByUserID, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedClassificationByUserID(); ok {
+		_spec.AddField(apikey.FieldClassificationByUserID, field.TypeInt, value)
+	}
+	if _u.mutation.ClassificationByUserIDCleared() {
+		_spec.ClearField(apikey.FieldClassificationByUserID, field.TypeInt)
+	}
 	if _u.mutation.RequestsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -707,6 +1083,35 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(request.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AccessGroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.AccessGroupTable,
+			Columns: []string{apikey.AccessGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplate.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AccessGroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.AccessGroupTable,
+			Columns: []string{apikey.AccessGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplate.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

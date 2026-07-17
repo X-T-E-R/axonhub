@@ -216,6 +216,10 @@ func (s *AuthService) AuthenticateAPIKey(ctx context.Context, key string) (*ent.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get api key: %w", err)
 	}
+	apiKey, err = s.APIKeyService.EnsureCoherentAPIKey(ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
 
 	if apiKey.Status != apikey.StatusEnabled {
 		return nil, fmt.Errorf("api key not enabled: %w", ErrInvalidAPIKey)

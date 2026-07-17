@@ -176,6 +176,21 @@ func (_q *APIKeyQuery) collectField(ctx context.Context, oneNode bool, opCtx *gr
 			_q.WithNamedRequests(alias, func(wq *RequestQuery) {
 				*wq = *query
 			})
+
+		case "accessGroup":
+			var (
+				alias = field.Alias
+				path  = append(path, alias)
+				query = (&APIKeyProfileTemplateClient{config: _q.config}).Query()
+			)
+			if err := query.collectField(ctx, oneNode, opCtx, field, path, mayAddCondition(satisfies, apikeyprofiletemplateImplementors)...); err != nil {
+				return err
+			}
+			_q.withAccessGroup = query
+			if _, ok := fieldSeen[apikey.FieldAccessGroupID]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldAccessGroupID)
+				fieldSeen[apikey.FieldAccessGroupID] = struct{}{}
+			}
 		case "createdAt":
 			if _, ok := fieldSeen[apikey.FieldCreatedAt]; !ok {
 				selectedFields = append(selectedFields, apikey.FieldCreatedAt)
@@ -225,6 +240,36 @@ func (_q *APIKeyQuery) collectField(ctx context.Context, oneNode bool, opCtx *gr
 			if _, ok := fieldSeen[apikey.FieldProfiles]; !ok {
 				selectedFields = append(selectedFields, apikey.FieldProfiles)
 				fieldSeen[apikey.FieldProfiles] = struct{}{}
+			}
+		case "provisioningSource":
+			if _, ok := fieldSeen[apikey.FieldProvisioningSource]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldProvisioningSource)
+				fieldSeen[apikey.FieldProvisioningSource] = struct{}{}
+			}
+		case "profileMode":
+			if _, ok := fieldSeen[apikey.FieldProfileMode]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldProfileMode)
+				fieldSeen[apikey.FieldProfileMode] = struct{}{}
+			}
+		case "accessGroupID":
+			if _, ok := fieldSeen[apikey.FieldAccessGroupID]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldAccessGroupID)
+				fieldSeen[apikey.FieldAccessGroupID] = struct{}{}
+			}
+		case "accessGroupRevision":
+			if _, ok := fieldSeen[apikey.FieldAccessGroupRevision]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldAccessGroupRevision)
+				fieldSeen[apikey.FieldAccessGroupRevision] = struct{}{}
+			}
+		case "classificationAt":
+			if _, ok := fieldSeen[apikey.FieldClassificationAt]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldClassificationAt)
+				fieldSeen[apikey.FieldClassificationAt] = struct{}{}
+			}
+		case "classificationByUserID":
+			if _, ok := fieldSeen[apikey.FieldClassificationByUserID]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldClassificationByUserID)
+				fieldSeen[apikey.FieldClassificationByUserID] = struct{}{}
 			}
 		case "id":
 		case "__typename":
@@ -325,6 +370,19 @@ func (_q *APIKeyProfileTemplateQuery) collectField(ctx context.Context, oneNode 
 				selectedFields = append(selectedFields, apikeyprofiletemplate.FieldProjectID)
 				fieldSeen[apikeyprofiletemplate.FieldProjectID] = struct{}{}
 			}
+
+		case "apiKeys":
+			var (
+				alias = field.Alias
+				path  = append(path, alias)
+				query = (&APIKeyClient{config: _q.config}).Query()
+			)
+			if err := query.collectField(ctx, false, opCtx, field, path, mayAddCondition(satisfies, apikeyImplementors)...); err != nil {
+				return err
+			}
+			_q.WithNamedAPIKeys(alias, func(wq *APIKeyQuery) {
+				*wq = *query
+			})
 		case "createdAt":
 			if _, ok := fieldSeen[apikeyprofiletemplate.FieldCreatedAt]; !ok {
 				selectedFields = append(selectedFields, apikeyprofiletemplate.FieldCreatedAt)
@@ -354,6 +412,16 @@ func (_q *APIKeyProfileTemplateQuery) collectField(ctx context.Context, oneNode 
 			if _, ok := fieldSeen[apikeyprofiletemplate.FieldProfile]; !ok {
 				selectedFields = append(selectedFields, apikeyprofiletemplate.FieldProfile)
 				fieldSeen[apikeyprofiletemplate.FieldProfile] = struct{}{}
+			}
+		case "revision":
+			if _, ok := fieldSeen[apikeyprofiletemplate.FieldRevision]; !ok {
+				selectedFields = append(selectedFields, apikeyprofiletemplate.FieldRevision)
+				fieldSeen[apikeyprofiletemplate.FieldRevision] = struct{}{}
+			}
+		case "selfServiceVisible":
+			if _, ok := fieldSeen[apikeyprofiletemplate.FieldSelfServiceVisible]; !ok {
+				selectedFields = append(selectedFields, apikeyprofiletemplate.FieldSelfServiceVisible)
+				fieldSeen[apikeyprofiletemplate.FieldSelfServiceVisible] = struct{}{}
 			}
 		case "id":
 		case "__typename":

@@ -9,6 +9,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
@@ -127,6 +128,62 @@ type APIKeyWhereInput struct {
 	StatusIn    []apikey.Status `json:"statusIn,omitempty"`
 	StatusNotIn []apikey.Status `json:"statusNotIn,omitempty"`
 
+	// "provisioning_source" field predicates.
+	ProvisioningSource      *apikey.ProvisioningSource  `json:"provisioningSource,omitempty"`
+	ProvisioningSourceNEQ   *apikey.ProvisioningSource  `json:"provisioningSourceNEQ,omitempty"`
+	ProvisioningSourceIn    []apikey.ProvisioningSource `json:"provisioningSourceIn,omitempty"`
+	ProvisioningSourceNotIn []apikey.ProvisioningSource `json:"provisioningSourceNotIn,omitempty"`
+
+	// "profile_mode" field predicates.
+	ProfileMode      *apikey.ProfileMode  `json:"profileMode,omitempty"`
+	ProfileModeNEQ   *apikey.ProfileMode  `json:"profileModeNEQ,omitempty"`
+	ProfileModeIn    []apikey.ProfileMode `json:"profileModeIn,omitempty"`
+	ProfileModeNotIn []apikey.ProfileMode `json:"profileModeNotIn,omitempty"`
+
+	// "access_group_id" field predicates.
+	AccessGroupID       *int  `json:"accessGroupID,omitempty"`
+	AccessGroupIDNEQ    *int  `json:"accessGroupIDNEQ,omitempty"`
+	AccessGroupIDIn     []int `json:"accessGroupIDIn,omitempty"`
+	AccessGroupIDNotIn  []int `json:"accessGroupIDNotIn,omitempty"`
+	AccessGroupIDIsNil  bool  `json:"accessGroupIDIsNil,omitempty"`
+	AccessGroupIDNotNil bool  `json:"accessGroupIDNotNil,omitempty"`
+
+	// "access_group_revision" field predicates.
+	AccessGroupRevision       *int64  `json:"accessGroupRevision,omitempty"`
+	AccessGroupRevisionNEQ    *int64  `json:"accessGroupRevisionNEQ,omitempty"`
+	AccessGroupRevisionIn     []int64 `json:"accessGroupRevisionIn,omitempty"`
+	AccessGroupRevisionNotIn  []int64 `json:"accessGroupRevisionNotIn,omitempty"`
+	AccessGroupRevisionGT     *int64  `json:"accessGroupRevisionGT,omitempty"`
+	AccessGroupRevisionGTE    *int64  `json:"accessGroupRevisionGTE,omitempty"`
+	AccessGroupRevisionLT     *int64  `json:"accessGroupRevisionLT,omitempty"`
+	AccessGroupRevisionLTE    *int64  `json:"accessGroupRevisionLTE,omitempty"`
+	AccessGroupRevisionIsNil  bool    `json:"accessGroupRevisionIsNil,omitempty"`
+	AccessGroupRevisionNotNil bool    `json:"accessGroupRevisionNotNil,omitempty"`
+
+	// "classification_at" field predicates.
+	ClassificationAt       *time.Time  `json:"classificationAt,omitempty"`
+	ClassificationAtNEQ    *time.Time  `json:"classificationAtNEQ,omitempty"`
+	ClassificationAtIn     []time.Time `json:"classificationAtIn,omitempty"`
+	ClassificationAtNotIn  []time.Time `json:"classificationAtNotIn,omitempty"`
+	ClassificationAtGT     *time.Time  `json:"classificationAtGT,omitempty"`
+	ClassificationAtGTE    *time.Time  `json:"classificationAtGTE,omitempty"`
+	ClassificationAtLT     *time.Time  `json:"classificationAtLT,omitempty"`
+	ClassificationAtLTE    *time.Time  `json:"classificationAtLTE,omitempty"`
+	ClassificationAtIsNil  bool        `json:"classificationAtIsNil,omitempty"`
+	ClassificationAtNotNil bool        `json:"classificationAtNotNil,omitempty"`
+
+	// "classification_by_user_id" field predicates.
+	ClassificationByUserID       *int  `json:"classificationByUserID,omitempty"`
+	ClassificationByUserIDNEQ    *int  `json:"classificationByUserIDNEQ,omitempty"`
+	ClassificationByUserIDIn     []int `json:"classificationByUserIDIn,omitempty"`
+	ClassificationByUserIDNotIn  []int `json:"classificationByUserIDNotIn,omitempty"`
+	ClassificationByUserIDGT     *int  `json:"classificationByUserIDGT,omitempty"`
+	ClassificationByUserIDGTE    *int  `json:"classificationByUserIDGTE,omitempty"`
+	ClassificationByUserIDLT     *int  `json:"classificationByUserIDLT,omitempty"`
+	ClassificationByUserIDLTE    *int  `json:"classificationByUserIDLTE,omitempty"`
+	ClassificationByUserIDIsNil  bool  `json:"classificationByUserIDIsNil,omitempty"`
+	ClassificationByUserIDNotNil bool  `json:"classificationByUserIDNotNil,omitempty"`
+
 	// "user" edge predicates.
 	HasUser     *bool             `json:"hasUser,omitempty"`
 	HasUserWith []*UserWhereInput `json:"hasUserWith,omitempty"`
@@ -138,6 +195,10 @@ type APIKeyWhereInput struct {
 	// "requests" edge predicates.
 	HasRequests     *bool                `json:"hasRequests,omitempty"`
 	HasRequestsWith []*RequestWhereInput `json:"hasRequestsWith,omitempty"`
+
+	// "access_group" edge predicates.
+	HasAccessGroup     *bool                              `json:"hasAccessGroup,omitempty"`
+	HasAccessGroupWith []*APIKeyProfileTemplateWhereInput `json:"hasAccessGroupWith,omitempty"`
 }
 
 // AddPredicates adds custom predicates to the where input to be used during the filtering phase.
@@ -415,6 +476,138 @@ func (i *APIKeyWhereInput) P() (predicate.APIKey, error) {
 	if len(i.StatusNotIn) > 0 {
 		predicates = append(predicates, apikey.StatusNotIn(i.StatusNotIn...))
 	}
+	if i.ProvisioningSource != nil {
+		predicates = append(predicates, apikey.ProvisioningSourceEQ(*i.ProvisioningSource))
+	}
+	if i.ProvisioningSourceNEQ != nil {
+		predicates = append(predicates, apikey.ProvisioningSourceNEQ(*i.ProvisioningSourceNEQ))
+	}
+	if len(i.ProvisioningSourceIn) > 0 {
+		predicates = append(predicates, apikey.ProvisioningSourceIn(i.ProvisioningSourceIn...))
+	}
+	if len(i.ProvisioningSourceNotIn) > 0 {
+		predicates = append(predicates, apikey.ProvisioningSourceNotIn(i.ProvisioningSourceNotIn...))
+	}
+	if i.ProfileMode != nil {
+		predicates = append(predicates, apikey.ProfileModeEQ(*i.ProfileMode))
+	}
+	if i.ProfileModeNEQ != nil {
+		predicates = append(predicates, apikey.ProfileModeNEQ(*i.ProfileModeNEQ))
+	}
+	if len(i.ProfileModeIn) > 0 {
+		predicates = append(predicates, apikey.ProfileModeIn(i.ProfileModeIn...))
+	}
+	if len(i.ProfileModeNotIn) > 0 {
+		predicates = append(predicates, apikey.ProfileModeNotIn(i.ProfileModeNotIn...))
+	}
+	if i.AccessGroupID != nil {
+		predicates = append(predicates, apikey.AccessGroupIDEQ(*i.AccessGroupID))
+	}
+	if i.AccessGroupIDNEQ != nil {
+		predicates = append(predicates, apikey.AccessGroupIDNEQ(*i.AccessGroupIDNEQ))
+	}
+	if len(i.AccessGroupIDIn) > 0 {
+		predicates = append(predicates, apikey.AccessGroupIDIn(i.AccessGroupIDIn...))
+	}
+	if len(i.AccessGroupIDNotIn) > 0 {
+		predicates = append(predicates, apikey.AccessGroupIDNotIn(i.AccessGroupIDNotIn...))
+	}
+	if i.AccessGroupIDIsNil {
+		predicates = append(predicates, apikey.AccessGroupIDIsNil())
+	}
+	if i.AccessGroupIDNotNil {
+		predicates = append(predicates, apikey.AccessGroupIDNotNil())
+	}
+	if i.AccessGroupRevision != nil {
+		predicates = append(predicates, apikey.AccessGroupRevisionEQ(*i.AccessGroupRevision))
+	}
+	if i.AccessGroupRevisionNEQ != nil {
+		predicates = append(predicates, apikey.AccessGroupRevisionNEQ(*i.AccessGroupRevisionNEQ))
+	}
+	if len(i.AccessGroupRevisionIn) > 0 {
+		predicates = append(predicates, apikey.AccessGroupRevisionIn(i.AccessGroupRevisionIn...))
+	}
+	if len(i.AccessGroupRevisionNotIn) > 0 {
+		predicates = append(predicates, apikey.AccessGroupRevisionNotIn(i.AccessGroupRevisionNotIn...))
+	}
+	if i.AccessGroupRevisionGT != nil {
+		predicates = append(predicates, apikey.AccessGroupRevisionGT(*i.AccessGroupRevisionGT))
+	}
+	if i.AccessGroupRevisionGTE != nil {
+		predicates = append(predicates, apikey.AccessGroupRevisionGTE(*i.AccessGroupRevisionGTE))
+	}
+	if i.AccessGroupRevisionLT != nil {
+		predicates = append(predicates, apikey.AccessGroupRevisionLT(*i.AccessGroupRevisionLT))
+	}
+	if i.AccessGroupRevisionLTE != nil {
+		predicates = append(predicates, apikey.AccessGroupRevisionLTE(*i.AccessGroupRevisionLTE))
+	}
+	if i.AccessGroupRevisionIsNil {
+		predicates = append(predicates, apikey.AccessGroupRevisionIsNil())
+	}
+	if i.AccessGroupRevisionNotNil {
+		predicates = append(predicates, apikey.AccessGroupRevisionNotNil())
+	}
+	if i.ClassificationAt != nil {
+		predicates = append(predicates, apikey.ClassificationAtEQ(*i.ClassificationAt))
+	}
+	if i.ClassificationAtNEQ != nil {
+		predicates = append(predicates, apikey.ClassificationAtNEQ(*i.ClassificationAtNEQ))
+	}
+	if len(i.ClassificationAtIn) > 0 {
+		predicates = append(predicates, apikey.ClassificationAtIn(i.ClassificationAtIn...))
+	}
+	if len(i.ClassificationAtNotIn) > 0 {
+		predicates = append(predicates, apikey.ClassificationAtNotIn(i.ClassificationAtNotIn...))
+	}
+	if i.ClassificationAtGT != nil {
+		predicates = append(predicates, apikey.ClassificationAtGT(*i.ClassificationAtGT))
+	}
+	if i.ClassificationAtGTE != nil {
+		predicates = append(predicates, apikey.ClassificationAtGTE(*i.ClassificationAtGTE))
+	}
+	if i.ClassificationAtLT != nil {
+		predicates = append(predicates, apikey.ClassificationAtLT(*i.ClassificationAtLT))
+	}
+	if i.ClassificationAtLTE != nil {
+		predicates = append(predicates, apikey.ClassificationAtLTE(*i.ClassificationAtLTE))
+	}
+	if i.ClassificationAtIsNil {
+		predicates = append(predicates, apikey.ClassificationAtIsNil())
+	}
+	if i.ClassificationAtNotNil {
+		predicates = append(predicates, apikey.ClassificationAtNotNil())
+	}
+	if i.ClassificationByUserID != nil {
+		predicates = append(predicates, apikey.ClassificationByUserIDEQ(*i.ClassificationByUserID))
+	}
+	if i.ClassificationByUserIDNEQ != nil {
+		predicates = append(predicates, apikey.ClassificationByUserIDNEQ(*i.ClassificationByUserIDNEQ))
+	}
+	if len(i.ClassificationByUserIDIn) > 0 {
+		predicates = append(predicates, apikey.ClassificationByUserIDIn(i.ClassificationByUserIDIn...))
+	}
+	if len(i.ClassificationByUserIDNotIn) > 0 {
+		predicates = append(predicates, apikey.ClassificationByUserIDNotIn(i.ClassificationByUserIDNotIn...))
+	}
+	if i.ClassificationByUserIDGT != nil {
+		predicates = append(predicates, apikey.ClassificationByUserIDGT(*i.ClassificationByUserIDGT))
+	}
+	if i.ClassificationByUserIDGTE != nil {
+		predicates = append(predicates, apikey.ClassificationByUserIDGTE(*i.ClassificationByUserIDGTE))
+	}
+	if i.ClassificationByUserIDLT != nil {
+		predicates = append(predicates, apikey.ClassificationByUserIDLT(*i.ClassificationByUserIDLT))
+	}
+	if i.ClassificationByUserIDLTE != nil {
+		predicates = append(predicates, apikey.ClassificationByUserIDLTE(*i.ClassificationByUserIDLTE))
+	}
+	if i.ClassificationByUserIDIsNil {
+		predicates = append(predicates, apikey.ClassificationByUserIDIsNil())
+	}
+	if i.ClassificationByUserIDNotNil {
+		predicates = append(predicates, apikey.ClassificationByUserIDNotNil())
+	}
 
 	if i.HasUser != nil {
 		p := apikey.HasUser()
@@ -469,6 +662,24 @@ func (i *APIKeyWhereInput) P() (predicate.APIKey, error) {
 			with = append(with, p)
 		}
 		predicates = append(predicates, apikey.HasRequestsWith(with...))
+	}
+	if i.HasAccessGroup != nil {
+		p := apikey.HasAccessGroup()
+		if !*i.HasAccessGroup {
+			p = apikey.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasAccessGroupWith) > 0 {
+		with := make([]predicate.APIKeyProfileTemplate, 0, len(i.HasAccessGroupWith))
+		for _, w := range i.HasAccessGroupWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasAccessGroupWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, apikey.HasAccessGroupWith(with...))
 	}
 	switch len(predicates) {
 	case 0:
@@ -553,9 +764,31 @@ type APIKeyProfileTemplateWhereInput struct {
 	ProjectIDIn    []int `json:"projectIDIn,omitempty"`
 	ProjectIDNotIn []int `json:"projectIDNotIn,omitempty"`
 
+	// "revision" field predicates.
+	Revision      *int64  `json:"revision,omitempty"`
+	RevisionNEQ   *int64  `json:"revisionNEQ,omitempty"`
+	RevisionIn    []int64 `json:"revisionIn,omitempty"`
+	RevisionNotIn []int64 `json:"revisionNotIn,omitempty"`
+	RevisionGT    *int64  `json:"revisionGT,omitempty"`
+	RevisionGTE   *int64  `json:"revisionGTE,omitempty"`
+	RevisionLT    *int64  `json:"revisionLT,omitempty"`
+	RevisionLTE   *int64  `json:"revisionLTE,omitempty"`
+
+	// "self_service_visible" field predicates.
+	SelfServiceVisible    *bool `json:"selfServiceVisible,omitempty"`
+	SelfServiceVisibleNEQ *bool `json:"selfServiceVisibleNEQ,omitempty"`
+
 	// "project" edge predicates.
 	HasProject     *bool                `json:"hasProject,omitempty"`
 	HasProjectWith []*ProjectWhereInput `json:"hasProjectWith,omitempty"`
+
+	// "api_keys" edge predicates.
+	HasAPIKeys     *bool               `json:"hasAPIKeys,omitempty"`
+	HasAPIKeysWith []*APIKeyWhereInput `json:"hasAPIKeysWith,omitempty"`
+
+	// "revisions" edge predicates.
+	HasRevisions     *bool                                      `json:"hasRevisions,omitempty"`
+	HasRevisionsWith []*APIKeyProfileTemplateRevisionWhereInput `json:"hasRevisionsWith,omitempty"`
 }
 
 // AddPredicates adds custom predicates to the where input to be used during the filtering phase.
@@ -791,6 +1024,36 @@ func (i *APIKeyProfileTemplateWhereInput) P() (predicate.APIKeyProfileTemplate, 
 	if len(i.ProjectIDNotIn) > 0 {
 		predicates = append(predicates, apikeyprofiletemplate.ProjectIDNotIn(i.ProjectIDNotIn...))
 	}
+	if i.Revision != nil {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionEQ(*i.Revision))
+	}
+	if i.RevisionNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionNEQ(*i.RevisionNEQ))
+	}
+	if len(i.RevisionIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionIn(i.RevisionIn...))
+	}
+	if len(i.RevisionNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionNotIn(i.RevisionNotIn...))
+	}
+	if i.RevisionGT != nil {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionGT(*i.RevisionGT))
+	}
+	if i.RevisionGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionGTE(*i.RevisionGTE))
+	}
+	if i.RevisionLT != nil {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionLT(*i.RevisionLT))
+	}
+	if i.RevisionLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplate.RevisionLTE(*i.RevisionLTE))
+	}
+	if i.SelfServiceVisible != nil {
+		predicates = append(predicates, apikeyprofiletemplate.SelfServiceVisibleEQ(*i.SelfServiceVisible))
+	}
+	if i.SelfServiceVisibleNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplate.SelfServiceVisibleNEQ(*i.SelfServiceVisibleNEQ))
+	}
 
 	if i.HasProject != nil {
 		p := apikeyprofiletemplate.HasProject()
@@ -810,6 +1073,42 @@ func (i *APIKeyProfileTemplateWhereInput) P() (predicate.APIKeyProfileTemplate, 
 		}
 		predicates = append(predicates, apikeyprofiletemplate.HasProjectWith(with...))
 	}
+	if i.HasAPIKeys != nil {
+		p := apikeyprofiletemplate.HasAPIKeys()
+		if !*i.HasAPIKeys {
+			p = apikeyprofiletemplate.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasAPIKeysWith) > 0 {
+		with := make([]predicate.APIKey, 0, len(i.HasAPIKeysWith))
+		for _, w := range i.HasAPIKeysWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasAPIKeysWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, apikeyprofiletemplate.HasAPIKeysWith(with...))
+	}
+	if i.HasRevisions != nil {
+		p := apikeyprofiletemplate.HasRevisions()
+		if !*i.HasRevisions {
+			p = apikeyprofiletemplate.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasRevisionsWith) > 0 {
+		with := make([]predicate.APIKeyProfileTemplateRevision, 0, len(i.HasRevisionsWith))
+		for _, w := range i.HasRevisionsWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasRevisionsWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, apikeyprofiletemplate.HasRevisionsWith(with...))
+	}
 	switch len(predicates) {
 	case 0:
 		return nil, ErrEmptyAPIKeyProfileTemplateWhereInput
@@ -817,6 +1116,462 @@ func (i *APIKeyProfileTemplateWhereInput) P() (predicate.APIKeyProfileTemplate, 
 		return predicates[0], nil
 	default:
 		return apikeyprofiletemplate.And(predicates...), nil
+	}
+}
+
+// APIKeyProfileTemplateRevisionWhereInput represents a where input for filtering APIKeyProfileTemplateRevision queries.
+type APIKeyProfileTemplateRevisionWhereInput struct {
+	Predicates []predicate.APIKeyProfileTemplateRevision  `json:"-"`
+	Not        *APIKeyProfileTemplateRevisionWhereInput   `json:"not,omitempty"`
+	Or         []*APIKeyProfileTemplateRevisionWhereInput `json:"or,omitempty"`
+	And        []*APIKeyProfileTemplateRevisionWhereInput `json:"and,omitempty"`
+
+	// "id" field predicates.
+	ID      *int  `json:"id,omitempty"`
+	IDNEQ   *int  `json:"idNEQ,omitempty"`
+	IDIn    []int `json:"idIn,omitempty"`
+	IDNotIn []int `json:"idNotIn,omitempty"`
+	IDGT    *int  `json:"idGT,omitempty"`
+	IDGTE   *int  `json:"idGTE,omitempty"`
+	IDLT    *int  `json:"idLT,omitempty"`
+	IDLTE   *int  `json:"idLTE,omitempty"`
+
+	// "created_at" field predicates.
+	CreatedAt      *time.Time  `json:"createdAt,omitempty"`
+	CreatedAtNEQ   *time.Time  `json:"createdAtNEQ,omitempty"`
+	CreatedAtIn    []time.Time `json:"createdAtIn,omitempty"`
+	CreatedAtNotIn []time.Time `json:"createdAtNotIn,omitempty"`
+	CreatedAtGT    *time.Time  `json:"createdAtGT,omitempty"`
+	CreatedAtGTE   *time.Time  `json:"createdAtGTE,omitempty"`
+	CreatedAtLT    *time.Time  `json:"createdAtLT,omitempty"`
+	CreatedAtLTE   *time.Time  `json:"createdAtLTE,omitempty"`
+
+	// "updated_at" field predicates.
+	UpdatedAt      *time.Time  `json:"updatedAt,omitempty"`
+	UpdatedAtNEQ   *time.Time  `json:"updatedAtNEQ,omitempty"`
+	UpdatedAtIn    []time.Time `json:"updatedAtIn,omitempty"`
+	UpdatedAtNotIn []time.Time `json:"updatedAtNotIn,omitempty"`
+	UpdatedAtGT    *time.Time  `json:"updatedAtGT,omitempty"`
+	UpdatedAtGTE   *time.Time  `json:"updatedAtGTE,omitempty"`
+	UpdatedAtLT    *time.Time  `json:"updatedAtLT,omitempty"`
+	UpdatedAtLTE   *time.Time  `json:"updatedAtLTE,omitempty"`
+
+	// "project_id" field predicates.
+	ProjectID      *int  `json:"projectID,omitempty"`
+	ProjectIDNEQ   *int  `json:"projectIDNEQ,omitempty"`
+	ProjectIDIn    []int `json:"projectIDIn,omitempty"`
+	ProjectIDNotIn []int `json:"projectIDNotIn,omitempty"`
+
+	// "template_id" field predicates.
+	TemplateID      *int  `json:"templateID,omitempty"`
+	TemplateIDNEQ   *int  `json:"templateIDNEQ,omitempty"`
+	TemplateIDIn    []int `json:"templateIDIn,omitempty"`
+	TemplateIDNotIn []int `json:"templateIDNotIn,omitempty"`
+
+	// "revision" field predicates.
+	Revision      *int64  `json:"revision,omitempty"`
+	RevisionNEQ   *int64  `json:"revisionNEQ,omitempty"`
+	RevisionIn    []int64 `json:"revisionIn,omitempty"`
+	RevisionNotIn []int64 `json:"revisionNotIn,omitempty"`
+	RevisionGT    *int64  `json:"revisionGT,omitempty"`
+	RevisionGTE   *int64  `json:"revisionGTE,omitempty"`
+	RevisionLT    *int64  `json:"revisionLT,omitempty"`
+	RevisionLTE   *int64  `json:"revisionLTE,omitempty"`
+
+	// "name" field predicates.
+	Name             *string  `json:"name,omitempty"`
+	NameNEQ          *string  `json:"nameNEQ,omitempty"`
+	NameIn           []string `json:"nameIn,omitempty"`
+	NameNotIn        []string `json:"nameNotIn,omitempty"`
+	NameGT           *string  `json:"nameGT,omitempty"`
+	NameGTE          *string  `json:"nameGTE,omitempty"`
+	NameLT           *string  `json:"nameLT,omitempty"`
+	NameLTE          *string  `json:"nameLTE,omitempty"`
+	NameContains     *string  `json:"nameContains,omitempty"`
+	NameHasPrefix    *string  `json:"nameHasPrefix,omitempty"`
+	NameHasSuffix    *string  `json:"nameHasSuffix,omitempty"`
+	NameEqualFold    *string  `json:"nameEqualFold,omitempty"`
+	NameContainsFold *string  `json:"nameContainsFold,omitempty"`
+
+	// "description" field predicates.
+	Description             *string  `json:"description,omitempty"`
+	DescriptionNEQ          *string  `json:"descriptionNEQ,omitempty"`
+	DescriptionIn           []string `json:"descriptionIn,omitempty"`
+	DescriptionNotIn        []string `json:"descriptionNotIn,omitempty"`
+	DescriptionGT           *string  `json:"descriptionGT,omitempty"`
+	DescriptionGTE          *string  `json:"descriptionGTE,omitempty"`
+	DescriptionLT           *string  `json:"descriptionLT,omitempty"`
+	DescriptionLTE          *string  `json:"descriptionLTE,omitempty"`
+	DescriptionContains     *string  `json:"descriptionContains,omitempty"`
+	DescriptionHasPrefix    *string  `json:"descriptionHasPrefix,omitempty"`
+	DescriptionHasSuffix    *string  `json:"descriptionHasSuffix,omitempty"`
+	DescriptionEqualFold    *string  `json:"descriptionEqualFold,omitempty"`
+	DescriptionContainsFold *string  `json:"descriptionContainsFold,omitempty"`
+
+	// "created_by_user_id" field predicates.
+	CreatedByUserID       *int  `json:"createdByUserID,omitempty"`
+	CreatedByUserIDNEQ    *int  `json:"createdByUserIDNEQ,omitempty"`
+	CreatedByUserIDIn     []int `json:"createdByUserIDIn,omitempty"`
+	CreatedByUserIDNotIn  []int `json:"createdByUserIDNotIn,omitempty"`
+	CreatedByUserIDGT     *int  `json:"createdByUserIDGT,omitempty"`
+	CreatedByUserIDGTE    *int  `json:"createdByUserIDGTE,omitempty"`
+	CreatedByUserIDLT     *int  `json:"createdByUserIDLT,omitempty"`
+	CreatedByUserIDLTE    *int  `json:"createdByUserIDLTE,omitempty"`
+	CreatedByUserIDIsNil  bool  `json:"createdByUserIDIsNil,omitempty"`
+	CreatedByUserIDNotNil bool  `json:"createdByUserIDNotNil,omitempty"`
+
+	// "project" edge predicates.
+	HasProject     *bool                `json:"hasProject,omitempty"`
+	HasProjectWith []*ProjectWhereInput `json:"hasProjectWith,omitempty"`
+
+	// "template" edge predicates.
+	HasTemplate     *bool                              `json:"hasTemplate,omitempty"`
+	HasTemplateWith []*APIKeyProfileTemplateWhereInput `json:"hasTemplateWith,omitempty"`
+}
+
+// AddPredicates adds custom predicates to the where input to be used during the filtering phase.
+func (i *APIKeyProfileTemplateRevisionWhereInput) AddPredicates(predicates ...predicate.APIKeyProfileTemplateRevision) {
+	i.Predicates = append(i.Predicates, predicates...)
+}
+
+// Filter applies the APIKeyProfileTemplateRevisionWhereInput filter on the APIKeyProfileTemplateRevisionQuery builder.
+func (i *APIKeyProfileTemplateRevisionWhereInput) Filter(q *APIKeyProfileTemplateRevisionQuery) (*APIKeyProfileTemplateRevisionQuery, error) {
+	if i == nil {
+		return q, nil
+	}
+	p, err := i.P()
+	if err != nil {
+		if err == ErrEmptyAPIKeyProfileTemplateRevisionWhereInput {
+			return q, nil
+		}
+		return nil, err
+	}
+	return q.Where(p), nil
+}
+
+// ErrEmptyAPIKeyProfileTemplateRevisionWhereInput is returned in case the APIKeyProfileTemplateRevisionWhereInput is empty.
+var ErrEmptyAPIKeyProfileTemplateRevisionWhereInput = errors.New("ent: empty predicate APIKeyProfileTemplateRevisionWhereInput")
+
+// P returns a predicate for filtering apikeyprofiletemplaterevisions.
+// An error is returned if the input is empty or invalid.
+func (i *APIKeyProfileTemplateRevisionWhereInput) P() (predicate.APIKeyProfileTemplateRevision, error) {
+	var predicates []predicate.APIKeyProfileTemplateRevision
+	if i.Not != nil {
+		p, err := i.Not.P()
+		if err != nil {
+			return nil, fmt.Errorf("%w: field 'not'", err)
+		}
+		predicates = append(predicates, apikeyprofiletemplaterevision.Not(p))
+	}
+	switch n := len(i.Or); {
+	case n == 1:
+		p, err := i.Or[0].P()
+		if err != nil {
+			return nil, fmt.Errorf("%w: field 'or'", err)
+		}
+		predicates = append(predicates, p)
+	case n > 1:
+		or := make([]predicate.APIKeyProfileTemplateRevision, 0, n)
+		for _, w := range i.Or {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'or'", err)
+			}
+			or = append(or, p)
+		}
+		predicates = append(predicates, apikeyprofiletemplaterevision.Or(or...))
+	}
+	switch n := len(i.And); {
+	case n == 1:
+		p, err := i.And[0].P()
+		if err != nil {
+			return nil, fmt.Errorf("%w: field 'and'", err)
+		}
+		predicates = append(predicates, p)
+	case n > 1:
+		and := make([]predicate.APIKeyProfileTemplateRevision, 0, n)
+		for _, w := range i.And {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'and'", err)
+			}
+			and = append(and, p)
+		}
+		predicates = append(predicates, apikeyprofiletemplaterevision.And(and...))
+	}
+	predicates = append(predicates, i.Predicates...)
+	if i.ID != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDEQ(*i.ID))
+	}
+	if i.IDNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDNEQ(*i.IDNEQ))
+	}
+	if len(i.IDIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDIn(i.IDIn...))
+	}
+	if len(i.IDNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDNotIn(i.IDNotIn...))
+	}
+	if i.IDGT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDGT(*i.IDGT))
+	}
+	if i.IDGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDGTE(*i.IDGTE))
+	}
+	if i.IDLT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDLT(*i.IDLT))
+	}
+	if i.IDLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.IDLTE(*i.IDLTE))
+	}
+	if i.CreatedAt != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtEQ(*i.CreatedAt))
+	}
+	if i.CreatedAtNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtNEQ(*i.CreatedAtNEQ))
+	}
+	if len(i.CreatedAtIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtIn(i.CreatedAtIn...))
+	}
+	if len(i.CreatedAtNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtNotIn(i.CreatedAtNotIn...))
+	}
+	if i.CreatedAtGT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtGT(*i.CreatedAtGT))
+	}
+	if i.CreatedAtGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtGTE(*i.CreatedAtGTE))
+	}
+	if i.CreatedAtLT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtLT(*i.CreatedAtLT))
+	}
+	if i.CreatedAtLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedAtLTE(*i.CreatedAtLTE))
+	}
+	if i.UpdatedAt != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtEQ(*i.UpdatedAt))
+	}
+	if i.UpdatedAtNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtNEQ(*i.UpdatedAtNEQ))
+	}
+	if len(i.UpdatedAtIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtIn(i.UpdatedAtIn...))
+	}
+	if len(i.UpdatedAtNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtNotIn(i.UpdatedAtNotIn...))
+	}
+	if i.UpdatedAtGT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtGT(*i.UpdatedAtGT))
+	}
+	if i.UpdatedAtGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtGTE(*i.UpdatedAtGTE))
+	}
+	if i.UpdatedAtLT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtLT(*i.UpdatedAtLT))
+	}
+	if i.UpdatedAtLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.UpdatedAtLTE(*i.UpdatedAtLTE))
+	}
+	if i.ProjectID != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.ProjectIDEQ(*i.ProjectID))
+	}
+	if i.ProjectIDNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.ProjectIDNEQ(*i.ProjectIDNEQ))
+	}
+	if len(i.ProjectIDIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.ProjectIDIn(i.ProjectIDIn...))
+	}
+	if len(i.ProjectIDNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.ProjectIDNotIn(i.ProjectIDNotIn...))
+	}
+	if i.TemplateID != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.TemplateIDEQ(*i.TemplateID))
+	}
+	if i.TemplateIDNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.TemplateIDNEQ(*i.TemplateIDNEQ))
+	}
+	if len(i.TemplateIDIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.TemplateIDIn(i.TemplateIDIn...))
+	}
+	if len(i.TemplateIDNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.TemplateIDNotIn(i.TemplateIDNotIn...))
+	}
+	if i.Revision != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionEQ(*i.Revision))
+	}
+	if i.RevisionNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionNEQ(*i.RevisionNEQ))
+	}
+	if len(i.RevisionIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionIn(i.RevisionIn...))
+	}
+	if len(i.RevisionNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionNotIn(i.RevisionNotIn...))
+	}
+	if i.RevisionGT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionGT(*i.RevisionGT))
+	}
+	if i.RevisionGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionGTE(*i.RevisionGTE))
+	}
+	if i.RevisionLT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionLT(*i.RevisionLT))
+	}
+	if i.RevisionLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.RevisionLTE(*i.RevisionLTE))
+	}
+	if i.Name != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameEQ(*i.Name))
+	}
+	if i.NameNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameNEQ(*i.NameNEQ))
+	}
+	if len(i.NameIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameIn(i.NameIn...))
+	}
+	if len(i.NameNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameNotIn(i.NameNotIn...))
+	}
+	if i.NameGT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameGT(*i.NameGT))
+	}
+	if i.NameGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameGTE(*i.NameGTE))
+	}
+	if i.NameLT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameLT(*i.NameLT))
+	}
+	if i.NameLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameLTE(*i.NameLTE))
+	}
+	if i.NameContains != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameContains(*i.NameContains))
+	}
+	if i.NameHasPrefix != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameHasPrefix(*i.NameHasPrefix))
+	}
+	if i.NameHasSuffix != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameHasSuffix(*i.NameHasSuffix))
+	}
+	if i.NameEqualFold != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameEqualFold(*i.NameEqualFold))
+	}
+	if i.NameContainsFold != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.NameContainsFold(*i.NameContainsFold))
+	}
+	if i.Description != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionEQ(*i.Description))
+	}
+	if i.DescriptionNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionNEQ(*i.DescriptionNEQ))
+	}
+	if len(i.DescriptionIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionIn(i.DescriptionIn...))
+	}
+	if len(i.DescriptionNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionNotIn(i.DescriptionNotIn...))
+	}
+	if i.DescriptionGT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionGT(*i.DescriptionGT))
+	}
+	if i.DescriptionGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionGTE(*i.DescriptionGTE))
+	}
+	if i.DescriptionLT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionLT(*i.DescriptionLT))
+	}
+	if i.DescriptionLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionLTE(*i.DescriptionLTE))
+	}
+	if i.DescriptionContains != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionContains(*i.DescriptionContains))
+	}
+	if i.DescriptionHasPrefix != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionHasPrefix(*i.DescriptionHasPrefix))
+	}
+	if i.DescriptionHasSuffix != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionHasSuffix(*i.DescriptionHasSuffix))
+	}
+	if i.DescriptionEqualFold != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionEqualFold(*i.DescriptionEqualFold))
+	}
+	if i.DescriptionContainsFold != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.DescriptionContainsFold(*i.DescriptionContainsFold))
+	}
+	if i.CreatedByUserID != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDEQ(*i.CreatedByUserID))
+	}
+	if i.CreatedByUserIDNEQ != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDNEQ(*i.CreatedByUserIDNEQ))
+	}
+	if len(i.CreatedByUserIDIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDIn(i.CreatedByUserIDIn...))
+	}
+	if len(i.CreatedByUserIDNotIn) > 0 {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDNotIn(i.CreatedByUserIDNotIn...))
+	}
+	if i.CreatedByUserIDGT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDGT(*i.CreatedByUserIDGT))
+	}
+	if i.CreatedByUserIDGTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDGTE(*i.CreatedByUserIDGTE))
+	}
+	if i.CreatedByUserIDLT != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDLT(*i.CreatedByUserIDLT))
+	}
+	if i.CreatedByUserIDLTE != nil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDLTE(*i.CreatedByUserIDLTE))
+	}
+	if i.CreatedByUserIDIsNil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDIsNil())
+	}
+	if i.CreatedByUserIDNotNil {
+		predicates = append(predicates, apikeyprofiletemplaterevision.CreatedByUserIDNotNil())
+	}
+
+	if i.HasProject != nil {
+		p := apikeyprofiletemplaterevision.HasProject()
+		if !*i.HasProject {
+			p = apikeyprofiletemplaterevision.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasProjectWith) > 0 {
+		with := make([]predicate.Project, 0, len(i.HasProjectWith))
+		for _, w := range i.HasProjectWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasProjectWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, apikeyprofiletemplaterevision.HasProjectWith(with...))
+	}
+	if i.HasTemplate != nil {
+		p := apikeyprofiletemplaterevision.HasTemplate()
+		if !*i.HasTemplate {
+			p = apikeyprofiletemplaterevision.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasTemplateWith) > 0 {
+		with := make([]predicate.APIKeyProfileTemplate, 0, len(i.HasTemplateWith))
+		for _, w := range i.HasTemplateWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasTemplateWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, apikeyprofiletemplaterevision.HasTemplateWith(with...))
+	}
+	switch len(predicates) {
+	case 0:
+		return nil, ErrEmptyAPIKeyProfileTemplateRevisionWhereInput
+	case 1:
+		return predicates[0], nil
+	default:
+		return apikeyprofiletemplaterevision.And(predicates...), nil
 	}
 }
 
@@ -4735,6 +5490,10 @@ type ProjectWhereInput struct {
 	HasAPIKeyProfileTemplates     *bool                              `json:"hasAPIKeyProfileTemplates,omitempty"`
 	HasAPIKeyProfileTemplatesWith []*APIKeyProfileTemplateWhereInput `json:"hasAPIKeyProfileTemplatesWith,omitempty"`
 
+	// "api_key_profile_template_revisions" edge predicates.
+	HasAPIKeyProfileTemplateRevisions     *bool                                      `json:"hasAPIKeyProfileTemplateRevisions,omitempty"`
+	HasAPIKeyProfileTemplateRevisionsWith []*APIKeyProfileTemplateRevisionWhereInput `json:"hasAPIKeyProfileTemplateRevisionsWith,omitempty"`
+
 	// "project_users" edge predicates.
 	HasProjectUsers     *bool                    `json:"hasProjectUsers,omitempty"`
 	HasProjectUsersWith []*UserProjectWhereInput `json:"hasProjectUsersWith,omitempty"`
@@ -5135,6 +5894,24 @@ func (i *ProjectWhereInput) P() (predicate.Project, error) {
 			with = append(with, p)
 		}
 		predicates = append(predicates, project.HasAPIKeyProfileTemplatesWith(with...))
+	}
+	if i.HasAPIKeyProfileTemplateRevisions != nil {
+		p := project.HasAPIKeyProfileTemplateRevisions()
+		if !*i.HasAPIKeyProfileTemplateRevisions {
+			p = project.Not(p)
+		}
+		predicates = append(predicates, p)
+	}
+	if len(i.HasAPIKeyProfileTemplateRevisionsWith) > 0 {
+		with := make([]predicate.APIKeyProfileTemplateRevision, 0, len(i.HasAPIKeyProfileTemplateRevisionsWith))
+		for _, w := range i.HasAPIKeyProfileTemplateRevisionsWith {
+			p, err := w.P()
+			if err != nil {
+				return nil, fmt.Errorf("%w: field 'HasAPIKeyProfileTemplateRevisionsWith'", err)
+			}
+			with = append(with, p)
+		}
+		predicates = append(predicates, project.HasAPIKeyProfileTemplateRevisionsWith(with...))
 	}
 	if i.HasProjectUsers != nil {
 		p := project.HasProjectUsers()

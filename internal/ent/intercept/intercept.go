@@ -10,6 +10,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/channelmodelprice"
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
@@ -143,6 +144,33 @@ func (f TraverseAPIKeyProfileTemplate) Traverse(ctx context.Context, q ent.Query
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.APIKeyProfileTemplateQuery", q)
+}
+
+// The APIKeyProfileTemplateRevisionFunc type is an adapter to allow the use of ordinary function as a Querier.
+type APIKeyProfileTemplateRevisionFunc func(context.Context, *ent.APIKeyProfileTemplateRevisionQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f APIKeyProfileTemplateRevisionFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.APIKeyProfileTemplateRevisionQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.APIKeyProfileTemplateRevisionQuery", q)
+}
+
+// The TraverseAPIKeyProfileTemplateRevision type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseAPIKeyProfileTemplateRevision func(context.Context, *ent.APIKeyProfileTemplateRevisionQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseAPIKeyProfileTemplateRevision) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseAPIKeyProfileTemplateRevision) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.APIKeyProfileTemplateRevisionQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.APIKeyProfileTemplateRevisionQuery", q)
 }
 
 // The ChannelFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -746,6 +774,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.APIKeyQuery, predicate.APIKey, apikey.OrderOption]{typ: ent.TypeAPIKey, tq: q}, nil
 	case *ent.APIKeyProfileTemplateQuery:
 		return &query[*ent.APIKeyProfileTemplateQuery, predicate.APIKeyProfileTemplate, apikeyprofiletemplate.OrderOption]{typ: ent.TypeAPIKeyProfileTemplate, tq: q}, nil
+	case *ent.APIKeyProfileTemplateRevisionQuery:
+		return &query[*ent.APIKeyProfileTemplateRevisionQuery, predicate.APIKeyProfileTemplateRevision, apikeyprofiletemplaterevision.OrderOption]{typ: ent.TypeAPIKeyProfileTemplateRevision, tq: q}, nil
 	case *ent.ChannelQuery:
 		return &query[*ent.ChannelQuery, predicate.Channel, channel.OrderOption]{typ: ent.TypeChannel, tq: q}, nil
 	case *ent.ChannelModelPriceQuery:

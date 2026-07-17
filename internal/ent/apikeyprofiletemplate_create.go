@@ -11,7 +11,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/objects"
 )
@@ -98,9 +100,67 @@ func (_c *APIKeyProfileTemplateCreate) SetProfile(v *objects.APIKeyProfile) *API
 	return _c
 }
 
+// SetRevision sets the "revision" field.
+func (_c *APIKeyProfileTemplateCreate) SetRevision(v int64) *APIKeyProfileTemplateCreate {
+	_c.mutation.SetRevision(v)
+	return _c
+}
+
+// SetNillableRevision sets the "revision" field if the given value is not nil.
+func (_c *APIKeyProfileTemplateCreate) SetNillableRevision(v *int64) *APIKeyProfileTemplateCreate {
+	if v != nil {
+		_c.SetRevision(*v)
+	}
+	return _c
+}
+
+// SetSelfServiceVisible sets the "self_service_visible" field.
+func (_c *APIKeyProfileTemplateCreate) SetSelfServiceVisible(v bool) *APIKeyProfileTemplateCreate {
+	_c.mutation.SetSelfServiceVisible(v)
+	return _c
+}
+
+// SetNillableSelfServiceVisible sets the "self_service_visible" field if the given value is not nil.
+func (_c *APIKeyProfileTemplateCreate) SetNillableSelfServiceVisible(v *bool) *APIKeyProfileTemplateCreate {
+	if v != nil {
+		_c.SetSelfServiceVisible(*v)
+	}
+	return _c
+}
+
 // SetProject sets the "project" edge to the Project entity.
 func (_c *APIKeyProfileTemplateCreate) SetProject(v *Project) *APIKeyProfileTemplateCreate {
 	return _c.SetProjectID(v.ID)
+}
+
+// AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
+func (_c *APIKeyProfileTemplateCreate) AddAPIKeyIDs(ids ...int) *APIKeyProfileTemplateCreate {
+	_c.mutation.AddAPIKeyIDs(ids...)
+	return _c
+}
+
+// AddAPIKeys adds the "api_keys" edges to the APIKey entity.
+func (_c *APIKeyProfileTemplateCreate) AddAPIKeys(v ...*APIKey) *APIKeyProfileTemplateCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddAPIKeyIDs(ids...)
+}
+
+// AddRevisionIDs adds the "revisions" edge to the APIKeyProfileTemplateRevision entity by IDs.
+func (_c *APIKeyProfileTemplateCreate) AddRevisionIDs(ids ...int) *APIKeyProfileTemplateCreate {
+	_c.mutation.AddRevisionIDs(ids...)
+	return _c
+}
+
+// AddRevisions adds the "revisions" edges to the APIKeyProfileTemplateRevision entity.
+func (_c *APIKeyProfileTemplateCreate) AddRevisions(v ...*APIKeyProfileTemplateRevision) *APIKeyProfileTemplateCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddRevisionIDs(ids...)
 }
 
 // Mutation returns the APIKeyProfileTemplateMutation object of the builder.
@@ -166,6 +226,14 @@ func (_c *APIKeyProfileTemplateCreate) defaults() error {
 		v := apikeyprofiletemplate.DefaultProfile
 		_c.mutation.SetProfile(v)
 	}
+	if _, ok := _c.mutation.Revision(); !ok {
+		v := apikeyprofiletemplate.DefaultRevision
+		_c.mutation.SetRevision(v)
+	}
+	if _, ok := _c.mutation.SelfServiceVisible(); !ok {
+		v := apikeyprofiletemplate.DefaultSelfServiceVisible
+		_c.mutation.SetSelfServiceVisible(v)
+	}
 	return nil
 }
 
@@ -182,6 +250,17 @@ func (_c *APIKeyProfileTemplateCreate) check() error {
 	}
 	if _, ok := _c.mutation.ProjectID(); !ok {
 		return &ValidationError{Name: "project_id", err: errors.New(`ent: missing required field "APIKeyProfileTemplate.project_id"`)}
+	}
+	if _, ok := _c.mutation.Revision(); !ok {
+		return &ValidationError{Name: "revision", err: errors.New(`ent: missing required field "APIKeyProfileTemplate.revision"`)}
+	}
+	if v, ok := _c.mutation.Revision(); ok {
+		if err := apikeyprofiletemplate.RevisionValidator(v); err != nil {
+			return &ValidationError{Name: "revision", err: fmt.Errorf(`ent: validator failed for field "APIKeyProfileTemplate.revision": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.SelfServiceVisible(); !ok {
+		return &ValidationError{Name: "self_service_visible", err: errors.New(`ent: missing required field "APIKeyProfileTemplate.self_service_visible"`)}
 	}
 	if len(_c.mutation.ProjectIDs()) == 0 {
 		return &ValidationError{Name: "project", err: errors.New(`ent: missing required edge "APIKeyProfileTemplate.project"`)}
@@ -237,6 +316,14 @@ func (_c *APIKeyProfileTemplateCreate) createSpec() (*APIKeyProfileTemplate, *sq
 		_spec.SetField(apikeyprofiletemplate.FieldProfile, field.TypeJSON, value)
 		_node.Profile = value
 	}
+	if value, ok := _c.mutation.Revision(); ok {
+		_spec.SetField(apikeyprofiletemplate.FieldRevision, field.TypeInt64, value)
+		_node.Revision = value
+	}
+	if value, ok := _c.mutation.SelfServiceVisible(); ok {
+		_spec.SetField(apikeyprofiletemplate.FieldSelfServiceVisible, field.TypeBool, value)
+		_node.SelfServiceVisible = value
+	}
 	if nodes := _c.mutation.ProjectIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -252,6 +339,38 @@ func (_c *APIKeyProfileTemplateCreate) createSpec() (*APIKeyProfileTemplate, *sq
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.ProjectID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.APIKeysTable,
+			Columns: []string{apikeyprofiletemplate.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.RevisionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.RevisionsTable,
+			Columns: []string{apikeyprofiletemplate.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -375,6 +494,36 @@ func (u *APIKeyProfileTemplateUpsert) UpdateProfile() *APIKeyProfileTemplateUpse
 // ClearProfile clears the value of the "profile" field.
 func (u *APIKeyProfileTemplateUpsert) ClearProfile() *APIKeyProfileTemplateUpsert {
 	u.SetNull(apikeyprofiletemplate.FieldProfile)
+	return u
+}
+
+// SetRevision sets the "revision" field.
+func (u *APIKeyProfileTemplateUpsert) SetRevision(v int64) *APIKeyProfileTemplateUpsert {
+	u.Set(apikeyprofiletemplate.FieldRevision, v)
+	return u
+}
+
+// UpdateRevision sets the "revision" field to the value that was provided on create.
+func (u *APIKeyProfileTemplateUpsert) UpdateRevision() *APIKeyProfileTemplateUpsert {
+	u.SetExcluded(apikeyprofiletemplate.FieldRevision)
+	return u
+}
+
+// AddRevision adds v to the "revision" field.
+func (u *APIKeyProfileTemplateUpsert) AddRevision(v int64) *APIKeyProfileTemplateUpsert {
+	u.Add(apikeyprofiletemplate.FieldRevision, v)
+	return u
+}
+
+// SetSelfServiceVisible sets the "self_service_visible" field.
+func (u *APIKeyProfileTemplateUpsert) SetSelfServiceVisible(v bool) *APIKeyProfileTemplateUpsert {
+	u.Set(apikeyprofiletemplate.FieldSelfServiceVisible, v)
+	return u
+}
+
+// UpdateSelfServiceVisible sets the "self_service_visible" field to the value that was provided on create.
+func (u *APIKeyProfileTemplateUpsert) UpdateSelfServiceVisible() *APIKeyProfileTemplateUpsert {
+	u.SetExcluded(apikeyprofiletemplate.FieldSelfServiceVisible)
 	return u
 }
 
@@ -507,6 +656,41 @@ func (u *APIKeyProfileTemplateUpsertOne) UpdateProfile() *APIKeyProfileTemplateU
 func (u *APIKeyProfileTemplateUpsertOne) ClearProfile() *APIKeyProfileTemplateUpsertOne {
 	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
 		s.ClearProfile()
+	})
+}
+
+// SetRevision sets the "revision" field.
+func (u *APIKeyProfileTemplateUpsertOne) SetRevision(v int64) *APIKeyProfileTemplateUpsertOne {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.SetRevision(v)
+	})
+}
+
+// AddRevision adds v to the "revision" field.
+func (u *APIKeyProfileTemplateUpsertOne) AddRevision(v int64) *APIKeyProfileTemplateUpsertOne {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.AddRevision(v)
+	})
+}
+
+// UpdateRevision sets the "revision" field to the value that was provided on create.
+func (u *APIKeyProfileTemplateUpsertOne) UpdateRevision() *APIKeyProfileTemplateUpsertOne {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.UpdateRevision()
+	})
+}
+
+// SetSelfServiceVisible sets the "self_service_visible" field.
+func (u *APIKeyProfileTemplateUpsertOne) SetSelfServiceVisible(v bool) *APIKeyProfileTemplateUpsertOne {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.SetSelfServiceVisible(v)
+	})
+}
+
+// UpdateSelfServiceVisible sets the "self_service_visible" field to the value that was provided on create.
+func (u *APIKeyProfileTemplateUpsertOne) UpdateSelfServiceVisible() *APIKeyProfileTemplateUpsertOne {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.UpdateSelfServiceVisible()
 	})
 }
 
@@ -805,6 +989,41 @@ func (u *APIKeyProfileTemplateUpsertBulk) UpdateProfile() *APIKeyProfileTemplate
 func (u *APIKeyProfileTemplateUpsertBulk) ClearProfile() *APIKeyProfileTemplateUpsertBulk {
 	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
 		s.ClearProfile()
+	})
+}
+
+// SetRevision sets the "revision" field.
+func (u *APIKeyProfileTemplateUpsertBulk) SetRevision(v int64) *APIKeyProfileTemplateUpsertBulk {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.SetRevision(v)
+	})
+}
+
+// AddRevision adds v to the "revision" field.
+func (u *APIKeyProfileTemplateUpsertBulk) AddRevision(v int64) *APIKeyProfileTemplateUpsertBulk {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.AddRevision(v)
+	})
+}
+
+// UpdateRevision sets the "revision" field to the value that was provided on create.
+func (u *APIKeyProfileTemplateUpsertBulk) UpdateRevision() *APIKeyProfileTemplateUpsertBulk {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.UpdateRevision()
+	})
+}
+
+// SetSelfServiceVisible sets the "self_service_visible" field.
+func (u *APIKeyProfileTemplateUpsertBulk) SetSelfServiceVisible(v bool) *APIKeyProfileTemplateUpsertBulk {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.SetSelfServiceVisible(v)
+	})
+}
+
+// UpdateSelfServiceVisible sets the "self_service_visible" field to the value that was provided on create.
+func (u *APIKeyProfileTemplateUpsertBulk) UpdateSelfServiceVisible() *APIKeyProfileTemplateUpsertBulk {
+	return u.Update(func(s *APIKeyProfileTemplateUpsert) {
+		s.UpdateSelfServiceVisible()
 	})
 }
 

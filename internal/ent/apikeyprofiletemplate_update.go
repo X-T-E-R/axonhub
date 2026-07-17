@@ -11,7 +11,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/objects"
 )
@@ -97,9 +99,116 @@ func (_u *APIKeyProfileTemplateUpdate) ClearProfile() *APIKeyProfileTemplateUpda
 	return _u
 }
 
+// SetRevision sets the "revision" field.
+func (_u *APIKeyProfileTemplateUpdate) SetRevision(v int64) *APIKeyProfileTemplateUpdate {
+	_u.mutation.ResetRevision()
+	_u.mutation.SetRevision(v)
+	return _u
+}
+
+// SetNillableRevision sets the "revision" field if the given value is not nil.
+func (_u *APIKeyProfileTemplateUpdate) SetNillableRevision(v *int64) *APIKeyProfileTemplateUpdate {
+	if v != nil {
+		_u.SetRevision(*v)
+	}
+	return _u
+}
+
+// AddRevision adds value to the "revision" field.
+func (_u *APIKeyProfileTemplateUpdate) AddRevision(v int64) *APIKeyProfileTemplateUpdate {
+	_u.mutation.AddRevision(v)
+	return _u
+}
+
+// SetSelfServiceVisible sets the "self_service_visible" field.
+func (_u *APIKeyProfileTemplateUpdate) SetSelfServiceVisible(v bool) *APIKeyProfileTemplateUpdate {
+	_u.mutation.SetSelfServiceVisible(v)
+	return _u
+}
+
+// SetNillableSelfServiceVisible sets the "self_service_visible" field if the given value is not nil.
+func (_u *APIKeyProfileTemplateUpdate) SetNillableSelfServiceVisible(v *bool) *APIKeyProfileTemplateUpdate {
+	if v != nil {
+		_u.SetSelfServiceVisible(*v)
+	}
+	return _u
+}
+
+// AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
+func (_u *APIKeyProfileTemplateUpdate) AddAPIKeyIDs(ids ...int) *APIKeyProfileTemplateUpdate {
+	_u.mutation.AddAPIKeyIDs(ids...)
+	return _u
+}
+
+// AddAPIKeys adds the "api_keys" edges to the APIKey entity.
+func (_u *APIKeyProfileTemplateUpdate) AddAPIKeys(v ...*APIKey) *APIKeyProfileTemplateUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAPIKeyIDs(ids...)
+}
+
+// AddRevisionIDs adds the "revisions" edge to the APIKeyProfileTemplateRevision entity by IDs.
+func (_u *APIKeyProfileTemplateUpdate) AddRevisionIDs(ids ...int) *APIKeyProfileTemplateUpdate {
+	_u.mutation.AddRevisionIDs(ids...)
+	return _u
+}
+
+// AddRevisions adds the "revisions" edges to the APIKeyProfileTemplateRevision entity.
+func (_u *APIKeyProfileTemplateUpdate) AddRevisions(v ...*APIKeyProfileTemplateRevision) *APIKeyProfileTemplateUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRevisionIDs(ids...)
+}
+
 // Mutation returns the APIKeyProfileTemplateMutation object of the builder.
 func (_u *APIKeyProfileTemplateUpdate) Mutation() *APIKeyProfileTemplateMutation {
 	return _u.mutation
+}
+
+// ClearAPIKeys clears all "api_keys" edges to the APIKey entity.
+func (_u *APIKeyProfileTemplateUpdate) ClearAPIKeys() *APIKeyProfileTemplateUpdate {
+	_u.mutation.ClearAPIKeys()
+	return _u
+}
+
+// RemoveAPIKeyIDs removes the "api_keys" edge to APIKey entities by IDs.
+func (_u *APIKeyProfileTemplateUpdate) RemoveAPIKeyIDs(ids ...int) *APIKeyProfileTemplateUpdate {
+	_u.mutation.RemoveAPIKeyIDs(ids...)
+	return _u
+}
+
+// RemoveAPIKeys removes "api_keys" edges to APIKey entities.
+func (_u *APIKeyProfileTemplateUpdate) RemoveAPIKeys(v ...*APIKey) *APIKeyProfileTemplateUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAPIKeyIDs(ids...)
+}
+
+// ClearRevisions clears all "revisions" edges to the APIKeyProfileTemplateRevision entity.
+func (_u *APIKeyProfileTemplateUpdate) ClearRevisions() *APIKeyProfileTemplateUpdate {
+	_u.mutation.ClearRevisions()
+	return _u
+}
+
+// RemoveRevisionIDs removes the "revisions" edge to APIKeyProfileTemplateRevision entities by IDs.
+func (_u *APIKeyProfileTemplateUpdate) RemoveRevisionIDs(ids ...int) *APIKeyProfileTemplateUpdate {
+	_u.mutation.RemoveRevisionIDs(ids...)
+	return _u
+}
+
+// RemoveRevisions removes "revisions" edges to APIKeyProfileTemplateRevision entities.
+func (_u *APIKeyProfileTemplateUpdate) RemoveRevisions(v ...*APIKeyProfileTemplateRevision) *APIKeyProfileTemplateUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRevisionIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -146,6 +255,11 @@ func (_u *APIKeyProfileTemplateUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *APIKeyProfileTemplateUpdate) check() error {
+	if v, ok := _u.mutation.Revision(); ok {
+		if err := apikeyprofiletemplate.RevisionValidator(v); err != nil {
+			return &ValidationError{Name: "revision", err: fmt.Errorf(`ent: validator failed for field "APIKeyProfileTemplate.revision": %w`, err)}
+		}
+	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKeyProfileTemplate.project"`)
 	}
@@ -190,6 +304,105 @@ func (_u *APIKeyProfileTemplateUpdate) sqlSave(ctx context.Context) (_node int, 
 	}
 	if _u.mutation.ProfileCleared() {
 		_spec.ClearField(apikeyprofiletemplate.FieldProfile, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Revision(); ok {
+		_spec.SetField(apikeyprofiletemplate.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedRevision(); ok {
+		_spec.AddField(apikeyprofiletemplate.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.SelfServiceVisible(); ok {
+		_spec.SetField(apikeyprofiletemplate.FieldSelfServiceVisible, field.TypeBool, value)
+	}
+	if _u.mutation.APIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.APIKeysTable,
+			Columns: []string{apikeyprofiletemplate.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAPIKeysIDs(); len(nodes) > 0 && !_u.mutation.APIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.APIKeysTable,
+			Columns: []string{apikeyprofiletemplate.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.APIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.APIKeysTable,
+			Columns: []string{apikeyprofiletemplate.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.RevisionsTable,
+			Columns: []string{apikeyprofiletemplate.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRevisionsIDs(); len(nodes) > 0 && !_u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.RevisionsTable,
+			Columns: []string{apikeyprofiletemplate.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RevisionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.RevisionsTable,
+			Columns: []string{apikeyprofiletemplate.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_spec.AddModifiers(_u.modifiers...)
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
@@ -280,9 +493,116 @@ func (_u *APIKeyProfileTemplateUpdateOne) ClearProfile() *APIKeyProfileTemplateU
 	return _u
 }
 
+// SetRevision sets the "revision" field.
+func (_u *APIKeyProfileTemplateUpdateOne) SetRevision(v int64) *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.ResetRevision()
+	_u.mutation.SetRevision(v)
+	return _u
+}
+
+// SetNillableRevision sets the "revision" field if the given value is not nil.
+func (_u *APIKeyProfileTemplateUpdateOne) SetNillableRevision(v *int64) *APIKeyProfileTemplateUpdateOne {
+	if v != nil {
+		_u.SetRevision(*v)
+	}
+	return _u
+}
+
+// AddRevision adds value to the "revision" field.
+func (_u *APIKeyProfileTemplateUpdateOne) AddRevision(v int64) *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.AddRevision(v)
+	return _u
+}
+
+// SetSelfServiceVisible sets the "self_service_visible" field.
+func (_u *APIKeyProfileTemplateUpdateOne) SetSelfServiceVisible(v bool) *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.SetSelfServiceVisible(v)
+	return _u
+}
+
+// SetNillableSelfServiceVisible sets the "self_service_visible" field if the given value is not nil.
+func (_u *APIKeyProfileTemplateUpdateOne) SetNillableSelfServiceVisible(v *bool) *APIKeyProfileTemplateUpdateOne {
+	if v != nil {
+		_u.SetSelfServiceVisible(*v)
+	}
+	return _u
+}
+
+// AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
+func (_u *APIKeyProfileTemplateUpdateOne) AddAPIKeyIDs(ids ...int) *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.AddAPIKeyIDs(ids...)
+	return _u
+}
+
+// AddAPIKeys adds the "api_keys" edges to the APIKey entity.
+func (_u *APIKeyProfileTemplateUpdateOne) AddAPIKeys(v ...*APIKey) *APIKeyProfileTemplateUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAPIKeyIDs(ids...)
+}
+
+// AddRevisionIDs adds the "revisions" edge to the APIKeyProfileTemplateRevision entity by IDs.
+func (_u *APIKeyProfileTemplateUpdateOne) AddRevisionIDs(ids ...int) *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.AddRevisionIDs(ids...)
+	return _u
+}
+
+// AddRevisions adds the "revisions" edges to the APIKeyProfileTemplateRevision entity.
+func (_u *APIKeyProfileTemplateUpdateOne) AddRevisions(v ...*APIKeyProfileTemplateRevision) *APIKeyProfileTemplateUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRevisionIDs(ids...)
+}
+
 // Mutation returns the APIKeyProfileTemplateMutation object of the builder.
 func (_u *APIKeyProfileTemplateUpdateOne) Mutation() *APIKeyProfileTemplateMutation {
 	return _u.mutation
+}
+
+// ClearAPIKeys clears all "api_keys" edges to the APIKey entity.
+func (_u *APIKeyProfileTemplateUpdateOne) ClearAPIKeys() *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.ClearAPIKeys()
+	return _u
+}
+
+// RemoveAPIKeyIDs removes the "api_keys" edge to APIKey entities by IDs.
+func (_u *APIKeyProfileTemplateUpdateOne) RemoveAPIKeyIDs(ids ...int) *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.RemoveAPIKeyIDs(ids...)
+	return _u
+}
+
+// RemoveAPIKeys removes "api_keys" edges to APIKey entities.
+func (_u *APIKeyProfileTemplateUpdateOne) RemoveAPIKeys(v ...*APIKey) *APIKeyProfileTemplateUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAPIKeyIDs(ids...)
+}
+
+// ClearRevisions clears all "revisions" edges to the APIKeyProfileTemplateRevision entity.
+func (_u *APIKeyProfileTemplateUpdateOne) ClearRevisions() *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.ClearRevisions()
+	return _u
+}
+
+// RemoveRevisionIDs removes the "revisions" edge to APIKeyProfileTemplateRevision entities by IDs.
+func (_u *APIKeyProfileTemplateUpdateOne) RemoveRevisionIDs(ids ...int) *APIKeyProfileTemplateUpdateOne {
+	_u.mutation.RemoveRevisionIDs(ids...)
+	return _u
+}
+
+// RemoveRevisions removes "revisions" edges to APIKeyProfileTemplateRevision entities.
+func (_u *APIKeyProfileTemplateUpdateOne) RemoveRevisions(v ...*APIKeyProfileTemplateRevision) *APIKeyProfileTemplateUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRevisionIDs(ids...)
 }
 
 // Where appends a list predicates to the APIKeyProfileTemplateUpdate builder.
@@ -342,6 +662,11 @@ func (_u *APIKeyProfileTemplateUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *APIKeyProfileTemplateUpdateOne) check() error {
+	if v, ok := _u.mutation.Revision(); ok {
+		if err := apikeyprofiletemplate.RevisionValidator(v); err != nil {
+			return &ValidationError{Name: "revision", err: fmt.Errorf(`ent: validator failed for field "APIKeyProfileTemplate.revision": %w`, err)}
+		}
+	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKeyProfileTemplate.project"`)
 	}
@@ -403,6 +728,105 @@ func (_u *APIKeyProfileTemplateUpdateOne) sqlSave(ctx context.Context) (_node *A
 	}
 	if _u.mutation.ProfileCleared() {
 		_spec.ClearField(apikeyprofiletemplate.FieldProfile, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Revision(); ok {
+		_spec.SetField(apikeyprofiletemplate.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedRevision(); ok {
+		_spec.AddField(apikeyprofiletemplate.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.SelfServiceVisible(); ok {
+		_spec.SetField(apikeyprofiletemplate.FieldSelfServiceVisible, field.TypeBool, value)
+	}
+	if _u.mutation.APIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.APIKeysTable,
+			Columns: []string{apikeyprofiletemplate.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAPIKeysIDs(); len(nodes) > 0 && !_u.mutation.APIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.APIKeysTable,
+			Columns: []string{apikeyprofiletemplate.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.APIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.APIKeysTable,
+			Columns: []string{apikeyprofiletemplate.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.RevisionsTable,
+			Columns: []string{apikeyprofiletemplate.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRevisionsIDs(); len(nodes) > 0 && !_u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.RevisionsTable,
+			Columns: []string{apikeyprofiletemplate.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RevisionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikeyprofiletemplate.RevisionsTable,
+			Columns: []string{apikeyprofiletemplate.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplaterevision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_spec.AddModifiers(_u.modifiers...)
 	_node = &APIKeyProfileTemplate{config: _u.config}

@@ -56,8 +56,8 @@ func (_m *APIKey) Node(ctx context.Context) (node *Node, err error) {
 	node = &Node{
 		ID:     _m.ID,
 		Type:   "APIKey",
-		Fields: make([]*Field, 10),
-		Edges:  make([]*Edge, 3),
+		Fields: make([]*Field, 16),
+		Edges:  make([]*Edge, 4),
 	}
 	var buf []byte
 	if buf, err = json.Marshal(_m.CreatedAt); err != nil {
@@ -140,6 +140,54 @@ func (_m *APIKey) Node(ctx context.Context) (node *Node, err error) {
 		Name:  "profiles",
 		Value: string(buf),
 	}
+	if buf, err = json.Marshal(_m.ProvisioningSource); err != nil {
+		return nil, err
+	}
+	node.Fields[10] = &Field{
+		Type:  "apikey.ProvisioningSource",
+		Name:  "provisioning_source",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.ProfileMode); err != nil {
+		return nil, err
+	}
+	node.Fields[11] = &Field{
+		Type:  "apikey.ProfileMode",
+		Name:  "profile_mode",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.AccessGroupID); err != nil {
+		return nil, err
+	}
+	node.Fields[12] = &Field{
+		Type:  "int",
+		Name:  "access_group_id",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.AccessGroupRevision); err != nil {
+		return nil, err
+	}
+	node.Fields[13] = &Field{
+		Type:  "int64",
+		Name:  "access_group_revision",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.ClassificationAt); err != nil {
+		return nil, err
+	}
+	node.Fields[14] = &Field{
+		Type:  "time.Time",
+		Name:  "classification_at",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.ClassificationByUserID); err != nil {
+		return nil, err
+	}
+	node.Fields[15] = &Field{
+		Type:  "int",
+		Name:  "classification_by_user_id",
+		Value: string(buf),
+	}
 	node.Edges[0] = &Edge{
 		Type: "User",
 		Name: "user",
@@ -170,6 +218,16 @@ func (_m *APIKey) Node(ctx context.Context) (node *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
+	node.Edges[3] = &Edge{
+		Type: "APIKeyProfileTemplate",
+		Name: "access_group",
+	}
+	err = _m.QueryAccessGroup().
+		Select(apikeyprofiletemplate.FieldID).
+		Scan(ctx, &node.Edges[3].IDs)
+	if err != nil {
+		return nil, err
+	}
 	return node, nil
 }
 
@@ -178,8 +236,8 @@ func (_m *APIKeyProfileTemplate) Node(ctx context.Context) (node *Node, err erro
 	node = &Node{
 		ID:     _m.ID,
 		Type:   "APIKeyProfileTemplate",
-		Fields: make([]*Field, 6),
-		Edges:  make([]*Edge, 1),
+		Fields: make([]*Field, 8),
+		Edges:  make([]*Edge, 2),
 	}
 	var buf []byte
 	if buf, err = json.Marshal(_m.CreatedAt); err != nil {
@@ -230,6 +288,22 @@ func (_m *APIKeyProfileTemplate) Node(ctx context.Context) (node *Node, err erro
 		Name:  "profile",
 		Value: string(buf),
 	}
+	if buf, err = json.Marshal(_m.Revision); err != nil {
+		return nil, err
+	}
+	node.Fields[6] = &Field{
+		Type:  "int64",
+		Name:  "revision",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.SelfServiceVisible); err != nil {
+		return nil, err
+	}
+	node.Fields[7] = &Field{
+		Type:  "bool",
+		Name:  "self_service_visible",
+		Value: string(buf),
+	}
 	node.Edges[0] = &Edge{
 		Type: "Project",
 		Name: "project",
@@ -237,6 +311,16 @@ func (_m *APIKeyProfileTemplate) Node(ctx context.Context) (node *Node, err erro
 	err = _m.QueryProject().
 		Select(project.FieldID).
 		Scan(ctx, &node.Edges[0].IDs)
+	if err != nil {
+		return nil, err
+	}
+	node.Edges[1] = &Edge{
+		Type: "APIKey",
+		Name: "api_keys",
+	}
+	err = _m.QueryAPIKeys().
+		Select(apikey.FieldID).
+		Scan(ctx, &node.Edges[1].IDs)
 	if err != nil {
 		return nil, err
 	}

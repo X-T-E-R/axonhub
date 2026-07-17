@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -30,6 +31,7 @@ type APIKeyQuery struct {
 	withUser          *UserQuery
 	withProject       *ProjectQuery
 	withRequests      *RequestQuery
+	withAccessGroup   *APIKeyProfileTemplateQuery
 	loadTotal         []func(context.Context, []*APIKey) error
 	modifiers         []func(*sql.Selector)
 	withNamedRequests map[string]*RequestQuery
@@ -128,6 +130,28 @@ func (_q *APIKeyQuery) QueryRequests() *RequestQuery {
 			sqlgraph.From(apikey.Table, apikey.FieldID, selector),
 			sqlgraph.To(request.Table, request.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, apikey.RequestsTable, apikey.RequestsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryAccessGroup chains the current query on the "access_group" edge.
+func (_q *APIKeyQuery) QueryAccessGroup() *APIKeyProfileTemplateQuery {
+	query := (&APIKeyProfileTemplateClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikey.Table, apikey.FieldID, selector),
+			sqlgraph.To(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, apikey.AccessGroupTable, apikey.AccessGroupColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -322,14 +346,15 @@ func (_q *APIKeyQuery) Clone() *APIKeyQuery {
 		return nil
 	}
 	return &APIKeyQuery{
-		config:       _q.config,
-		ctx:          _q.ctx.Clone(),
-		order:        append([]apikey.OrderOption{}, _q.order...),
-		inters:       append([]Interceptor{}, _q.inters...),
-		predicates:   append([]predicate.APIKey{}, _q.predicates...),
-		withUser:     _q.withUser.Clone(),
-		withProject:  _q.withProject.Clone(),
-		withRequests: _q.withRequests.Clone(),
+		config:          _q.config,
+		ctx:             _q.ctx.Clone(),
+		order:           append([]apikey.OrderOption{}, _q.order...),
+		inters:          append([]Interceptor{}, _q.inters...),
+		predicates:      append([]predicate.APIKey{}, _q.predicates...),
+		withUser:        _q.withUser.Clone(),
+		withProject:     _q.withProject.Clone(),
+		withRequests:    _q.withRequests.Clone(),
+		withAccessGroup: _q.withAccessGroup.Clone(),
 		// clone intermediate query.
 		sql:       _q.sql.Clone(),
 		path:      _q.path,
@@ -367,6 +392,17 @@ func (_q *APIKeyQuery) WithRequests(opts ...func(*RequestQuery)) *APIKeyQuery {
 		opt(query)
 	}
 	_q.withRequests = query
+	return _q
+}
+
+// WithAccessGroup tells the query-builder to eager-load the nodes that are connected to
+// the "access_group" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *APIKeyQuery) WithAccessGroup(opts ...func(*APIKeyProfileTemplateQuery)) *APIKeyQuery {
+	query := (&APIKeyProfileTemplateClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withAccessGroup = query
 	return _q
 }
 
@@ -454,10 +490,11 @@ func (_q *APIKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*APIKe
 	var (
 		nodes       = []*APIKey{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withUser != nil,
 			_q.withProject != nil,
 			_q.withRequests != nil,
+			_q.withAccessGroup != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -497,6 +534,12 @@ func (_q *APIKeyQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*APIKe
 		if err := _q.loadRequests(ctx, query, nodes,
 			func(n *APIKey) { n.Edges.Requests = []*Request{} },
 			func(n *APIKey, e *Request) { n.Edges.Requests = append(n.Edges.Requests, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withAccessGroup; query != nil {
+		if err := _q.loadAccessGroup(ctx, query, nodes, nil,
+			func(n *APIKey, e *APIKeyProfileTemplate) { n.Edges.AccessGroup = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -603,6 +646,38 @@ func (_q *APIKeyQuery) loadRequests(ctx context.Context, query *RequestQuery, no
 	}
 	return nil
 }
+func (_q *APIKeyQuery) loadAccessGroup(ctx context.Context, query *APIKeyProfileTemplateQuery, nodes []*APIKey, init func(*APIKey), assign func(*APIKey, *APIKeyProfileTemplate)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*APIKey)
+	for i := range nodes {
+		if nodes[i].AccessGroupID == nil {
+			continue
+		}
+		fk := *nodes[i].AccessGroupID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(apikeyprofiletemplate.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "access_group_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 
 func (_q *APIKeyQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
@@ -637,6 +712,9 @@ func (_q *APIKeyQuery) querySpec() *sqlgraph.QuerySpec {
 		}
 		if _q.withProject != nil {
 			_spec.Node.AddColumnOnce(apikey.FieldProjectID)
+		}
+		if _q.withAccessGroup != nil {
+			_spec.Node.AddColumnOnce(apikey.FieldAccessGroupID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {

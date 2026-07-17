@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math"
@@ -12,7 +13,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
 )
@@ -20,13 +23,17 @@ import (
 // APIKeyProfileTemplateQuery is the builder for querying APIKeyProfileTemplate entities.
 type APIKeyProfileTemplateQuery struct {
 	config
-	ctx         *QueryContext
-	order       []apikeyprofiletemplate.OrderOption
-	inters      []Interceptor
-	predicates  []predicate.APIKeyProfileTemplate
-	withProject *ProjectQuery
-	loadTotal   []func(context.Context, []*APIKeyProfileTemplate) error
-	modifiers   []func(*sql.Selector)
+	ctx                *QueryContext
+	order              []apikeyprofiletemplate.OrderOption
+	inters             []Interceptor
+	predicates         []predicate.APIKeyProfileTemplate
+	withProject        *ProjectQuery
+	withAPIKeys        *APIKeyQuery
+	withRevisions      *APIKeyProfileTemplateRevisionQuery
+	loadTotal          []func(context.Context, []*APIKeyProfileTemplate) error
+	modifiers          []func(*sql.Selector)
+	withNamedAPIKeys   map[string]*APIKeyQuery
+	withNamedRevisions map[string]*APIKeyProfileTemplateRevisionQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -78,6 +85,50 @@ func (_q *APIKeyProfileTemplateQuery) QueryProject() *ProjectQuery {
 			sqlgraph.From(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID, selector),
 			sqlgraph.To(project.Table, project.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, apikeyprofiletemplate.ProjectTable, apikeyprofiletemplate.ProjectColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryAPIKeys chains the current query on the "api_keys" edge.
+func (_q *APIKeyProfileTemplateQuery) QueryAPIKeys() *APIKeyQuery {
+	query := (&APIKeyClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID, selector),
+			sqlgraph.To(apikey.Table, apikey.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, apikeyprofiletemplate.APIKeysTable, apikeyprofiletemplate.APIKeysColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryRevisions chains the current query on the "revisions" edge.
+func (_q *APIKeyProfileTemplateQuery) QueryRevisions() *APIKeyProfileTemplateRevisionQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikeyprofiletemplate.Table, apikeyprofiletemplate.FieldID, selector),
+			sqlgraph.To(apikeyprofiletemplaterevision.Table, apikeyprofiletemplaterevision.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, apikeyprofiletemplate.RevisionsTable, apikeyprofiletemplate.RevisionsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -272,12 +323,14 @@ func (_q *APIKeyProfileTemplateQuery) Clone() *APIKeyProfileTemplateQuery {
 		return nil
 	}
 	return &APIKeyProfileTemplateQuery{
-		config:      _q.config,
-		ctx:         _q.ctx.Clone(),
-		order:       append([]apikeyprofiletemplate.OrderOption{}, _q.order...),
-		inters:      append([]Interceptor{}, _q.inters...),
-		predicates:  append([]predicate.APIKeyProfileTemplate{}, _q.predicates...),
-		withProject: _q.withProject.Clone(),
+		config:        _q.config,
+		ctx:           _q.ctx.Clone(),
+		order:         append([]apikeyprofiletemplate.OrderOption{}, _q.order...),
+		inters:        append([]Interceptor{}, _q.inters...),
+		predicates:    append([]predicate.APIKeyProfileTemplate{}, _q.predicates...),
+		withProject:   _q.withProject.Clone(),
+		withAPIKeys:   _q.withAPIKeys.Clone(),
+		withRevisions: _q.withRevisions.Clone(),
 		// clone intermediate query.
 		sql:       _q.sql.Clone(),
 		path:      _q.path,
@@ -293,6 +346,28 @@ func (_q *APIKeyProfileTemplateQuery) WithProject(opts ...func(*ProjectQuery)) *
 		opt(query)
 	}
 	_q.withProject = query
+	return _q
+}
+
+// WithAPIKeys tells the query-builder to eager-load the nodes that are connected to
+// the "api_keys" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *APIKeyProfileTemplateQuery) WithAPIKeys(opts ...func(*APIKeyQuery)) *APIKeyProfileTemplateQuery {
+	query := (&APIKeyClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withAPIKeys = query
+	return _q
+}
+
+// WithRevisions tells the query-builder to eager-load the nodes that are connected to
+// the "revisions" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *APIKeyProfileTemplateQuery) WithRevisions(opts ...func(*APIKeyProfileTemplateRevisionQuery)) *APIKeyProfileTemplateQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withRevisions = query
 	return _q
 }
 
@@ -380,8 +455,10 @@ func (_q *APIKeyProfileTemplateQuery) sqlAll(ctx context.Context, hooks ...query
 	var (
 		nodes       = []*APIKeyProfileTemplate{}
 		_spec       = _q.querySpec()
-		loadedTypes = [1]bool{
+		loadedTypes = [3]bool{
 			_q.withProject != nil,
+			_q.withAPIKeys != nil,
+			_q.withRevisions != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -408,6 +485,36 @@ func (_q *APIKeyProfileTemplateQuery) sqlAll(ctx context.Context, hooks ...query
 	if query := _q.withProject; query != nil {
 		if err := _q.loadProject(ctx, query, nodes, nil,
 			func(n *APIKeyProfileTemplate, e *Project) { n.Edges.Project = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withAPIKeys; query != nil {
+		if err := _q.loadAPIKeys(ctx, query, nodes,
+			func(n *APIKeyProfileTemplate) { n.Edges.APIKeys = []*APIKey{} },
+			func(n *APIKeyProfileTemplate, e *APIKey) { n.Edges.APIKeys = append(n.Edges.APIKeys, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withRevisions; query != nil {
+		if err := _q.loadRevisions(ctx, query, nodes,
+			func(n *APIKeyProfileTemplate) { n.Edges.Revisions = []*APIKeyProfileTemplateRevision{} },
+			func(n *APIKeyProfileTemplate, e *APIKeyProfileTemplateRevision) {
+				n.Edges.Revisions = append(n.Edges.Revisions, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	for name, query := range _q.withNamedAPIKeys {
+		if err := _q.loadAPIKeys(ctx, query, nodes,
+			func(n *APIKeyProfileTemplate) { n.appendNamedAPIKeys(name) },
+			func(n *APIKeyProfileTemplate, e *APIKey) { n.appendNamedAPIKeys(name, e) }); err != nil {
+			return nil, err
+		}
+	}
+	for name, query := range _q.withNamedRevisions {
+		if err := _q.loadRevisions(ctx, query, nodes,
+			func(n *APIKeyProfileTemplate) { n.appendNamedRevisions(name) },
+			func(n *APIKeyProfileTemplate, e *APIKeyProfileTemplateRevision) { n.appendNamedRevisions(name, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -445,6 +552,69 @@ func (_q *APIKeyProfileTemplateQuery) loadProject(ctx context.Context, query *Pr
 		for i := range nodes {
 			assign(nodes[i], n)
 		}
+	}
+	return nil
+}
+func (_q *APIKeyProfileTemplateQuery) loadAPIKeys(ctx context.Context, query *APIKeyQuery, nodes []*APIKeyProfileTemplate, init func(*APIKeyProfileTemplate), assign func(*APIKeyProfileTemplate, *APIKey)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*APIKeyProfileTemplate)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(apikey.FieldAccessGroupID)
+	}
+	query.Where(predicate.APIKey(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(apikeyprofiletemplate.APIKeysColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AccessGroupID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "access_group_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "access_group_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *APIKeyProfileTemplateQuery) loadRevisions(ctx context.Context, query *APIKeyProfileTemplateRevisionQuery, nodes []*APIKeyProfileTemplate, init func(*APIKeyProfileTemplate), assign func(*APIKeyProfileTemplate, *APIKeyProfileTemplateRevision)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*APIKeyProfileTemplate)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(apikeyprofiletemplaterevision.FieldTemplateID)
+	}
+	query.Where(predicate.APIKeyProfileTemplateRevision(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(apikeyprofiletemplate.RevisionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.TemplateID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "template_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
 	}
 	return nil
 }
@@ -543,6 +713,34 @@ func (_q *APIKeyProfileTemplateQuery) sqlQuery(ctx context.Context) *sql.Selecto
 func (_q *APIKeyProfileTemplateQuery) Modify(modifiers ...func(s *sql.Selector)) *APIKeyProfileTemplateSelect {
 	_q.modifiers = append(_q.modifiers, modifiers...)
 	return _q.Select()
+}
+
+// WithNamedAPIKeys tells the query-builder to eager-load the nodes that are connected to the "api_keys"
+// edge with the given name. The optional arguments are used to configure the query builder of the edge.
+func (_q *APIKeyProfileTemplateQuery) WithNamedAPIKeys(name string, opts ...func(*APIKeyQuery)) *APIKeyProfileTemplateQuery {
+	query := (&APIKeyClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	if _q.withNamedAPIKeys == nil {
+		_q.withNamedAPIKeys = make(map[string]*APIKeyQuery)
+	}
+	_q.withNamedAPIKeys[name] = query
+	return _q
+}
+
+// WithNamedRevisions tells the query-builder to eager-load the nodes that are connected to the "revisions"
+// edge with the given name. The optional arguments are used to configure the query builder of the edge.
+func (_q *APIKeyProfileTemplateQuery) WithNamedRevisions(name string, opts ...func(*APIKeyProfileTemplateRevisionQuery)) *APIKeyProfileTemplateQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	if _q.withNamedRevisions == nil {
+		_q.withNamedRevisions = make(map[string]*APIKeyProfileTemplateRevisionQuery)
+	}
+	_q.withNamedRevisions[name] = query
+	return _q
 }
 
 // APIKeyProfileTemplateGroupBy is the group-by builder for APIKeyProfileTemplate entities.

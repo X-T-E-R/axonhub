@@ -76,6 +76,10 @@ type Request struct {
 	ContentStorageKey *string `json:"content_storage_key,omitempty"`
 	// when the content file was saved
 	ContentSavedAt *time.Time `json:"content_saved_at,omitempty"`
+	// RoutingContext holds the value of the "routing_context" field.
+	RoutingContext *objects.RoutingContext `json:"routing_context,omitempty"`
+	// EvidenceDisposition holds the value of the "evidence_disposition" field.
+	EvidenceDisposition *objects.EvidenceDisposition `json:"evidence_disposition,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the RequestQuery when eager-loading is set.
 	Edges        RequestEdges `json:"edges"`
@@ -186,7 +190,7 @@ func (*Request) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case request.FieldRequestHeaders, request.FieldRequestBody, request.FieldResponseBody, request.FieldResponseChunks:
+		case request.FieldRequestHeaders, request.FieldRequestBody, request.FieldResponseBody, request.FieldResponseChunks, request.FieldRoutingContext, request.FieldEvidenceDisposition:
 			values[i] = new([]byte)
 		case request.FieldStream, request.FieldContentSaved:
 			values[i] = new(sql.NullBool)
@@ -387,6 +391,22 @@ func (_m *Request) assignValues(columns []string, values []any) error {
 				_m.ContentSavedAt = new(time.Time)
 				*_m.ContentSavedAt = value.Time
 			}
+		case request.FieldRoutingContext:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field routing_context", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.RoutingContext); err != nil {
+					return fmt.Errorf("unmarshal field routing_context: %w", err)
+				}
+			}
+		case request.FieldEvidenceDisposition:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field evidence_disposition", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.EvidenceDisposition); err != nil {
+					return fmt.Errorf("unmarshal field evidence_disposition: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -547,6 +567,12 @@ func (_m *Request) String() string {
 		builder.WriteString("content_saved_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("routing_context=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RoutingContext))
+	builder.WriteString(", ")
+	builder.WriteString("evidence_disposition=")
+	builder.WriteString(fmt.Sprintf("%v", _m.EvidenceDisposition))
 	builder.WriteByte(')')
 	return builder.String()
 }

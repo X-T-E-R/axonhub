@@ -69,6 +69,17 @@ func (s *SystemService) RegistrationConfig(ctx context.Context, fallback Registr
 }
 
 func (s *SystemService) SetRegistrationConfig(ctx context.Context, cfg RegistrationConfig) error {
+	// self_service_preset_names is retained as downgrade/audit evidence after
+	// project-owned Access Group visibility becomes authoritative. Ordinary
+	// registration updates must not erase or rewrite that legacy projection.
+	if s != nil {
+		current, err := s.RegistrationConfig(ctx, RegistrationConfig{})
+		if err == nil && len(current.SelfServicePresetNames) > 0 {
+			cfg.SelfServicePresetNames = append([]string{}, current.SelfServicePresetNames...)
+		} else if err != nil && !ent.IsNotFound(err) {
+			return err
+		}
+	}
 	cfg = normalizeRegistrationConfig(cfg)
 	if err := validateRegistrationConfig(cfg); err != nil {
 		return err

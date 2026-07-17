@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/user"
@@ -148,6 +149,90 @@ func (_c *APIKeyCreate) SetProfiles(v *objects.APIKeyProfiles) *APIKeyCreate {
 	return _c
 }
 
+// SetProvisioningSource sets the "provisioning_source" field.
+func (_c *APIKeyCreate) SetProvisioningSource(v apikey.ProvisioningSource) *APIKeyCreate {
+	_c.mutation.SetProvisioningSource(v)
+	return _c
+}
+
+// SetNillableProvisioningSource sets the "provisioning_source" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableProvisioningSource(v *apikey.ProvisioningSource) *APIKeyCreate {
+	if v != nil {
+		_c.SetProvisioningSource(*v)
+	}
+	return _c
+}
+
+// SetProfileMode sets the "profile_mode" field.
+func (_c *APIKeyCreate) SetProfileMode(v apikey.ProfileMode) *APIKeyCreate {
+	_c.mutation.SetProfileMode(v)
+	return _c
+}
+
+// SetNillableProfileMode sets the "profile_mode" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableProfileMode(v *apikey.ProfileMode) *APIKeyCreate {
+	if v != nil {
+		_c.SetProfileMode(*v)
+	}
+	return _c
+}
+
+// SetAccessGroupID sets the "access_group_id" field.
+func (_c *APIKeyCreate) SetAccessGroupID(v int) *APIKeyCreate {
+	_c.mutation.SetAccessGroupID(v)
+	return _c
+}
+
+// SetNillableAccessGroupID sets the "access_group_id" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableAccessGroupID(v *int) *APIKeyCreate {
+	if v != nil {
+		_c.SetAccessGroupID(*v)
+	}
+	return _c
+}
+
+// SetAccessGroupRevision sets the "access_group_revision" field.
+func (_c *APIKeyCreate) SetAccessGroupRevision(v int64) *APIKeyCreate {
+	_c.mutation.SetAccessGroupRevision(v)
+	return _c
+}
+
+// SetNillableAccessGroupRevision sets the "access_group_revision" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableAccessGroupRevision(v *int64) *APIKeyCreate {
+	if v != nil {
+		_c.SetAccessGroupRevision(*v)
+	}
+	return _c
+}
+
+// SetClassificationAt sets the "classification_at" field.
+func (_c *APIKeyCreate) SetClassificationAt(v time.Time) *APIKeyCreate {
+	_c.mutation.SetClassificationAt(v)
+	return _c
+}
+
+// SetNillableClassificationAt sets the "classification_at" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableClassificationAt(v *time.Time) *APIKeyCreate {
+	if v != nil {
+		_c.SetClassificationAt(*v)
+	}
+	return _c
+}
+
+// SetClassificationByUserID sets the "classification_by_user_id" field.
+func (_c *APIKeyCreate) SetClassificationByUserID(v int) *APIKeyCreate {
+	_c.mutation.SetClassificationByUserID(v)
+	return _c
+}
+
+// SetNillableClassificationByUserID sets the "classification_by_user_id" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableClassificationByUserID(v *int) *APIKeyCreate {
+	if v != nil {
+		_c.SetClassificationByUserID(*v)
+	}
+	return _c
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_c *APIKeyCreate) SetUser(v *User) *APIKeyCreate {
 	return _c.SetUserID(v.ID)
@@ -171,6 +256,11 @@ func (_c *APIKeyCreate) AddRequests(v ...*Request) *APIKeyCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddRequestIDs(ids...)
+}
+
+// SetAccessGroup sets the "access_group" edge to the APIKeyProfileTemplate entity.
+func (_c *APIKeyCreate) SetAccessGroup(v *APIKeyProfileTemplate) *APIKeyCreate {
+	return _c.SetAccessGroupID(v.ID)
 }
 
 // Mutation returns the APIKeyMutation object of the builder.
@@ -248,6 +338,14 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultProfiles
 		_c.mutation.SetProfiles(v)
 	}
+	if _, ok := _c.mutation.ProvisioningSource(); !ok {
+		v := apikey.DefaultProvisioningSource
+		_c.mutation.SetProvisioningSource(v)
+	}
+	if _, ok := _c.mutation.ProfileMode(); !ok {
+		v := apikey.DefaultProfileMode
+		_c.mutation.SetProfileMode(v)
+	}
 	return nil
 }
 
@@ -279,6 +377,22 @@ func (_c *APIKeyCreate) check() error {
 	if v, ok := _c.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ProvisioningSource(); !ok {
+		return &ValidationError{Name: "provisioning_source", err: errors.New(`ent: missing required field "APIKey.provisioning_source"`)}
+	}
+	if v, ok := _c.mutation.ProvisioningSource(); ok {
+		if err := apikey.ProvisioningSourceValidator(v); err != nil {
+			return &ValidationError{Name: "provisioning_source", err: fmt.Errorf(`ent: validator failed for field "APIKey.provisioning_source": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ProfileMode(); !ok {
+		return &ValidationError{Name: "profile_mode", err: errors.New(`ent: missing required field "APIKey.profile_mode"`)}
+	}
+	if v, ok := _c.mutation.ProfileMode(); ok {
+		if err := apikey.ProfileModeValidator(v); err != nil {
+			return &ValidationError{Name: "profile_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.profile_mode": %w`, err)}
 		}
 	}
 	if len(_c.mutation.ProjectIDs()) == 0 {
@@ -347,6 +461,26 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		_spec.SetField(apikey.FieldProfiles, field.TypeJSON, value)
 		_node.Profiles = value
 	}
+	if value, ok := _c.mutation.ProvisioningSource(); ok {
+		_spec.SetField(apikey.FieldProvisioningSource, field.TypeEnum, value)
+		_node.ProvisioningSource = value
+	}
+	if value, ok := _c.mutation.ProfileMode(); ok {
+		_spec.SetField(apikey.FieldProfileMode, field.TypeEnum, value)
+		_node.ProfileMode = value
+	}
+	if value, ok := _c.mutation.AccessGroupRevision(); ok {
+		_spec.SetField(apikey.FieldAccessGroupRevision, field.TypeInt64, value)
+		_node.AccessGroupRevision = &value
+	}
+	if value, ok := _c.mutation.ClassificationAt(); ok {
+		_spec.SetField(apikey.FieldClassificationAt, field.TypeTime, value)
+		_node.ClassificationAt = &value
+	}
+	if value, ok := _c.mutation.ClassificationByUserID(); ok {
+		_spec.SetField(apikey.FieldClassificationByUserID, field.TypeInt, value)
+		_node.ClassificationByUserID = &value
+	}
 	if nodes := _c.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -395,6 +529,23 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.AccessGroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   apikey.AccessGroupTable,
+			Columns: []string{apikey.AccessGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeyprofiletemplate.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.AccessGroupID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -560,6 +711,114 @@ func (u *APIKeyUpsert) UpdateProfiles() *APIKeyUpsert {
 // ClearProfiles clears the value of the "profiles" field.
 func (u *APIKeyUpsert) ClearProfiles() *APIKeyUpsert {
 	u.SetNull(apikey.FieldProfiles)
+	return u
+}
+
+// SetProvisioningSource sets the "provisioning_source" field.
+func (u *APIKeyUpsert) SetProvisioningSource(v apikey.ProvisioningSource) *APIKeyUpsert {
+	u.Set(apikey.FieldProvisioningSource, v)
+	return u
+}
+
+// UpdateProvisioningSource sets the "provisioning_source" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateProvisioningSource() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldProvisioningSource)
+	return u
+}
+
+// SetProfileMode sets the "profile_mode" field.
+func (u *APIKeyUpsert) SetProfileMode(v apikey.ProfileMode) *APIKeyUpsert {
+	u.Set(apikey.FieldProfileMode, v)
+	return u
+}
+
+// UpdateProfileMode sets the "profile_mode" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateProfileMode() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldProfileMode)
+	return u
+}
+
+// SetAccessGroupID sets the "access_group_id" field.
+func (u *APIKeyUpsert) SetAccessGroupID(v int) *APIKeyUpsert {
+	u.Set(apikey.FieldAccessGroupID, v)
+	return u
+}
+
+// UpdateAccessGroupID sets the "access_group_id" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateAccessGroupID() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldAccessGroupID)
+	return u
+}
+
+// ClearAccessGroupID clears the value of the "access_group_id" field.
+func (u *APIKeyUpsert) ClearAccessGroupID() *APIKeyUpsert {
+	u.SetNull(apikey.FieldAccessGroupID)
+	return u
+}
+
+// SetAccessGroupRevision sets the "access_group_revision" field.
+func (u *APIKeyUpsert) SetAccessGroupRevision(v int64) *APIKeyUpsert {
+	u.Set(apikey.FieldAccessGroupRevision, v)
+	return u
+}
+
+// UpdateAccessGroupRevision sets the "access_group_revision" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateAccessGroupRevision() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldAccessGroupRevision)
+	return u
+}
+
+// AddAccessGroupRevision adds v to the "access_group_revision" field.
+func (u *APIKeyUpsert) AddAccessGroupRevision(v int64) *APIKeyUpsert {
+	u.Add(apikey.FieldAccessGroupRevision, v)
+	return u
+}
+
+// ClearAccessGroupRevision clears the value of the "access_group_revision" field.
+func (u *APIKeyUpsert) ClearAccessGroupRevision() *APIKeyUpsert {
+	u.SetNull(apikey.FieldAccessGroupRevision)
+	return u
+}
+
+// SetClassificationAt sets the "classification_at" field.
+func (u *APIKeyUpsert) SetClassificationAt(v time.Time) *APIKeyUpsert {
+	u.Set(apikey.FieldClassificationAt, v)
+	return u
+}
+
+// UpdateClassificationAt sets the "classification_at" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateClassificationAt() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldClassificationAt)
+	return u
+}
+
+// ClearClassificationAt clears the value of the "classification_at" field.
+func (u *APIKeyUpsert) ClearClassificationAt() *APIKeyUpsert {
+	u.SetNull(apikey.FieldClassificationAt)
+	return u
+}
+
+// SetClassificationByUserID sets the "classification_by_user_id" field.
+func (u *APIKeyUpsert) SetClassificationByUserID(v int) *APIKeyUpsert {
+	u.Set(apikey.FieldClassificationByUserID, v)
+	return u
+}
+
+// UpdateClassificationByUserID sets the "classification_by_user_id" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateClassificationByUserID() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldClassificationByUserID)
+	return u
+}
+
+// AddClassificationByUserID adds v to the "classification_by_user_id" field.
+func (u *APIKeyUpsert) AddClassificationByUserID(v int) *APIKeyUpsert {
+	u.Add(apikey.FieldClassificationByUserID, v)
+	return u
+}
+
+// ClearClassificationByUserID clears the value of the "classification_by_user_id" field.
+func (u *APIKeyUpsert) ClearClassificationByUserID() *APIKeyUpsert {
+	u.SetNull(apikey.FieldClassificationByUserID)
 	return u
 }
 
@@ -744,6 +1003,132 @@ func (u *APIKeyUpsertOne) UpdateProfiles() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearProfiles() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearProfiles()
+	})
+}
+
+// SetProvisioningSource sets the "provisioning_source" field.
+func (u *APIKeyUpsertOne) SetProvisioningSource(v apikey.ProvisioningSource) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetProvisioningSource(v)
+	})
+}
+
+// UpdateProvisioningSource sets the "provisioning_source" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateProvisioningSource() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateProvisioningSource()
+	})
+}
+
+// SetProfileMode sets the "profile_mode" field.
+func (u *APIKeyUpsertOne) SetProfileMode(v apikey.ProfileMode) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetProfileMode(v)
+	})
+}
+
+// UpdateProfileMode sets the "profile_mode" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateProfileMode() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateProfileMode()
+	})
+}
+
+// SetAccessGroupID sets the "access_group_id" field.
+func (u *APIKeyUpsertOne) SetAccessGroupID(v int) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetAccessGroupID(v)
+	})
+}
+
+// UpdateAccessGroupID sets the "access_group_id" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateAccessGroupID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateAccessGroupID()
+	})
+}
+
+// ClearAccessGroupID clears the value of the "access_group_id" field.
+func (u *APIKeyUpsertOne) ClearAccessGroupID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearAccessGroupID()
+	})
+}
+
+// SetAccessGroupRevision sets the "access_group_revision" field.
+func (u *APIKeyUpsertOne) SetAccessGroupRevision(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetAccessGroupRevision(v)
+	})
+}
+
+// AddAccessGroupRevision adds v to the "access_group_revision" field.
+func (u *APIKeyUpsertOne) AddAccessGroupRevision(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddAccessGroupRevision(v)
+	})
+}
+
+// UpdateAccessGroupRevision sets the "access_group_revision" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateAccessGroupRevision() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateAccessGroupRevision()
+	})
+}
+
+// ClearAccessGroupRevision clears the value of the "access_group_revision" field.
+func (u *APIKeyUpsertOne) ClearAccessGroupRevision() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearAccessGroupRevision()
+	})
+}
+
+// SetClassificationAt sets the "classification_at" field.
+func (u *APIKeyUpsertOne) SetClassificationAt(v time.Time) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetClassificationAt(v)
+	})
+}
+
+// UpdateClassificationAt sets the "classification_at" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateClassificationAt() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateClassificationAt()
+	})
+}
+
+// ClearClassificationAt clears the value of the "classification_at" field.
+func (u *APIKeyUpsertOne) ClearClassificationAt() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearClassificationAt()
+	})
+}
+
+// SetClassificationByUserID sets the "classification_by_user_id" field.
+func (u *APIKeyUpsertOne) SetClassificationByUserID(v int) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetClassificationByUserID(v)
+	})
+}
+
+// AddClassificationByUserID adds v to the "classification_by_user_id" field.
+func (u *APIKeyUpsertOne) AddClassificationByUserID(v int) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddClassificationByUserID(v)
+	})
+}
+
+// UpdateClassificationByUserID sets the "classification_by_user_id" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateClassificationByUserID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateClassificationByUserID()
+	})
+}
+
+// ClearClassificationByUserID clears the value of the "classification_by_user_id" field.
+func (u *APIKeyUpsertOne) ClearClassificationByUserID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearClassificationByUserID()
 	})
 }
 
@@ -1094,6 +1479,132 @@ func (u *APIKeyUpsertBulk) UpdateProfiles() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearProfiles() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearProfiles()
+	})
+}
+
+// SetProvisioningSource sets the "provisioning_source" field.
+func (u *APIKeyUpsertBulk) SetProvisioningSource(v apikey.ProvisioningSource) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetProvisioningSource(v)
+	})
+}
+
+// UpdateProvisioningSource sets the "provisioning_source" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateProvisioningSource() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateProvisioningSource()
+	})
+}
+
+// SetProfileMode sets the "profile_mode" field.
+func (u *APIKeyUpsertBulk) SetProfileMode(v apikey.ProfileMode) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetProfileMode(v)
+	})
+}
+
+// UpdateProfileMode sets the "profile_mode" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateProfileMode() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateProfileMode()
+	})
+}
+
+// SetAccessGroupID sets the "access_group_id" field.
+func (u *APIKeyUpsertBulk) SetAccessGroupID(v int) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetAccessGroupID(v)
+	})
+}
+
+// UpdateAccessGroupID sets the "access_group_id" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateAccessGroupID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateAccessGroupID()
+	})
+}
+
+// ClearAccessGroupID clears the value of the "access_group_id" field.
+func (u *APIKeyUpsertBulk) ClearAccessGroupID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearAccessGroupID()
+	})
+}
+
+// SetAccessGroupRevision sets the "access_group_revision" field.
+func (u *APIKeyUpsertBulk) SetAccessGroupRevision(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetAccessGroupRevision(v)
+	})
+}
+
+// AddAccessGroupRevision adds v to the "access_group_revision" field.
+func (u *APIKeyUpsertBulk) AddAccessGroupRevision(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddAccessGroupRevision(v)
+	})
+}
+
+// UpdateAccessGroupRevision sets the "access_group_revision" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateAccessGroupRevision() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateAccessGroupRevision()
+	})
+}
+
+// ClearAccessGroupRevision clears the value of the "access_group_revision" field.
+func (u *APIKeyUpsertBulk) ClearAccessGroupRevision() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearAccessGroupRevision()
+	})
+}
+
+// SetClassificationAt sets the "classification_at" field.
+func (u *APIKeyUpsertBulk) SetClassificationAt(v time.Time) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetClassificationAt(v)
+	})
+}
+
+// UpdateClassificationAt sets the "classification_at" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateClassificationAt() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateClassificationAt()
+	})
+}
+
+// ClearClassificationAt clears the value of the "classification_at" field.
+func (u *APIKeyUpsertBulk) ClearClassificationAt() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearClassificationAt()
+	})
+}
+
+// SetClassificationByUserID sets the "classification_by_user_id" field.
+func (u *APIKeyUpsertBulk) SetClassificationByUserID(v int) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetClassificationByUserID(v)
+	})
+}
+
+// AddClassificationByUserID adds v to the "classification_by_user_id" field.
+func (u *APIKeyUpsertBulk) AddClassificationByUserID(v int) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddClassificationByUserID(v)
+	})
+}
+
+// UpdateClassificationByUserID sets the "classification_by_user_id" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateClassificationByUserID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateClassificationByUserID()
+	})
+}
+
+// ClearClassificationByUserID clears the value of the "classification_by_user_id" field.
+func (u *APIKeyUpsertBulk) ClearClassificationByUserID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearClassificationByUserID()
 	})
 }
 

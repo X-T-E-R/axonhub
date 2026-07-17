@@ -30,8 +30,16 @@ const (
 	FieldProjectID = "project_id"
 	// FieldProfile holds the string denoting the profile field in the database.
 	FieldProfile = "profile"
+	// FieldRevision holds the string denoting the revision field in the database.
+	FieldRevision = "revision"
+	// FieldSelfServiceVisible holds the string denoting the self_service_visible field in the database.
+	FieldSelfServiceVisible = "self_service_visible"
 	// EdgeProject holds the string denoting the project edge name in mutations.
 	EdgeProject = "project"
+	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
+	EdgeAPIKeys = "api_keys"
+	// EdgeRevisions holds the string denoting the revisions edge name in mutations.
+	EdgeRevisions = "revisions"
 	// Table holds the table name of the apikeyprofiletemplate in the database.
 	Table = "api_key_profile_templates"
 	// ProjectTable is the table that holds the project relation/edge.
@@ -41,6 +49,20 @@ const (
 	ProjectInverseTable = "projects"
 	// ProjectColumn is the table column denoting the project relation/edge.
 	ProjectColumn = "project_id"
+	// APIKeysTable is the table that holds the api_keys relation/edge.
+	APIKeysTable = "api_keys"
+	// APIKeysInverseTable is the table name for the APIKey entity.
+	// It exists in this package in order to avoid circular dependency with the "apikey" package.
+	APIKeysInverseTable = "api_keys"
+	// APIKeysColumn is the table column denoting the api_keys relation/edge.
+	APIKeysColumn = "access_group_id"
+	// RevisionsTable is the table that holds the revisions relation/edge.
+	RevisionsTable = "api_key_profile_template_revisions"
+	// RevisionsInverseTable is the table name for the APIKeyProfileTemplateRevision entity.
+	// It exists in this package in order to avoid circular dependency with the "apikeyprofiletemplaterevision" package.
+	RevisionsInverseTable = "api_key_profile_template_revisions"
+	// RevisionsColumn is the table column denoting the revisions relation/edge.
+	RevisionsColumn = "template_id"
 )
 
 // Columns holds all SQL columns for apikeyprofiletemplate fields.
@@ -53,6 +75,8 @@ var Columns = []string{
 	FieldDescription,
 	FieldProjectID,
 	FieldProfile,
+	FieldRevision,
+	FieldSelfServiceVisible,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -86,6 +110,12 @@ var (
 	DefaultDescription string
 	// DefaultProfile holds the default value on creation for the "profile" field.
 	DefaultProfile *objects.APIKeyProfile
+	// DefaultRevision holds the default value on creation for the "revision" field.
+	DefaultRevision int64
+	// RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	RevisionValidator func(int64) error
+	// DefaultSelfServiceVisible holds the default value on creation for the "self_service_visible" field.
+	DefaultSelfServiceVisible bool
 )
 
 // OrderOption defines the ordering options for the APIKeyProfileTemplate queries.
@@ -126,10 +156,48 @@ func ByProjectID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProjectID, opts...).ToFunc()
 }
 
+// ByRevision orders the results by the revision field.
+func ByRevision(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRevision, opts...).ToFunc()
+}
+
+// BySelfServiceVisible orders the results by the self_service_visible field.
+func BySelfServiceVisible(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSelfServiceVisible, opts...).ToFunc()
+}
+
 // ByProjectField orders the results by project field.
 func ByProjectField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newProjectStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByAPIKeysCount orders the results by api_keys count.
+func ByAPIKeysCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAPIKeysStep(), opts...)
+	}
+}
+
+// ByAPIKeys orders the results by api_keys terms.
+func ByAPIKeys(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAPIKeysStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByRevisionsCount orders the results by revisions count.
+func ByRevisionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newRevisionsStep(), opts...)
+	}
+}
+
+// ByRevisions orders the results by revisions terms.
+func ByRevisions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRevisionsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 func newProjectStep() *sqlgraph.Step {
@@ -137,5 +205,19 @@ func newProjectStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProjectInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, ProjectTable, ProjectColumn),
+	)
+}
+func newAPIKeysStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(APIKeysInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, APIKeysTable, APIKeysColumn),
+	)
+}
+func newRevisionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RevisionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, RevisionsTable, RevisionsColumn),
 	)
 }

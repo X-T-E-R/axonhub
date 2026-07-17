@@ -85,9 +85,10 @@ func (c *APIKeyUpdateOne) SetInput(i UpdateAPIKeyInput) *APIKeyUpdateOne {
 
 // CreateAPIKeyProfileTemplateInput represents a mutation input for creating apikeyprofiletemplates.
 type CreateAPIKeyProfileTemplateInput struct {
-	Name        string
-	Description *string
-	ProjectID   int
+	Name               string
+	Description        *string
+	SelfServiceVisible *bool
+	ProjectID          int
 }
 
 // Mutate applies the CreateAPIKeyProfileTemplateInput on the APIKeyProfileTemplateMutation builder.
@@ -95,6 +96,9 @@ func (i *CreateAPIKeyProfileTemplateInput) Mutate(m *APIKeyProfileTemplateMutati
 	m.SetName(i.Name)
 	if v := i.Description; v != nil {
 		m.SetDescription(*v)
+	}
+	if v := i.SelfServiceVisible; v != nil {
+		m.SetSelfServiceVisible(*v)
 	}
 	m.SetProjectID(i.ProjectID)
 }
@@ -107,8 +111,9 @@ func (c *APIKeyProfileTemplateCreate) SetInput(i CreateAPIKeyProfileTemplateInpu
 
 // UpdateAPIKeyProfileTemplateInput represents a mutation input for updating apikeyprofiletemplates.
 type UpdateAPIKeyProfileTemplateInput struct {
-	Name        *string
-	Description *string
+	Name               *string
+	Description        *string
+	SelfServiceVisible *bool
 }
 
 // Mutate applies the UpdateAPIKeyProfileTemplateInput on the APIKeyProfileTemplateMutation builder.
@@ -118,6 +123,9 @@ func (i *UpdateAPIKeyProfileTemplateInput) Mutate(m *APIKeyProfileTemplateMutati
 	}
 	if v := i.Description; v != nil {
 		m.SetDescription(*v)
+	}
+	if v := i.SelfServiceVisible; v != nil {
+		m.SetSelfServiceVisible(*v)
 	}
 }
 

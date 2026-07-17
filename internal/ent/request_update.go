@@ -310,6 +310,18 @@ func (_u *RequestUpdate) ClearContentSavedAt() *RequestUpdate {
 	return _u
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (_u *RequestUpdate) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestUpdate {
+	_u.mutation.SetEvidenceDisposition(v)
+	return _u
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (_u *RequestUpdate) ClearEvidenceDisposition() *RequestUpdate {
+	_u.mutation.ClearEvidenceDisposition()
+	return _u
+}
+
 // AddExecutionIDs adds the "executions" edge to the RequestExecution entity by IDs.
 func (_u *RequestUpdate) AddExecutionIDs(ids ...int) *RequestUpdate {
 	_u.mutation.AddExecutionIDs(ids...)
@@ -574,6 +586,15 @@ func (_u *RequestUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.ContentSavedAtCleared() {
 		_spec.ClearField(request.FieldContentSavedAt, field.TypeTime)
+	}
+	if _u.mutation.RoutingContextCleared() {
+		_spec.ClearField(request.FieldRoutingContext, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.EvidenceDisposition(); ok {
+		_spec.SetField(request.FieldEvidenceDisposition, field.TypeJSON, value)
+	}
+	if _u.mutation.EvidenceDispositionCleared() {
+		_spec.ClearField(request.FieldEvidenceDisposition, field.TypeJSON)
 	}
 	if _u.mutation.ExecutionsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -992,6 +1013,18 @@ func (_u *RequestUpdateOne) ClearContentSavedAt() *RequestUpdateOne {
 	return _u
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (_u *RequestUpdateOne) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestUpdateOne {
+	_u.mutation.SetEvidenceDisposition(v)
+	return _u
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (_u *RequestUpdateOne) ClearEvidenceDisposition() *RequestUpdateOne {
+	_u.mutation.ClearEvidenceDisposition()
+	return _u
+}
+
 // AddExecutionIDs adds the "executions" edge to the RequestExecution entity by IDs.
 func (_u *RequestUpdateOne) AddExecutionIDs(ids ...int) *RequestUpdateOne {
 	_u.mutation.AddExecutionIDs(ids...)
@@ -1286,6 +1319,15 @@ func (_u *RequestUpdateOne) sqlSave(ctx context.Context) (_node *Request, err er
 	}
 	if _u.mutation.ContentSavedAtCleared() {
 		_spec.ClearField(request.FieldContentSavedAt, field.TypeTime)
+	}
+	if _u.mutation.RoutingContextCleared() {
+		_spec.ClearField(request.FieldRoutingContext, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.EvidenceDisposition(); ok {
+		_spec.SetField(request.FieldEvidenceDisposition, field.TypeJSON, value)
+	}
+	if _u.mutation.EvidenceDispositionCleared() {
+		_spec.ClearField(request.FieldEvidenceDisposition, field.TypeJSON)
 	}
 	if _u.mutation.ExecutionsCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -41,12 +41,26 @@ const (
 	FieldScopes = "scopes"
 	// FieldProfiles holds the string denoting the profiles field in the database.
 	FieldProfiles = "profiles"
+	// FieldProvisioningSource holds the string denoting the provisioning_source field in the database.
+	FieldProvisioningSource = "provisioning_source"
+	// FieldProfileMode holds the string denoting the profile_mode field in the database.
+	FieldProfileMode = "profile_mode"
+	// FieldAccessGroupID holds the string denoting the access_group_id field in the database.
+	FieldAccessGroupID = "access_group_id"
+	// FieldAccessGroupRevision holds the string denoting the access_group_revision field in the database.
+	FieldAccessGroupRevision = "access_group_revision"
+	// FieldClassificationAt holds the string denoting the classification_at field in the database.
+	FieldClassificationAt = "classification_at"
+	// FieldClassificationByUserID holds the string denoting the classification_by_user_id field in the database.
+	FieldClassificationByUserID = "classification_by_user_id"
 	// EdgeUser holds the string denoting the user edge name in mutations.
 	EdgeUser = "user"
 	// EdgeProject holds the string denoting the project edge name in mutations.
 	EdgeProject = "project"
 	// EdgeRequests holds the string denoting the requests edge name in mutations.
 	EdgeRequests = "requests"
+	// EdgeAccessGroup holds the string denoting the access_group edge name in mutations.
+	EdgeAccessGroup = "access_group"
 	// Table holds the table name of the apikey in the database.
 	Table = "api_keys"
 	// UserTable is the table that holds the user relation/edge.
@@ -70,6 +84,13 @@ const (
 	RequestsInverseTable = "requests"
 	// RequestsColumn is the table column denoting the requests relation/edge.
 	RequestsColumn = "api_key_id"
+	// AccessGroupTable is the table that holds the access_group relation/edge.
+	AccessGroupTable = "api_keys"
+	// AccessGroupInverseTable is the table name for the APIKeyProfileTemplate entity.
+	// It exists in this package in order to avoid circular dependency with the "apikeyprofiletemplate" package.
+	AccessGroupInverseTable = "api_key_profile_templates"
+	// AccessGroupColumn is the table column denoting the access_group relation/edge.
+	AccessGroupColumn = "access_group_id"
 )
 
 // Columns holds all SQL columns for apikey fields.
@@ -86,6 +107,12 @@ var Columns = []string{
 	FieldStatus,
 	FieldScopes,
 	FieldProfiles,
+	FieldProvisioningSource,
+	FieldProfileMode,
+	FieldAccessGroupID,
+	FieldAccessGroupRevision,
+	FieldClassificationAt,
+	FieldClassificationByUserID,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -178,6 +205,59 @@ func StatusValidator(s Status) error {
 	}
 }
 
+// ProvisioningSource defines the type for the "provisioning_source" enum field.
+type ProvisioningSource string
+
+// ProvisioningSourceLegacyUnknown is the default value of the ProvisioningSource enum.
+const DefaultProvisioningSource = ProvisioningSourceLegacyUnknown
+
+// ProvisioningSource values.
+const (
+	ProvisioningSourceAdmin         ProvisioningSource = "admin"
+	ProvisioningSourceSelfService   ProvisioningSource = "self_service"
+	ProvisioningSourceLegacyUnknown ProvisioningSource = "legacy_unknown"
+)
+
+func (ps ProvisioningSource) String() string {
+	return string(ps)
+}
+
+// ProvisioningSourceValidator is a validator for the "provisioning_source" field enum values. It is called by the builders before save.
+func ProvisioningSourceValidator(ps ProvisioningSource) error {
+	switch ps {
+	case ProvisioningSourceAdmin, ProvisioningSourceSelfService, ProvisioningSourceLegacyUnknown:
+		return nil
+	default:
+		return fmt.Errorf("apikey: invalid enum value for provisioning_source field: %q", ps)
+	}
+}
+
+// ProfileMode defines the type for the "profile_mode" enum field.
+type ProfileMode string
+
+// ProfileModeSnapshot is the default value of the ProfileMode enum.
+const DefaultProfileMode = ProfileModeSnapshot
+
+// ProfileMode values.
+const (
+	ProfileModeSnapshot    ProfileMode = "snapshot"
+	ProfileModeAccessGroup ProfileMode = "access_group"
+)
+
+func (pm ProfileMode) String() string {
+	return string(pm)
+}
+
+// ProfileModeValidator is a validator for the "profile_mode" field enum values. It is called by the builders before save.
+func ProfileModeValidator(pm ProfileMode) error {
+	switch pm {
+	case ProfileModeSnapshot, ProfileModeAccessGroup:
+		return nil
+	default:
+		return fmt.Errorf("apikey: invalid enum value for profile_mode field: %q", pm)
+	}
+}
+
 // OrderOption defines the ordering options for the APIKey queries.
 type OrderOption func(*sql.Selector)
 
@@ -231,6 +311,36 @@ func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
 }
 
+// ByProvisioningSource orders the results by the provisioning_source field.
+func ByProvisioningSource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProvisioningSource, opts...).ToFunc()
+}
+
+// ByProfileMode orders the results by the profile_mode field.
+func ByProfileMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProfileMode, opts...).ToFunc()
+}
+
+// ByAccessGroupID orders the results by the access_group_id field.
+func ByAccessGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccessGroupID, opts...).ToFunc()
+}
+
+// ByAccessGroupRevision orders the results by the access_group_revision field.
+func ByAccessGroupRevision(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccessGroupRevision, opts...).ToFunc()
+}
+
+// ByClassificationAt orders the results by the classification_at field.
+func ByClassificationAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClassificationAt, opts...).ToFunc()
+}
+
+// ByClassificationByUserID orders the results by the classification_by_user_id field.
+func ByClassificationByUserID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClassificationByUserID, opts...).ToFunc()
+}
+
 // ByUserField orders the results by user field.
 func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -258,6 +368,13 @@ func ByRequests(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newRequestsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByAccessGroupField orders the results by access_group field.
+func ByAccessGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAccessGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newUserStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -277,6 +394,13 @@ func newRequestsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(RequestsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, RequestsTable, RequestsColumn),
+	)
+}
+func newAccessGroupStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(AccessGroupInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, AccessGroupTable, AccessGroupColumn),
 	)
 }
 
@@ -312,6 +436,42 @@ func (e *Status) UnmarshalGQL(val interface{}) error {
 	*e = Status(str)
 	if err := StatusValidator(*e); err != nil {
 		return fmt.Errorf("%s is not a valid Status", str)
+	}
+	return nil
+}
+
+// MarshalGQL implements graphql.Marshaler interface.
+func (e ProvisioningSource) MarshalGQL(w io.Writer) {
+	io.WriteString(w, strconv.Quote(e.String()))
+}
+
+// UnmarshalGQL implements graphql.Unmarshaler interface.
+func (e *ProvisioningSource) UnmarshalGQL(val interface{}) error {
+	str, ok := val.(string)
+	if !ok {
+		return fmt.Errorf("enum %T must be a string", val)
+	}
+	*e = ProvisioningSource(str)
+	if err := ProvisioningSourceValidator(*e); err != nil {
+		return fmt.Errorf("%s is not a valid ProvisioningSource", str)
+	}
+	return nil
+}
+
+// MarshalGQL implements graphql.Marshaler interface.
+func (e ProfileMode) MarshalGQL(w io.Writer) {
+	io.WriteString(w, strconv.Quote(e.String()))
+}
+
+// UnmarshalGQL implements graphql.Unmarshaler interface.
+func (e *ProfileMode) UnmarshalGQL(val interface{}) error {
+	str, ok := val.(string)
+	if !ok {
+		return fmt.Errorf("enum %T must be a string", val)
+	}
+	*e = ProfileMode(str)
+	if err := ProfileModeValidator(*e); err != nil {
+		return fmt.Errorf("%s is not a valid ProfileMode", str)
 	}
 	return nil
 }

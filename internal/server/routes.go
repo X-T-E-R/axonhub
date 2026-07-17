@@ -37,6 +37,7 @@ type Handlers struct {
 	RequestContent *api.RequestContentHandlers
 	OIDC           *api.OIDCHandlers
 	RequestPreview *api.RequestPreviewHandlers
+	Diagnostics    *api.DiagnosticsHandlers
 }
 
 type Services struct {
@@ -108,7 +109,6 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		adminGroup.POST("/graphql", middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
 			handlers.Graphql.Graphql.ServeHTTP(c.Writer, c.Request)
 		})
-
 		selfGroup := adminGroup.Group("/self")
 		{
 			selfGroup.GET("/api-keys", handlers.Self.ListAPIKeys)
@@ -116,11 +116,14 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			selfGroup.PATCH("/api-keys/:id", handlers.Self.UpdateAPIKey)
 			selfGroup.PATCH("/api-keys/:id/status", handlers.Self.UpdateAPIKeyStatus)
 			selfGroup.POST("/api-keys/:id/rotate", handlers.Self.RotateAPIKey)
+			selfGroup.POST("/api-keys/:id/reveal", handlers.Self.RevealAPIKey)
+			selfGroup.POST("/api-keys/:id/classify", handlers.Self.ClassifyMyLegacyAPIKey)
 			selfGroup.GET("/routing-presets", handlers.Self.ListRoutingPresets)
 			selfGroup.GET("/access-groups", handlers.Self.ListAccessGroups)
 			selfGroup.POST("/access-groups/:id/api-keys", handlers.Self.CreateAPIKeyForAccessGroup)
 			selfGroup.GET("/models", handlers.Self.ListModels)
 			selfGroup.GET("/requests", handlers.Self.ListRequests)
+			selfGroup.GET("/requests/:id", middleware.WithTimeout(server.Config.RequestTimeout), handlers.Self.GetRequest)
 			selfGroup.GET("/usage", handlers.Self.Usage)
 		}
 
@@ -129,6 +132,8 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		adminGroup.GET("/access-groups/:id", handlers.Self.GetAdminAccessGroup)
 		adminGroup.PATCH("/access-groups/:id", handlers.Self.UpdateAdminAccessGroup)
 		adminGroup.PATCH("/access-groups/:id/channels", handlers.Self.AddChannelsToAccessGroup)
+		adminGroup.POST("/api-keys/:id/classify", handlers.Self.ClassifyLegacyAPIKey)
+		adminGroup.POST("/api-keys/:id/detach-access-group", handlers.Self.DetachAPIKeyAccessGroup)
 
 		adminGroup.GET("/auth/registration-policy", handlers.Auth.AdminRegistrationPolicy)
 		adminGroup.PUT("/auth/registration-policy", handlers.Auth.UpdateRegistrationPolicy)
@@ -168,6 +173,13 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			handlers.RequestPreview.PreviewRequest,
 		)
 	}
+	server.POST(
+		"/admin/diagnostics/v1/pull",
+		middleware.WithJWTAuthResponder(services.AuthService, handlers.Diagnostics.MiddlewareError),
+		middleware.WithProjectIDResponder(handlers.Diagnostics.MiddlewareError),
+		middleware.WithTimeout(server.Config.RequestTimeout),
+		handlers.Diagnostics.Pull,
+	)
 
 	openAPIGroup := server.Group(
 		"/openapi",
@@ -185,6 +197,13 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 
 		openAPIGroup.POST("/webhook/echo", handlers.System.WebhookEcho)
 	}
+	server.POST(
+		"/openapi/v1/diagnostics/pull",
+		middleware.WithIPBlocklist(services.SystemService),
+		middleware.WithOpenAPIAuthResponder(services.AuthService, handlers.Diagnostics.MiddlewareError),
+		middleware.WithTimeout(server.Config.RequestTimeout),
+		handlers.Diagnostics.Pull,
+	)
 
 	apiGroup := server.Group("/",
 		middleware.WithTimeout(server.Config.LLMRequestTimeout),

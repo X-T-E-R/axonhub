@@ -567,6 +567,29 @@ func HasAPIKeyProfileTemplatesWith(preds ...predicate.APIKeyProfileTemplate) pre
 	})
 }
 
+// HasAPIKeyProfileTemplateRevisions applies the HasEdge predicate on the "api_key_profile_template_revisions" edge.
+func HasAPIKeyProfileTemplateRevisions() predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, APIKeyProfileTemplateRevisionsTable, APIKeyProfileTemplateRevisionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAPIKeyProfileTemplateRevisionsWith applies the HasEdge predicate on the "api_key_profile_template_revisions" edge with a given conditions (other predicates).
+func HasAPIKeyProfileTemplateRevisionsWith(preds ...predicate.APIKeyProfileTemplateRevision) predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := newAPIKeyProfileTemplateRevisionsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasProjectUsers applies the HasEdge predicate on the "project_users" edge.
 func HasProjectUsers() predicate.Project {
 	return predicate.Project(func(s *sql.Selector) {

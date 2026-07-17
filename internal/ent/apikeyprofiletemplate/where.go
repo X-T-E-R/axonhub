@@ -85,6 +85,16 @@ func ProjectID(v int) predicate.APIKeyProfileTemplate {
 	return predicate.APIKeyProfileTemplate(sql.FieldEQ(FieldProjectID, v))
 }
 
+// Revision applies equality check predicate on the "revision" field. It's identical to RevisionEQ.
+func Revision(v int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldEQ(FieldRevision, v))
+}
+
+// SelfServiceVisible applies equality check predicate on the "self_service_visible" field. It's identical to SelfServiceVisibleEQ.
+func SelfServiceVisible(v bool) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldEQ(FieldSelfServiceVisible, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.APIKeyProfileTemplate {
 	return predicate.APIKeyProfileTemplate(sql.FieldEQ(FieldCreatedAt, v))
@@ -365,6 +375,56 @@ func ProfileNotNil() predicate.APIKeyProfileTemplate {
 	return predicate.APIKeyProfileTemplate(sql.FieldNotNull(FieldProfile))
 }
 
+// RevisionEQ applies the EQ predicate on the "revision" field.
+func RevisionEQ(v int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldEQ(FieldRevision, v))
+}
+
+// RevisionNEQ applies the NEQ predicate on the "revision" field.
+func RevisionNEQ(v int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldNEQ(FieldRevision, v))
+}
+
+// RevisionIn applies the In predicate on the "revision" field.
+func RevisionIn(vs ...int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldIn(FieldRevision, vs...))
+}
+
+// RevisionNotIn applies the NotIn predicate on the "revision" field.
+func RevisionNotIn(vs ...int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldNotIn(FieldRevision, vs...))
+}
+
+// RevisionGT applies the GT predicate on the "revision" field.
+func RevisionGT(v int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldGT(FieldRevision, v))
+}
+
+// RevisionGTE applies the GTE predicate on the "revision" field.
+func RevisionGTE(v int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldGTE(FieldRevision, v))
+}
+
+// RevisionLT applies the LT predicate on the "revision" field.
+func RevisionLT(v int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldLT(FieldRevision, v))
+}
+
+// RevisionLTE applies the LTE predicate on the "revision" field.
+func RevisionLTE(v int64) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldLTE(FieldRevision, v))
+}
+
+// SelfServiceVisibleEQ applies the EQ predicate on the "self_service_visible" field.
+func SelfServiceVisibleEQ(v bool) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldEQ(FieldSelfServiceVisible, v))
+}
+
+// SelfServiceVisibleNEQ applies the NEQ predicate on the "self_service_visible" field.
+func SelfServiceVisibleNEQ(v bool) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(sql.FieldNEQ(FieldSelfServiceVisible, v))
+}
+
 // HasProject applies the HasEdge predicate on the "project" edge.
 func HasProject() predicate.APIKeyProfileTemplate {
 	return predicate.APIKeyProfileTemplate(func(s *sql.Selector) {
@@ -380,6 +440,52 @@ func HasProject() predicate.APIKeyProfileTemplate {
 func HasProjectWith(preds ...predicate.Project) predicate.APIKeyProfileTemplate {
 	return predicate.APIKeyProfileTemplate(func(s *sql.Selector) {
 		step := newProjectStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.
+func HasAPIKeys() predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, APIKeysTable, APIKeysColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAPIKeysWith applies the HasEdge predicate on the "api_keys" edge with a given conditions (other predicates).
+func HasAPIKeysWith(preds ...predicate.APIKey) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(func(s *sql.Selector) {
+		step := newAPIKeysStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasRevisions applies the HasEdge predicate on the "revisions" edge.
+func HasRevisions() predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, RevisionsTable, RevisionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasRevisionsWith applies the HasEdge predicate on the "revisions" edge with a given conditions (other predicates).
+func HasRevisionsWith(preds ...predicate.APIKeyProfileTemplateRevision) predicate.APIKeyProfileTemplate {
+	return predicate.APIKeyProfileTemplate(func(s *sql.Selector) {
+		step := newRevisionsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -51,6 +51,8 @@ func (APIKeyProfileTemplate) Fields() []ent.Field {
 			Annotations(
 				entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput),
 			),
+		field.Int64("revision").Default(1).Positive().Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
+		field.Bool("self_service_visible").Default(false),
 	}
 }
 
@@ -64,6 +66,8 @@ func (APIKeyProfileTemplate) Edges() []ent.Edge {
 				entgql.Skip(entgql.SkipMutationUpdateInput),
 			).
 			Ref("api_key_profile_templates").Field("project_id"),
+		edge.To("api_keys", APIKey.Type).Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
+		edge.To("revisions", APIKeyProfileTemplateRevision.Type).Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
 	}
 }
 

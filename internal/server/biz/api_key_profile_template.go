@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xerrors"
@@ -16,11 +17,13 @@ import (
 type APIKeyProfileTemplateServiceParams struct {
 	fx.In
 
-	Ent *ent.Client
+	Ent     *ent.Client
+	APIKeys *APIKeyService `optional:"true"`
 }
 
 type APIKeyProfileTemplateService struct {
 	*AbstractService
+	APIKeys *APIKeyService
 }
 
 func NewAPIKeyProfileTemplateService(params APIKeyProfileTemplateServiceParams) *APIKeyProfileTemplateService {
@@ -28,21 +31,28 @@ func NewAPIKeyProfileTemplateService(params APIKeyProfileTemplateServiceParams) 
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
+		APIKeys: params.APIKeys,
 	}
 }
 
 func (s *APIKeyProfileTemplateService) CreateTemplate(ctx context.Context, input ent.CreateAPIKeyProfileTemplateInput, profile *objects.APIKeyProfile) (*ent.APIKeyProfileTemplate, error) {
-	client := s.entFromContext(ctx)
-
 	if profile != nil {
 		profile.Name = input.Name
 	}
 
-	create := client.APIKeyProfileTemplate.Create().
-		SetInput(input).
-		SetProfile(profile)
-
-	template, err := create.Save(ctx)
+	var template *ent.APIKeyProfileTemplate
+	err := s.RunInTransaction(ctx, func(txCtx context.Context) error {
+		var saveErr error
+		template, saveErr = s.entFromContext(txCtx).APIKeyProfileTemplate.Create().
+			SetInput(input).
+			SetProfile(profile).
+			SetRevision(1).
+			Save(txCtx)
+		if saveErr != nil {
+			return saveErr
+		}
+		return createAccessGroupRevision(txCtx, s.entFromContext(txCtx), template)
+	})
 	if err != nil {
 		// Name uniqueness is enforced by the (project_id, name, deleted_at) unique
 		// index; surface a friendly error instead of a raw constraint violation.
@@ -113,27 +123,21 @@ func (s *APIKeyProfileTemplateService) ListTemplates(ctx context.Context, projec
 
 func (s *APIKeyProfileTemplateService) UpdateTemplate(ctx context.Context, id int, input ent.UpdateAPIKeyProfileTemplateInput, profile *objects.APIKeyProfile) (*ent.APIKeyProfileTemplate, error) {
 	var template *ent.APIKeyProfileTemplate
+	var affected []*ent.APIKey
 	err := s.RunInTransaction(ctx, func(ctx context.Context) error {
 		client := s.entFromContext(ctx)
-
-		update := client.APIKeyProfileTemplate.UpdateOneID(id).
-			SetInput(input)
-
-		if profile != nil {
-			existing, getErr := client.APIKeyProfileTemplate.Get(ctx, id)
-			if getErr != nil {
-				return fmt.Errorf("failed to get template: %w", getErr)
-			}
-			if input.Name != nil {
-				profile.Name = *input.Name
-			} else {
-				profile.Name = existing.Name
-			}
-			update.SetProfile(profile)
-		}
-
 		var saveErr error
-		template, saveErr = update.Save(ctx)
+		template, affected, saveErr = updateAccessGroupPolicy(ctx, client, id, func(group *ent.APIKeyProfileTemplate) (accessGroupPolicyPatch, error) {
+			updatedProfile := profile.Clone()
+			if updatedProfile != nil {
+				if input.Name != nil {
+					updatedProfile.Name = *input.Name
+				} else {
+					updatedProfile.Name = group.Name
+				}
+			}
+			return accessGroupPolicyPatch{Name: input.Name, Description: input.Description, Profile: updatedProfile, Visibility: input.SelfServiceVisible}, nil
+		})
 		if saveErr != nil {
 			// The unique index on (project_id, name, deleted_at) is the source of
 			// truth for name uniqueness; map it to a friendly error.
@@ -149,6 +153,11 @@ func (s *APIKeyProfileTemplateService) UpdateTemplate(ctx context.Context, id in
 	if err != nil {
 		return nil, err
 	}
+	if s.APIKeys != nil {
+		for _, key := range affected {
+			s.APIKeys.invalidateAPIKeyCaches(ctx, key.Key)
+		}
+	}
 
 	return template, nil
 }
@@ -159,9 +168,16 @@ func (s *APIKeyProfileTemplateService) DeleteTemplate(ctx context.Context, id in
 		client := s.entFromContext(ctx)
 
 		var getErr error
-		template, getErr = client.APIKeyProfileTemplate.Get(ctx, id)
+		template, getErr = lockAccessGroup(ctx, client, id)
 		if getErr != nil {
 			return fmt.Errorf("failed to get template for deletion: %w", getErr)
+		}
+		attached, countErr := client.APIKey.Query().Where(apikey.ProfileModeEQ(apikey.ProfileModeAccessGroup), apikey.AccessGroupIDEQ(id)).Count(ctx)
+		if countErr != nil {
+			return fmt.Errorf("failed to count attached API keys: %w", countErr)
+		}
+		if attached > 0 {
+			return fmt.Errorf("access group has %d attached API keys; detach them before deletion", attached)
 		}
 
 		getErr = client.APIKeyProfileTemplate.DeleteOneID(id).Exec(ctx)

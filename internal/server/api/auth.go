@@ -167,17 +167,24 @@ func (h *AuthHandlers) UpdateRegistrationPolicy(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, errors.New("Invalid request format"))
 		return
 	}
+	currentPolicy, err := h.AuthService.RegistrationPolicy(c.Request.Context())
+	if err != nil {
+		JSONError(c, http.StatusInternalServerError, errors.New("Failed to load registration policy"))
+		return
+	}
 
 	policy := biz.RegistrationConfig{
-		Enabled:                req.Enabled,
-		OIDCEnabled:            req.OIDCEnabled,
-		InviteCode:             req.InviteCode,
-		DefaultProjectID:       req.DefaultProjectID,
-		AutoJoinFirstProject:   req.AutoJoinFirstProject,
-		DefaultProjectScopes:   req.DefaultProjectScopes,
-		SelfServiceEnabled:     req.SelfServiceEnabled,
-		AllowRequestDetails:    req.AllowRequestDetails,
-		SelfServicePresetNames: req.SelfServicePresetNames,
+		Enabled:              req.Enabled,
+		OIDCEnabled:          req.OIDCEnabled,
+		InviteCode:           req.InviteCode,
+		DefaultProjectID:     req.DefaultProjectID,
+		AutoJoinFirstProject: req.AutoJoinFirstProject,
+		DefaultProjectScopes: req.DefaultProjectScopes,
+		SelfServiceEnabled:   req.SelfServiceEnabled,
+		AllowRequestDetails:  req.AllowRequestDetails,
+		// Legacy names are downgrade evidence only. The ordinary registration
+		// policy endpoint neither rewrites nor erases them.
+		SelfServicePresetNames: currentPolicy.SelfServicePresetNames,
 	}
 
 	if err := h.AuthService.SystemService.SetRegistrationConfig(c.Request.Context(), policy); err != nil {
@@ -185,7 +192,7 @@ func (h *AuthHandlers) UpdateRegistrationPolicy(c *gin.Context) {
 		return
 	}
 
-	policy, err := h.AuthService.RegistrationPolicy(c.Request.Context())
+	policy, err = h.AuthService.RegistrationPolicy(c.Request.Context())
 	if err != nil {
 		JSONError(c, http.StatusInternalServerError, errors.New("Failed to load registration policy"))
 		return

@@ -90,6 +90,26 @@ func Name(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldName, v))
 }
 
+// AccessGroupID applies equality check predicate on the "access_group_id" field. It's identical to AccessGroupIDEQ.
+func AccessGroupID(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldAccessGroupID, v))
+}
+
+// AccessGroupRevision applies equality check predicate on the "access_group_revision" field. It's identical to AccessGroupRevisionEQ.
+func AccessGroupRevision(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldAccessGroupRevision, v))
+}
+
+// ClassificationAt applies equality check predicate on the "classification_at" field. It's identical to ClassificationAtEQ.
+func ClassificationAt(v time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldClassificationAt, v))
+}
+
+// ClassificationByUserID applies equality check predicate on the "classification_by_user_id" field. It's identical to ClassificationByUserIDEQ.
+func ClassificationByUserID(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldClassificationByUserID, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldCreatedAt, v))
@@ -450,6 +470,226 @@ func ProfilesNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldProfiles))
 }
 
+// ProvisioningSourceEQ applies the EQ predicate on the "provisioning_source" field.
+func ProvisioningSourceEQ(v ProvisioningSource) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldProvisioningSource, v))
+}
+
+// ProvisioningSourceNEQ applies the NEQ predicate on the "provisioning_source" field.
+func ProvisioningSourceNEQ(v ProvisioningSource) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldProvisioningSource, v))
+}
+
+// ProvisioningSourceIn applies the In predicate on the "provisioning_source" field.
+func ProvisioningSourceIn(vs ...ProvisioningSource) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldProvisioningSource, vs...))
+}
+
+// ProvisioningSourceNotIn applies the NotIn predicate on the "provisioning_source" field.
+func ProvisioningSourceNotIn(vs ...ProvisioningSource) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldProvisioningSource, vs...))
+}
+
+// ProfileModeEQ applies the EQ predicate on the "profile_mode" field.
+func ProfileModeEQ(v ProfileMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldProfileMode, v))
+}
+
+// ProfileModeNEQ applies the NEQ predicate on the "profile_mode" field.
+func ProfileModeNEQ(v ProfileMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldProfileMode, v))
+}
+
+// ProfileModeIn applies the In predicate on the "profile_mode" field.
+func ProfileModeIn(vs ...ProfileMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldProfileMode, vs...))
+}
+
+// ProfileModeNotIn applies the NotIn predicate on the "profile_mode" field.
+func ProfileModeNotIn(vs ...ProfileMode) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldProfileMode, vs...))
+}
+
+// AccessGroupIDEQ applies the EQ predicate on the "access_group_id" field.
+func AccessGroupIDEQ(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldAccessGroupID, v))
+}
+
+// AccessGroupIDNEQ applies the NEQ predicate on the "access_group_id" field.
+func AccessGroupIDNEQ(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldAccessGroupID, v))
+}
+
+// AccessGroupIDIn applies the In predicate on the "access_group_id" field.
+func AccessGroupIDIn(vs ...int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldAccessGroupID, vs...))
+}
+
+// AccessGroupIDNotIn applies the NotIn predicate on the "access_group_id" field.
+func AccessGroupIDNotIn(vs ...int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldAccessGroupID, vs...))
+}
+
+// AccessGroupIDIsNil applies the IsNil predicate on the "access_group_id" field.
+func AccessGroupIDIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldAccessGroupID))
+}
+
+// AccessGroupIDNotNil applies the NotNil predicate on the "access_group_id" field.
+func AccessGroupIDNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldAccessGroupID))
+}
+
+// AccessGroupRevisionEQ applies the EQ predicate on the "access_group_revision" field.
+func AccessGroupRevisionEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldAccessGroupRevision, v))
+}
+
+// AccessGroupRevisionNEQ applies the NEQ predicate on the "access_group_revision" field.
+func AccessGroupRevisionNEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldAccessGroupRevision, v))
+}
+
+// AccessGroupRevisionIn applies the In predicate on the "access_group_revision" field.
+func AccessGroupRevisionIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldAccessGroupRevision, vs...))
+}
+
+// AccessGroupRevisionNotIn applies the NotIn predicate on the "access_group_revision" field.
+func AccessGroupRevisionNotIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldAccessGroupRevision, vs...))
+}
+
+// AccessGroupRevisionGT applies the GT predicate on the "access_group_revision" field.
+func AccessGroupRevisionGT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldAccessGroupRevision, v))
+}
+
+// AccessGroupRevisionGTE applies the GTE predicate on the "access_group_revision" field.
+func AccessGroupRevisionGTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldAccessGroupRevision, v))
+}
+
+// AccessGroupRevisionLT applies the LT predicate on the "access_group_revision" field.
+func AccessGroupRevisionLT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldAccessGroupRevision, v))
+}
+
+// AccessGroupRevisionLTE applies the LTE predicate on the "access_group_revision" field.
+func AccessGroupRevisionLTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldAccessGroupRevision, v))
+}
+
+// AccessGroupRevisionIsNil applies the IsNil predicate on the "access_group_revision" field.
+func AccessGroupRevisionIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldAccessGroupRevision))
+}
+
+// AccessGroupRevisionNotNil applies the NotNil predicate on the "access_group_revision" field.
+func AccessGroupRevisionNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldAccessGroupRevision))
+}
+
+// ClassificationAtEQ applies the EQ predicate on the "classification_at" field.
+func ClassificationAtEQ(v time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldClassificationAt, v))
+}
+
+// ClassificationAtNEQ applies the NEQ predicate on the "classification_at" field.
+func ClassificationAtNEQ(v time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldClassificationAt, v))
+}
+
+// ClassificationAtIn applies the In predicate on the "classification_at" field.
+func ClassificationAtIn(vs ...time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldClassificationAt, vs...))
+}
+
+// ClassificationAtNotIn applies the NotIn predicate on the "classification_at" field.
+func ClassificationAtNotIn(vs ...time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldClassificationAt, vs...))
+}
+
+// ClassificationAtGT applies the GT predicate on the "classification_at" field.
+func ClassificationAtGT(v time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldClassificationAt, v))
+}
+
+// ClassificationAtGTE applies the GTE predicate on the "classification_at" field.
+func ClassificationAtGTE(v time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldClassificationAt, v))
+}
+
+// ClassificationAtLT applies the LT predicate on the "classification_at" field.
+func ClassificationAtLT(v time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldClassificationAt, v))
+}
+
+// ClassificationAtLTE applies the LTE predicate on the "classification_at" field.
+func ClassificationAtLTE(v time.Time) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldClassificationAt, v))
+}
+
+// ClassificationAtIsNil applies the IsNil predicate on the "classification_at" field.
+func ClassificationAtIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldClassificationAt))
+}
+
+// ClassificationAtNotNil applies the NotNil predicate on the "classification_at" field.
+func ClassificationAtNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldClassificationAt))
+}
+
+// ClassificationByUserIDEQ applies the EQ predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDEQ(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldClassificationByUserID, v))
+}
+
+// ClassificationByUserIDNEQ applies the NEQ predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDNEQ(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldClassificationByUserID, v))
+}
+
+// ClassificationByUserIDIn applies the In predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDIn(vs ...int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldClassificationByUserID, vs...))
+}
+
+// ClassificationByUserIDNotIn applies the NotIn predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDNotIn(vs ...int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldClassificationByUserID, vs...))
+}
+
+// ClassificationByUserIDGT applies the GT predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDGT(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldClassificationByUserID, v))
+}
+
+// ClassificationByUserIDGTE applies the GTE predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDGTE(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldClassificationByUserID, v))
+}
+
+// ClassificationByUserIDLT applies the LT predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDLT(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldClassificationByUserID, v))
+}
+
+// ClassificationByUserIDLTE applies the LTE predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDLTE(v int) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldClassificationByUserID, v))
+}
+
+// ClassificationByUserIDIsNil applies the IsNil predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldClassificationByUserID))
+}
+
+// ClassificationByUserIDNotNil applies the NotNil predicate on the "classification_by_user_id" field.
+func ClassificationByUserIDNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldClassificationByUserID))
+}
+
 // HasUser applies the HasEdge predicate on the "user" edge.
 func HasUser() predicate.APIKey {
 	return predicate.APIKey(func(s *sql.Selector) {
@@ -511,6 +751,29 @@ func HasRequests() predicate.APIKey {
 func HasRequestsWith(preds ...predicate.Request) predicate.APIKey {
 	return predicate.APIKey(func(s *sql.Selector) {
 		step := newRequestsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasAccessGroup applies the HasEdge predicate on the "access_group" edge.
+func HasAccessGroup() predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, AccessGroupTable, AccessGroupColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAccessGroupWith applies the HasEdge predicate on the "access_group" edge with a given conditions (other predicates).
+func HasAccessGroupWith(preds ...predicate.APIKeyProfileTemplate) predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := newAccessGroupStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

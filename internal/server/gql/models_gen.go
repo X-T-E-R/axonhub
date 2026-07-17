@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"entgo.io/contrib/entgql"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
@@ -22,6 +23,14 @@ type APIKeyProfileQuotaUsage struct {
 	Quota       *objects.APIKeyQuota `json:"quota"`
 	Window      *APIKeyQuotaWindow   `json:"window"`
 	Usage       *APIKeyQuotaUsage    `json:"usage"`
+}
+
+// Ordering options for APIKeyProfileTemplateRevision connections
+type APIKeyProfileTemplateRevisionOrder struct {
+	// The ordering direction.
+	Direction entgql.OrderDirection `json:"direction"`
+	// The field by which to order APIKeyProfileTemplateRevisions.
+	Field APIKeyProfileTemplateRevisionOrderField `json:"field"`
 }
 
 type APIKeyQuotaUsage struct {
@@ -634,6 +643,62 @@ type VersionCheck struct {
 	LatestVersion  string `json:"latestVersion"`
 	HasUpdate      bool   `json:"hasUpdate"`
 	ReleaseURL     string `json:"releaseUrl"`
+}
+
+// Properties by which APIKeyProfileTemplateRevision connections can be ordered.
+type APIKeyProfileTemplateRevisionOrderField string
+
+const (
+	APIKeyProfileTemplateRevisionOrderFieldCreatedAt APIKeyProfileTemplateRevisionOrderField = "CREATED_AT"
+	APIKeyProfileTemplateRevisionOrderFieldUpdatedAt APIKeyProfileTemplateRevisionOrderField = "UPDATED_AT"
+)
+
+var AllAPIKeyProfileTemplateRevisionOrderField = []APIKeyProfileTemplateRevisionOrderField{
+	APIKeyProfileTemplateRevisionOrderFieldCreatedAt,
+	APIKeyProfileTemplateRevisionOrderFieldUpdatedAt,
+}
+
+func (e APIKeyProfileTemplateRevisionOrderField) IsValid() bool {
+	switch e {
+	case APIKeyProfileTemplateRevisionOrderFieldCreatedAt, APIKeyProfileTemplateRevisionOrderFieldUpdatedAt:
+		return true
+	}
+	return false
+}
+
+func (e APIKeyProfileTemplateRevisionOrderField) String() string {
+	return string(e)
+}
+
+func (e *APIKeyProfileTemplateRevisionOrderField) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = APIKeyProfileTemplateRevisionOrderField(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid APIKeyProfileTemplateRevisionOrderField", str)
+	}
+	return nil
+}
+
+func (e APIKeyProfileTemplateRevisionOrderField) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *APIKeyProfileTemplateRevisionOrderField) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e APIKeyProfileTemplateRevisionOrderField) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 type DiagnosticsTarget string

@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/objects"
@@ -43,6 +44,18 @@ type APIKey struct {
 	Scopes []string `json:"scopes,omitempty"`
 	// Profiles holds the value of the "profiles" field.
 	Profiles *objects.APIKeyProfiles `json:"profiles,omitempty"`
+	// How this key was provisioned; legacy_unknown is the safe default for old writers
+	ProvisioningSource apikey.ProvisioningSource `json:"provisioning_source,omitempty"`
+	// ProfileMode holds the value of the "profile_mode" field.
+	ProfileMode apikey.ProfileMode `json:"profile_mode,omitempty"`
+	// AccessGroupID holds the value of the "access_group_id" field.
+	AccessGroupID *int `json:"access_group_id,omitempty"`
+	// AccessGroupRevision holds the value of the "access_group_revision" field.
+	AccessGroupRevision *int64 `json:"access_group_revision,omitempty"`
+	// ClassificationAt holds the value of the "classification_at" field.
+	ClassificationAt *time.Time `json:"classification_at,omitempty"`
+	// ClassificationByUserID holds the value of the "classification_by_user_id" field.
+	ClassificationByUserID *int `json:"classification_by_user_id,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the APIKeyQuery when eager-loading is set.
 	Edges        APIKeyEdges `json:"edges"`
@@ -57,11 +70,13 @@ type APIKeyEdges struct {
 	Project *Project `json:"project,omitempty"`
 	// Requests holds the value of the requests edge.
 	Requests []*Request `json:"requests,omitempty"`
+	// AccessGroup holds the value of the access_group edge.
+	AccessGroup *APIKeyProfileTemplate `json:"access_group,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 	// totalCount holds the count of the edges above.
-	totalCount [3]map[string]int
+	totalCount [4]map[string]int
 
 	namedRequests map[string][]*Request
 }
@@ -97,6 +112,17 @@ func (e APIKeyEdges) RequestsOrErr() ([]*Request, error) {
 	return nil, &NotLoadedError{edge: "requests"}
 }
 
+// AccessGroupOrErr returns the AccessGroup value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e APIKeyEdges) AccessGroupOrErr() (*APIKeyProfileTemplate, error) {
+	if e.AccessGroup != nil {
+		return e.AccessGroup, nil
+	} else if e.loadedTypes[3] {
+		return nil, &NotFoundError{label: apikeyprofiletemplate.Label}
+	}
+	return nil, &NotLoadedError{edge: "access_group"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*APIKey) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -104,11 +130,11 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case apikey.FieldScopes, apikey.FieldProfiles:
 			values[i] = new([]byte)
-		case apikey.FieldID, apikey.FieldDeletedAt, apikey.FieldUserID, apikey.FieldProjectID:
+		case apikey.FieldID, apikey.FieldDeletedAt, apikey.FieldUserID, apikey.FieldProjectID, apikey.FieldAccessGroupID, apikey.FieldAccessGroupRevision, apikey.FieldClassificationByUserID:
 			values[i] = new(sql.NullInt64)
-		case apikey.FieldKey, apikey.FieldName, apikey.FieldType, apikey.FieldStatus:
+		case apikey.FieldKey, apikey.FieldName, apikey.FieldType, apikey.FieldStatus, apikey.FieldProvisioningSource, apikey.FieldProfileMode:
 			values[i] = new(sql.NullString)
-		case apikey.FieldCreatedAt, apikey.FieldUpdatedAt:
+		case apikey.FieldCreatedAt, apikey.FieldUpdatedAt, apikey.FieldClassificationAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -201,6 +227,46 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field profiles: %w", err)
 				}
 			}
+		case apikey.FieldProvisioningSource:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field provisioning_source", values[i])
+			} else if value.Valid {
+				_m.ProvisioningSource = apikey.ProvisioningSource(value.String)
+			}
+		case apikey.FieldProfileMode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field profile_mode", values[i])
+			} else if value.Valid {
+				_m.ProfileMode = apikey.ProfileMode(value.String)
+			}
+		case apikey.FieldAccessGroupID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field access_group_id", values[i])
+			} else if value.Valid {
+				_m.AccessGroupID = new(int)
+				*_m.AccessGroupID = int(value.Int64)
+			}
+		case apikey.FieldAccessGroupRevision:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field access_group_revision", values[i])
+			} else if value.Valid {
+				_m.AccessGroupRevision = new(int64)
+				*_m.AccessGroupRevision = value.Int64
+			}
+		case apikey.FieldClassificationAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field classification_at", values[i])
+			} else if value.Valid {
+				_m.ClassificationAt = new(time.Time)
+				*_m.ClassificationAt = value.Time
+			}
+		case apikey.FieldClassificationByUserID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field classification_by_user_id", values[i])
+			} else if value.Valid {
+				_m.ClassificationByUserID = new(int)
+				*_m.ClassificationByUserID = int(value.Int64)
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -227,6 +293,11 @@ func (_m *APIKey) QueryProject() *ProjectQuery {
 // QueryRequests queries the "requests" edge of the APIKey entity.
 func (_m *APIKey) QueryRequests() *RequestQuery {
 	return NewAPIKeyClient(_m.config).QueryRequests(_m)
+}
+
+// QueryAccessGroup queries the "access_group" edge of the APIKey entity.
+func (_m *APIKey) QueryAccessGroup() *APIKeyProfileTemplateQuery {
+	return NewAPIKeyClient(_m.config).QueryAccessGroup(_m)
 }
 
 // Update returns a builder for updating this APIKey.
@@ -284,6 +355,32 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("profiles=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Profiles))
+	builder.WriteString(", ")
+	builder.WriteString("provisioning_source=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ProvisioningSource))
+	builder.WriteString(", ")
+	builder.WriteString("profile_mode=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ProfileMode))
+	builder.WriteString(", ")
+	if v := _m.AccessGroupID; v != nil {
+		builder.WriteString("access_group_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.AccessGroupRevision; v != nil {
+		builder.WriteString("access_group_revision=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.ClassificationAt; v != nil {
+		builder.WriteString("classification_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.ClassificationByUserID; v != nil {
+		builder.WriteString("classification_by_user_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

@@ -3,6 +3,8 @@ package biz
 import (
 	"context"
 	stdsql "database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -26,16 +28,20 @@ import (
 )
 
 type MyAPIKeySummary struct {
-	ID            int             `json:"id"`
-	ProjectID     int             `json:"projectId"`
-	Name          string          `json:"name"`
-	Status        string          `json:"status"`
-	Type          string          `json:"type"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	UpdatedAt     time.Time       `json:"updatedAt"`
-	ActiveProfile string          `json:"activeProfile"`
-	QuotaSummary  *MyQuotaSummary `json:"quotaSummary,omitempty"`
-	Key           string          `json:"key,omitempty"`
+	ID                  int             `json:"id"`
+	ProjectID           int             `json:"projectId"`
+	Name                string          `json:"name"`
+	Status              string          `json:"status"`
+	Type                string          `json:"type"`
+	CreatedAt           time.Time       `json:"createdAt"`
+	UpdatedAt           time.Time       `json:"updatedAt"`
+	ActiveProfile       string          `json:"activeProfile"`
+	QuotaSummary        *MyQuotaSummary `json:"quotaSummary,omitempty"`
+	Key                 string          `json:"key,omitempty"`
+	ProvisioningSource  string          `json:"provisioningSource"`
+	ProfileMode         string          `json:"profileMode"`
+	AccessGroupID       *int            `json:"accessGroupId,omitempty"`
+	AccessGroupRevision *int64          `json:"accessGroupRevision,omitempty"`
 }
 
 type MyRoutingPreset struct {
@@ -123,6 +129,11 @@ type MyUpdateAPIKeyInput struct {
 	Name *string
 }
 
+type LegacyAPIKeyClassificationInput struct {
+	Mode          string
+	AccessGroupID *int
+}
+
 type MyModelSummary struct {
 	ID            string                    `json:"id"`
 	Name          string                    `json:"name"`
@@ -145,6 +156,38 @@ type MyRequestSummary struct {
 	Stream         bool      `json:"stream"`
 	LatencyMs      *int64    `json:"latencyMs,omitempty"`
 	DetailsVisible bool      `json:"detailsVisible"`
+}
+
+type MyRequestDetail struct {
+	Request               *ent.Request                      `json:"request"`
+	Executions            []*ent.RequestExecution           `json:"executions"`
+	Usage                 []*ent.UsageLog                   `json:"usage"`
+	Trace                 *ent.Trace                        `json:"trace,omitempty"`
+	Thread                *ent.Thread                       `json:"thread,omitempty"`
+	EvidenceAvailability  MyEvidenceAvailability            `json:"evidenceAvailability"`
+	ExecutionAvailability []MyExecutionEvidenceAvailability `json:"executionAvailability"`
+}
+
+type MyEvidenceState struct {
+	State  string `json:"state"`
+	Source string `json:"source"`
+}
+
+type MyEvidenceAvailability struct {
+	RequestHeaders MyEvidenceState `json:"requestHeaders"`
+	RequestBody    MyEvidenceState `json:"requestBody"`
+	ResponseBody   MyEvidenceState `json:"responseBody"`
+	ResponseChunks MyEvidenceState `json:"responseChunks"`
+}
+
+type MyExecutionEvidenceAvailability struct {
+	ExecutionID int                    `json:"executionId"`
+	Evidence    MyEvidenceAvailability `json:"evidence"`
+}
+
+type MyAPIKeyReveal struct {
+	Key        string    `json:"key"`
+	RevealedAt time.Time `json:"revealedAt"`
 }
 
 type MyUsageSummary struct {
@@ -183,7 +226,10 @@ func (s *APIKeyService) ListMyAPIKeys(ctx context.Context, projectID int) ([]MyA
 			Where(
 				apikey.ProjectIDEQ(resolvedProjectID),
 				apikey.UserIDEQ(currentUser.ID),
-				apikey.TypeEQ(apikey.TypeUser),
+				apikey.Or(
+					apikey.TypeEQ(apikey.TypePersonal),
+					apikey.And(apikey.TypeEQ(apikey.TypeUser), apikey.ProvisioningSourceEQ(apikey.ProvisioningSourceLegacyUnknown)),
+				),
 				apikey.StatusNEQ(apikey.StatusArchived),
 			).
 			Order(ent.Desc(apikey.FieldCreatedAt)).
@@ -235,11 +281,6 @@ func (s *APIKeyService) ListMyAccessGroups(ctx context.Context, projectID int) (
 	}
 
 	return authz.RunWithSystemBypass(ctx, "self-access-groups-list", func(bypassCtx context.Context) ([]SelfAccessGroup, error) {
-		policy, err := s.registrationPolicy(bypassCtx)
-		if err != nil {
-			return nil, err
-		}
-
 		templates, err := s.entFromContext(bypassCtx).APIKeyProfileTemplate.Query().
 			Where(apikeyprofiletemplate.ProjectIDEQ(resolvedProjectID)).
 			Order(ent.Asc(apikeyprofiletemplate.FieldName)).
@@ -247,9 +288,8 @@ func (s *APIKeyService) ListMyAccessGroups(ctx context.Context, projectID int) (
 		if err != nil {
 			return nil, fmt.Errorf("failed to list access groups: %w", err)
 		}
-
 		templates = lo.Filter(templates, func(tpl *ent.APIKeyProfileTemplate, _ int) bool {
-			return selfServicePresetAllowed(policy, tpl.Name)
+			return s.accessGroupSelfServiceVisible(bypassCtx, tpl)
 		})
 
 		return lo.Map(templates, func(tpl *ent.APIKeyProfileTemplate, _ int) SelfAccessGroup {
@@ -282,79 +322,60 @@ func (s *APIKeyService) CreateMyAPIKey(ctx context.Context, input MyCreateAPIKey
 	}
 
 	return authz.RunWithSystemBypass(ctx, "self-api-key-create", func(bypassCtx context.Context) (MyAPIKeySummary, error) {
-		policy, err := s.registrationPolicy(bypassCtx)
-		if err != nil {
-			return MyAPIKeySummary{}, err
-		}
-
-		client := s.entFromContext(bypassCtx)
-
-		template, err := client.APIKeyProfileTemplate.Query().
-			Where(
-				apikeyprofiletemplate.IDEQ(input.PresetID),
-				apikeyprofiletemplate.ProjectIDEQ(resolvedProjectID),
-			).
-			Only(bypassCtx)
-		if err != nil {
-			return MyAPIKeySummary{}, fmt.Errorf("routing preset not found or not available: %w", err)
-		}
-		if !selfServicePresetAllowed(policy, template.Name) {
-			return MyAPIKeySummary{}, fmt.Errorf("routing preset is not available for self-service")
-		}
-
-		profile := template.Profile.Clone()
-		if profile == nil {
-			profile = &objects.APIKeyProfile{}
-		}
-		if strings.TrimSpace(profile.Name) == "" {
-			profile.Name = template.Name
-		}
-
-		profiles := objects.APIKeyProfiles{
-			ActiveProfile: profile.Name,
-			Profiles:      []objects.APIKeyProfile{*profile},
-		}
-
-		if err := validateProfileNames(profiles.Profiles); err != nil {
-			return MyAPIKeySummary{}, err
-		}
-		if err := validateActiveProfile(profiles.ActiveProfile, profiles.Profiles); err != nil {
-			return MyAPIKeySummary{}, err
-		}
-		if err := validateProfileFilters(profiles.Profiles); err != nil {
-			return MyAPIKeySummary{}, err
-		}
-		if err := validateProfileQuota(profiles.Profiles); err != nil {
-			return MyAPIKeySummary{}, err
-		}
-
-		exists, err := client.APIKey.Query().
-			Where(apikey.ProjectIDEQ(resolvedProjectID), apikey.NameEQ(name)).
-			Exist(bypassCtx)
-		if err != nil {
-			return MyAPIKeySummary{}, fmt.Errorf("failed to check API key name uniqueness: %w", err)
-		}
-		if exists {
-			return MyAPIKeySummary{}, fmt.Errorf("API key name already exists")
-		}
-
 		generatedKey, err := GenerateAPIKey(s.keyPrefix)
 		if err != nil {
 			return MyAPIKeySummary{}, fmt.Errorf("failed to generate API key: %w", err)
 		}
 
-		key, err := client.APIKey.Create().
-			SetName(name).
-			SetKey(generatedKey).
-			SetUserID(currentUser.ID).
-			SetProjectID(resolvedProjectID).
-			SetType(apikey.TypeUser).
-			SetStatus(apikey.StatusEnabled).
-			SetScopes([]string{string(scopes.ScopeReadChannels), string(scopes.ScopeWriteRequests)}).
-			SetProfiles(&profiles).
-			Save(bypassCtx)
+		var key *ent.APIKey
+		err = s.RunInTransaction(bypassCtx, func(txCtx context.Context) error {
+			client := s.entFromContext(txCtx)
+			template, lockErr := lockAccessGroup(txCtx, client, input.PresetID)
+			if lockErr != nil || template.ProjectID != resolvedProjectID {
+				return fmt.Errorf("routing preset not found or not available")
+			}
+			if !template.SelfServiceVisible {
+				return fmt.Errorf("routing preset is not available for self-service")
+			}
+
+			profiles, profileErr := materializeAccessGroupProfile(template.Name, template.Profile)
+			if profileErr != nil {
+				return profileErr
+			}
+			if lockErr = s.lockProjectForAPIKeyName(txCtx, resolvedProjectID); lockErr != nil {
+				return lockErr
+			}
+			exists, existsErr := client.APIKey.Query().
+				Where(apikey.ProjectIDEQ(resolvedProjectID), apikey.NameEQ(name)).
+				Exist(txCtx)
+			if existsErr != nil {
+				return fmt.Errorf("failed to check API key name uniqueness: %w", existsErr)
+			}
+			if exists {
+				return fmt.Errorf("API key name already exists")
+			}
+
+			key, lockErr = client.APIKey.Create().
+				SetName(name).
+				SetKey(generatedKey).
+				SetUserID(currentUser.ID).
+				SetProjectID(resolvedProjectID).
+				SetType(apikey.TypePersonal).
+				SetStatus(apikey.StatusEnabled).
+				SetProvisioningSource(apikey.ProvisioningSourceSelfService).
+				SetProfileMode(apikey.ProfileModeAccessGroup).
+				SetAccessGroupID(template.ID).
+				SetAccessGroupRevision(template.Revision).
+				SetScopes([]string{string(scopes.ScopeReadChannels), string(scopes.ScopeWriteRequests)}).
+				SetProfiles(profiles).
+				Save(txCtx)
+			if lockErr != nil {
+				return fmt.Errorf("failed to create API key: %w", lockErr)
+			}
+			return nil
+		})
 		if err != nil {
-			return MyAPIKeySummary{}, fmt.Errorf("failed to create API key: %w", err)
+			return MyAPIKeySummary{}, err
 		}
 
 		s.invalidateAPIKeyCaches(bypassCtx, key.Key)
@@ -449,6 +470,312 @@ func (s *APIKeyService) RotateMyAPIKey(ctx context.Context, id int) (MyAPIKeySum
 	})
 }
 
+func (s *APIKeyService) RevealMyAPIKey(ctx context.Context, id int) (MyAPIKeyReveal, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return MyAPIKeyReveal{}, err
+	}
+	currentUser, ok := contexts.GetUser(ctx)
+	if !ok || currentUser == nil {
+		return MyAPIKeyReveal{}, ErrNotFoundOrNotAuthorized
+	}
+	return authz.RunWithSystemBypass(ctx, "self-api-key-reveal", func(bypassCtx context.Context) (MyAPIKeyReveal, error) {
+		key, err := s.entFromContext(bypassCtx).APIKey.Query().Where(
+			apikey.IDEQ(id),
+			apikey.UserIDEQ(currentUser.ID),
+			apikey.Or(
+				apikey.TypeEQ(apikey.TypePersonal),
+				apikey.And(apikey.TypeEQ(apikey.TypeUser), apikey.ProvisioningSourceEQ(apikey.ProvisioningSourceLegacyUnknown)),
+			),
+		).Only(bypassCtx)
+		if err != nil {
+			return MyAPIKeyReveal{}, ErrNotFoundOrNotAuthorized
+		}
+		if _, err := s.requireProjectMember(ctx, key.ProjectID); err != nil {
+			return MyAPIKeyReveal{}, ErrNotFoundOrNotAuthorized
+		}
+		if key.Status == apikey.StatusArchived {
+			return MyAPIKeyReveal{}, ErrAPIKeyArchived
+		}
+		return MyAPIKeyReveal{Key: key.Key, RevealedAt: time.Now().UTC()}, nil
+	})
+}
+
+func (s *APIKeyService) ClassifyMyLegacyAPIKey(ctx context.Context, id int, input LegacyAPIKeyClassificationInput) (MyAPIKeySummary, error) {
+	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
+		return MyAPIKeySummary{}, err
+	}
+	return s.classifyLegacyAPIKey(ctx, id, input, true)
+}
+
+func (s *APIKeyService) ClassifyLegacyAPIKey(ctx context.Context, id int, input LegacyAPIKeyClassificationInput) (MyAPIKeySummary, error) {
+	if !authz.HasScope(ctx, scopes.ScopeWriteAPIKeys) {
+		return MyAPIKeySummary{}, ErrNotFoundOrNotAuthorized
+	}
+	return s.classifyLegacyAPIKey(ctx, id, input, false)
+}
+
+func (s *APIKeyService) classifyLegacyAPIKey(ctx context.Context, id int, input LegacyAPIKeyClassificationInput, selfOnly bool) (MyAPIKeySummary, error) {
+	actor, ok := contexts.GetUser(ctx)
+	if !ok || actor == nil {
+		return MyAPIKeySummary{}, ErrNotFoundOrNotAuthorized
+	}
+	var result *ent.APIKey
+	err := authz.RunWithSystemBypassVoid(ctx, "legacy-api-key-classification", func(bypassCtx context.Context) error {
+		return s.RunInTransaction(bypassCtx, func(txCtx context.Context) error {
+			client := s.entFromContext(txCtx)
+			var group *ent.APIKeyProfileTemplate
+			if input.Mode == "personal_access_group" {
+				if input.AccessGroupID == nil {
+					return fmt.Errorf("access group is required")
+				}
+				var groupErr error
+				group, groupErr = lockAccessGroup(txCtx, client, *input.AccessGroupID)
+				if groupErr != nil {
+					return ErrNotFoundOrNotAuthorized
+				}
+			}
+
+			key, err := client.APIKey.Get(txCtx, id)
+			if err != nil {
+				return ErrNotFoundOrNotAuthorized
+			}
+			projectID, hasProject := contexts.GetProjectID(ctx)
+			if hasProject && projectID != key.ProjectID {
+				return ErrNotFoundOrNotAuthorized
+			}
+			creator := key.UserID == actor.ID
+			admin := authz.HasScope(ctx, scopes.ScopeWriteAPIKeys)
+			if (selfOnly && !creator) || (!selfOnly && !admin) {
+				return ErrNotFoundOrNotAuthorized
+			}
+			if key.ProvisioningSource != apikey.ProvisioningSourceLegacyUnknown {
+				result = key
+				return nil
+			}
+			update := client.APIKey.UpdateOneID(key.ID).SetClassificationAt(time.Now().UTC()).SetClassificationByUserID(actor.ID)
+			switch input.Mode {
+			case "admin":
+				if selfOnly || !admin {
+					return ErrNotFoundOrNotAuthorized
+				}
+				update.SetProvisioningSource(apikey.ProvisioningSourceAdmin).SetProfileMode(apikey.ProfileModeSnapshot).ClearAccessGroupID().ClearAccessGroupRevision()
+			case "personal_snapshot":
+				update.SetType(apikey.TypePersonal).SetProvisioningSource(apikey.ProvisioningSourceSelfService).SetProfileMode(apikey.ProfileModeSnapshot).ClearAccessGroupID().ClearAccessGroupRevision()
+			case "personal_access_group":
+				if group.ProjectID != key.ProjectID {
+					return ErrNotFoundOrNotAuthorized
+				}
+				if selfOnly && !group.SelfServiceVisible {
+					return ErrNotFoundOrNotAuthorized
+				}
+				profiles, profileErr := materializeAccessGroupProfile(group.Name, group.Profile)
+				if profileErr != nil {
+					return profileErr
+				}
+				update.SetType(apikey.TypePersonal).SetProvisioningSource(apikey.ProvisioningSourceSelfService).SetProfileMode(apikey.ProfileModeAccessGroup).SetAccessGroupID(group.ID).SetAccessGroupRevision(group.Revision).SetProfiles(profiles)
+			default:
+				return fmt.Errorf("invalid classification mode")
+			}
+			result, err = update.Save(txCtx)
+			if err == nil {
+				s.invalidateAPIKeyCaches(txCtx, key.Key)
+			}
+			return err
+		})
+	})
+	if err != nil {
+		return MyAPIKeySummary{}, err
+	}
+	return summarizeMyAPIKey(result, ""), nil
+}
+
+func (s *APIKeyService) DetachAPIKeyAccessGroup(ctx context.Context, id int) (MyAPIKeySummary, error) {
+	if !authz.HasScope(ctx, scopes.ScopeWriteAPIKeys) {
+		return MyAPIKeySummary{}, ErrNotFoundOrNotAuthorized
+	}
+	var result *ent.APIKey
+	err := s.RunInTransaction(ctx, func(txCtx context.Context) error {
+		client := s.entFromContext(txCtx)
+		key, err := client.APIKey.Get(txCtx, id)
+		if err != nil {
+			return err
+		}
+		if key.ProfileMode == apikey.ProfileModeAccessGroup && key.AccessGroupID != nil {
+			if _, err := lockAccessGroup(txCtx, client, *key.AccessGroupID); err != nil {
+				return err
+			}
+		}
+		result, err = client.APIKey.UpdateOneID(id).SetProfileMode(apikey.ProfileModeSnapshot).ClearAccessGroupID().ClearAccessGroupRevision().Save(txCtx)
+		if err == nil {
+			s.invalidateAPIKeyCaches(txCtx, key.Key)
+		}
+		return err
+	})
+	if err != nil {
+		return MyAPIKeySummary{}, err
+	}
+	return summarizeMyAPIKey(result, ""), nil
+}
+
+func (s *APIKeyService) GetMyRequestDetail(ctx context.Context, id int) (MyRequestDetail, error) {
+	policy, err := s.requireSelfServiceEnabled(ctx)
+	if err != nil {
+		if errors.Is(err, ErrSelfServiceDisabled) {
+			return MyRequestDetail{}, ErrSelfServiceRequestDetailsDisabled
+		}
+		return MyRequestDetail{}, err
+	}
+	if !policy.AllowRequestDetails {
+		return MyRequestDetail{}, ErrSelfServiceRequestDetailsDisabled
+	}
+	currentUser, ok := contexts.GetUser(ctx)
+	if !ok || currentUser == nil {
+		return MyRequestDetail{}, ErrNotFoundOrNotAuthorized
+	}
+
+	return authz.RunWithSystemBypass(ctx, "self-request-detail", func(bypassCtx context.Context) (MyRequestDetail, error) {
+		client := s.entFromContext(bypassCtx)
+		req, err := client.Request.Query().Where(
+			request.IDEQ(id),
+			request.HasAPIKeyWith(apikey.UserIDEQ(currentUser.ID)),
+		).Only(bypassCtx)
+		if err != nil {
+			return MyRequestDetail{}, ErrNotFoundOrNotAuthorized
+		}
+		if _, err := s.requireProjectMember(ctx, req.ProjectID); err != nil {
+			return MyRequestDetail{}, ErrNotFoundOrNotAuthorized
+		}
+		execs, err := req.QueryExecutions().Order(ent.Asc("created_at"), ent.Asc("id")).All(bypassCtx)
+		if err != nil {
+			return MyRequestDetail{}, fmt.Errorf("failed to load request executions: %w", err)
+		}
+		usage, err := req.QueryUsageLogs().Order(ent.Asc("created_at"), ent.Asc("id")).All(bypassCtx)
+		if err != nil {
+			return MyRequestDetail{}, fmt.Errorf("failed to load request usage: %w", err)
+		}
+		detail := MyRequestDetail{Request: req, Executions: execs, Usage: usage}
+		detail.EvidenceAvailability = s.hydrateRequestEvidence(bypassCtx, req)
+		detail.ExecutionAvailability = make([]MyExecutionEvidenceAvailability, 0, len(execs))
+		for _, execution := range execs {
+			detail.ExecutionAvailability = append(detail.ExecutionAvailability, MyExecutionEvidenceAvailability{ExecutionID: execution.ID, Evidence: s.hydrateExecutionEvidence(bypassCtx, execution)})
+		}
+		if req.TraceID != 0 {
+			trace, traceErr := client.Trace.Get(bypassCtx, req.TraceID)
+			if traceErr == nil {
+				detail.Trace = trace
+				if trace.ThreadID != 0 {
+					detail.Thread, _ = client.Thread.Get(bypassCtx, trace.ThreadID)
+				}
+			}
+		}
+		return detail, nil
+	})
+}
+
+func (s *APIKeyService) hydrateRequestEvidence(ctx context.Context, row *ent.Request) MyEvidenceAvailability {
+	availability := MyEvidenceAvailability{RequestHeaders: evidenceStateForHeaders(row.RequestHeaders)}
+	requestBody, requestBodyState := s.resolveSelfEvidence(ctx, row.DataStorageID, row.RequestBody, dispositionField(row.EvidenceDisposition, "requestBody"))
+	responseBody, responseBodyState := s.resolveSelfEvidence(ctx, row.DataStorageID, row.ResponseBody, dispositionField(row.EvidenceDisposition, "responseBody"))
+	chunkBytes, responseChunksState := s.resolveSelfEvidence(ctx, row.DataStorageID, marshalEvidenceChunks(row.ResponseChunks), dispositionField(row.EvidenceDisposition, "responseChunks"))
+	availability.RequestBody, availability.ResponseBody, availability.ResponseChunks = requestBodyState, responseBodyState, responseChunksState
+	if availability.RequestBody.State == "available" {
+		row.RequestBody = requestBody
+	}
+	if availability.ResponseBody.State == "available" {
+		row.ResponseBody = responseBody
+	}
+	if availability.ResponseChunks.State == "available" {
+		_ = json.Unmarshal(chunkBytes, &row.ResponseChunks)
+	}
+	return availability
+}
+
+func (s *APIKeyService) hydrateExecutionEvidence(ctx context.Context, row *ent.RequestExecution) MyEvidenceAvailability {
+	availability := MyEvidenceAvailability{RequestHeaders: evidenceStateForHeaders(row.RequestHeaders)}
+	requestBody, requestBodyState := s.resolveSelfEvidence(ctx, row.DataStorageID, row.RequestBody, dispositionField(row.EvidenceDisposition, "requestBody"))
+	responseBody, responseBodyState := s.resolveSelfEvidence(ctx, row.DataStorageID, row.ResponseBody, dispositionField(row.EvidenceDisposition, "responseBody"))
+	chunkBytes, responseChunksState := s.resolveSelfEvidence(ctx, row.DataStorageID, marshalEvidenceChunks(row.ResponseChunks), dispositionField(row.EvidenceDisposition, "responseChunks"))
+	availability.RequestBody, availability.ResponseBody, availability.ResponseChunks = requestBodyState, responseBodyState, responseChunksState
+	if availability.RequestBody.State == "available" {
+		row.RequestBody = requestBody
+	}
+	if availability.ResponseBody.State == "available" {
+		row.ResponseBody = responseBody
+	}
+	if availability.ResponseChunks.State == "available" {
+		_ = json.Unmarshal(chunkBytes, &row.ResponseChunks)
+	}
+	return availability
+}
+
+func (s *APIKeyService) resolveSelfEvidence(ctx context.Context, storageID int, raw objects.JSONRawMessage, disposition *objects.Disposition) (objects.JSONRawMessage, MyEvidenceState) {
+	if disposition == nil {
+		trimmed := strings.TrimSpace(string(raw))
+		if trimmed == "" || trimmed == "null" || trimmed == "{}" || trimmed == "[]" {
+			return raw, MyEvidenceState{State: "legacyUnknown", Source: "unknown"}
+		}
+		return raw, MyEvidenceState{State: "available", Source: "database"}
+	}
+	if disposition.Intent == "omit" || disposition.Outcome == "omitted" {
+		if disposition.Intent == "notApplicable" {
+			return nil, MyEvidenceState{State: "notApplicable", Source: "none"}
+		}
+		return nil, MyEvidenceState{State: "notPersisted", Source: "none"}
+	}
+	if disposition.Location == "database" && disposition.Outcome == "stored" {
+		if len(raw) == 0 || string(raw) == "null" {
+			return nil, MyEvidenceState{State: "storageUnavailable", Source: "database"}
+		}
+		return raw, MyEvidenceState{State: "available", Source: "database"}
+	}
+	if disposition.Location != "external" || disposition.Outcome != "stored" || disposition.StorageKey == nil || s.DataStorageService == nil {
+		return nil, MyEvidenceState{State: "storageUnavailable", Source: disposition.Location}
+	}
+	if disposition.StorageID != nil {
+		storageID = *disposition.StorageID
+	}
+	if storageID <= 0 {
+		return nil, MyEvidenceState{State: "storageUnavailable", Source: "external"}
+	}
+	storage, err := s.DataStorageService.GetDataStorageByID(ctx, storageID)
+	if err != nil {
+		return nil, MyEvidenceState{State: "storageUnavailable", Source: "external"}
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	loaded, err := s.DataStorageService.LoadData(readCtx, storage, *disposition.StorageKey)
+	if err != nil {
+		return nil, MyEvidenceState{State: "storageUnavailable", Source: "external"}
+	}
+	return loaded, MyEvidenceState{State: "available", Source: "external"}
+}
+
+func dispositionField(disposition *objects.EvidenceDisposition, field string) *objects.Disposition {
+	if disposition == nil {
+		return nil
+	}
+	switch field {
+	case "requestBody":
+		return &disposition.RequestBody
+	case "responseBody":
+		return &disposition.ResponseBody
+	default:
+		return &disposition.ResponseChunks
+	}
+}
+
+func marshalEvidenceChunks(chunks []objects.JSONRawMessage) objects.JSONRawMessage {
+	raw, _ := json.Marshal(chunks)
+	return raw
+}
+
+func evidenceStateForHeaders(raw objects.JSONRawMessage) MyEvidenceState {
+	if len(raw) == 0 || string(raw) == "null" {
+		return MyEvidenceState{State: "legacyUnknown", Source: "unknown"}
+	}
+	return MyEvidenceState{State: "available", Source: "database"}
+}
+
 func (s *APIKeyService) ListMyModels(ctx context.Context, projectID int, presetID *int) ([]MyModelSummary, error) {
 	if _, err := s.requireSelfServiceEnabled(ctx); err != nil {
 		return nil, err
@@ -464,11 +791,6 @@ func (s *APIKeyService) ListMyModels(ctx context.Context, projectID int, presetI
 	}
 
 	return authz.RunWithSystemBypass(ctx, "self-models-list", func(bypassCtx context.Context) ([]MyModelSummary, error) {
-		policy, err := s.registrationPolicy(bypassCtx)
-		if err != nil {
-			return nil, err
-		}
-
 		client := s.entFromContext(bypassCtx)
 
 		proj, err := client.Project.Query().Where(project.IDEQ(resolvedProjectID)).Only(bypassCtx)
@@ -487,10 +809,10 @@ func (s *APIKeyService) ListMyModels(ctx context.Context, projectID int, presetI
 		if err != nil {
 			return nil, fmt.Errorf("failed to list routing presets: %w", err)
 		}
-
 		templates = lo.Filter(templates, func(tpl *ent.APIKeyProfileTemplate, _ int) bool {
-			return selfServicePresetAllowed(policy, tpl.Name)
+			return s.accessGroupSelfServiceVisible(bypassCtx, tpl)
 		})
+
 		if presetID != nil && len(templates) == 0 {
 			return nil, fmt.Errorf("routing preset not found or not available")
 		}
@@ -592,7 +914,7 @@ func (s *APIKeyService) ListMyRequests(ctx context.Context, projectID int, limit
 		rows, err := s.entFromContext(bypassCtx).Request.Query().
 			Where(
 				request.ProjectIDEQ(resolvedProjectID),
-				request.HasAPIKeyWith(apikey.UserIDEQ(currentUser.ID), apikey.TypeEQ(apikey.TypeUser)),
+				request.HasAPIKeyWith(apikey.UserIDEQ(currentUser.ID)),
 			).
 			Order(ent.Desc(request.FieldCreatedAt)).
 			Limit(limit).
@@ -644,7 +966,7 @@ func (s *APIKeyService) MyUsage(ctx context.Context, projectID int) (MyUsageSumm
 		err := s.entFromContext(bypassCtx).UsageLog.Query().
 			Where(
 				usagelog.ProjectIDEQ(resolvedProjectID),
-				usagelog.HasRequestWith(request.HasAPIKeyWith(apikey.UserIDEQ(currentUser.ID), apikey.TypeEQ(apikey.TypeUser))),
+				usagelog.HasRequestWith(request.HasAPIKeyWith(apikey.UserIDEQ(currentUser.ID))),
 			).
 			Modify(func(selector *entsql.Selector) {
 				selector.Select(
@@ -696,14 +1018,9 @@ func (s *APIKeyService) ListAdminAccessGroups(ctx context.Context, projectID int
 	}
 
 	return authz.RunWithSystemBypass(ctx, "admin-access-groups-summarize", func(bypassCtx context.Context) ([]AdminAccessGroup, error) {
-		policy, err := s.registrationPolicy(bypassCtx)
-		if err != nil {
-			return nil, err
-		}
-
 		groups := make([]AdminAccessGroup, 0, len(templates))
 		for _, tpl := range templates {
-			group, err := s.summarizeAdminAccessGroup(bypassCtx, policy, tpl)
+			group, err := s.summarizeAdminAccessGroup(bypassCtx, tpl)
 			if err != nil {
 				return nil, err
 			}
@@ -737,22 +1054,26 @@ func (s *APIKeyService) CreateAdminAccessGroup(ctx context.Context, input AdminA
 		description = strings.TrimSpace(*input.Description)
 	}
 
-	created, err := s.entFromContext(ctx).APIKeyProfileTemplate.Create().
-		SetName(name).
-		SetDescription(description).
-		SetProjectID(input.ProjectID).
-		SetProfile(profile).
-		Save(ctx)
+	visible := input.SelfServiceVisible != nil && *input.SelfServiceVisible
+	var created *ent.APIKeyProfileTemplate
+	err = s.RunInTransaction(ctx, func(txCtx context.Context) error {
+		var saveErr error
+		created, saveErr = s.entFromContext(txCtx).APIKeyProfileTemplate.Create().
+			SetName(name).
+			SetDescription(description).
+			SetProjectID(input.ProjectID).
+			SetProfile(profile).
+			SetRevision(1).
+			SetSelfServiceVisible(visible).
+			Save(txCtx)
+		if saveErr != nil {
+			return saveErr
+		}
+		return createAccessGroupRevision(txCtx, s.entFromContext(txCtx), created)
+	})
 	if err != nil {
 		return AdminAccessGroup{}, fmt.Errorf("failed to create access group: %w", err)
 	}
-
-	if input.SelfServiceVisible != nil {
-		if err := s.setAccessGroupSelfServiceVisible(ctx, "", created.Name, *input.SelfServiceVisible); err != nil {
-			return AdminAccessGroup{}, err
-		}
-	}
-
 	return s.GetAdminAccessGroup(ctx, created.ID)
 }
 
@@ -763,68 +1084,40 @@ func (s *APIKeyService) GetAdminAccessGroup(ctx context.Context, id int) (AdminA
 	}
 
 	return authz.RunWithSystemBypass(ctx, "admin-access-group-summarize", func(bypassCtx context.Context) (AdminAccessGroup, error) {
-		policy, err := s.registrationPolicy(bypassCtx)
-		if err != nil {
-			return AdminAccessGroup{}, err
-		}
-
-		return s.summarizeAdminAccessGroup(bypassCtx, policy, template)
+		return s.summarizeAdminAccessGroup(bypassCtx, template)
 	})
 }
 
 func (s *APIKeyService) UpdateAdminAccessGroup(ctx context.Context, id int, input AdminAccessGroupInput) (AdminAccessGroup, error) {
-	template, err := s.entFromContext(ctx).APIKeyProfileTemplate.Get(ctx, id)
-	if err != nil {
-		return AdminAccessGroup{}, fmt.Errorf("failed to get access group: %w", err)
-	}
-
-	oldName := template.Name
-	newName := template.Name
-	if input.Name != nil {
-		newName = strings.TrimSpace(*input.Name)
-		if newName == "" {
-			return AdminAccessGroup{}, fmt.Errorf("access group name is required")
-		}
-	}
-
-	profile, err := buildAccessGroupProfile(input, template.Profile, newName)
+	var updated *ent.APIKeyProfileTemplate
+	var affected []*ent.APIKey
+	err := s.RunInTransaction(ctx, func(txCtx context.Context) error {
+		var updateErr error
+		updated, affected, updateErr = updateAccessGroupPolicy(txCtx, s.entFromContext(txCtx), id, func(group *ent.APIKeyProfileTemplate) (accessGroupPolicyPatch, error) {
+			newName := group.Name
+			if input.Name != nil {
+				newName = strings.TrimSpace(*input.Name)
+				if newName == "" {
+					return accessGroupPolicyPatch{}, fmt.Errorf("access group name is required")
+				}
+			}
+			profile, profileErr := buildAccessGroupProfile(input, group.Profile, newName)
+			if profileErr != nil {
+				return accessGroupPolicyPatch{}, profileErr
+			}
+			if input.Name != nil && (strings.TrimSpace(profile.Name) == "" || strings.EqualFold(strings.TrimSpace(profile.Name), group.Name)) {
+				profile.Name = newName
+			}
+			return accessGroupPolicyPatch{Name: input.Name, Description: input.Description, Profile: profile, Visibility: input.SelfServiceVisible}, nil
+		})
+		return updateErr
+	})
 	if err != nil {
 		return AdminAccessGroup{}, err
 	}
-	if input.Name != nil && (strings.TrimSpace(profile.Name) == "" || strings.EqualFold(strings.TrimSpace(profile.Name), oldName)) {
-		profile.Name = newName
+	for _, key := range affected {
+		s.invalidateAPIKeyCaches(ctx, key.Key)
 	}
-
-	update := s.entFromContext(ctx).APIKeyProfileTemplate.UpdateOneID(id).
-		SetProfile(profile)
-	if input.Name != nil {
-		update.SetName(newName)
-	}
-	if input.Description != nil {
-		update.SetDescription(strings.TrimSpace(*input.Description))
-	}
-
-	updated, err := update.Save(ctx)
-	if err != nil {
-		return AdminAccessGroup{}, fmt.Errorf("failed to update access group: %w", err)
-	}
-
-	if input.SelfServiceVisible != nil {
-		if err := s.setAccessGroupSelfServiceVisible(ctx, oldName, updated.Name, *input.SelfServiceVisible); err != nil {
-			return AdminAccessGroup{}, err
-		}
-	} else if oldName != updated.Name {
-		policy, err := s.registrationPolicy(ctx)
-		if err != nil {
-			return AdminAccessGroup{}, err
-		}
-		if selfServicePresetAllowed(policy, oldName) {
-			if err := s.setAccessGroupSelfServiceVisible(ctx, oldName, updated.Name, true); err != nil {
-				return AdminAccessGroup{}, err
-			}
-		}
-	}
-
 	return s.GetAdminAccessGroup(ctx, updated.ID)
 }
 
@@ -833,37 +1126,40 @@ func (s *APIKeyService) AddChannelsToAccessGroup(ctx context.Context, accessGrou
 		return AdminAccessGroup{}, fmt.Errorf("access group is required")
 	}
 
-	client := s.entFromContext(ctx)
-	template, err := client.APIKeyProfileTemplate.Get(ctx, accessGroupID)
-	if err != nil {
-		return AdminAccessGroup{}, fmt.Errorf("failed to get access group: %w", err)
-	}
-
-	profile := template.Profile.Clone()
-	if profile == nil {
-		profile = &objects.APIKeyProfile{Name: template.Name}
-	}
-	if strings.TrimSpace(profile.Name) == "" {
-		profile.Name = template.Name
-	}
 	uniqueChannelIDs := lo.Uniq(channelIDs)
-	profile.ChannelIDs = append([]int{}, uniqueChannelIDs...)
-	profile.ChannelTags = []string{}
-	profile.ChannelTagsMatchMode = objects.ChannelTagsMatchModeAny
-
-	if len(uniqueChannelIDs) > 0 {
-		channels, err := client.Channel.Query().Where(channel.IDIn(uniqueChannelIDs...)).All(ctx)
-		if err != nil {
-			return AdminAccessGroup{}, fmt.Errorf("failed to load channels: %w", err)
-		}
-		if len(channels) != len(uniqueChannelIDs) {
-			return AdminAccessGroup{}, fmt.Errorf("one or more channels were not found")
-		}
-	}
-
-	template, err = client.APIKeyProfileTemplate.UpdateOneID(template.ID).SetProfile(profile).Save(ctx)
+	var affected []*ent.APIKey
+	err := s.RunInTransaction(ctx, func(txCtx context.Context) error {
+		var updateErr error
+		client := s.entFromContext(txCtx)
+		_, affected, updateErr = updateAccessGroupPolicy(txCtx, client, accessGroupID, func(group *ent.APIKeyProfileTemplate) (accessGroupPolicyPatch, error) {
+			if len(uniqueChannelIDs) > 0 {
+				channels, channelErr := client.Channel.Query().Where(channel.IDIn(uniqueChannelIDs...)).All(txCtx)
+				if channelErr != nil {
+					return accessGroupPolicyPatch{}, fmt.Errorf("failed to load channels: %w", channelErr)
+				}
+				if len(channels) != len(uniqueChannelIDs) {
+					return accessGroupPolicyPatch{}, fmt.Errorf("one or more channels were not found")
+				}
+			}
+			profile := group.Profile.Clone()
+			if profile == nil {
+				profile = &objects.APIKeyProfile{Name: group.Name}
+			}
+			if strings.TrimSpace(profile.Name) == "" {
+				profile.Name = group.Name
+			}
+			profile.ChannelIDs = append([]int{}, uniqueChannelIDs...)
+			profile.ChannelTags = []string{}
+			profile.ChannelTagsMatchMode = objects.ChannelTagsMatchModeAny
+			return accessGroupPolicyPatch{Profile: profile}, nil
+		})
+		return updateErr
+	})
 	if err != nil {
-		return AdminAccessGroup{}, fmt.Errorf("failed to update access group channel assignment: %w", err)
+		return AdminAccessGroup{}, err
+	}
+	for _, key := range affected {
+		s.invalidateAPIKeyCaches(ctx, key.Key)
 	}
 
 	if s.ChannelService != nil {
@@ -908,73 +1204,9 @@ func (s *APIKeyService) requireSelfServiceEnabled(ctx context.Context) (Registra
 	return policy, nil
 }
 
-func selfServicePresetAllowed(policy RegistrationConfig, name string) bool {
-	if !policy.SelfServiceEnabled {
-		return false
-	}
-
-	allowedNames := policy.SelfServicePresetNames
-	if len(allowedNames) == 0 {
-		return false
-	}
-
-	normalizedName := strings.ToLower(strings.TrimSpace(name))
-	for _, allowed := range allowedNames {
-		normalizedAllowed := strings.ToLower(strings.TrimSpace(allowed))
-		if normalizedAllowed == "*" || normalizedAllowed == normalizedName {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (s *APIKeyService) setAccessGroupSelfServiceVisible(ctx context.Context, oldName string, newName string, visible bool) error {
-	return authz.RunWithSystemBypassVoid(ctx, "admin-access-group-self-service-policy", func(bypassCtx context.Context) error {
-		policy, err := s.registrationPolicy(bypassCtx)
-		if err != nil {
-			return err
-		}
-
-		policy.SelfServicePresetNames = updateAccessGroupExposureNames(policy.SelfServicePresetNames, oldName, newName, visible)
-
-		if s.SystemService != nil {
-			return s.SystemService.SetRegistrationConfig(bypassCtx, policy)
-		}
-
-		s.Registration = policy
-		return nil
-	})
-}
-
-func updateAccessGroupExposureNames(names []string, oldName string, newName string, visible bool) []string {
-	normalizedOldName := strings.ToLower(strings.TrimSpace(oldName))
-	normalizedNewName := strings.ToLower(strings.TrimSpace(newName))
-	if normalizedNewName == "" {
-		return normalizeStringList(names)
-	}
-
-	kept := make([]string, 0, len(names)+1)
-	for _, name := range normalizeStringList(names) {
-		normalizedName := strings.ToLower(strings.TrimSpace(name))
-		if normalizedName == "*" {
-			kept = append(kept, name)
-			continue
-		}
-		if normalizedOldName != "" && normalizedName == normalizedOldName {
-			continue
-		}
-		if normalizedName == normalizedNewName {
-			continue
-		}
-		kept = append(kept, name)
-	}
-
-	if visible {
-		kept = append(kept, strings.TrimSpace(newName))
-	}
-
-	return normalizeStringList(kept)
+func (s *APIKeyService) accessGroupSelfServiceVisible(ctx context.Context, tpl *ent.APIKeyProfileTemplate) bool {
+	_ = ctx
+	return tpl != nil && tpl.SelfServiceVisible
 }
 
 func (s *APIKeyService) getOwnedUserAPIKey(ctx context.Context, id int) (*ent.APIKey, error) {
@@ -985,7 +1217,14 @@ func (s *APIKeyService) getOwnedUserAPIKey(ctx context.Context, id int) (*ent.AP
 
 	return authz.RunWithSystemBypass(ctx, "self-api-key-get", func(bypassCtx context.Context) (*ent.APIKey, error) {
 		key, err := s.entFromContext(bypassCtx).APIKey.Query().
-			Where(apikey.IDEQ(id), apikey.UserIDEQ(currentUser.ID), apikey.TypeEQ(apikey.TypeUser)).
+			Where(
+				apikey.IDEQ(id),
+				apikey.UserIDEQ(currentUser.ID),
+				apikey.Or(
+					apikey.TypeEQ(apikey.TypePersonal),
+					apikey.And(apikey.TypeEQ(apikey.TypeUser), apikey.ProvisioningSourceEQ(apikey.ProvisioningSourceLegacyUnknown)),
+				),
+			).
 			Only(bypassCtx)
 		if err != nil {
 			return nil, fmt.Errorf("API key not found or not owned by current user: %w", err)
@@ -1090,14 +1329,18 @@ func (s *APIKeyService) resolveSelfProjectID(ctx context.Context, projectID int)
 
 func summarizeMyAPIKey(key *ent.APIKey, revealedKey string) MyAPIKeySummary {
 	summary := MyAPIKeySummary{
-		ID:        key.ID,
-		ProjectID: key.ProjectID,
-		Name:      key.Name,
-		Status:    key.Status.String(),
-		Type:      key.Type.String(),
-		CreatedAt: key.CreatedAt,
-		UpdatedAt: key.UpdatedAt,
-		Key:       revealedKey,
+		ID:                  key.ID,
+		ProjectID:           key.ProjectID,
+		Name:                key.Name,
+		Status:              key.Status.String(),
+		Type:                key.Type.String(),
+		CreatedAt:           key.CreatedAt,
+		UpdatedAt:           key.UpdatedAt,
+		Key:                 revealedKey,
+		ProvisioningSource:  key.ProvisioningSource.String(),
+		ProfileMode:         key.ProfileMode.String(),
+		AccessGroupID:       key.AccessGroupID,
+		AccessGroupRevision: key.AccessGroupRevision,
 	}
 	if key.Profiles != nil {
 		summary.ActiveProfile = key.Profiles.ActiveProfile
@@ -1189,7 +1432,7 @@ func summarizeSelfAccessGroupProfile(tpl *ent.APIKeyProfileTemplate) SelfAccessG
 	return profile
 }
 
-func (s *APIKeyService) summarizeAdminAccessGroup(ctx context.Context, policy RegistrationConfig, tpl *ent.APIKeyProfileTemplate) (AdminAccessGroup, error) {
+func (s *APIKeyService) summarizeAdminAccessGroup(ctx context.Context, tpl *ent.APIKeyProfileTemplate) (AdminAccessGroup, error) {
 	assignment := accessGroupChannelAssignment(tpl)
 	channelCount, err := s.countAccessGroupChannels(ctx, assignment)
 	if err != nil {
@@ -1203,7 +1446,7 @@ func (s *APIKeyService) summarizeAdminAccessGroup(ctx context.Context, policy Re
 		Name:               tpl.Name,
 		Description:        tpl.Description,
 		Enabled:            true,
-		SelfServiceVisible: selfServicePresetAllowed(policy, tpl.Name),
+		SelfServiceVisible: s.accessGroupSelfServiceVisible(ctx, tpl),
 		Profiles:           []SelfAccessGroupProfile{summarizeSelfAccessGroupProfile(tpl)},
 		ChannelAssignment:  assignment,
 	}, nil

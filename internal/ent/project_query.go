@@ -15,6 +15,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
+	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplaterevision"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
@@ -30,32 +31,34 @@ import (
 // ProjectQuery is the builder for querying Project entities.
 type ProjectQuery struct {
 	config
-	ctx                             *QueryContext
-	order                           []project.OrderOption
-	inters                          []Interceptor
-	predicates                      []predicate.Project
-	withUsers                       *UserQuery
-	withRoles                       *RoleQuery
-	withAPIKeys                     *APIKeyQuery
-	withRequests                    *RequestQuery
-	withUsageLogs                   *UsageLogQuery
-	withThreads                     *ThreadQuery
-	withTraces                      *TraceQuery
-	withPrompts                     *PromptQuery
-	withAPIKeyProfileTemplates      *APIKeyProfileTemplateQuery
-	withProjectUsers                *UserProjectQuery
-	loadTotal                       []func(context.Context, []*Project) error
-	modifiers                       []func(*sql.Selector)
-	withNamedUsers                  map[string]*UserQuery
-	withNamedRoles                  map[string]*RoleQuery
-	withNamedAPIKeys                map[string]*APIKeyQuery
-	withNamedRequests               map[string]*RequestQuery
-	withNamedUsageLogs              map[string]*UsageLogQuery
-	withNamedThreads                map[string]*ThreadQuery
-	withNamedTraces                 map[string]*TraceQuery
-	withNamedPrompts                map[string]*PromptQuery
-	withNamedAPIKeyProfileTemplates map[string]*APIKeyProfileTemplateQuery
-	withNamedProjectUsers           map[string]*UserProjectQuery
+	ctx                                     *QueryContext
+	order                                   []project.OrderOption
+	inters                                  []Interceptor
+	predicates                              []predicate.Project
+	withUsers                               *UserQuery
+	withRoles                               *RoleQuery
+	withAPIKeys                             *APIKeyQuery
+	withRequests                            *RequestQuery
+	withUsageLogs                           *UsageLogQuery
+	withThreads                             *ThreadQuery
+	withTraces                              *TraceQuery
+	withPrompts                             *PromptQuery
+	withAPIKeyProfileTemplates              *APIKeyProfileTemplateQuery
+	withAPIKeyProfileTemplateRevisions      *APIKeyProfileTemplateRevisionQuery
+	withProjectUsers                        *UserProjectQuery
+	loadTotal                               []func(context.Context, []*Project) error
+	modifiers                               []func(*sql.Selector)
+	withNamedUsers                          map[string]*UserQuery
+	withNamedRoles                          map[string]*RoleQuery
+	withNamedAPIKeys                        map[string]*APIKeyQuery
+	withNamedRequests                       map[string]*RequestQuery
+	withNamedUsageLogs                      map[string]*UsageLogQuery
+	withNamedThreads                        map[string]*ThreadQuery
+	withNamedTraces                         map[string]*TraceQuery
+	withNamedPrompts                        map[string]*PromptQuery
+	withNamedAPIKeyProfileTemplates         map[string]*APIKeyProfileTemplateQuery
+	withNamedAPIKeyProfileTemplateRevisions map[string]*APIKeyProfileTemplateRevisionQuery
+	withNamedProjectUsers                   map[string]*UserProjectQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -290,6 +293,28 @@ func (_q *ProjectQuery) QueryAPIKeyProfileTemplates() *APIKeyProfileTemplateQuer
 	return query
 }
 
+// QueryAPIKeyProfileTemplateRevisions chains the current query on the "api_key_profile_template_revisions" edge.
+func (_q *ProjectQuery) QueryAPIKeyProfileTemplateRevisions() *APIKeyProfileTemplateRevisionQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, selector),
+			sqlgraph.To(apikeyprofiletemplaterevision.Table, apikeyprofiletemplaterevision.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.APIKeyProfileTemplateRevisionsTable, project.APIKeyProfileTemplateRevisionsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // QueryProjectUsers chains the current query on the "project_users" edge.
 func (_q *ProjectQuery) QueryProjectUsers() *UserProjectQuery {
 	query := (&UserProjectClient{config: _q.config}).Query()
@@ -499,21 +524,22 @@ func (_q *ProjectQuery) Clone() *ProjectQuery {
 		return nil
 	}
 	return &ProjectQuery{
-		config:                     _q.config,
-		ctx:                        _q.ctx.Clone(),
-		order:                      append([]project.OrderOption{}, _q.order...),
-		inters:                     append([]Interceptor{}, _q.inters...),
-		predicates:                 append([]predicate.Project{}, _q.predicates...),
-		withUsers:                  _q.withUsers.Clone(),
-		withRoles:                  _q.withRoles.Clone(),
-		withAPIKeys:                _q.withAPIKeys.Clone(),
-		withRequests:               _q.withRequests.Clone(),
-		withUsageLogs:              _q.withUsageLogs.Clone(),
-		withThreads:                _q.withThreads.Clone(),
-		withTraces:                 _q.withTraces.Clone(),
-		withPrompts:                _q.withPrompts.Clone(),
-		withAPIKeyProfileTemplates: _q.withAPIKeyProfileTemplates.Clone(),
-		withProjectUsers:           _q.withProjectUsers.Clone(),
+		config:                             _q.config,
+		ctx:                                _q.ctx.Clone(),
+		order:                              append([]project.OrderOption{}, _q.order...),
+		inters:                             append([]Interceptor{}, _q.inters...),
+		predicates:                         append([]predicate.Project{}, _q.predicates...),
+		withUsers:                          _q.withUsers.Clone(),
+		withRoles:                          _q.withRoles.Clone(),
+		withAPIKeys:                        _q.withAPIKeys.Clone(),
+		withRequests:                       _q.withRequests.Clone(),
+		withUsageLogs:                      _q.withUsageLogs.Clone(),
+		withThreads:                        _q.withThreads.Clone(),
+		withTraces:                         _q.withTraces.Clone(),
+		withPrompts:                        _q.withPrompts.Clone(),
+		withAPIKeyProfileTemplates:         _q.withAPIKeyProfileTemplates.Clone(),
+		withAPIKeyProfileTemplateRevisions: _q.withAPIKeyProfileTemplateRevisions.Clone(),
+		withProjectUsers:                   _q.withProjectUsers.Clone(),
 		// clone intermediate query.
 		sql:       _q.sql.Clone(),
 		path:      _q.path,
@@ -620,6 +646,17 @@ func (_q *ProjectQuery) WithAPIKeyProfileTemplates(opts ...func(*APIKeyProfileTe
 	return _q
 }
 
+// WithAPIKeyProfileTemplateRevisions tells the query-builder to eager-load the nodes that are connected to
+// the "api_key_profile_template_revisions" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ProjectQuery) WithAPIKeyProfileTemplateRevisions(opts ...func(*APIKeyProfileTemplateRevisionQuery)) *ProjectQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withAPIKeyProfileTemplateRevisions = query
+	return _q
+}
+
 // WithProjectUsers tells the query-builder to eager-load the nodes that are connected to
 // the "project_users" edge. The optional arguments are used to configure the query builder of the edge.
 func (_q *ProjectQuery) WithProjectUsers(opts ...func(*UserProjectQuery)) *ProjectQuery {
@@ -715,7 +752,7 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 	var (
 		nodes       = []*Project{}
 		_spec       = _q.querySpec()
-		loadedTypes = [10]bool{
+		loadedTypes = [11]bool{
 			_q.withUsers != nil,
 			_q.withRoles != nil,
 			_q.withAPIKeys != nil,
@@ -725,6 +762,7 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 			_q.withTraces != nil,
 			_q.withPrompts != nil,
 			_q.withAPIKeyProfileTemplates != nil,
+			_q.withAPIKeyProfileTemplateRevisions != nil,
 			_q.withProjectUsers != nil,
 		}
 	)
@@ -814,6 +852,15 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 			return nil, err
 		}
 	}
+	if query := _q.withAPIKeyProfileTemplateRevisions; query != nil {
+		if err := _q.loadAPIKeyProfileTemplateRevisions(ctx, query, nodes,
+			func(n *Project) { n.Edges.APIKeyProfileTemplateRevisions = []*APIKeyProfileTemplateRevision{} },
+			func(n *Project, e *APIKeyProfileTemplateRevision) {
+				n.Edges.APIKeyProfileTemplateRevisions = append(n.Edges.APIKeyProfileTemplateRevisions, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
 	if query := _q.withProjectUsers; query != nil {
 		if err := _q.loadProjectUsers(ctx, query, nodes,
 			func(n *Project) { n.Edges.ProjectUsers = []*UserProject{} },
@@ -881,6 +928,15 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 		if err := _q.loadAPIKeyProfileTemplates(ctx, query, nodes,
 			func(n *Project) { n.appendNamedAPIKeyProfileTemplates(name) },
 			func(n *Project, e *APIKeyProfileTemplate) { n.appendNamedAPIKeyProfileTemplates(name, e) }); err != nil {
+			return nil, err
+		}
+	}
+	for name, query := range _q.withNamedAPIKeyProfileTemplateRevisions {
+		if err := _q.loadAPIKeyProfileTemplateRevisions(ctx, query, nodes,
+			func(n *Project) { n.appendNamedAPIKeyProfileTemplateRevisions(name) },
+			func(n *Project, e *APIKeyProfileTemplateRevision) {
+				n.appendNamedAPIKeyProfileTemplateRevisions(name, e)
+			}); err != nil {
 			return nil, err
 		}
 	}
@@ -1234,6 +1290,36 @@ func (_q *ProjectQuery) loadAPIKeyProfileTemplates(ctx context.Context, query *A
 	}
 	return nil
 }
+func (_q *ProjectQuery) loadAPIKeyProfileTemplateRevisions(ctx context.Context, query *APIKeyProfileTemplateRevisionQuery, nodes []*Project, init func(*Project), assign func(*Project, *APIKeyProfileTemplateRevision)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Project)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(apikeyprofiletemplaterevision.FieldProjectID)
+	}
+	query.Where(predicate.APIKeyProfileTemplateRevision(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(project.APIKeyProfileTemplateRevisionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ProjectID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "project_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
 func (_q *ProjectQuery) loadProjectUsers(ctx context.Context, query *UserProjectQuery, nodes []*Project, init func(*Project), assign func(*Project, *UserProject)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int]*Project)
@@ -1481,6 +1567,20 @@ func (_q *ProjectQuery) WithNamedAPIKeyProfileTemplates(name string, opts ...fun
 		_q.withNamedAPIKeyProfileTemplates = make(map[string]*APIKeyProfileTemplateQuery)
 	}
 	_q.withNamedAPIKeyProfileTemplates[name] = query
+	return _q
+}
+
+// WithNamedAPIKeyProfileTemplateRevisions tells the query-builder to eager-load the nodes that are connected to the "api_key_profile_template_revisions"
+// edge with the given name. The optional arguments are used to configure the query builder of the edge.
+func (_q *ProjectQuery) WithNamedAPIKeyProfileTemplateRevisions(name string, opts ...func(*APIKeyProfileTemplateRevisionQuery)) *ProjectQuery {
+	query := (&APIKeyProfileTemplateRevisionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	if _q.withNamedAPIKeyProfileTemplateRevisions == nil {
+		_q.withNamedAPIKeyProfileTemplateRevisions = make(map[string]*APIKeyProfileTemplateRevisionQuery)
+	}
+	_q.withNamedAPIKeyProfileTemplateRevisions[name] = query
 	return _q
 }
 

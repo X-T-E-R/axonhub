@@ -90,6 +90,7 @@ func (RequestExecution) Fields() []ent.Field {
 		field.Bool("pass_through_applied").
 			Default(false).
 			Comment("Whether pass-through was active for this execution attempt"),
+		field.JSON("evidence_disposition", &objects.EvidenceDisposition{}).Optional().Annotations(entgql.Skip(entgql.SkipAll)),
 	}
 }
 
