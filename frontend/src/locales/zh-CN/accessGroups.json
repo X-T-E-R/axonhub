@@ -13,6 +13,10 @@
   "accessGroups.errors.groupMissing": "请先选择一个访问组。",
   "accessGroups.errors.loadTitle": "无法加载访问组",
   "accessGroups.errors.loadDescription": "访问组或注册策略接口失败；未应用任何可见性修改。",
+  "accessGroups.errors.policyPermission": "编辑访问组策略同时需要 API 密钥写入和渠道读取权限。",
+  "accessGroups.permissions.readOnlyTitle": "策略编辑器不可用",
+  "accessGroups.permissions.requiresChannelRead": "你的角色可以写入 API 密钥，但不能读取渠道。访问组的模型和渠道控件将保持隐藏，也不会提交任何策略变更。",
+  "accessGroups.permissions.requiresPolicyRead": "查看访问组策略同时需要 API 密钥读取和渠道读取权限。页面不会请求、保留或开放编辑任何策略数据。",
   "accessGroups.toasts.updated": "访问组可见性已更新。",
   "accessGroups.toasts.updateFailed": "更新访问组可见性失败。",
   "accessGroups.toasts.channelsUpdated": "访问组渠道分配已更新。",
@@ -62,5 +66,6 @@
   "accessGroups.channels.selectChannel": "选择 {{name}}",
   "accessGroups.channels.save": "保存渠道分配",
   "accessGroups.channels.saving": "正在保存渠道...",
-  "accessGroups.channels.saveHint": "保存会按当前勾选结果替换此访问组的渠道；取消全部勾选即可清空。"
+  "accessGroups.channels.saveHint": "保存会按当前勾选结果替换此访问组的渠道；取消全部勾选即可清空。",
+  "accessGroups.actions.viewChannels": "查看渠道"
 }

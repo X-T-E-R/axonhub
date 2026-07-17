@@ -14,21 +14,25 @@ import { ApiKeysRotateDialog } from './apikeys-rotate-dialog';
 import { ApiKeysStatusDialog } from './apikeys-status-dialog';
 import { ApiKeysViewDialog } from './apikeys-view-dialog';
 
-export function ApiKeysDialogs() {
+export function ApiKeysDialogs({ canWrite }: { canWrite: boolean }) {
   return (
     <>
-      <ApiKeysCreateDialog />
-      <ApiKeysEditDialog />
-      {/* <ApiKeysDeleteDialog /> */}
-      <ApiKeysStatusDialog />
       <ApiKeysViewDialog />
-      <ApiKeysArchiveDialog />
-      <ApiKeysProfilesDialogWrapper />
-      <ApiKeysProfileTemplatesDialogWrapper />
-      <ApiKeysBulkDisableDialog />
-      <ApiKeysBulkArchiveDialog />
-      <ApiKeysBulkEnableDialog />
-      <ApiKeysRotateDialog />
+      {canWrite && (
+        <>
+          <ApiKeysCreateDialog />
+          <ApiKeysEditDialog />
+          {/* <ApiKeysDeleteDialog /> */}
+          <ApiKeysStatusDialog />
+          <ApiKeysArchiveDialog />
+          <ApiKeysProfilesDialogWrapper />
+          <ApiKeysProfileTemplatesDialogWrapper />
+          <ApiKeysBulkDisableDialog />
+          <ApiKeysBulkArchiveDialog />
+          <ApiKeysBulkEnableDialog />
+          <ApiKeysRotateDialog />
+        </>
+      )}
     </>
   );
 }

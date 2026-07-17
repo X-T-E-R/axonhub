@@ -14,9 +14,11 @@ import (
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/user"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/diagnostics"
 	"github.com/looplj/axonhub/internal/server/middleware"
 )
@@ -110,4 +112,58 @@ func TestDiagnosticsPullPreservesLargeRequestIDThroughHTTPBoundary(t *testing.T)
 	fractional := pull("9007199254740993.5")
 	require.Equal(t, http.StatusBadRequest, fractional.Code, fractional.Body.String())
 	require.Contains(t, fractional.Body.String(), `"code":"VALIDATION_FAILED"`)
+}
+
+func TestDiagnosticsCredentialValuesRequireExplicitAuthorizedHTTPPull(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := enttest.NewEntClient(t, "sqlite3", "file:diagnostics-http-credentials?mode=memory&_fk=1")
+	defer client.Close()
+	setupCtx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+	projectRow := client.Project.Create().SetName("diagnostics-project").SetStatus(project.StatusActive).SaveX(setupCtx)
+	owner := client.User.Create().SetEmail("diagnostics-credential-owner@example.com").SetPassword("x").SetStatus(user.StatusActivated).SetIsOwner(true).SaveX(setupCtx)
+	key := client.APIKey.Create().
+		SetProject(projectRow).
+		SetUser(owner).
+		SetName("diagnostics-key").
+		SetKey("handler-secret").
+		SetType(apikey.TypeServiceAccount).
+		SetProvisioningSource(apikey.ProvisioningSourceAdmin).
+		SetScopes([]string{string(scopes.ScopeReadDiagnostics), string(scopes.ScopeReadAPIKeys)}).
+		SaveX(setupCtx)
+	handler := &DiagnosticsHandlers{service: diagnostics.NewService(diagnostics.Params{Ent: client})}
+	ownerCtx := authz.NewUserContext(context.Background(), owner.ID)
+	ownerCtx = contexts.WithUser(ownerCtx, owner)
+	ownerCtx = contexts.WithProjectID(ownerCtx, projectRow.ID)
+	serviceCtx := authz.NewAPIKeyContext(context.Background(), key.ID, projectRow.ID)
+	serviceCtx = contexts.WithAPIKey(serviceCtx, key)
+	serviceCtx = contexts.WithProjectID(serviceCtx, projectRow.ID)
+
+	pull := func(requestCtx context.Context, credentials bool) *httptest.ResponseRecorder {
+		credentialsField := ""
+		if credentials {
+			credentialsField = `,"credentials":true`
+		}
+		body := fmt.Sprintf(`{"contract":{"name":"axonhub.remote-diagnostics","major":1,"minMinor":0,"maxMinor":0},"scope":{"projectId":%d},"selector":{"kind":"snapshot"},"include":{"sections":["apiKeys"]%s}}`, projectRow.ID, credentialsField)
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/admin/diagnostics/v1/pull", strings.NewReader(body)).WithContext(requestCtx)
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		handler.Pull(ctx)
+		return recorder
+	}
+
+	defaultPull := pull(ownerCtx, false)
+	require.Equal(t, http.StatusOK, defaultPull.Code, defaultPull.Body.String())
+	require.Contains(t, defaultPull.Body.String(), `"key":{"status":"excluded"}`)
+	require.NotContains(t, defaultPull.Body.String(), "handler-secret")
+
+	includedPull := pull(ownerCtx, true)
+	require.Equal(t, http.StatusOK, includedPull.Code, includedPull.Body.String())
+	require.Contains(t, includedPull.Body.String(), `"credentialsIncluded":true`)
+	require.Contains(t, includedPull.Body.String(), `"key":{"status":"included","value":"handler-secret"}`)
+
+	unauthorizedPull := pull(serviceCtx, true)
+	require.Equal(t, http.StatusForbidden, unauthorizedPull.Code, unauthorizedPull.Body.String())
+	require.Contains(t, unauthorizedPull.Body.String(), `"code":"CREDENTIAL_EXPORT_FORBIDDEN"`)
+	require.NotContains(t, unauthorizedPull.Body.String(), "handler-secret")
 }

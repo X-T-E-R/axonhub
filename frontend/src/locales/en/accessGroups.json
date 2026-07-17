@@ -13,6 +13,10 @@
   "accessGroups.errors.groupMissing": "Select an Access Group first.",
   "accessGroups.errors.loadTitle": "Could not load Access Groups",
   "accessGroups.errors.loadDescription": "The Access Groups or registration policy endpoint failed. No visibility changes were applied.",
+  "accessGroups.errors.policyPermission": "Editing Access Group policy requires both API-key write and channel read permissions.",
+  "accessGroups.permissions.readOnlyTitle": "Policy editor unavailable",
+  "accessGroups.permissions.requiresChannelRead": "Your role can write API keys but cannot read channels. Access Group model and channel controls stay hidden and no policy changes can be submitted.",
+  "accessGroups.permissions.requiresPolicyRead": "Viewing Access Group policy requires both API-key read and channel read permissions. No policy data was requested, retained, or made editable.",
   "accessGroups.toasts.updated": "Access Group visibility updated.",
   "accessGroups.toasts.updateFailed": "Failed to update Access Group visibility.",
   "accessGroups.toasts.channelsUpdated": "Access Group channel assignment updated.",
@@ -62,5 +66,6 @@
   "accessGroups.channels.selectChannel": "Select {{name}}",
   "accessGroups.channels.save": "Save channel assignment",
   "accessGroups.channels.saving": "Saving channels...",
-  "accessGroups.channels.saveHint": "Saving replaces this Access Group's channels with the checked list; clear every checkbox to remove all channels."
+  "accessGroups.channels.saveHint": "Saving replaces this Access Group's channels with the checked list; clear every checkbox to remove all channels.",
+  "accessGroups.actions.viewChannels": "View channels"
 }

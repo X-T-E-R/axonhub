@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { useApiKeysContext } from '../context/apikeys-context';
 
-export function ApiKeysPrimaryButtons() {
+export function ApiKeysPrimaryButtons({ canWrite }: { canWrite: boolean }) {
   const { t } = useTranslation();
   const { openDialog } = useApiKeysContext();
+
+  if (!canWrite) return null;
 
   return (
     <div className='flex gap-2'>

@@ -329,7 +329,7 @@ func TestAPIKeyService_AdminAccessGroupCreateAndUpdateCompatibility(t *testing.T
 		SetUserID(adminUser.ID).
 		SetProjectID(testProject.ID).
 		SetIsOwner(false).
-		SetScopes([]string{string(scopes.ScopeReadAPIKeys), string(scopes.ScopeWriteAPIKeys)}).
+		SetScopes([]string{string(scopes.ScopeReadAPIKeys), string(scopes.ScopeWriteAPIKeys), string(scopes.ScopeReadChannels)}).
 		Save(setupCtx)
 	require.NoError(t, err)
 

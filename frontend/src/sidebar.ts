@@ -156,11 +156,6 @@ export function useSidebarData(): SidebarData {
           icon: IconUsers,
         } as NavLink,
         {
-          title: t('sidebar.items.accessGroups'),
-          url: '/access-groups',
-          icon: IconShield,
-        } as NavLink,
-        {
           title: t('sidebar.items.roles'),
           url: '/roles',
           icon: IconShield,
@@ -175,6 +170,11 @@ export function useSidebarData(): SidebarData {
     {
       title: t('sidebar.groups.project'),
       items: [
+        {
+          title: t('sidebar.items.accessGroups'),
+          url: '/project/access-groups',
+          icon: IconShield,
+        } as NavLink,
         {
           title: t('sidebar.items.apiKeys'),
           url: '/project/api-keys',

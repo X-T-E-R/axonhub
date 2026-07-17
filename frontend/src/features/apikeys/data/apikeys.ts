@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { graphqlRequest } from '@/gql/graphql';
-
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useSelectedProjectId } from '@/stores/projectStore';
@@ -18,7 +17,13 @@ import type {
   UpdateApiKeyProfileTemplateInput,
   UpdateApiKeyProfilesInput,
 } from './schema';
-import { apiKeyConnectionSchema, apiKeyProfileQuotaUsageSchema, apiKeyProfileTemplateSchema, apiKeySchema, apiKeyTokenUsageStatsSchema } from './schema';
+import {
+  apiKeyConnectionSchema,
+  apiKeyProfileQuotaUsageSchema,
+  apiKeyProfileTemplateSchema,
+  apiKeySchema,
+  apiKeyTokenUsageStatsSchema,
+} from './schema';
 
 const NOAUTH_API_KEY_TYPE = 'noauth';
 
@@ -45,6 +50,10 @@ function buildApiKeysQuery(permissions: { canViewUsers: boolean }) {
             name
             type
             status
+            provisioningSource
+            profileMode
+            accessGroupID
+            accessGroupRevision
             scopes
           }
           cursor
@@ -82,6 +91,10 @@ function buildApiKeyQuery(permissions: { canViewUsers: boolean }) {
         name
         type
         status
+        provisioningSource
+        profileMode
+        accessGroupID
+        accessGroupRevision
         scopes
         profiles {
           activeProfile
@@ -131,6 +144,10 @@ function buildCreateApiKeyMutation(permissions: { canViewUsers: boolean }) {
         name
         type
         status
+        provisioningSource
+        profileMode
+        accessGroupID
+        accessGroupRevision
         scopes
       }
     }
@@ -157,6 +174,10 @@ function buildUpdateApiKeyMutation(permissions: { canViewUsers: boolean }) {
         name
         type
         status
+        provisioningSource
+        profileMode
+        accessGroupID
+        accessGroupRevision
         scopes
       }
     }
@@ -233,6 +254,10 @@ const ROTATE_APIKEY_MUTATION = `
       name
       type
       status
+      provisioningSource
+      profileMode
+      accessGroupID
+      accessGroupRevision
       scopes
       createdAt
       updatedAt
@@ -769,9 +794,7 @@ export function useUpdateApiKeyProfileTemplate() {
     mutationFn: ({ id, input }: { id: string; input: UpdateApiKeyProfileTemplateInput }) => {
       const headers = selectedProjectId ? { 'X-Project-ID': selectedProjectId } : undefined;
       const { profile, ...inputFields } = input;
-      const resolvedProfile = profile
-        ? { ...profile, name: input.name ?? profile.name }
-        : undefined;
+      const resolvedProfile = profile ? { ...profile, name: input.name ?? profile.name } : undefined;
       return graphqlRequest<{ updateApiKeyProfileTemplate: ApiKeyProfileTemplate }>(
         UPDATE_APIKEY_PROFILE_TEMPLATE_MUTATION,
         { id, input: inputFields, profile: resolvedProfile },
@@ -815,11 +838,7 @@ export function useLoadApiKeyProfileTemplate() {
   return useMutation({
     mutationFn: (input: { templateID: string; apiKeyID: string }) => {
       const headers = selectedProjectId ? { 'X-Project-ID': selectedProjectId } : undefined;
-      return graphqlRequest<{ loadApiKeyProfileTemplate: ApiKey }>(
-        LOAD_APIKEY_PROFILE_TEMPLATE_MUTATION,
-        { input },
-        headers
-      );
+      return graphqlRequest<{ loadApiKeyProfileTemplate: ApiKey }>(LOAD_APIKEY_PROFILE_TEMPLATE_MUTATION, { input }, headers);
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['apiKeys'] });

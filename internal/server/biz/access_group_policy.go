@@ -13,7 +13,26 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/apikeyprofiletemplate"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/scopes"
 )
+
+func requireAccessGroupPolicyRead(ctx context.Context) error {
+	for _, scope := range []scopes.ScopeSlug{scopes.ScopeReadAPIKeys, scopes.ScopeReadChannels} {
+		if err := authz.RequireScope(ctx, scope); err != nil {
+			return fmt.Errorf("permission denied: %w", err)
+		}
+	}
+	return nil
+}
+
+func requireAccessGroupPolicyWrite(ctx context.Context) error {
+	for _, scope := range []scopes.ScopeSlug{scopes.ScopeWriteAPIKeys, scopes.ScopeReadChannels} {
+		if err := authz.RequireScope(ctx, scope); err != nil {
+			return fmt.Errorf("permission denied: %w", err)
+		}
+	}
+	return nil
+}
 
 func materializeAccessGroupProfile(groupName string, profile *objects.APIKeyProfile) (*objects.APIKeyProfiles, error) {
 	cloned := profile.Clone()
@@ -99,6 +118,10 @@ func updateAccessGroupPolicy(
 	id int,
 	mutate accessGroupPolicyMutation,
 ) (*ent.APIKeyProfileTemplate, []*ent.APIKey, error) {
+	if err := requireAccessGroupPolicyWrite(ctx); err != nil {
+		return nil, nil, err
+	}
+
 	group, err := lockAccessGroup(ctx, client, id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get access group: %w", err)

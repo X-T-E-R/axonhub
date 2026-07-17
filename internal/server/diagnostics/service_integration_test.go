@@ -143,11 +143,49 @@ func TestPullFidelityOrderingPaginationAndCredentialExclusion(t *testing.T) {
 	credential := record["key"].(Credential)
 	require.Equal(t, "excluded", credential.Status)
 	require.Empty(t, credential.Value)
+	excludedCredentialJSON, err := json.Marshal(credential)
+	require.NoError(t, err)
+	require.NotContains(t, string(excludedCredentialJSON), `"value"`)
+	defaultBundleJSON, err := json.Marshal(bundle)
+	require.NoError(t, err)
+	require.NotContains(t, string(defaultBundleJSON), "reusable-secret")
+	require.NoError(t, ValidatePullResponseJSON(defaultBundleJSON))
+
+	var invalidCredentialResponse map[string]any
+	require.NoError(t, json.Unmarshal(defaultBundleJSON, &invalidCredentialResponse))
+	apiKeysSection := invalidCredentialResponse["sections"].(map[string]any)["apiKeys"].(map[string]any)
+	keyCredential := apiKeysSection["data"].([]any)[0].(map[string]any)["key"].(map[string]any)
+	keyCredential["value"] = "must-not-be-allowed"
+	invalidExcludedJSON, err := json.Marshal(invalidCredentialResponse)
+	require.NoError(t, err)
+	require.Error(t, ValidatePullResponseJSON(invalidExcludedJSON))
+	keyCredential["status"] = "included"
+	delete(keyCredential, "value")
+	invalidIncludedJSON, err := json.Marshal(invalidCredentialResponse)
+	require.NoError(t, err)
+	require.Error(t, ValidatePullResponseJSON(invalidIncludedJSON))
+
+	snapshot.Include.Credentials = true
+	includedBundle, err := service.Pull(ctx, snapshot)
+	require.NoError(t, err)
+	require.True(t, includedBundle.Authorization.CredentialsIncluded)
+	includedRecord := includedBundle.Sections.APIKeys.Data.([]any)[0].(map[string]any)
+	includedCredential := includedRecord["key"].(Credential)
+	require.Equal(t, "included", includedCredential.Status)
+	require.Equal(t, "reusable-secret", includedCredential.Value)
+	includedBundleJSON, err := json.Marshal(includedBundle)
+	require.NoError(t, err)
+	require.NoError(t, ValidatePullResponseJSON(includedBundleJSON))
 
 	legacy := client.APIKey.Create().SetProject(p).SetUser(u).SetName("legacy-user-key").SetKey("legacy-secret").SetType(apikey.TypeUser).SaveX(setupCtx)
 	serviceCtx := authz.NewAPIKeyContext(context.Background(), key.ID, p.ID)
 	serviceCtx = contexts.WithAPIKey(serviceCtx, key)
 	serviceCtx = contexts.WithProjectID(serviceCtx, p.ID)
+	_, err = service.Pull(serviceCtx, snapshot)
+	var credentialErr *ServiceError
+	require.ErrorAs(t, err, &credentialErr)
+	require.Equal(t, "CREDENTIAL_EXPORT_FORBIDDEN", credentialErr.Code)
+	snapshot.Include.Credentials = false
 	serviceBundle, err := service.Pull(serviceCtx, snapshot)
 	require.NoError(t, err)
 	for _, item := range serviceBundle.Sections.APIKeys.Data.([]any) {

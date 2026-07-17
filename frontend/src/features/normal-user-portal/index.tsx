@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Check, Copy, Eye, EyeOff, RefreshCw, Search } from 'lucide-react';
@@ -6,7 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore, useSelectedProjectId } from '@/stores/projectStore';
-import { selfServiceApi, type SelfAPIKey, type SelfQuotaSummary, type SelfRequest, type SelfUsage } from '@/lib/api-client';
+import {
+  ApiError,
+  authApi,
+  selfServiceApi,
+  type SelfAPIKey,
+  type SelfRequest,
+  type SelfRequestDetail,
+  type SelfUsage,
+} from '@/lib/api-client';
 import { extractNumberID, normalizeEntityID } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,13 +22,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useMyProjects } from '@/features/projects/data/projects';
+import { formatPolicyList, formatPolicyQuota } from '@/features/apikeys/components/classification-preview';
+import { PolicyComparisonPreview } from '@/features/apikeys/components/classification-policy-preview';
+import {
+  classifySelfAPIKey,
+  isPartialEvidence,
+  keySupportsAccessGroup,
+  reduceRevealedSecret,
+  secretSupportsAccessGroup,
+  selectCompatibleModel,
+  type RevealedSecret,
+  type SelfServiceHandoff,
+} from './workflow';
 
-type RevealedSecret = {
-  keyId: number;
-  keyName: string;
-  value: string;
-};
+type ConfirmedKeyAction =
+  | { type: 'rotate'; key: SelfAPIKey }
+  | { type: 'archive'; key: SelfAPIKey }
+  | { type: 'classify-snapshot'; key: SelfAPIKey }
+  | { type: 'classify-group'; key: SelfAPIKey; accessGroupId: string }
+  | null;
 
 type RequestFilters = {
   keyId: string;
@@ -52,7 +74,7 @@ const MODEL_PAGE_SIZE = 12;
 const PRESET_ALL = 'all';
 const FILTER_ALL = 'all';
 
-const formatNumber = (value?: number | null) => (value === null || value === undefined ? '—' : value.toLocaleString());
+const formatNumber = (value?: number | null) => (value === null || value === undefined ? '-' : value.toLocaleString());
 
 const formatProjectLabel = (projectID: string, index: number, projectName?: string) => {
   if (projectName?.trim()) {
@@ -62,18 +84,7 @@ const formatProjectLabel = (projectID: string, index: number, projectName?: stri
   return numericId ? `Project #${numericId}` : `Project ${index + 1}`;
 };
 
-const formatUsageCost = (usage?: SelfUsage) => (!usage || usage.totalCost <= 0 ? '—' : usage.totalCost.toFixed(6));
-
-const formatQuotaSummary = (quota?: SelfQuotaSummary) => {
-  if (!quota) return '';
-  const parts = [
-    quota.requests ? `${quota.requests.toLocaleString()} requests` : '',
-    quota.totalTokens ? `${quota.totalTokens.toLocaleString()} tokens` : '',
-    quota.cost ? `cost ${quota.cost}` : '',
-    quota.period ? `per ${quota.period}` : '',
-  ].filter(Boolean);
-  return parts.join(' · ');
-};
+const formatUsageCost = (usage?: SelfUsage) => (!usage || usage.totalCost <= 0 ? '-' : usage.totalCost.toFixed(6));
 
 const getRangeStart = (range: RequestFilters['range']) => {
   if (range === 'all') return undefined;
@@ -85,12 +96,16 @@ const getRangeStart = (range: RequestFilters['range']) => {
 
 const isSelfServiceDisabledError = (error: unknown) => {
   const message = error instanceof Error ? error.message.toLowerCase() : '';
-  return (
-    message.includes('self-service') || message.includes('self service') || message.includes('disabled') || message.includes('forbidden')
-  );
+  return message.includes('self-service is disabled') || message.includes('self service is disabled');
 };
 
-export default function NormalUserPortal({ initialSection = 'overview' }: { initialSection?: UserConsoleSection }) {
+export default function NormalUserPortal({
+  initialSection = 'overview',
+  handoff = {},
+}: {
+  initialSection?: UserConsoleSection;
+  handoff?: SelfServiceHandoff;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -99,8 +114,8 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
   const setSelectedProjectId = useProjectStore((state) => state.setSelectedProjectId);
   const { data: myProjects } = useMyProjects();
   const [keyName, setKeyName] = useState('');
-  const [createPresetID, setCreatePresetID] = useState('');
-  const [modelPresetFilter, setModelPresetFilter] = useState(PRESET_ALL);
+  const [createPresetID, setCreatePresetID] = useState(handoff.accessGroupId ? String(handoff.accessGroupId) : '');
+  const [modelPresetFilter, setModelPresetFilter] = useState(handoff.accessGroupId ? String(handoff.accessGroupId) : PRESET_ALL);
   const [modelSearch, setModelSearch] = useState('');
   const [visibleModelCount, setVisibleModelCount] = useState(MODEL_PAGE_SIZE);
   const [editingKeyId, setEditingKeyId] = useState<number | null>(null);
@@ -111,9 +126,15 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
     status: FILTER_ALL,
     range: '7d',
   });
-  const [revealedSecret, setRevealedSecret] = useState<RevealedSecret | null>(null);
+  const [revealedSecret, dispatchRevealedSecret] = useReducer(reduceRevealedSecret, null);
   const [showSecret, setShowSecret] = useState(false);
   const [copiedTarget, setCopiedTarget] = useState<'base-url' | 'api-key' | 'snippet' | null>(null);
+  const [confirmedKeyAction, setConfirmedKeyAction] = useState<ConfirmedKeyAction>(null);
+  const [classificationGroupByKey, setClassificationGroupByKey] = useState<Record<number, string>>({});
+  const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
+  const [handoffError, setHandoffError] = useState(false);
+  const [handoffSelectionRequired, setHandoffSelectionRequired] = useState(false);
+  const [quickstartKeyId, setQuickstartKeyId] = useState('');
 
   const projectNameById = useMemo(() => new Map((myProjects ?? []).map((project) => [project.id, project.name])), [myProjects]);
   const projectOptions = useMemo(
@@ -149,10 +170,17 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
   useEffect(() => {
     setCreatePresetID('');
     setModelPresetFilter(PRESET_ALL);
-    setRevealedSecret(null);
+    dispatchRevealedSecret({ type: 'clear' });
     setShowSecret(false);
+    setSelectedRequestId(null);
     setVisibleModelCount(MODEL_PAGE_SIZE);
   }, [projectID]);
+
+  useEffect(() => {
+    dispatchRevealedSecret({ type: 'clear' });
+    setShowSecret(false);
+    setSelectedRequestId(null);
+  }, [initialSection]);
 
   useEffect(() => {
     setVisibleModelCount(MODEL_PAGE_SIZE);
@@ -163,6 +191,11 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
     queryKey: ['self', 'routing-presets', projectID],
     queryFn: () => selfServiceApi.routingPresets(projectID),
     enabled,
+  });
+  const selfAccessGroups = useQuery({
+    queryKey: ['self', 'access-groups', projectID],
+    queryFn: () => selfServiceApi.accessGroups(projectID),
+    enabled: enabled && initialSection === 'keys',
   });
   const keys = useQuery({
     queryKey: ['self', 'api-keys', projectID],
@@ -184,16 +217,81 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
     queryFn: () => selfServiceApi.usage(projectID),
     enabled,
   });
+  const selfServicePolicy = useQuery({
+    queryKey: ['auth', 'signup-policy'],
+    queryFn: () => authApi.signUpPolicy(),
+  });
+  const requestDetail = useQuery({
+    queryKey: ['self', 'request-detail', selectedRequestId],
+    queryFn: () => selfServiceApi.requestDetail(selectedRequestId!),
+    enabled: selectedRequestId !== null,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!presets.data || !handoff.accessGroupId) return;
+    const isValid = presets.data.some((preset) => preset.id === handoff.accessGroupId && preset.enabled !== false);
+    setHandoffError(!isValid);
+    setHandoffSelectionRequired(!isValid);
+    setCreatePresetID(isValid ? String(handoff.accessGroupId) : '');
+    setModelPresetFilter(isValid ? String(handoff.accessGroupId) : PRESET_ALL);
+    if (!isValid) {
+      dispatchRevealedSecret({ type: 'clear' });
+      setShowSecret(false);
+      navigate({ to: USER_CONSOLE_SECTION_PATH[initialSection], search: {}, replace: true });
+    }
+  }, [handoff.accessGroupId, initialSection, navigate, presets.data]);
+
+  useEffect(() => {
+    if (!handoff.accessGroupId || !handoff.modelId || models.isLoading || !models.data) return;
+    const compatible = selectCompatibleModel(models.data, handoff);
+    if (compatible) {
+      setHandoffError(false);
+      setHandoffSelectionRequired(false);
+      return;
+    }
+    setHandoffError(true);
+    setHandoffSelectionRequired(true);
+    dispatchRevealedSecret({ type: 'clear' });
+    setShowSecret(false);
+    navigate({
+      to: USER_CONSOLE_SECTION_PATH[initialSection],
+      search: { accessGroupId: handoff.accessGroupId },
+      replace: true,
+    });
+  }, [handoff, initialSection, models.data, models.isLoading, navigate]);
 
   const selectedPreset = presets.data?.find((preset) => String(preset.id) === createPresetID);
   const selectedModelPreset = presets.data?.find((preset) => String(preset.id) === modelPresetFilter);
-  const selectedExampleModel = models.data?.[0]?.name || models.data?.[0]?.id || 'gpt-4o-mini';
-  const requestDetailsVisible = requests.data?.some((request) => request.detailsVisible) ?? false;
+  const selectedCompatibleModel = handoffSelectionRequired
+    ? undefined
+    : selectCompatibleModel(models.data ?? [], {
+        accessGroupId: createPresetID ? Number(createPresetID) : handoff.accessGroupId,
+        modelId: handoff.modelId,
+      });
+  const selectedExampleModel = selectedCompatibleModel?.id || selectedCompatibleModel?.name || '<COMPATIBLE_MODEL>';
+  const requestDetailsVisible =
+    selfServicePolicy.data?.allowRequestDetails ?? requests.data?.some((request) => request.detailsVisible) ?? false;
   const selfServiceDisabled = [presets.error, keys.error, models.error, requests.error, usage.error].some(isSelfServiceDisabledError);
+  const operationalError = [presets.error, keys.error, models.error, requests.error, usage.error].find(
+    (error) => error && !isSelfServiceDisabledError(error)
+  );
   const hasNoPresets = !presets.isLoading && !presets.isError && !presets.data?.length;
   const hasNoModels = !models.isLoading && !models.isError && !models.data?.length;
   const hasNoKeys = !keys.isLoading && !keys.isError && !keys.data?.length;
   const hasNoRequests = !requests.isLoading && !requests.isError && !requests.data?.length;
+  const quickstartKeys = useMemo(
+    () =>
+      (keys.data ?? []).filter(
+        (key) =>
+          key.status === 'enabled' &&
+          key.profileMode === 'access_group' &&
+          Boolean(key.accessGroupId) &&
+          keySupportsAccessGroup(key, handoff.accessGroupId)
+      ),
+    [handoff.accessGroupId, keys.data]
+  );
+  const quickstartKey = quickstartKeys.find((key) => String(key.id) === quickstartKeyId);
   const createDisabledReason = !enabled
     ? t('selfService.empty.noProject.description')
     : selfServiceDisabled
@@ -237,8 +335,14 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
   }, [modelSearch, models.data]);
   const visibleModels = filteredModels.slice(0, visibleModelCount);
   const canShowMoreModels = visibleModelCount < filteredModels.length;
+  const snippetSecret =
+    revealedSecret &&
+    secretSupportsAccessGroup(revealedSecret, createPresetID ? Number(createPresetID) : handoff.accessGroupId) &&
+    keys.data?.some((key) => key.id === revealedSecret.keyId && key.status === 'enabled')
+      ? revealedSecret.value
+      : '<YOUR_API_KEY>';
   const firstRequestSnippet = `curl ${baseURL}/chat/completions \\
-  -H "Authorization: Bearer ${revealedSecret?.value || '<YOUR_API_KEY>'}" \\
+  -H "Authorization: Bearer ${snippetSecret}" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"${selectedExampleModel}","messages":[{"role":"user","content":"Hello"}]}'`;
 
@@ -257,30 +361,58 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
     navigate({ to: USER_CONSOLE_SECTION_PATH[section] });
   };
 
-  const selectPresetForKeyCreation = (presetID: number) => {
-    setCreatePresetID(String(presetID));
-    goToSection('keys');
+  const selectPresetForKeyCreation = (presetID: number, modelId: string) => {
+    navigate({
+      to: '/self-service/api-keys',
+      search: { accessGroupId: presetID, modelId },
+    });
+  };
+
+  const selectAccessGroup = (value: string) => {
+    const accessGroupId = Number(value);
+    setCreatePresetID(value);
+    setModelPresetFilter(value);
+    setHandoffError(false);
+    setHandoffSelectionRequired(false);
+    if (!secretSupportsAccessGroup(revealedSecret, accessGroupId)) {
+      dispatchRevealedSecret({ type: 'clear' });
+      setShowSecret(false);
+    }
+    navigate({
+      to: USER_CONSOLE_SECTION_PATH[initialSection],
+      search: { accessGroupId },
+      replace: true,
+    });
   };
 
   const createKey = useMutation({
-    mutationFn: () =>
-      selfServiceApi.createAPIKey({
+    mutationFn: async () => {
+      const created = await selfServiceApi.createAPIKey({
         projectId: projectID,
         name: keyName.trim(),
         presetId: createPresetID,
-      }),
-    onSuccess: async (created) => {
+      });
+      const key = created.key;
+      if (key) {
+        dispatchRevealedSecret({
+          type: 'revealed',
+          secret: {
+            keyId: created.id,
+            keyName: created.name,
+            value: key,
+            accessGroupId: created.accessGroupId ?? Number(createPresetID),
+          },
+        });
+        setShowSecret(false);
+      }
+      return { revealed: Boolean(key) };
+    },
+    onSuccess: async ({ revealed }) => {
       await queryClient.invalidateQueries({
         queryKey: ['self', 'api-keys', projectID],
       });
       setKeyName('');
-      if (created.key) {
-        setRevealedSecret({
-          keyId: created.id,
-          keyName: created.name,
-          value: created.key,
-        });
-        setShowSecret(false);
+      if (revealed) {
         toast.success(t('selfService.toasts.keyCreatedWithSecret'));
         return;
       }
@@ -289,22 +421,26 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
     onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyCreateFailed')),
   });
   const rotateKey = useMutation({
-    mutationFn: async (key: SelfAPIKey) => ({
-      key,
-      rotated: await selfServiceApi.rotateAPIKey(key.id),
-    }),
-    onSuccess: async ({ key, rotated }) => {
-      await queryClient.invalidateQueries({
-        queryKey: ['self', 'api-keys', projectID],
-      });
-      if (rotated.key) {
-        setRevealedSecret({
-          keyId: rotated.id,
-          keyName: rotated.name,
-          value: rotated.key,
+    mutationFn: async (key: SelfAPIKey) => {
+      const rotated = await selfServiceApi.rotateAPIKey(key.id);
+      const value = rotated.key;
+      if (value) {
+        dispatchRevealedSecret({
+          type: 'revealed',
+          secret: { keyId: rotated.id, keyName: rotated.name, value, accessGroupId: rotated.accessGroupId ?? key.accessGroupId },
         });
         setShowSecret(false);
       }
+      return { key };
+    },
+    onMutate: (key) => {
+      dispatchRevealedSecret({ type: 'key-transition', keyId: key.id });
+      setShowSecret(false);
+    },
+    onSuccess: async ({ key }) => {
+      await queryClient.invalidateQueries({
+        queryKey: ['self', 'api-keys', projectID],
+      });
       toast.success(t('selfService.toasts.keyRotated', { name: key.name }));
     },
     onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyRotateFailed')),
@@ -323,6 +459,10 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
   });
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => selfServiceApi.updateAPIKeyStatus(id, status),
+    onMutate: ({ id }) => {
+      dispatchRevealedSecret({ type: 'key-transition', keyId: id });
+      setShowSecret(false);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ['self', 'api-keys', projectID],
@@ -331,6 +471,67 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
     },
     onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyStatusFailed')),
   });
+  const revealKey = useMutation({
+    mutationFn: async (key: SelfAPIKey) => {
+      const revealed = await selfServiceApi.revealAPIKey(key.id);
+      dispatchRevealedSecret({
+        type: 'revealed',
+        secret: { keyId: key.id, keyName: key.name, value: revealed.key, accessGroupId: key.accessGroupId },
+      });
+      setShowSecret(false);
+      return { keyId: key.id, revealedAt: revealed.revealedAt };
+    },
+    onSuccess: () => {
+      toast.success(t('selfService.toasts.keyRevealed'));
+    },
+    onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyRevealFailed')),
+  });
+  const classifyLegacyKey = useMutation({
+    mutationFn: async (action: Exclude<ConfirmedKeyAction, null>) => {
+      if (action.type !== 'classify-snapshot' && action.type !== 'classify-group') {
+        throw new Error(t('selfService.classification.invalidAction'));
+      }
+      return selfServiceApi.classifyAPIKey(action.key.id, {
+        mode: action.type === 'classify-snapshot' ? 'personal_snapshot' : 'personal_access_group',
+        ...(action.type === 'classify-group' ? { accessGroupId: action.accessGroupId } : {}),
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['self', 'api-keys', projectID] });
+      setConfirmedKeyAction(null);
+      toast.success(t('selfService.toasts.keyClassified'));
+    },
+    onError: (error: Error) => toast.error(error.message || t('selfService.toasts.keyClassifyFailed')),
+  });
+
+  const runConfirmedKeyAction = () => {
+    if (!confirmedKeyAction) return;
+    if (confirmedKeyAction.type === 'rotate') {
+      rotateKey.mutate(confirmedKeyAction.key, { onSuccess: () => setConfirmedKeyAction(null) });
+      return;
+    }
+    if (confirmedKeyAction.type === 'archive') {
+      updateStatus.mutate({ id: confirmedKeyAction.key.id, status: 'archived' }, { onSuccess: () => setConfirmedKeyAction(null) });
+      return;
+    }
+    classifyLegacyKey.mutate(confirmedKeyAction);
+  };
+
+  useEffect(() => {
+    if (initialSection !== 'quickstart' || !keys.data) return;
+    const current = quickstartKeys.find((key) => String(key.id) === quickstartKeyId);
+    const selected = current ?? quickstartKeys[0];
+    const nextID = selected ? String(selected.id) : '';
+    if (nextID !== quickstartKeyId) setQuickstartKeyId(nextID);
+    if (revealedSecret && selected?.id !== revealedSecret.keyId) {
+      dispatchRevealedSecret({ type: 'clear' });
+      setShowSecret(false);
+    }
+    if (selected?.accessGroupId) {
+      setCreatePresetID(String(selected.accessGroupId));
+      setModelPresetFilter(String(selected.accessGroupId));
+    }
+  }, [initialSection, keys.data, quickstartKeyId, quickstartKeys, revealedSecret]);
 
   const startRename = (key: SelfAPIKey) => {
     setEditingKeyId(key.id);
@@ -363,13 +564,14 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
 
   return (
     <div className='space-y-6 p-6'>
+      {operationalError && <QueryError error={operationalError} fallback={t('selfService.errors.operational')} />}
       {initialSection === 'overview' && (
         <div className='space-y-4'>
           <div className='grid gap-4 md:grid-cols-4'>
-            <MetricCard value={models.isLoading ? '—' : formatNumber(models.data?.length)} label={t('selfService.metrics.models')} />
-            <MetricCard value={keys.isLoading ? '—' : formatNumber(keys.data?.length)} label={t('selfService.metrics.keys')} />
-            <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.requests)} label={t('selfService.metrics.requests')} />
-            <MetricCard value={usage.isLoading ? '—' : formatNumber(usage.data?.totalTokens)} label={t('selfService.metrics.tokens')} />
+            <MetricCard value={models.isLoading ? '-' : formatNumber(models.data?.length)} label={t('selfService.metrics.models')} />
+            <MetricCard value={keys.isLoading ? '-' : formatNumber(keys.data?.length)} label={t('selfService.metrics.keys')} />
+            <MetricCard value={usage.isLoading ? '-' : formatNumber(usage.data?.requests)} label={t('selfService.metrics.requests')} />
+            <MetricCard value={usage.isLoading ? '-' : formatNumber(usage.data?.totalTokens)} label={t('selfService.metrics.tokens')} />
           </div>
 
           <div className='grid gap-4 xl:grid-cols-[1fr_1fr]'>
@@ -450,6 +652,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               revealedSecret={revealedSecret}
               showSecret={showSecret}
               setShowSecret={setShowSecret}
+              onHideSecret={() => dispatchRevealedSecret({ type: 'clear' })}
               snippet={firstRequestSnippet}
             />
             <Card>
@@ -459,7 +662,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               </CardHeader>
               <CardContent className='space-y-3'>
                 {requests.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.requests.loading')}</p>}
-                {requests.isError && <p className='text-destructive text-sm'>{t('selfService.requests.error')}</p>}
+                {requests.isError && <QueryError error={requests.error} fallback={t('selfService.requests.error')} />}
                 {hasNoRequests && (
                   <EmptyState
                     title={t('selfService.empty.noRequests.title')}
@@ -483,6 +686,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
 
       {initialSection === 'models' && (
         <div className='space-y-4'>
+          {handoffError && <QueryError fallback={t('selfService.handoff.invalid')} />}
           <Card>
             <CardHeader>
               <CardTitle>{t('selfService.models.title')}</CardTitle>
@@ -506,7 +710,21 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                     placeholder={t('selfService.models.searchPlaceholder')}
                   />
                 </div>
-                <Select value={modelPresetFilter} onValueChange={setModelPresetFilter}>
+                <Select
+                  value={modelPresetFilter}
+                  onValueChange={(value) => {
+                    setModelPresetFilter(value);
+                    setHandoffError(false);
+                    setHandoffSelectionRequired(false);
+                    dispatchRevealedSecret({ type: 'clear' });
+                    setShowSecret(false);
+                    navigate({
+                      to: '/self-service/models',
+                      search: value === PRESET_ALL ? {} : { accessGroupId: Number(value) },
+                      replace: true,
+                    });
+                  }}
+                >
                   <SelectTrigger aria-label={t('selfService.models.presetFilter')} className='w-full'>
                     <SelectValue />
                   </SelectTrigger>
@@ -522,7 +740,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               </div>
 
               {models.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.models.loading')}</p>}
-              {models.isError && <p className='text-destructive text-sm'>{t('selfService.models.error')}</p>}
+              {models.isError && <QueryError error={models.error} fallback={t('selfService.models.error')} />}
               {!models.isLoading && !models.isError && hasNoModels && (
                 <EmptyState
                   title={t('selfService.empty.noModels.title')}
@@ -555,7 +773,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                     </div>
                     {model.developers?.length ? <p className='text-muted-foreground text-xs'>{model.developers.join(', ')}</p> : null}
                     {model.presetId && (
-                      <Button variant='outline' size='sm' onClick={() => selectPresetForKeyCreation(model.presetId!)}>
+                      <Button variant='outline' size='sm' onClick={() => selectPresetForKeyCreation(model.presetId!, model.id)}>
                         {t('selfService.models.usePreset')}
                       </Button>
                     )}
@@ -586,6 +804,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
 
       {initialSection === 'keys' && (
         <div className='space-y-4'>
+          {handoffError && <QueryError fallback={t('selfService.handoff.invalid')} />}
           <div className='grid gap-4 xl:grid-cols-[1.1fr_0.9fr]'>
             <Card>
               <CardHeader>
@@ -605,7 +824,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                   </div>
                   <div className='space-y-2'>
                     <Label htmlFor='self-preset'>{t('selfService.keys.create.presetLabel')}</Label>
-                    <Select value={createPresetID} onValueChange={setCreatePresetID}>
+                    <Select value={createPresetID} onValueChange={selectAccessGroup}>
                       <SelectTrigger id='self-preset' className='w-full' aria-label={t('selfService.keys.create.presetLabel')}>
                         <SelectValue placeholder={t('selfService.keys.create.presetPlaceholder')} />
                       </SelectTrigger>
@@ -638,8 +857,8 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                         })}
                       </Badge>
                     )}
-                    {formatQuotaSummary(selectedPreset.quotaSummary) && (
-                      <p className='text-muted-foreground mt-2 text-xs'>{formatQuotaSummary(selectedPreset.quotaSummary)}</p>
+                    {selectedPreset.quotaSummary && (
+                      <p className='text-muted-foreground mt-2 text-xs'>{formatPolicyQuota(selectedPreset.quotaSummary, t)}</p>
                     )}
                   </div>
                 )}
@@ -659,6 +878,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               revealedSecret={revealedSecret}
               showSecret={showSecret}
               setShowSecret={setShowSecret}
+              onHideSecret={() => dispatchRevealedSecret({ type: 'clear' })}
               snippet={firstRequestSnippet}
             />
           </div>
@@ -670,7 +890,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
             </CardHeader>
             <CardContent className='space-y-3'>
               {keys.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.keys.list.loading')}</p>}
-              {keys.isError && <p className='text-destructive text-sm'>{t('selfService.keys.list.error')}</p>}
+              {keys.isError && <QueryError error={keys.error} fallback={t('selfService.keys.list.error')} />}
               {hasNoKeys && (
                 <EmptyState title={t('selfService.empty.noKeys.title')} description={t('selfService.empty.noKeys.description')} compact />
               )}
@@ -680,6 +900,38 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                 const isRenaming = updateKey.isPending && updateKey.variables?.id === key.id;
                 const nextStatus = key.status === 'enabled' ? 'disabled' : 'enabled';
                 const isEditing = editingKeyId === key.id;
+                const classification = classifySelfAPIKey(key);
+                const classificationGroup = classificationGroupByKey[key.id] ?? '';
+                const classificationTarget = selfAccessGroups.data?.find((group) => String(group.id) === classificationGroup);
+                const classificationTargetProfile = classificationTarget?.profiles[0];
+                const creatorClassificationPreview = classificationTarget
+                  ? [
+                      {
+                        label: t('apikeys.classification.preview.models'),
+                        current: t('selfService.classification.currentSnapshotModels', {
+                          profile: key.activeProfile || t('selfService.keys.list.noPreset'),
+                        }),
+                        target: classificationTargetProfile?.modelIds?.length
+                          ? formatPolicyList(classificationTargetProfile.modelIds)
+                          : t('selfService.classification.anyModel'),
+                      },
+                      {
+                        label: t('apikeys.classification.preview.channels'),
+                        current: t('selfService.classification.snapshotConstraints'),
+                        target: t('selfService.classification.liveGroupConstraints', { name: classificationTarget.name }),
+                      },
+                      {
+                        label: t('apikeys.classification.preview.routing'),
+                        current: t('selfService.classification.snapshotRouting'),
+                        target: t('selfService.classification.liveGroupRouting', { name: classificationTarget.name }),
+                      },
+                      {
+                        label: t('apikeys.classification.preview.quota'),
+                        current: formatPolicyQuota(key.quotaSummary, t),
+                        target: formatPolicyQuota(classificationTargetProfile?.quotaSummary, t),
+                      },
+                    ]
+                  : [];
                 return (
                   <div key={key.id} className='space-y-3 rounded-md border p-3 text-sm'>
                     <div className='flex flex-wrap items-start justify-between gap-2'>
@@ -719,6 +971,16 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                           {(key.activeProfile || t('selfService.keys.list.noPreset')) +
                             ` · ${t('selfService.keys.list.updated', { time: new Date(key.updatedAt).toLocaleString() })}`}
                         </div>
+                        <div className='mt-2 flex flex-wrap gap-2'>
+                          <Badge variant={classification === 'legacy_unknown' ? 'secondary' : 'outline'}>
+                            {t(`selfService.keys.classification.${classification}`)}
+                          </Badge>
+                          {key.accessGroupRevision ? (
+                            <Badge variant='outline'>
+                              {t('selfService.keys.list.groupRevision', { revision: key.accessGroupRevision })}
+                            </Badge>
+                          ) : null}
+                        </div>
                       </div>
                       <Badge variant={key.status === 'enabled' ? 'default' : 'secondary'}>{key.status}</Badge>
                     </div>
@@ -726,7 +988,21 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                       <Button variant='outline' size='sm' disabled={isEditing} onClick={() => startRename(key)}>
                         {t('selfService.keys.actions.rename')}
                       </Button>
-                      <Button variant='outline' size='sm' disabled={isRotating} onClick={() => rotateKey.mutate(key)}>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        disabled={revealKey.isPending && revealKey.variables?.id === key.id}
+                        onClick={() => revealKey.mutate(key)}
+                      >
+                        <Eye className='h-4 w-4' />
+                        {t('selfService.keys.actions.reveal')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        disabled={isRotating}
+                        onClick={() => setConfirmedKeyAction({ type: 'rotate', key })}
+                      >
                         <RefreshCw className='h-4 w-4' />
                         {t('selfService.keys.actions.rotate')}
                       </Button>
@@ -747,16 +1023,61 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
                         variant='outline'
                         size='sm'
                         disabled={isStatusUpdating || key.status === 'archived'}
-                        onClick={() =>
-                          updateStatus.mutate({
-                            id: key.id,
-                            status: 'archived',
-                          })
-                        }
+                        onClick={() => setConfirmedKeyAction({ type: 'archive', key })}
                       >
                         {t('selfService.keys.actions.archive')}
                       </Button>
                     </div>
+                    {classification === 'legacy_unknown' && (
+                      <div className='space-y-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3'>
+                        <div>
+                          <div className='font-medium'>{t('selfService.classification.title')}</div>
+                          <p className='text-muted-foreground mt-1 text-xs'>{t('selfService.classification.description')}</p>
+                        </div>
+                        <div className='flex flex-col gap-2 sm:flex-row sm:items-end'>
+                          <Button variant='outline' size='sm' onClick={() => setConfirmedKeyAction({ type: 'classify-snapshot', key })}>
+                            {t('selfService.classification.keepSnapshot')}
+                          </Button>
+                          <div className='min-w-56 flex-1 space-y-1'>
+                            <Label htmlFor={`classification-group-${key.id}`}>{t('selfService.classification.groupLabel')}</Label>
+                            <Select
+                              value={classificationGroup}
+                              onValueChange={(value) => setClassificationGroupByKey((current) => ({ ...current, [key.id]: value }))}
+                            >
+                              <SelectTrigger id={`classification-group-${key.id}`} className='w-full'>
+                                <SelectValue placeholder={t('selfService.classification.groupPlaceholder')} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {selfAccessGroups.data?.map((group) => (
+                                  <SelectItem key={group.id} value={String(group.id)}>
+                                    {group.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button
+                            size='sm'
+                            disabled={!classificationTarget}
+                            onClick={() => setConfirmedKeyAction({ type: 'classify-group', key, accessGroupId: classificationGroup })}
+                          >
+                            {t('selfService.classification.attachGroup')}
+                          </Button>
+                        </div>
+                        {selfAccessGroups.isError && (
+                          <QueryError error={selfAccessGroups.error} fallback={t('selfService.classification.groupsError')} />
+                        )}
+                        {classificationTarget ? (
+                          <PolicyComparisonPreview rows={creatorClassificationPreview} />
+                        ) : (
+                          <p className='text-muted-foreground text-xs'>
+                            {t('selfService.classification.snapshotPreview', {
+                              current: key.activeProfile || t('selfService.keys.list.noPreset'),
+                            })}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {revealedSecret?.keyId === key.id && (
                       <div className='text-muted-foreground rounded-md border border-dashed p-3 text-xs'>
                         {t('selfService.keys.list.secretReady')}
@@ -835,7 +1156,8 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               </div>
 
               {requests.isLoading && <p className='text-muted-foreground text-sm'>{t('selfService.requests.loading')}</p>}
-              {requests.isError && <p className='text-destructive text-sm'>{t('selfService.requests.error')}</p>}
+              {requests.isError && <QueryError error={requests.error} fallback={t('selfService.requests.error')} />}
+              {selfServicePolicy.isError && <QueryError error={selfServicePolicy.error} fallback={t('selfService.requests.policyError')} />}
               {hasNoRequests && (
                 <EmptyState
                   title={t('selfService.empty.noRequests.title')}
@@ -852,9 +1174,26 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               )}
               <div className='space-y-2'>
                 {filteredRequests.map((request) => (
-                  <RequestRow key={request.id} request={request} />
+                  <RequestRow
+                    key={request.id}
+                    request={request}
+                    selected={selectedRequestId === request.id}
+                    onSelect={
+                      request.detailsVisible
+                        ? () => setSelectedRequestId((current) => (current === request.id ? null : request.id))
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
+              {selectedRequestId !== null && (
+                <RequestDetailPanel
+                  detail={requestDetail.data}
+                  error={requestDetail.error}
+                  loading={requestDetail.isLoading}
+                  onClose={() => setSelectedRequestId(null)}
+                />
+              )}
             </CardContent>
           </Card>
         </div>
@@ -868,17 +1207,18 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
               <CardDescription>{t('selfService.usage.description')}</CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
+              {usage.isError && <QueryError error={usage.error} fallback={t('selfService.usage.error')} />}
               <div className='grid gap-3 md:grid-cols-4'>
-                <MetricBox label={t('selfService.usage.requests')} value={usage.isLoading ? '—' : formatNumber(usage.data?.requests)} />
+                <MetricBox label={t('selfService.usage.requests')} value={usage.isLoading ? '-' : formatNumber(usage.data?.requests)} />
                 <MetricBox
                   label={t('selfService.usage.promptTokens')}
-                  value={usage.isLoading ? '—' : formatNumber(usage.data?.promptTokens)}
+                  value={usage.isLoading ? '-' : formatNumber(usage.data?.promptTokens)}
                 />
                 <MetricBox
                   label={t('selfService.usage.completionTokens')}
-                  value={usage.isLoading ? '—' : formatNumber(usage.data?.completionTokens)}
+                  value={usage.isLoading ? '-' : formatNumber(usage.data?.completionTokens)}
                 />
-                <MetricBox label={t('selfService.usage.operationalCost')} value={usage.isLoading ? '—' : formatUsageCost(usage.data)} />
+                <MetricBox label={t('selfService.usage.operationalCost')} value={usage.isLoading ? '-' : formatUsageCost(usage.data)} />
               </div>
               <div className='text-muted-foreground rounded-md border border-dashed p-3 text-sm'>{t('selfService.usage.filterNote')}</div>
             </CardContent>
@@ -888,6 +1228,52 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
 
       {initialSection === 'quickstart' && (
         <div className='space-y-4'>
+          {handoffError && <QueryError fallback={t('selfService.handoff.invalid')} />}
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('selfService.quickstart.keyTitle')}</CardTitle>
+              <CardDescription>{t('selfService.quickstart.keyDescription')}</CardDescription>
+            </CardHeader>
+            <CardContent className='flex flex-col gap-3 sm:flex-row sm:items-end'>
+              <div className='min-w-64 flex-1 space-y-2'>
+                <Label htmlFor='quickstart-key'>{t('selfService.quickstart.keyLabel')}</Label>
+                <Select
+                  value={quickstartKeyId}
+                  onValueChange={(value) => {
+                    setQuickstartKeyId(value);
+                    dispatchRevealedSecret({ type: 'clear' });
+                    setShowSecret(false);
+                    const selected = quickstartKeys.find((key) => String(key.id) === value);
+                    if (selected?.accessGroupId) {
+                      selectAccessGroup(String(selected.accessGroupId));
+                    }
+                  }}
+                >
+                  <SelectTrigger id='quickstart-key' className='w-full'>
+                    <SelectValue placeholder={t('selfService.quickstart.keyPlaceholder')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {quickstartKeys.map((key) => (
+                      <SelectItem key={key.id} value={String(key.id)}>
+                        {key.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                variant='outline'
+                disabled={!quickstartKey || revealKey.isPending}
+                onClick={() => quickstartKey && revealKey.mutate(quickstartKey)}
+              >
+                <Eye className='h-4 w-4' />
+                {t('selfService.quickstart.revealKey')}
+              </Button>
+              {!keys.isLoading && !quickstartKeys.length && (
+                <p className='text-muted-foreground text-xs'>{t('selfService.quickstart.noCompatibleKey')}</p>
+              )}
+            </CardContent>
+          </Card>
           <FirstRequestCard
             baseURL={baseURL}
             copiedTarget={copiedTarget}
@@ -895,6 +1281,7 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
             revealedSecret={revealedSecret}
             showSecret={showSecret}
             setShowSecret={setShowSecret}
+            onHideSecret={() => dispatchRevealedSecret({ type: 'clear' })}
             snippet={firstRequestSnippet}
           />
           <Card>
@@ -918,6 +1305,31 @@ export default function NormalUserPortal({ initialSection = 'overview' }: { init
           </Card>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmedKeyAction !== null}
+        onOpenChange={(open) => !open && setConfirmedKeyAction(null)}
+        title={
+          confirmedKeyAction?.type === 'rotate'
+            ? t('selfService.confirm.rotateTitle')
+            : confirmedKeyAction?.type === 'archive'
+              ? t('selfService.confirm.archiveTitle')
+              : t('selfService.confirm.classificationTitle')
+        }
+        desc={
+          confirmedKeyAction?.type === 'rotate'
+            ? t('selfService.confirm.rotateDescription', { name: confirmedKeyAction.key.name })
+            : confirmedKeyAction?.type === 'archive'
+              ? t('selfService.confirm.archiveDescription', { name: confirmedKeyAction.key.name })
+              : confirmedKeyAction?.type === 'classify-group'
+                ? t('selfService.confirm.classificationGroupDescription', { name: confirmedKeyAction.key.name })
+                : t('selfService.confirm.classificationSnapshotDescription', { name: confirmedKeyAction?.key.name })
+        }
+        cancelBtnText={t('common.buttons.cancel')}
+        confirmText={t('common.buttons.confirm')}
+        destructive={confirmedKeyAction?.type === 'rotate' || confirmedKeyAction?.type === 'archive'}
+        isLoading={rotateKey.isPending || updateStatus.isPending || classifyLegacyKey.isPending}
+        handleConfirm={runConfirmedKeyAction}
+      />
     </div>
   );
 }
@@ -962,6 +1374,15 @@ function EmptyState({ title, description, compact = false }: { title: string; de
   );
 }
 
+function QueryError({ error, fallback }: { error?: unknown; fallback: string }) {
+  const message = error instanceof Error && error.message ? error.message : fallback;
+  return (
+    <div role='alert' className='border-destructive/40 bg-destructive/5 text-destructive rounded-md border p-3 text-sm'>
+      {message}
+    </div>
+  );
+}
+
 function StatusRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
   const { t } = useTranslation();
   return (
@@ -994,6 +1415,7 @@ function FirstRequestCard({
   revealedSecret,
   showSecret,
   setShowSecret,
+  onHideSecret,
   snippet,
 }: {
   baseURL: string;
@@ -1002,6 +1424,7 @@ function FirstRequestCard({
   revealedSecret: RevealedSecret | null;
   showSecret: boolean;
   setShowSecret: (value: boolean | ((current: boolean) => boolean)) => void;
+  onHideSecret: () => void;
   snippet: string;
 }) {
   const { t } = useTranslation();
@@ -1030,7 +1453,18 @@ function FirstRequestCard({
                 <p className='text-muted-foreground text-xs'>{t('selfService.firstRequest.secretHelp')}</p>
               </div>
               <div className='flex gap-2'>
-                <Button variant='outline' size='sm' onClick={() => setShowSecret((current) => !current)}>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => {
+                    if (showSecret) {
+                      onHideSecret();
+                      setShowSecret(false);
+                      return;
+                    }
+                    setShowSecret(true);
+                  }}
+                >
                   {showSecret ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
                   {showSecret ? t('selfService.firstRequest.hide') : t('selfService.firstRequest.reveal')}
                 </Button>
@@ -1064,7 +1498,7 @@ function FirstRequestCard({
   );
 }
 
-function RequestRow({ request }: { request: SelfRequest }) {
+function RequestRow({ request, selected = false, onSelect }: { request: SelfRequest; selected?: boolean; onSelect?: () => void }) {
   const { t } = useTranslation();
   return (
     <div className='rounded-md border p-3 text-sm'>
@@ -1087,6 +1521,92 @@ function RequestRow({ request }: { request: SelfRequest }) {
           {t('selfService.requests.metadataOnlyHelp')}
         </div>
       )}
+      {onSelect && (
+        <Button variant='outline' size='sm' className='mt-3' onClick={onSelect} aria-expanded={selected}>
+          {selected ? t('selfService.requests.hideDetails') : t('selfService.requests.viewDetails')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function RequestDetailPanel({
+  detail,
+  error,
+  loading,
+  onClose,
+}: {
+  detail?: SelfRequestDetail;
+  error: unknown;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  if (loading) {
+    return <div className='text-muted-foreground rounded-md border p-4 text-sm'>{t('selfService.requests.detailLoading')}</div>;
+  }
+  if (error) {
+    const fallback =
+      error instanceof ApiError && error.status === 403
+        ? t('selfService.requests.detailDisabledError')
+        : t('selfService.requests.detailError');
+    return <QueryError error={error} fallback={fallback} />;
+  }
+  if (!detail) return null;
+
+  const partial =
+    isPartialEvidence(detail.evidenceAvailability) ||
+    detail.executionAvailability.some((execution) => isPartialEvidence(execution.evidence));
+  const hasEvidence = Object.values(detail.evidenceAvailability).some((evidence) => evidence.state === 'available');
+  const empty = !hasEvidence && detail.executions.length === 0 && detail.usage.length === 0;
+
+  return (
+    <div className='space-y-4 rounded-md border p-4' aria-live='polite'>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <div>
+          <h3 className='font-medium'>{t('selfService.requests.detailTitle')}</h3>
+          <p className='text-muted-foreground text-xs'>
+            {empty
+              ? t('selfService.requests.detailEmpty')
+              : partial
+                ? t('selfService.requests.detailPartial')
+                : t('selfService.requests.detailComplete')}
+          </p>
+        </div>
+        <Button variant='outline' size='sm' onClick={onClose}>
+          {t('common.buttons.close')}
+        </Button>
+      </div>
+      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+        {Object.entries(detail.evidenceAvailability).map(([field, evidence]) => (
+          <div key={field} className='rounded-md border p-3 text-xs'>
+            <div className='font-medium'>{t(`selfService.requests.evidence.${field}`)}</div>
+            <div className='text-muted-foreground mt-1'>{t(`selfService.requests.evidenceState.${evidence.state}`)}</div>
+            <div className='text-muted-foreground'>{evidence.source}</div>
+          </div>
+        ))}
+      </div>
+      {!empty && (
+        <div className='grid gap-3 lg:grid-cols-2'>
+          <DetailJSON title={t('selfService.requests.requestEvidence')} value={detail.request} />
+          <DetailJSON title={t('selfService.requests.executionEvidence')} value={detail.executions} />
+          <DetailJSON title={t('selfService.requests.usageEvidence')} value={detail.usage} />
+          {(detail.trace || detail.thread) && (
+            <DetailJSON title={t('selfService.requests.traceEvidence')} value={{ trace: detail.trace, thread: detail.thread }} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailJSON({ title, value }: { title: string; value: unknown }) {
+  return (
+    <div className='min-w-0 space-y-2'>
+      <div className='text-sm font-medium'>{title}</div>
+      <pre className='bg-muted max-h-80 overflow-auto rounded-md p-3 text-xs break-all whitespace-pre-wrap'>
+        <code>{JSON.stringify(value, null, 2)}</code>
+      </pre>
     </div>
   );
 }

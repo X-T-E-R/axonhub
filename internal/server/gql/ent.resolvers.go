@@ -10,9 +10,12 @@ import (
 	"fmt"
 
 	"entgo.io/contrib/entgql"
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/samber/lo"
 )
 
@@ -42,7 +45,30 @@ func (r *aPIKeyResolver) ProjectID(ctx context.Context, obj *ent.APIKey) (*objec
 
 // AccessGroupID is the resolver for the accessGroupID field.
 func (r *aPIKeyResolver) AccessGroupID(ctx context.Context, obj *ent.APIKey) (*objects.GUID, error) {
-	panic(fmt.Errorf("not implemented: AccessGroupID - accessGroupID"))
+	client := r.client
+	if tx := ent.TxFromContext(ctx); tx != nil {
+		client = tx.Client()
+	} else if contextClient := ent.FromContext(ctx); contextClient != nil {
+		client = contextClient
+	}
+	stored, err := client.APIKey.Get(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Snapshot keys have no live access-group association. Gate on both the
+	// provenance mode and nullable foreign key so legacy/stale values cannot be
+	// exposed as a linked group. Re-reading through the request/transaction client
+	// also reapplies APIKey creator/project privacy and loads fields that entgql may
+	// omit from a projected list query when only this forced resolver is selected.
+	if stored.ProfileMode != apikey.ProfileModeAccessGroup || stored.AccessGroupID == nil {
+		return nil, nil
+	}
+
+	return &objects.GUID{
+		Type: ent.TypeAPIKeyProfileTemplate,
+		ID:   *stored.AccessGroupID,
+	}, nil
 }
 
 // User is the resolver for the user field.
@@ -65,6 +91,29 @@ func (r *aPIKeyProfileTemplateResolver) ProjectID(ctx context.Context, obj *ent.
 		Type: ent.TypeProject,
 		ID:   obj.ProjectID,
 	}, nil
+}
+
+// Profile is the resolver for the profile field.
+func (r *aPIKeyProfileTemplateResolver) Profile(ctx context.Context, obj *ent.APIKeyProfileTemplate) (*objects.APIKeyProfile, error) {
+	if err := authz.RequireScope(ctx, scopes.ScopeReadChannels); err != nil {
+		return nil, fmt.Errorf("permission denied: %w", err)
+	}
+
+	client := r.client
+	if tx := ent.TxFromContext(ctx); tx != nil {
+		client = tx.Client()
+	} else if contextClient := ent.FromContext(ctx); contextClient != nil {
+		client = contextClient
+	}
+	stored, err := client.APIKeyProfileTemplate.Get(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Forced gqlgen fields are omitted from entgql's selected columns. Re-read
+	// through the request/transaction client so the complete profile is loaded
+	// and the existing read_api_keys project privacy boundary is reapplied.
+	return stored.Profile.Clone(), nil
 }
 
 // ID is the resolver for the id field.

@@ -1,18 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ShieldCheck } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useSelectedProjectId } from '@/stores/projectStore';
-import {
-  accessGroupsApi,
-  authApi,
-  type AdminAccessGroup,
-  type AdminAccessGroupInput,
-  type AdminRegistrationPolicy,
-  type SelfAccessGroupProfile,
-} from '@/lib/api-client';
+import { accessGroupsApi, type AdminAccessGroup, type AdminAccessGroupInput, type SelfAccessGroupProfile } from '@/lib/api-client';
 import { extractNumberID } from '@/lib/utils';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,34 +16,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAllChannelSummarys } from '@/features/channels/data/channels';
 import { useMyProjects } from '@/features/projects/data/projects';
+import { formatPolicyQuota } from '@/features/apikeys/components/classification-preview';
 
-const WILDCARD_PRESET = '*';
-
-function toUpdateInput(policy: AdminRegistrationPolicy, selfServicePresetNames: string[]) {
-  return {
-    enabled: policy.enabled,
-    oidcEnabled: policy.oidcEnabled,
-    selfServiceEnabled: policy.selfServiceEnabled,
-    inviteCode: policy.inviteCode,
-    defaultProjectId: policy.defaultProjectId,
-    autoJoinFirstProject: policy.autoJoinFirstProject,
-    defaultProjectScopes: policy.defaultProjectScopes,
-    allowRequestDetails: policy.allowRequestDetails,
-    selfServicePresetNames,
-  };
-}
-
-function describeQuota(profile?: SelfAccessGroupProfile) {
+function describeQuota(profile: SelfAccessGroupProfile | undefined, t: TFunction) {
   const quota = profile?.quotaSummary;
   if (!quota) return '';
-
-  const parts = [
-    quota.requests ? `${quota.requests.toLocaleString()} requests` : '',
-    quota.totalTokens ? `${quota.totalTokens.toLocaleString()} tokens` : '',
-    quota.cost ? `cost ${quota.cost}` : '',
-  ].filter(Boolean);
-
-  return parts.join(' · ');
+  return formatPolicyQuota(quota, t);
 }
 
 function primaryProfile(group: AdminAccessGroup) {
@@ -73,6 +46,9 @@ function formatModelIDs(modelIDs?: string[]) {
 export default function AccessGroups() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { apiKeyPermissions, channelPermissions } = usePermissions();
+  const canReadPolicy = apiKeyPermissions.canRead && channelPermissions.canRead;
+  const canEditPolicy = canReadPolicy && apiKeyPermissions.canWrite;
   const selectedProjectId = useSelectedProjectId();
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
@@ -88,31 +64,21 @@ export default function AccessGroups() {
     data: accessGroups,
     isLoading: isLoadingGroups,
     isError: accessGroupsError,
+    error: accessGroupsLoadError,
   } = useQuery({
     queryKey: ['adminAccessGroups', projectId],
     queryFn: async () => accessGroupsApi.list(projectId!),
-    enabled: Boolean(projectId),
-  });
-  const {
-    data: policy,
-    isLoading: isLoadingPolicy,
-    isError: policyError,
-  } = useQuery({
-    queryKey: ['adminRegistrationPolicy'],
-    queryFn: async () => (await authApi.adminRegistrationPolicy()).data,
+    enabled: Boolean(projectId) && canReadPolicy,
   });
   const {
     data: channelSummarys,
     isLoading: isLoadingChannels,
     isError: channelsError,
   } = useAllChannelSummarys(projectId, {
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId) && canReadPolicy,
     includeArchived: false,
   });
 
-  const exposedNames = useMemo(() => new Set(policy?.selfServicePresetNames ?? []), [policy?.selfServicePresetNames]);
-  const exposesAll = exposedNames.has(WILDCARD_PRESET);
-  const explicitGroupNames = useMemo(() => (accessGroups ?? []).map((group) => group.name), [accessGroups]);
   const selectedGroup = useMemo(
     () => (accessGroups ?? []).find((group) => group.id === selectedGroupId) ?? accessGroups?.[0],
     [accessGroups, selectedGroupId]
@@ -131,22 +97,9 @@ export default function AccessGroups() {
     ).sort((a, b) => a.localeCompare(b));
   }, [channels, selectedChannelIds]);
 
-  const updatePolicy = useMutation({
-    mutationFn: async (selfServicePresetNames: string[]) => {
-      if (!policy) {
-        throw new Error(t('accessGroups.errors.policyMissing'));
-      }
-      return authApi.updateAdminRegistrationPolicy(toUpdateInput(policy, selfServicePresetNames));
-    },
-    onSuccess: (response) => {
-      queryClient.setQueryData(['adminRegistrationPolicy'], response.data);
-      toast.success(t('accessGroups.toasts.updated'));
-    },
-    onError: (error: Error) => toast.error(error.message || t('accessGroups.toasts.updateFailed')),
-  });
-
   const saveGroupDetails = useMutation({
     mutationFn: async () => {
+      if (!canEditPolicy) throw new Error(t('accessGroups.errors.policyPermission'));
       const name = groupName.trim();
       if (!name) {
         throw new Error(t('accessGroups.details.nameRequired'));
@@ -179,21 +132,11 @@ export default function AccessGroups() {
 
   const updateGroupVisibility = useMutation({
     mutationFn: async ({ group, visible }: { group: AdminAccessGroup; visible: boolean }) => {
-      if (exposesAll && !visible) {
-        const nextNames = explicitGroupNames.filter((name) => name !== group.name);
-        if (!policy) {
-          throw new Error(t('accessGroups.errors.policyMissing'));
-        }
-        await authApi.updateAdminRegistrationPolicy(toUpdateInput(policy, nextNames));
-        return accessGroupsApi.get(group.id);
-      }
+      if (!canEditPolicy) throw new Error(t('accessGroups.errors.policyPermission'));
       return accessGroupsApi.update(group.id, { selfServiceVisible: visible });
     },
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['adminAccessGroups', projectId] }),
-        queryClient.invalidateQueries({ queryKey: ['adminRegistrationPolicy'] }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: ['adminAccessGroups', projectId] });
       toast.success(t('accessGroups.toasts.updated'));
     },
     onError: (error: Error) => toast.error(error.message || t('accessGroups.toasts.updateFailed')),
@@ -201,6 +144,7 @@ export default function AccessGroups() {
 
   const assignChannels = useMutation({
     mutationFn: async () => {
+      if (!canEditPolicy) throw new Error(t('accessGroups.errors.policyPermission'));
       if (!selectedGroup) {
         throw new Error(t('accessGroups.errors.groupMissing'));
       }
@@ -218,11 +162,27 @@ export default function AccessGroups() {
   });
 
   const refreshAccessGroups = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['adminAccessGroups', projectId] }),
-      queryClient.invalidateQueries({ queryKey: ['adminRegistrationPolicy'] }),
-    ]);
+    await queryClient.invalidateQueries({ queryKey: ['adminAccessGroups', projectId] });
   };
+
+  useEffect(() => {
+    setSelectedGroupId(null);
+    setSelectedChannelIds([]);
+    setIsCreatingGroup(false);
+    setGroupName('');
+    setGroupDescription('');
+    setModelIDsText('');
+  }, [projectId]);
+
+  useEffect(() => {
+    if (canReadPolicy) return;
+    setSelectedGroupId(null);
+    setSelectedChannelIds([]);
+    setIsCreatingGroup(false);
+    setGroupName('');
+    setGroupDescription('');
+    setModelIDsText('');
+  }, [canReadPolicy]);
 
   useEffect(() => {
     if (!selectedGroupId && accessGroups?.length) {
@@ -257,8 +217,8 @@ export default function AccessGroups() {
     updateGroupVisibility.mutate({ group, visible });
   };
 
-  const makeExplicit = () => updatePolicy.mutate(explicitGroupNames);
   const startCreateGroup = () => {
+    if (!canEditPolicy) return;
     setIsCreatingGroup(true);
     setGroupName('');
     setGroupDescription('');
@@ -289,8 +249,8 @@ export default function AccessGroups() {
     );
   }
 
-  const isLoading = isLoadingGroups || isLoadingPolicy;
-  const isError = accessGroupsError || policyError;
+  const isLoading = isLoadingGroups;
+  const isError = accessGroupsError;
 
   return (
     <div className='space-y-6 p-6'>
@@ -299,55 +259,58 @@ export default function AccessGroups() {
           <h1 className='text-2xl font-semibold tracking-tight'>{t('accessGroups.title')}</h1>
           <p className='text-muted-foreground max-w-3xl text-sm'>{t('accessGroups.description')}</p>
           <div className='flex flex-wrap gap-2'>
-            <Badge variant={policy?.selfServiceEnabled ? 'default' : 'secondary'}>
-              {policy?.selfServiceEnabled ? t('accessGroups.badges.selfServiceOn') : t('accessGroups.badges.selfServiceOff')}
-            </Badge>
             <Badge variant='outline'>{projectName || t('accessGroups.badges.currentProject')}</Badge>
-            {exposesAll && <Badge variant='secondary'>{t('accessGroups.badges.wildcard')}</Badge>}
           </div>
         </div>
         <div className='flex flex-wrap gap-2'>
-          {exposesAll && (
-            <Button variant='outline' disabled={updatePolicy.isPending || !accessGroups?.length} onClick={makeExplicit}>
-              {updatePolicy.isPending ? <Loader2 className='h-4 w-4 animate-spin' /> : <ShieldCheck className='h-4 w-4' />}
-              {t('accessGroups.actions.makeExplicit')}
+          {canEditPolicy && (
+            <Button variant='outline' onClick={startCreateGroup}>
+              {t('accessGroups.actions.create')}
             </Button>
           )}
-          <Button variant='outline' onClick={startCreateGroup}>
-            {t('accessGroups.actions.create')}
-          </Button>
         </div>
       </div>
 
-      {isLoading && (
+      {!canReadPolicy && (
+        <div role='note' className='border-amber-500/40 bg-amber-500/5 rounded-md border p-4 text-sm'>
+          <div className='font-medium'>{t('accessGroups.permissions.readOnlyTitle')}</div>
+          <p className='text-muted-foreground mt-1'>{t('accessGroups.permissions.requiresPolicyRead')}</p>
+        </div>
+      )}
+
+      {canReadPolicy && isLoading && (
         <div className='flex h-32 items-center justify-center'>
           <Loader2 className='h-6 w-6 animate-spin' />
           <span className='text-muted-foreground ml-2'>{t('common.loading')}</span>
         </div>
       )}
 
-      {isError && (
+      {canReadPolicy && isError && (
         <Card>
           <CardHeader>
             <CardTitle>{t('accessGroups.errors.loadTitle')}</CardTitle>
-            <CardDescription>{t('accessGroups.errors.loadDescription')}</CardDescription>
+            <CardDescription>
+              {accessGroupsLoadError instanceof Error ? accessGroupsLoadError.message : t('accessGroups.errors.loadDescription')}
+            </CardDescription>
           </CardHeader>
         </Card>
       )}
 
-      {!isLoading && !isError && !accessGroups?.length && (
+      {canReadPolicy && !isLoading && !isError && !accessGroups?.length && (
         <Card>
           <CardHeader>
             <CardTitle>{t('accessGroups.empty.title')}</CardTitle>
             <CardDescription>{t('accessGroups.empty.description')}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button onClick={startCreateGroup}>{t('accessGroups.actions.create')}</Button>
-          </CardContent>
+          {canEditPolicy && (
+            <CardContent>
+              <Button onClick={startCreateGroup}>{t('accessGroups.actions.create')}</Button>
+            </CardContent>
+          )}
         </Card>
       )}
 
-      {(isCreatingGroup || selectedGroup) && (
+      {canReadPolicy && canEditPolicy && (isCreatingGroup || selectedGroup) && (
         <Card>
           <CardHeader>
             <CardTitle>{isCreatingGroup ? t('accessGroups.details.createTitle') : t('accessGroups.details.editTitle')}</CardTitle>
@@ -427,14 +390,14 @@ export default function AccessGroups() {
         </Card>
       )}
 
-      <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.85fr)]'>
+      {canReadPolicy && <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.85fr)]'>
         <div className='grid gap-4 lg:grid-cols-2 xl:grid-cols-1'>
           {accessGroups?.map((group) => {
             const visible = group.selfServiceVisible;
             const profile = primaryProfile(group);
             const modelCount = profile?.modelCount ?? 0;
             const tagCount = group.channelAssignment.tags?.length ?? 0;
-            const quotaSummary = describeQuota(profile);
+            const quotaSummary = describeQuota(profile, t);
             const modelPreview = profile?.modelPreview ?? [];
 
             return (
@@ -451,59 +414,74 @@ export default function AccessGroups() {
                   </div>
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                  <div className='grid gap-2 text-sm sm:grid-cols-3'>
-                    <SummaryBox
-                      label={t('accessGroups.card.models')}
-                      value={modelCount ? String(modelCount) : t('accessGroups.card.anyModel')}
-                    />
-                    <SummaryBox
-                      label={t('accessGroups.card.channels')}
-                      value={
-                        group.channelAssignment.channelCount
-                          ? String(group.channelAssignment.channelCount)
-                          : group.channelAssignment.tags?.length
-                            ? t('accessGroups.card.byTags')
-                            : t('accessGroups.card.noChannels')
-                      }
-                    />
-                    <SummaryBox label={t('accessGroups.card.tags')} value={tagCount ? String(tagCount) : t('accessGroups.card.noTags')} />
-                  </div>
-
-                  <div className='text-muted-foreground space-y-1 text-xs'>
-                    <div>
-                      {t('accessGroups.card.assignmentMode')}: {group.channelAssignment.mode || t('accessGroups.card.defaultStrategy')}
-                    </div>
-                    <div>
-                      {t('accessGroups.card.quota')}: {quotaSummary || t('accessGroups.card.noQuota')}
-                    </div>
-                    {group.channelAssignment.reason && (
-                      <div>
-                        {t('accessGroups.card.assignmentReason')}: {group.channelAssignment.reason}
+                  {channelPermissions.canRead && (
+                    <>
+                      <div className='grid gap-2 text-sm sm:grid-cols-3'>
+                        <SummaryBox
+                          label={t('accessGroups.card.models')}
+                          value={modelCount ? String(modelCount) : t('accessGroups.card.anyModel')}
+                        />
+                        <SummaryBox
+                          label={t('accessGroups.card.channels')}
+                          value={
+                            group.channelAssignment.channelCount
+                              ? String(group.channelAssignment.channelCount)
+                              : group.channelAssignment.tags?.length
+                                ? t('accessGroups.card.byTags')
+                                : t('accessGroups.card.noChannels')
+                          }
+                        />
+                        <SummaryBox
+                          label={t('accessGroups.card.tags')}
+                          value={tagCount ? String(tagCount) : t('accessGroups.card.noTags')}
+                        />
                       </div>
-                    )}
-                  </div>
 
-                  {modelPreview.length > 0 && (
-                    <div className='flex flex-wrap gap-1'>
-                      {modelPreview.map((modelID) => (
-                        <Badge key={`${group.id}-${modelID}`} variant='outline'>
-                          {modelID}
-                        </Badge>
-                      ))}
-                    </div>
+                      <div className='text-muted-foreground space-y-1 text-xs'>
+                      <div>
+                          {t('accessGroups.card.assignmentMode')}:{' '}
+                          {group.channelAssignment.mode || t('accessGroups.card.defaultStrategy')}
+                        </div>
+                        <div>
+                          {t('accessGroups.card.quota')}: {quotaSummary || t('accessGroups.card.noQuota')}
+                        </div>
+                        {group.channelAssignment.reason && (
+                          <div>
+                            {t('accessGroups.card.assignmentReason')}: {group.channelAssignment.reason}
+                          </div>
+                        )}
+                      </div>
+
+                      {modelPreview.length > 0 && (
+                        <div className='flex flex-wrap gap-1'>
+                          {modelPreview.map((modelID) => (
+                            <Badge key={`${group.id}-${modelID}`} variant='outline'>
+                              {modelID}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
 
                   <div className='flex flex-wrap gap-2'>
-                    <Button
-                      variant={visible ? 'outline' : 'default'}
-                      disabled={updateGroupVisibility.isPending}
-                      onClick={() => setGroupVisible(group, !visible)}
-                    >
-                      {visible ? t('accessGroups.actions.hide') : t('accessGroups.actions.expose')}
-                    </Button>
-                    <Button variant={selectedGroup?.id === group.id ? 'secondary' : 'outline'} onClick={() => setSelectedGroupId(group.id)}>
-                      {t('accessGroups.actions.manageChannels')}
-                    </Button>
+                    {canEditPolicy && (
+                      <Button
+                        variant={visible ? 'outline' : 'default'}
+                        disabled={updateGroupVisibility.isPending}
+                        onClick={() => setGroupVisible(group, !visible)}
+                      >
+                        {visible ? t('accessGroups.actions.hide') : t('accessGroups.actions.expose')}
+                      </Button>
+                    )}
+                    {channelPermissions.canRead && (
+                      <Button
+                        variant={selectedGroup?.id === group.id ? 'secondary' : 'outline'}
+                        onClick={() => setSelectedGroupId(group.id)}
+                      >
+                        {canEditPolicy ? t('accessGroups.actions.manageChannels') : t('accessGroups.actions.viewChannels')}
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -511,7 +489,7 @@ export default function AccessGroups() {
           })}
         </div>
 
-        {selectedGroup && (
+        {selectedGroup && channelPermissions.canRead && (
           <Card>
             <CardHeader>
               <div className='flex flex-wrap items-start justify-between gap-3'>
@@ -548,7 +526,7 @@ export default function AccessGroups() {
                     >
                       <Checkbox
                         checked={checked}
-                        disabled={assignChannels.isPending}
+                        disabled={!canEditPolicy || assignChannels.isPending}
                         onCheckedChange={(value) => toggleChannel(channel.id, Boolean(value))}
                         aria-label={t('accessGroups.channels.selectChannel', { name: channel.name })}
                       />
@@ -571,16 +549,18 @@ export default function AccessGroups() {
                   );
                 })}
               </div>
-              <div className='flex flex-wrap items-center gap-2'>
-                <Button disabled={assignChannels.isPending} onClick={() => assignChannels.mutate()}>
-                  {assignChannels.isPending ? t('accessGroups.channels.saving') : t('accessGroups.channels.save')}
-                </Button>
-                <p className='text-muted-foreground text-xs'>{t('accessGroups.channels.saveHint')}</p>
-              </div>
+              {canEditPolicy && (
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Button disabled={assignChannels.isPending} onClick={() => assignChannels.mutate()}>
+                    {assignChannels.isPending ? t('accessGroups.channels.saving') : t('accessGroups.channels.save')}
+                  </Button>
+                  <p className='text-muted-foreground text-xs'>{t('accessGroups.channels.saveHint')}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

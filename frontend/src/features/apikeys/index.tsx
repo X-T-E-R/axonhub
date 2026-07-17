@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { type DateTimeRangeValue } from '@/utils/date-range';
 import { useDebounce } from '@/hooks/use-debounce';
 import { usePaginationSearch } from '@/hooks/use-pagination-search';
 import { usePermissions } from '@/hooks/usePermissions';
-import { type DateTimeRangeValue } from '@/utils/date-range';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
@@ -38,15 +39,12 @@ function ApiKeysContent() {
   // Build where clause for API filtering
   const whereClause = (() => {
     const where: Record<string, unknown> = {};
-    
+
     // Use OR condition for searching both name and key
     if (debouncedSearchFilter) {
-      where.or = [
-        { nameContainsFold: debouncedSearchFilter },
-        { keyContainsFold: debouncedSearchFilter },
-      ];
+      where.or = [{ nameContainsFold: debouncedSearchFilter }, { keyContainsFold: debouncedSearchFilter }];
     }
-    
+
     if (activeTab !== 'all') {
       where.typeIn = [activeTab];
     }
@@ -59,32 +57,26 @@ function ApiKeysContent() {
     if (userFilter.length > 0 && userFilter[0]) {
       where.userID = userFilter[0]; // API expects single userID
     }
-    
+
     // Add AND condition to combine OR search with other filters
     if (where.or && (where.typeIn || where.statusIn || where.userID)) {
       const orCondition = where.or;
       delete where.or;
       return {
-        and: [
-          { or: orCondition },
-          where,
-        ],
+        and: [{ or: orCondition }, where],
       };
     }
-    
+
     return Object.keys(where).length > 0 ? where : undefined;
   })();
 
-  const { data, isLoading } = useApiKeys({
+  const { data, isLoading, isError, error } = useApiKeys({
     ...paginationArgs,
     where: whereClause,
     orderBy: { field: 'CREATED_AT', direction: 'DESC' },
   });
 
-  const tableData = React.useMemo(
-    () => (data?.edges?.map((edge) => edge.node) ?? []),
-    [data?.edges]
-  );
+  const tableData = React.useMemo(() => data?.edges?.map((edge) => edge.node) ?? [], [data?.edges]);
 
   // Reset cursor when filters change
   React.useEffect(() => {
@@ -142,28 +134,37 @@ function ApiKeysContent() {
         </TabsList>
       </Tabs>
       <div className='mt-6 flex min-h-0 flex-1 flex-col overflow-hidden'>
-        <ApiKeysTable
-          data={tableData}
-          loading={isLoading}
-          columns={columns}
-          pageInfo={data?.pageInfo}
-          pageSize={pageSize}
-          totalCount={data?.totalCount}
-          searchFilter={searchFilter}
-          statusFilter={statusFilter}
-          userFilter={userFilter}
-          dateRange={dateRange}
-          onNextPage={handleNextPage}
-          onPreviousPage={handlePreviousPage}
-          onPageSizeChange={handlePageSizeChange}
-          onSearchFilterChange={setSearchFilter}
-          onStatusFilterChange={setStatusFilter}
-          onUserFilterChange={setUserFilter}
-          onDateRangeChange={setDateRange}
-          onResetFilters={handleResetFilters}
-          canWrite={apiKeyPermissions.canWrite}
-          canViewCreators={canViewCreators}
-        />
+        {isError ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('apikeys.errors.loadTitle')}</CardTitle>
+              <CardDescription>{error instanceof Error ? error.message : t('apikeys.errors.loadDescription')}</CardDescription>
+            </CardHeader>
+          </Card>
+        ) : (
+          <ApiKeysTable
+            data={tableData}
+            loading={isLoading}
+            columns={columns}
+            pageInfo={data?.pageInfo}
+            pageSize={pageSize}
+            totalCount={data?.totalCount}
+            searchFilter={searchFilter}
+            statusFilter={statusFilter}
+            userFilter={userFilter}
+            dateRange={dateRange}
+            onNextPage={handleNextPage}
+            onPreviousPage={handlePreviousPage}
+            onPageSizeChange={handlePageSizeChange}
+            onSearchFilterChange={setSearchFilter}
+            onStatusFilterChange={setStatusFilter}
+            onUserFilterChange={setUserFilter}
+            onDateRangeChange={setDateRange}
+            onResetFilters={handleResetFilters}
+            canWrite={apiKeyPermissions.canWrite}
+            canViewCreators={canViewCreators}
+          />
+        )}
       </div>
     </div>
   );
@@ -171,6 +172,7 @@ function ApiKeysContent() {
 
 export default function ApiKeysManagement() {
   const { t } = useTranslation();
+  const { apiKeyPermissions } = usePermissions();
 
   return (
     <ApiKeysProvider>
@@ -178,16 +180,16 @@ export default function ApiKeysManagement() {
         <div className='flex flex-1 items-center justify-between'>
           <div>
             <h2 className='text-xl font-bold tracking-tight'>{t('apikeys.title')}</h2>
-            <p className='text-sm text-muted-foreground'>{t('apikeys.description')}</p>
+            <p className='text-muted-foreground text-sm'>{t('apikeys.description')}</p>
           </div>
-          <ApiKeysPrimaryButtons />
+          <ApiKeysPrimaryButtons canWrite={apiKeyPermissions.canWrite} />
         </div>
       </Header>
 
       <Main fixed>
         <ApiKeysContent />
       </Main>
-      <ApiKeysDialogs />
+      <ApiKeysDialogs canWrite={apiKeyPermissions.canWrite} />
     </ApiKeysProvider>
   );
 }

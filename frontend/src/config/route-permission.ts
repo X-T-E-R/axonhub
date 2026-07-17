@@ -38,11 +38,6 @@ export const routeConfigs: RouteGroup[] = [
         mode: 'hidden',
       },
       {
-        path: '/access-groups',
-        requiredScopes: ['read_settings'],
-        mode: 'hidden',
-      },
-      {
         path: '/roles',
         requiredScopes: ['read_roles'],
         mode: 'hidden',
@@ -87,6 +82,11 @@ export const routeConfigs: RouteGroup[] = [
     title: 'Project',
     scopeLevel: 'any', // Project 路由组可以通过 system-level 或 project-level 权限访问
     routes: [
+      {
+        path: '/project/access-groups',
+        requiredScopes: ['read_api_keys'],
+        mode: 'hidden',
+      },
       {
         path: '/project/api-keys',
         requiredScopes: ['read_api_keys'],

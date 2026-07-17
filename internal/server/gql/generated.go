@@ -2076,6 +2076,7 @@ type APIKeyProfileTemplateResolver interface {
 	ID(ctx context.Context, obj *ent.APIKeyProfileTemplate) (*objects.GUID, error)
 
 	ProjectID(ctx context.Context, obj *ent.APIKeyProfileTemplate) (*objects.GUID, error)
+	Profile(ctx context.Context, obj *ent.APIKeyProfileTemplate) (*objects.APIKeyProfile, error)
 }
 type ChannelResolver interface {
 	ID(ctx context.Context, obj *ent.Channel) (*objects.GUID, error)
@@ -16472,7 +16473,7 @@ func (ec *executionContext) _APIKeyProfileTemplate_profile(ctx context.Context, 
 		field,
 		ec.fieldContext_APIKeyProfileTemplate_profile,
 		func(ctx context.Context) (any, error) {
-			return obj.Profile, nil
+			return ec.resolvers.APIKeyProfileTemplate().Profile(ctx, obj)
 		},
 		nil,
 		ec.marshalOAPIKeyProfile2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐAPIKeyProfile,
@@ -16485,8 +16486,8 @@ func (ec *executionContext) fieldContext_APIKeyProfileTemplate_profile(_ context
 	fc = &graphql.FieldContext{
 		Object:     "APIKeyProfileTemplate",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
 			case "name":
@@ -89623,7 +89624,38 @@ func (ec *executionContext) _APIKeyProfileTemplate(ctx context.Context, sel ast.
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "profile":
-			out.Values[i] = ec._APIKeyProfileTemplate_profile(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._APIKeyProfileTemplate_profile(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "revision":
 			out.Values[i] = ec._APIKeyProfileTemplate_revision(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

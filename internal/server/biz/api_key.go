@@ -914,7 +914,8 @@ func (s *APIKeyService) BulkArchiveAPIKeys(ctx context.Context, ids []int) error
 // RotateAPIKey rotates an API key by generating a new key value while preserving all other properties.
 // This is useful when a key is compromised or when an employee leaves, without losing usage statistics.
 func (s *APIKeyService) RotateAPIKey(ctx context.Context, id int) (*ent.APIKey, error) {
-	existing, err := s.db.APIKey.Get(ctx, id)
+	client := s.entFromContext(ctx)
+	existing, err := client.APIKey.Get(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get API key: %w", err)
 	}
@@ -943,7 +944,7 @@ func (s *APIKeyService) RotateAPIKey(ctx context.Context, id int) (*ent.APIKey, 
 	oldKey := existing.Key
 
 	// Update the key field directly using Ent
-	rotated, err := s.db.APIKey.UpdateOneID(id).
+	rotated, err := client.APIKey.UpdateOneID(id).
 		SetKey(newKey).
 		Save(ctx)
 	if err != nil {

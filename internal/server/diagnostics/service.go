@@ -122,7 +122,8 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 	} else {
 		return nil, serviceError(401, "UNAUTHENTICATED", "unsupported principal")
 	}
-	if req.Include.Credentials && (principalType != "user" || !user.IsOwner) {
+	credentialsAuthorized := req.Include.Credentials && principalType == "user" && hasUser && user.IsOwner
+	if req.Include.Credentials && !credentialsAuthorized {
 		return nil, serviceError(403, "CREDENTIAL_EXPORT_FORBIDDEN", "credential export requires a system-owner user")
 	}
 	if req.Scope.SubjectUserID != nil {
@@ -288,7 +289,7 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 			return nil, coreDBError()
 		}
 		for _, row := range rows {
-			channelRecords = append(channelRecords, channelRecord(row, req.Include.Credentials))
+			channelRecords = append(channelRecords, channelRecord(row, credentialsAuthorized))
 		}
 		sections.Channels = sectionWithStatus(channelRecords, nil)
 	}
@@ -301,7 +302,7 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 			if row.AccessGroupID != nil {
 				groupIDs[*row.AccessGroupID] = struct{}{}
 			}
-			keyRecords = append(keyRecords, apiKeyRecord(row, req.Include.Credentials))
+			keyRecords = append(keyRecords, apiKeyRecord(row, credentialsAuthorized))
 		}
 		sections.APIKeys = sectionWithStatus(keyRecords, nil)
 	}
@@ -332,7 +333,7 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 	}
 	emittedStorageCount := 0
 	if requested["configuration"] {
-		configuration, qerr := s.configurationRecord(bypassCtx, req.Include.Credentials, storageIDs)
+		configuration, qerr := s.configurationRecord(bypassCtx, credentialsAuthorized, storageIDs)
 		if qerr != nil {
 			return nil, coreDBError()
 		}
@@ -373,7 +374,7 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 		}
 		nextCursor = &token
 	}
-	response := &PullResponse{Contract: ContractResponse{Name: ContractName, Major: ContractMajor, Minor: ContractMinor, SchemaSHA256: SchemaSHA256}, Bundle: Bundle{ID: bundleID, GeneratedAt: generated, PageIndex: pageIndex, PageGeneratedAt: now, Status: status}, Server: ServerInfo{Version: build.Version, Commit: build.Commit, BuildTime: nullableBuildTime(), UptimeSeconds: int64(time.Since(build.StartTime).Seconds())}, Authorization: Authorization{PrincipalType: principalType, PrincipalID: principalID, ProjectID: projectID, SubjectUserID: req.Scope.SubjectUserID, CredentialsIncluded: req.Include.Credentials, PersonalDataExcluded: principalType == "serviceAccount" || req.Scope.SubjectUserID == nil || (req.Scope.SubjectUserID != nil && *req.Scope.SubjectUserID != principalID)}, Selection: Selection{Selector: req.Selector, AsOf: generated, Order: "createdAtAsc,idAsc", RequestRefs: refs, Counts: Counts{Requests: len(requestRecords), Executions: len(executionRecords), Usage: len(usageRecords), Traces: len(traceRecords), Threads: len(threadRecords), Channels: len(channelRecords), APIKeys: len(keyRecords), AccessGroups: len(groupRecords)}, HasMore: hasMore, NextCursor: nextCursor}, Sections: sections, Issues: issues}
+	response := &PullResponse{Contract: ContractResponse{Name: ContractName, Major: ContractMajor, Minor: ContractMinor, SchemaSHA256: SchemaSHA256}, Bundle: Bundle{ID: bundleID, GeneratedAt: generated, PageIndex: pageIndex, PageGeneratedAt: now, Status: status}, Server: ServerInfo{Version: build.Version, Commit: build.Commit, BuildTime: nullableBuildTime(), UptimeSeconds: int64(time.Since(build.StartTime).Seconds())}, Authorization: Authorization{PrincipalType: principalType, PrincipalID: principalID, ProjectID: projectID, SubjectUserID: req.Scope.SubjectUserID, CredentialsIncluded: credentialsAuthorized, PersonalDataExcluded: principalType == "serviceAccount" || req.Scope.SubjectUserID == nil || (req.Scope.SubjectUserID != nil && *req.Scope.SubjectUserID != principalID)}, Selection: Selection{Selector: req.Selector, AsOf: generated, Order: "createdAtAsc,idAsc", RequestRefs: refs, Counts: Counts{Requests: len(requestRecords), Executions: len(executionRecords), Usage: len(usageRecords), Traces: len(traceRecords), Threads: len(threadRecords), Channels: len(channelRecords), APIKeys: len(keyRecords), AccessGroups: len(groupRecords)}, HasMore: hasMore, NextCursor: nextCursor}, Sections: sections, Issues: issues}
 	encoded, _ := json.Marshal(response)
 	if len(encoded) > limits.MaxResponseBytes {
 		return nil, serviceError(413, "RESPONSE_TOO_LARGE", "reduce maxRequests or increase maxResponseBytes within the hard limit")

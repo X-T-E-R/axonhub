@@ -72,6 +72,12 @@ converters:
 
 # This section declares type mapping between the GraphQL and Go type systems.
 models:
+  APIKeyProfileTemplate:
+    fields:
+      # Keep metadata queryable with read_api_keys, but resolve the full routing
+      # policy through an explicit read_channels authorization boundary.
+      profile:
+        resolver: true
   # Defines the ID field as Go 'int'.
   ID:
     model:

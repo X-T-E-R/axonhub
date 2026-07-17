@@ -9,6 +9,8 @@ export type ApiKeyType = z.infer<typeof apiKeyTypeSchema>;
 // API Key Status
 export const apiKeyStatusSchema = z.enum(['enabled', 'disabled', 'archived']);
 export type ApiKeyStatus = z.infer<typeof apiKeyStatusSchema>;
+export const apiKeyProvisioningSourceSchema = z.enum(['admin', 'self_service', 'legacy_unknown']);
+export const apiKeyProfileModeSchema = z.enum(['snapshot', 'access_group']);
 
 export const channelTagsMatchModeSchema = z.enum(['any', 'all', 'none']);
 export type ChannelTagsMatchMode = z.infer<typeof channelTagsMatchModeSchema>;
@@ -31,6 +33,10 @@ export const apiKeySchema = z.object({
   name: z.string(),
   type: apiKeyTypeSchema,
   status: apiKeyStatusSchema,
+  provisioningSource: apiKeyProvisioningSourceSchema,
+  profileMode: apiKeyProfileModeSchema,
+  accessGroupID: z.string().optional().nullable(),
+  accessGroupRevision: z.number().optional().nullable(),
   scopes: z.array(z.string()).optional().nullable(),
   // Optional profiles for detailed view (may be omitted in list queries)
   profiles: z

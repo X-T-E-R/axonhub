@@ -35,7 +35,7 @@ interface ApiRequestOptions {
   requireAuth?: boolean;
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
@@ -276,6 +276,7 @@ export interface SelfRoutingPreset {
 
 export interface SelfAPIKey {
   id: number;
+  projectId: number;
   name: string;
   status: string;
   type: string;
@@ -284,6 +285,15 @@ export interface SelfAPIKey {
   activeProfile: string;
   quotaSummary?: SelfQuotaSummary;
   key?: string;
+  provisioningSource: 'admin' | 'self_service' | 'legacy_unknown';
+  profileMode: 'snapshot' | 'access_group';
+  accessGroupId?: number;
+  accessGroupRevision?: number;
+}
+
+export interface SelfAPIKeyReveal {
+  key: string;
+  revealedAt: string;
 }
 
 export interface SelfModel {
@@ -341,6 +351,28 @@ export interface SelfRequest {
   stream: boolean;
   latencyMs?: number;
   detailsVisible: boolean;
+}
+
+export interface SelfEvidenceState {
+  state: 'available' | 'notApplicable' | 'notPersisted' | 'storageUnavailable' | 'legacyUnknown' | string;
+  source: string;
+}
+
+export interface SelfEvidenceAvailability {
+  requestHeaders: SelfEvidenceState;
+  requestBody: SelfEvidenceState;
+  responseBody: SelfEvidenceState;
+  responseChunks: SelfEvidenceState;
+}
+
+export interface SelfRequestDetail {
+  request: Record<string, unknown>;
+  executions: Record<string, unknown>[];
+  usage: Record<string, unknown>[];
+  trace?: Record<string, unknown>;
+  thread?: Record<string, unknown>;
+  evidenceAvailability: SelfEvidenceAvailability;
+  executionAvailability: Array<{ executionId: number; evidence: SelfEvidenceAvailability }>;
 }
 
 export interface SelfUsage {
@@ -409,6 +441,22 @@ export const selfServiceApi = {
         requireAuth: true,
       })
     ),
+  revealAPIKey: (id: number): Promise<SelfAPIKeyReveal> =>
+    apiRequest<SelfAPIKeyReveal>(`/admin/self/api-keys/${id}/reveal`, {
+      method: 'POST',
+      requireAuth: true,
+    }),
+  classifyAPIKey: (
+    id: number,
+    input: { mode: 'personal_snapshot' | 'personal_access_group'; accessGroupId?: string }
+  ): Promise<SelfAPIKey> =>
+    dataOf(
+      apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/classify`, {
+        method: 'POST',
+        requireAuth: true,
+        body: input,
+      })
+    ),
   updateAPIKeyStatus: (id: number, status: string): Promise<SelfAPIKey> =>
     dataOf(
       apiRequest<{ data: SelfAPIKey }>(`/admin/self/api-keys/${id}/status`, {
@@ -439,6 +487,8 @@ export const selfServiceApi = {
       apiRequest<{ data: SelfRequest[] }>(`/admin/self/requests${paramsString ? `?${paramsString}` : ''}`, { requireAuth: true })
     );
   },
+  requestDetail: (id: number): Promise<SelfRequestDetail> =>
+    dataOf(apiRequest<{ data: SelfRequestDetail }>(`/admin/self/requests/${id}`, { requireAuth: true })),
   usage: (projectId?: string): Promise<SelfUsage> =>
     dataOf(
       apiRequest<{ data: SelfUsage }>(`/admin/self/usage${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`, {
@@ -476,6 +526,20 @@ export const accessGroupsApi = {
         method: 'PATCH',
         requireAuth: true,
         body: { channelIds },
+      })
+    ),
+};
+
+export const adminAPIKeyCoherenceApi = {
+  classifyLegacy: (
+    id: number,
+    input: { mode: 'admin' | 'personal_snapshot' | 'personal_access_group'; accessGroupId?: string }
+  ): Promise<SelfAPIKey> =>
+    dataOf(
+      apiRequest<{ data: SelfAPIKey }>(`/admin/api-keys/${id}/classify`, {
+        method: 'POST',
+        requireAuth: true,
+        body: input,
       })
     ),
 };

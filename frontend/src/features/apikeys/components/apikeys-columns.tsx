@@ -3,7 +3,7 @@ import { ColumnDef, Table, Row } from '@tanstack/react-table';
 import { Copy, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { cn, extractNumberID } from '@/lib/utils';
+import { extractNumberID } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table-column-header';
@@ -41,7 +41,11 @@ function ApiKeyCell({ apiKey, fullApiKey }: { apiKey: string; fullApiKey: ApiKey
   );
 }
 
-export const createColumns = (t: ReturnType<typeof useTranslation>['t'], canWrite: boolean = true, canViewCreators: boolean = false): ColumnDef<ApiKey>[] => [
+export const createColumns = (
+  t: ReturnType<typeof useTranslation>['t'],
+  canWrite: boolean = true,
+  canViewCreators: boolean = false
+): ColumnDef<ApiKey>[] => [
   ...(canWrite
     ? [
         {
@@ -163,6 +167,21 @@ export const createColumns = (t: ReturnType<typeof useTranslation>['t'], canWrit
     },
     filterFn: (row, _id, value) => {
       return value.includes(row.getValue('status'));
+    },
+    enableSorting: false,
+  },
+  {
+    accessorKey: 'provisioningSource',
+    header: ({ column }) => <DataTableColumnHeader column={column} title={t('apikeys.columns.provisioning')} />,
+    cell: ({ row }) => {
+      const source = row.original.provisioningSource;
+      const label =
+        source === 'legacy_unknown'
+          ? t('apikeys.provisioning.legacyUnknown')
+          : source === 'self_service'
+            ? t('apikeys.provisioning.selfService')
+            : t('apikeys.provisioning.admin');
+      return <div className={source === 'legacy_unknown' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}>{label}</div>;
     },
     enableSorting: false,
   },

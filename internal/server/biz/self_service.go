@@ -1005,6 +1005,10 @@ func (s *APIKeyService) MyUsage(ctx context.Context, projectID int) (MyUsageSumm
 }
 
 func (s *APIKeyService) ListAdminAccessGroups(ctx context.Context, projectID int) ([]AdminAccessGroup, error) {
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return nil, err
+	}
+
 	if projectID <= 0 {
 		return nil, fmt.Errorf("project is required")
 	}
@@ -1032,6 +1036,13 @@ func (s *APIKeyService) ListAdminAccessGroups(ctx context.Context, projectID int
 }
 
 func (s *APIKeyService) CreateAdminAccessGroup(ctx context.Context, input AdminAccessGroupInput) (AdminAccessGroup, error) {
+	if err := requireAccessGroupPolicyWrite(ctx); err != nil {
+		return AdminAccessGroup{}, err
+	}
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return AdminAccessGroup{}, err
+	}
+
 	if input.ProjectID <= 0 {
 		return AdminAccessGroup{}, fmt.Errorf("project is required")
 	}
@@ -1078,6 +1089,10 @@ func (s *APIKeyService) CreateAdminAccessGroup(ctx context.Context, input AdminA
 }
 
 func (s *APIKeyService) GetAdminAccessGroup(ctx context.Context, id int) (AdminAccessGroup, error) {
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return AdminAccessGroup{}, err
+	}
+
 	template, err := s.entFromContext(ctx).APIKeyProfileTemplate.Get(ctx, id)
 	if err != nil {
 		return AdminAccessGroup{}, fmt.Errorf("failed to get access group: %w", err)
@@ -1089,6 +1104,10 @@ func (s *APIKeyService) GetAdminAccessGroup(ctx context.Context, id int) (AdminA
 }
 
 func (s *APIKeyService) UpdateAdminAccessGroup(ctx context.Context, id int, input AdminAccessGroupInput) (AdminAccessGroup, error) {
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return AdminAccessGroup{}, err
+	}
+
 	var updated *ent.APIKeyProfileTemplate
 	var affected []*ent.APIKey
 	err := s.RunInTransaction(ctx, func(txCtx context.Context) error {
@@ -1122,6 +1141,10 @@ func (s *APIKeyService) UpdateAdminAccessGroup(ctx context.Context, id int, inpu
 }
 
 func (s *APIKeyService) AddChannelsToAccessGroup(ctx context.Context, accessGroupID int, channelIDs []int) (AdminAccessGroup, error) {
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return AdminAccessGroup{}, err
+	}
+
 	if accessGroupID <= 0 {
 		return AdminAccessGroup{}, fmt.Errorf("access group is required")
 	}

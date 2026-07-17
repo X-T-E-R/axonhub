@@ -99,7 +99,7 @@ func TestSelfServiceHandlers_GetRequestUsesStableDisabledError(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `"type":"SELF_SERVICE_REQUEST_DETAILS_DISABLED"`)
 }
 
-func TestSelfServiceHandlers_ListAdminAccessGroupsUsesQueryProjectIDForProjectScopedAdmin(t *testing.T) {
+func TestSelfServiceHandlers_ListAdminAccessGroupsRequiresReadChannels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
@@ -166,6 +166,19 @@ func TestSelfServiceHandlers_ListAdminAccessGroupsUsesQueryProjectIDForProjectSc
 
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/admin/access-groups?project_id=%d", testProject.ID), nil)
 	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Contains(t, recorder.Body.String(), string(scopes.ScopeReadChannels))
+
+	// The same project-scoped admin can read the full policy projection only
+	// after read_channels is present alongside read_api_keys.
+	adminUserWithEdges.Edges.ProjectUsers[0].Scopes = append(
+		adminUserWithEdges.Edges.ProjectUsers[0].Scopes,
+		string(scopes.ScopeReadChannels),
+	)
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/admin/access-groups?project_id=%d", testProject.ID), nil)
+	recorder = httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -280,7 +293,7 @@ func TestSelfServiceHandlers_AddChannelsToAccessGroupUsesAccessGroupProjectConte
 		SetEmail("project-admin-assign@example.com").
 		SetPassword("password").
 		SetStatus(user.StatusActivated).
-		SetScopes([]string{string(scopes.ScopeReadChannels), string(scopes.ScopeWriteChannels)}).
+		SetScopes([]string{string(scopes.ScopeWriteChannels)}).
 		Save(setupCtx)
 	require.NoError(t, err)
 
@@ -333,6 +346,19 @@ func TestSelfServiceHandlers_AddChannelsToAccessGroupUsesAccessGroupProjectConte
 	req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/admin/access-groups/%d/channels", template.ID), bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Contains(t, recorder.Body.String(), string(scopes.ScopeReadChannels))
+
+	unchangedTemplate, err := client.APIKeyProfileTemplate.Get(setupCtx, template.ID)
+	require.NoError(t, err)
+	require.Empty(t, unchangedTemplate.Profile.ChannelIDs)
+
+	adminUserWithEdges.Scopes = append(adminUserWithEdges.Scopes, string(scopes.ScopeReadChannels))
+	req = httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/admin/access-groups/%d/channels", template.ID), bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 
 	require.Equal(t, http.StatusOK, recorder.Code)

@@ -36,6 +36,10 @@ func NewAPIKeyProfileTemplateService(params APIKeyProfileTemplateServiceParams) 
 }
 
 func (s *APIKeyProfileTemplateService) CreateTemplate(ctx context.Context, input ent.CreateAPIKeyProfileTemplateInput, profile *objects.APIKeyProfile) (*ent.APIKeyProfileTemplate, error) {
+	if err := requireAccessGroupPolicyWrite(ctx); err != nil {
+		return nil, err
+	}
+
 	if profile != nil {
 		profile.Name = input.Name
 	}
@@ -67,6 +71,10 @@ func (s *APIKeyProfileTemplateService) CreateTemplate(ctx context.Context, input
 }
 
 func (s *APIKeyProfileTemplateService) GetTemplate(ctx context.Context, id int) (*ent.APIKeyProfileTemplate, error) {
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return nil, err
+	}
+
 	client := s.entFromContext(ctx)
 
 	template, err := client.APIKeyProfileTemplate.Get(ctx, id)
@@ -82,10 +90,16 @@ func (s *APIKeyProfileTemplateService) GetTemplate(ctx context.Context, id int) 
 //
 // Like APIKeyService.GetForRead, it goes through the context-bound ent client
 // so the APIKeyProfileTemplate privacy policy runs: an API key principal must
-// hold read_api_keys and is filtered to templates inside its own project, where
-// names are unique (DB index on project_id+name) — so a name identifies at most
-// one template and foreign templates surface as NotFound.
+// hold read_api_keys, while this service also requires read_channels before
+// returning the full profile. Queries remain filtered to templates inside the
+// principal's own project, where names are unique (DB index on
+// project_id+name) — so a name identifies at most one template and foreign
+// templates surface as NotFound.
 func (s *APIKeyProfileTemplateService) GetForRead(ctx context.Context, id *int, name *string) (*ent.APIKeyProfileTemplate, error) {
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return nil, err
+	}
+
 	if (id == nil) == (name == nil) {
 		return nil, fmt.Errorf("exactly one of template id or name must be provided")
 	}
@@ -109,6 +123,10 @@ func (s *APIKeyProfileTemplateService) GetForRead(ctx context.Context, id *int, 
 }
 
 func (s *APIKeyProfileTemplateService) ListTemplates(ctx context.Context, projectID int) ([]*ent.APIKeyProfileTemplate, error) {
+	if err := requireAccessGroupPolicyRead(ctx); err != nil {
+		return nil, err
+	}
+
 	client := s.entFromContext(ctx)
 
 	templates, err := client.APIKeyProfileTemplate.Query().
@@ -163,6 +181,10 @@ func (s *APIKeyProfileTemplateService) UpdateTemplate(ctx context.Context, id in
 }
 
 func (s *APIKeyProfileTemplateService) DeleteTemplate(ctx context.Context, id int) (*ent.APIKeyProfileTemplate, error) {
+	if err := requireAccessGroupPolicyWrite(ctx); err != nil {
+		return nil, err
+	}
+
 	var template *ent.APIKeyProfileTemplate
 	err := s.RunInTransaction(ctx, func(ctx context.Context) error {
 		client := s.entFromContext(ctx)
@@ -195,6 +217,10 @@ func (s *APIKeyProfileTemplateService) DeleteTemplate(ctx context.Context, id in
 }
 
 func (s *APIKeyProfileTemplateService) LoadTemplate(ctx context.Context, templateID, apiKeyID int) (*ent.APIKey, error) {
+	if err := requireAccessGroupPolicyWrite(ctx); err != nil {
+		return nil, err
+	}
+
 	var updatedKey *ent.APIKey
 	err := s.RunInTransaction(ctx, func(ctx context.Context) error {
 		client := s.entFromContext(ctx)

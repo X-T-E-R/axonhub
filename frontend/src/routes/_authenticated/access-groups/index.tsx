@@ -1,15 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { RouteGuard } from '@/components/route-guard';
-import AccessGroups from '@/features/access-groups';
-
-function ProtectedAccessGroups() {
-  return (
-    <RouteGuard routePath='/access-groups'>
-      <AccessGroups />
-    </RouteGuard>
-  );
-}
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_authenticated/access-groups/')({
-  component: ProtectedAccessGroups,
+  beforeLoad: () => {
+    throw redirect({ to: '/project/access-groups', replace: true });
+  },
 });
