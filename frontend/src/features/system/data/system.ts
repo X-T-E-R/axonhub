@@ -455,7 +455,6 @@ export function useBrandSettings(options: { enabled?: boolean } = {}) {
 
   return useQuery({
     queryKey: ['brandSettings'],
-    enabled: options?.enabled,
     queryFn: async () => {
       try {
         const data = await graphqlRequest<{ brandSettings: BrandSettings }>(BRAND_SETTINGS_QUERY);
