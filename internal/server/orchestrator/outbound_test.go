@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -15,7 +16,9 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/enttest"
+	"github.com/looplj/axonhub/internal/ent/hook"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/objects"
@@ -34,6 +37,7 @@ type mockTransformer struct {
 	aggregatedMeta     llm.ResponseMeta
 	aggregatedErr      error
 	apiFormat          llm.APIFormat
+	aggregateCalls     int
 }
 
 func (m *mockTransformer) TransformRequest(ctx context.Context, req *llm.Request) (*httpclient.Request, error) {
@@ -67,6 +71,7 @@ func (m *mockTransformer) TransformError(ctx context.Context, err *httpclient.Er
 }
 
 func (m *mockTransformer) AggregateStreamChunks(ctx context.Context, _ *httpclient.Request, chunks []*httpclient.StreamEvent) ([]byte, llm.ResponseMeta, error) {
+	m.aggregateCalls++
 	return m.aggregatedResponse, m.aggregatedMeta, m.aggregatedErr
 }
 
@@ -707,6 +712,20 @@ type sliceEventStream struct {
 	closed bool
 }
 
+func createOutboundTestPrimaryDataStorage(t *testing.T, ctx context.Context, client *ent.Client) {
+	t.Helper()
+
+	_, err := client.DataStorage.Create().
+		SetName("outbound-test-primary").
+		SetDescription("outbound test primary storage").
+		SetPrimary(true).
+		SetType(datastorage.TypeDatabase).
+		SetSettings(&objects.DataStorageSettings{}).
+		SetStatus(datastorage.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+}
+
 func (s *sliceEventStream) Next() bool {
 	if s.index >= len(s.events) {
 		return false
@@ -742,9 +761,11 @@ func TestOutboundPersistentStream_Close_AggregatedResponsesCompletionHandling(t 
 		defer client.Close()
 
 		ctx := ent.NewContext(ctx, client)
+		createOutboundTestPrimaryDataStorage(t, ctx, client)
 		project := createTestProject(t, ctx, client)
 		ch := createTestChannel(t, ctx, client)
-		_, requestService, _, usageLogService := setupTestServices(t, client)
+		_, requestService, systemService, usageLogService := setupTestServices(t, client)
+		require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{StoreChunks: true}))
 
 		req, err := client.Request.Create().
 			SetProjectID(project.ID).
@@ -787,7 +808,137 @@ func TestOutboundPersistentStream_Close_AggregatedResponsesCompletionHandling(t 
 		require.NotEqual(t, requestexecution.StatusCompleted, dbExec.Status)
 		require.Equal(t, requestexecution.StatusFailed, dbExec.Status)
 		require.Contains(t, dbExec.ErrorMessage, "stream ended without terminal event or completed response")
+		require.Empty(t, dbExec.ResponseBody)
+		require.Empty(t, dbExec.ExternalID)
+		chunks, err := requestService.LoadRequestExecutionResponseChunks(ctx, dbExec)
+		require.NoError(t, err)
+		require.Len(t, chunks, 1)
+		require.JSONEq(t, `{"event":"response.in_progress","data":{"type":"response.in_progress"}}`, string(chunks[0]))
+		usageCount, err := client.UsageLog.Query().Count(ctx)
+		require.NoError(t, err)
+		require.Zero(t, usageCount)
+		require.Equal(t, 1, transformer.aggregateCalls, "failure persistence must not aggregate chunks again")
 		require.False(t, state.StreamCompleted)
+	})
+
+	t.Run("explicit stream error preserves chunks without completing", func(t *testing.T) {
+		client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+		defer client.Close()
+
+		ctx := ent.NewContext(ctx, client)
+		createOutboundTestPrimaryDataStorage(t, ctx, client)
+		project := createTestProject(t, ctx, client)
+		ch := createTestChannel(t, ctx, client)
+		_, requestService, systemService, usageLogService := setupTestServices(t, client)
+		require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{StoreChunks: true}))
+
+		req, err := client.Request.Create().
+			SetProjectID(project.ID).
+			SetChannelID(ch.ID).
+			SetModelID("gpt-4.1").
+			SetStatus(request.StatusPending).
+			SetRequestBody([]byte(`{"stream":true}`)).
+			Save(ctx)
+		require.NoError(t, err)
+
+		exec, err := client.RequestExecution.Create().
+			SetRequestID(req.ID).
+			SetProjectID(project.ID).
+			SetChannelID(ch.ID).
+			SetModelID("gpt-4.1").
+			SetRequestBody([]byte(`{"stream":true}`)).
+			SetFormat("openai/responses").
+			SetStatus(requestexecution.StatusProcessing).
+			SetStream(true).
+			Save(ctx)
+		require.NoError(t, err)
+
+		streamErr := errors.New("upstream stream failed")
+		stream := &sliceEventStream{
+			events: []*httpclient.StreamEvent{{Type: "response.output_text.delta", Data: []byte(`{"type":"response.output_text.delta","delta":"partial"}`)}},
+			err:    streamErr,
+		}
+		transformer := &mockTransformer{
+			apiFormat:          llm.APIFormatOpenAIResponse,
+			aggregatedResponse: []byte(`{"id":"must-not-be-persisted","status":"completed"}`),
+			aggregatedMeta: llm.ResponseMeta{
+				ID:        "must-not-be-persisted",
+				Completed: true,
+				Usage: &llm.Usage{
+					CompletionTokens: 1,
+				},
+			},
+		}
+		state := &PersistenceState{}
+
+		persistentStream := NewOutboundPersistentStream(ctx, stream, req, exec, requestService, usageLogService, transformer, nil, state)
+		for persistentStream.Next() {
+			_ = persistentStream.Current()
+		}
+		require.NoError(t, persistentStream.Close())
+
+		dbExec, err := client.RequestExecution.Get(ctx, exec.ID)
+		require.NoError(t, err)
+		require.Equal(t, requestexecution.StatusFailed, dbExec.Status)
+		require.Equal(t, streamErr.Error(), dbExec.ErrorMessage)
+		require.Empty(t, dbExec.ResponseBody)
+		require.Empty(t, dbExec.ExternalID)
+		chunks, err := requestService.LoadRequestExecutionResponseChunks(ctx, dbExec)
+		require.NoError(t, err)
+		require.Len(t, chunks, 1)
+		require.JSONEq(t, `{"event":"response.output_text.delta","data":{"type":"response.output_text.delta","delta":"partial"}}`, string(chunks[0]))
+		usageCount, err := client.UsageLog.Query().Count(ctx)
+		require.NoError(t, err)
+		require.Zero(t, usageCount)
+		require.Zero(t, transformer.aggregateCalls)
+		require.False(t, state.StreamCompleted)
+
+		blockedExec, err := client.RequestExecution.Create().
+			SetRequestID(req.ID).
+			SetProjectID(project.ID).
+			SetChannelID(ch.ID).
+			SetModelID("gpt-4.1").
+			SetRequestBody([]byte(`{"stream":true}`)).
+			SetFormat("openai/responses").
+			SetStatus(requestexecution.StatusProcessing).
+			SetStream(true).
+			Save(ctx)
+		require.NoError(t, err)
+
+		chunkWriteErr := errors.New("injected chunk persistence failure")
+		var statusObservedByChunkWrite requestexecution.Status
+		client.RequestExecution.Use(func(next ent.Mutator) ent.Mutator {
+			return hook.RequestExecutionFunc(func(hookCtx context.Context, mutation *ent.RequestExecutionMutation) (ent.Value, error) {
+				if _, writesChunks := mutation.ResponseChunks(); !writesChunks {
+					return next.Mutate(hookCtx, mutation)
+				}
+
+				executionID, ok := mutation.ID()
+				require.True(t, ok)
+				current, queryErr := client.RequestExecution.Get(hookCtx, executionID)
+				require.NoError(t, queryErr)
+				statusObservedByChunkWrite = current.Status
+
+				return nil, chunkWriteErr
+			})
+		})
+
+		blockedStream := &sliceEventStream{
+			events: []*httpclient.StreamEvent{{Type: "response.output_text.delta", Data: []byte(`{"type":"response.output_text.delta","delta":"partial"}`)}},
+			err:    streamErr,
+		}
+		blockedPersistentStream := NewOutboundPersistentStream(ctx, blockedStream, req, blockedExec, requestService, usageLogService, transformer, nil, &PersistenceState{})
+		for blockedPersistentStream.Next() {
+			_ = blockedPersistentStream.Current()
+		}
+		require.NoError(t, blockedPersistentStream.Close())
+
+		blockedDBExec, err := client.RequestExecution.Get(ctx, blockedExec.ID)
+		require.NoError(t, err)
+		require.Equal(t, requestexecution.StatusFailed, statusObservedByChunkWrite, "terminal status must be stored before chunk persistence starts")
+		require.Equal(t, requestexecution.StatusFailed, blockedDBExec.Status)
+		require.Equal(t, streamErr.Error(), blockedDBExec.ErrorMessage)
+		require.Empty(t, blockedDBExec.ResponseChunks)
 	})
 
 	t.Run("aggregated completed response without terminal event is completed", func(t *testing.T) {

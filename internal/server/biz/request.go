@@ -1625,8 +1625,15 @@ func (s *RequestService) LoadRequestExecutionResponseChunks(ctx context.Context,
 		chunks := s.LiveStreamRegistry.GetExecutionChunks(exec.ID)
 		return chunks, nil
 	}
-	// Only load response body if execution is completed
-	if !exec.Stream || exec.Status != requestexecution.StatusCompleted {
+	// Stored chunks are meaningful only for terminal streaming executions. Active
+	// processing executions continue to use the live registry above, while pending
+	// executions must not expose stale or pre-populated data.
+	if !exec.Stream {
+		return []objects.JSONRawMessage{}, nil
+	}
+	switch exec.Status {
+	case requestexecution.StatusCompleted, requestexecution.StatusFailed, requestexecution.StatusCanceled:
+	default:
 		return []objects.JSONRawMessage{}, nil
 	}
 

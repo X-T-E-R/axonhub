@@ -127,14 +127,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	// was incomplete or corrupted.
 	if streamErr != nil && !errors.Is(streamErr, context.Canceled) && !errors.Is(streamErr, context.DeadlineExceeded) {
 		ts.logFinalizationDecision(ctx, "explicit_stream_error", streamErr, ctxErr, false, nil)
-		persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
-		if ts.requestExec != nil {
-			if err := ts.RequestService.UpdateRequestExecutionStatusFromError(persistCtx, ts.requestExec.ID, streamErr); err != nil {
-				log.Warn(persistCtx, "Failed to update request execution status from error", log.Cause(err))
-			}
-		}
+		ts.persistTerminalStreamFailure(ctx, streamErr)
 
 		return ts.stream.Close()
 	}
@@ -159,8 +152,6 @@ func (ts *OutboundPersistentStream) Close() error {
 	// ended without a terminal event / complete aggregated response.
 	if (ctxErr != nil || streamErr != nil) && !ts.state.StreamCompleted {
 		ts.logFinalizationDecision(ctx, "incomplete_stream_with_error", streamErr, ctxErr, aggregatedCompleted, aggErr)
-		persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-		defer cancel()
 
 		errToReport := streamErr
 		if errToReport == nil {
@@ -170,26 +161,15 @@ func (ts *OutboundPersistentStream) Close() error {
 			errToReport = errors.New("stream ended without terminal event or completed response")
 		}
 
-		if ts.requestExec != nil {
-			if err := ts.RequestService.UpdateRequestExecutionStatusFromError(persistCtx, ts.requestExec.ID, errToReport); err != nil {
-				log.Warn(persistCtx, "Failed to update request execution status from error", log.Cause(err))
-			}
-		}
+		ts.persistTerminalStreamFailure(ctx, errToReport)
 
 		return ts.stream.Close()
 	}
 
 	if !ts.state.StreamCompleted {
 		ts.logFinalizationDecision(ctx, "incomplete_stream_without_terminal_event", streamErr, ctxErr, aggregatedCompleted, aggErr)
-		persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
 		errToReport := errors.New("stream ended without terminal event or completed response")
-		if ts.requestExec != nil {
-			if err := ts.RequestService.UpdateRequestExecutionStatusFromError(persistCtx, ts.requestExec.ID, errToReport); err != nil {
-				log.Warn(persistCtx, "Failed to update request execution status from error", log.Cause(err))
-			}
-		}
+		ts.persistTerminalStreamFailure(ctx, errToReport)
 
 		return ts.stream.Close()
 	}
@@ -209,6 +189,35 @@ func (ts *OutboundPersistentStream) Close() error {
 	}
 
 	return ts.stream.Close()
+}
+
+func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Context, streamErr error) {
+	if ts.requestExec == nil {
+		return
+	}
+
+	// Give the terminal status its own persistence budget and store it first. A
+	// blocked external chunk write must not leave the execution processing.
+	statusCtx, cancelStatus := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	if err := ts.RequestService.UpdateRequestExecutionStatusFromError(statusCtx, ts.requestExec.ID, streamErr); err != nil {
+		log.Warn(statusCtx, "Failed to update request execution status from error", log.Cause(err))
+	}
+	cancelStatus()
+
+	var channel *biz.Channel
+	if ts.state != nil && ts.state.CurrentCandidate != nil {
+		channel = ts.state.CurrentCandidate.Channel
+	}
+
+	chunksCtx, cancelChunks := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	defer cancelChunks()
+
+	// Preserve the captured chunks through the normal storage and filtering policy.
+	// Do not aggregate them here: aggregation can produce response-body, completion,
+	// usage, and latency side effects that are valid only for completed streams.
+	if err := ts.RequestService.SaveRequestExecutionChunksForChannel(chunksCtx, ts.requestExec.ID, ts.responseChunks, channel); err != nil {
+		log.Warn(chunksCtx, "Failed to save failed request execution chunks", log.Cause(err))
+	}
 }
 
 func (ts *OutboundPersistentStream) logFinalizationDecision(ctx context.Context, decision string, streamErr error, ctxErr error, aggregatedCompleted bool, aggregatedErr error) {

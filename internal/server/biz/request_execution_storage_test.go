@@ -10,11 +10,13 @@ import (
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	entchannel "github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/chunkbuffer"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -44,6 +46,16 @@ func setupRequestExecutionStorageTest(t *testing.T) (*RequestService, *ent.Clien
 	proj, err := client.Project.Create().
 		SetName("request-execution-storage").
 		SetStatus(project.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = client.DataStorage.Create().
+		SetName("request-execution-storage-primary").
+		SetDescription("request execution storage test primary").
+		SetPrimary(true).
+		SetType(datastorage.TypeDatabase).
+		SetSettings(&objects.DataStorageSettings{}).
+		SetStatus(datastorage.StatusActive).
 		Save(ctx)
 	require.NoError(t, err)
 
@@ -86,8 +98,13 @@ func createStorageTestRequest(t *testing.T, ctx context.Context, client *ent.Cli
 
 func createStorageTestExecution(t *testing.T, ctx context.Context, client *ent.Client, proj *ent.Project, req *ent.Request, channel *Channel) *ent.RequestExecution {
 	t.Helper()
+	return createStorageTestExecutionWithDataStorage(t, ctx, client, proj, req, channel, 0)
+}
 
-	execution, err := client.RequestExecution.Create().
+func createStorageTestExecutionWithDataStorage(t *testing.T, ctx context.Context, client *ent.Client, proj *ent.Project, req *ent.Request, channel *Channel, dataStorageID int) *ent.RequestExecution {
+	t.Helper()
+
+	create := client.RequestExecution.Create().
 		SetProjectID(proj.ID).
 		SetRequestID(req.ID).
 		SetChannelID(channel.ID).
@@ -95,8 +112,12 @@ func createStorageTestExecution(t *testing.T, ctx context.Context, client *ent.C
 		SetFormat(string(llm.APIFormatOpenAIChatCompletion)).
 		SetRequestBody([]byte(`{"model":"gpt-4o"}`)).
 		SetStatus(requestexecution.StatusProcessing).
-		SetStream(req.Stream).
-		Save(ctx)
+		SetStream(req.Stream)
+	if dataStorageID != 0 {
+		create.SetDataStorageID(dataStorageID)
+	}
+
+	execution, err := create.Save(ctx)
 	require.NoError(t, err)
 
 	return execution
@@ -234,4 +255,97 @@ func TestRequestService_SaveRequestExecutionChunksCanEnableStoragePerChannel(t *
 	require.NoError(t, err)
 	require.Len(t, updated.ResponseChunks, 1)
 	require.Equal(t, "persist", updated.EvidenceDisposition.ResponseChunks.Intent)
+}
+
+func TestRequestService_LoadRequestExecutionResponseChunksByStatus(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+
+	channel := createStorageTestChannel(t, ctx, client, nil)
+	req := createStorageTestRequest(t, ctx, client, proj, true)
+	storedEvent := &httpclient.StreamEvent{Type: "message", Data: []byte(`{"delta":"stored"}`)}
+
+	for _, status := range []requestexecution.Status{
+		requestexecution.StatusCompleted,
+		requestexecution.StatusFailed,
+		requestexecution.StatusCanceled,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			execution := createStorageTestExecution(t, ctx, client, proj, req, channel)
+			require.NoError(t, svc.SaveRequestExecutionChunksForChannel(ctx, execution.ID, []*httpclient.StreamEvent{storedEvent}, channel))
+			execution, err := client.RequestExecution.UpdateOneID(execution.ID).SetStatus(status).Save(ctx)
+			require.NoError(t, err)
+
+			chunks, err := svc.LoadRequestExecutionResponseChunks(ctx, execution)
+			require.NoError(t, err)
+			require.Len(t, chunks, 1)
+			require.JSONEq(t, `{"event":"message","data":{"delta":"stored"}}`, string(chunks[0]))
+		})
+	}
+
+	t.Run("processing uses live chunks", func(t *testing.T) {
+		execution := createStorageTestExecution(t, ctx, client, proj, req, channel)
+		require.NoError(t, svc.SaveRequestExecutionChunksForChannel(ctx, execution.ID, []*httpclient.StreamEvent{storedEvent}, channel))
+		buffer := chunkbuffer.New()
+		require.True(t, buffer.Append(&httpclient.StreamEvent{Type: "message", Data: []byte(`{"delta":"live"}`)}))
+		svc.LiveStreamRegistry.RegisterExecution(execution.ID, buffer)
+
+		chunks, err := svc.LoadRequestExecutionResponseChunks(ctx, execution)
+		require.NoError(t, err)
+		require.Len(t, chunks, 1)
+		require.JSONEq(t, `{"event":"message","data":{"delta":"live"}}`, string(chunks[0]))
+	})
+
+	t.Run("pending does not expose stored chunks", func(t *testing.T) {
+		execution := createStorageTestExecution(t, ctx, client, proj, req, channel)
+		require.NoError(t, svc.SaveRequestExecutionChunksForChannel(ctx, execution.ID, []*httpclient.StreamEvent{storedEvent}, channel))
+		execution, err := client.RequestExecution.UpdateOneID(execution.ID).SetStatus(requestexecution.StatusPending).Save(ctx)
+		require.NoError(t, err)
+
+		chunks, err := svc.LoadRequestExecutionResponseChunks(ctx, execution)
+		require.NoError(t, err)
+		require.Empty(t, chunks)
+	})
+
+	t.Run("failed execution with no chunks remains empty", func(t *testing.T) {
+		execution := createStorageTestExecution(t, ctx, client, proj, req, channel)
+		execution, err := client.RequestExecution.UpdateOneID(execution.ID).SetStatus(requestexecution.StatusFailed).Save(ctx)
+		require.NoError(t, err)
+
+		chunks, err := svc.LoadRequestExecutionResponseChunks(ctx, execution)
+		require.NoError(t, err)
+		require.Empty(t, chunks)
+	})
+}
+
+func TestRequestService_LoadFailedExecutionResponseChunksFromExternalStorage(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+
+	dir := t.TempDir()
+	dataStorage, err := client.DataStorage.Create().
+		SetName("failed-execution-fs").
+		SetDescription("failed execution chunks").
+		SetPrimary(false).
+		SetType(datastorage.TypeFs).
+		SetSettings(&objects.DataStorageSettings{Directory: &dir}).
+		SetStatus(datastorage.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	channel := createStorageTestChannel(t, ctx, client, nil)
+	req := createStorageTestRequest(t, ctx, client, proj, true)
+	execution := createStorageTestExecutionWithDataStorage(t, ctx, client, proj, req, channel, dataStorage.ID)
+
+	require.NoError(t, svc.SaveRequestExecutionChunksForChannel(ctx, execution.ID, []*httpclient.StreamEvent{
+		{Type: "message", Data: []byte(`{"delta":"external partial"}`)},
+	}, channel))
+	execution, err = client.RequestExecution.UpdateOneID(execution.ID).SetStatus(requestexecution.StatusFailed).Save(ctx)
+	require.NoError(t, err)
+	require.Empty(t, execution.ResponseChunks)
+
+	chunks, err := svc.LoadRequestExecutionResponseChunks(ctx, execution)
+	require.NoError(t, err)
+	require.Len(t, chunks, 1)
+	require.JSONEq(t, `{"event":"message","data":{"delta":"external partial"}}`, string(chunks[0]))
 }
