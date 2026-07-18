@@ -4,6 +4,8 @@ package biz
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -190,6 +192,17 @@ func (s *RequestService) CreateRequest(
 		SetStream(isStream).
 		SetRequestHeaders(requestHeadersBytes)
 
+	now := time.Now().UTC()
+	disposition := &objects.EvidenceDisposition{Version: 1,
+		RequestBody:    objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now},
+		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
+		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
+	}
+	if !storeRequestBody {
+		disposition.RequestBody = objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
+	}
+	mut = mut.SetEvidenceDisposition(disposition)
+
 	if httpRequest != nil {
 		mut = mut.SetClientIP(httpRequest.ClientIP)
 	}
@@ -200,6 +213,13 @@ func (s *RequestService) CreateRequest(
 
 	// Determine if we should store in database or external storage
 	useExternalStorage := storeRequestBody && s.shouldUseExternalStorage(ctx, dataStorage)
+	if useExternalStorage {
+		disposition.RequestBody.Location = "external"
+		if dataStorage != nil {
+			disposition.RequestBody.StorageID = &dataStorage.ID
+		}
+		mut = mut.SetEvidenceDisposition(disposition)
+	}
 
 	if useExternalStorage {
 		// Set empty JSON for database, actual data will be in external storage
@@ -215,6 +235,20 @@ func (s *RequestService) CreateRequest(
 
 	if apiKey, ok := contexts.GetAPIKey(ctx); ok && apiKey != nil {
 		mut = mut.SetAPIKeyID(apiKey.ID)
+		profilesBytes, hashErr := canonicalJSON(apiKey.Profiles)
+		if hashErr == nil {
+			sum := sha256.Sum256(profilesBytes)
+			mut = mut.SetRoutingContext(&objects.RoutingContext{
+				Version:                 1,
+				APIKeyID:                apiKey.ID,
+				APIKeyType:              apiKey.Type.String(),
+				ProvisioningSource:      "native",
+				ProfileMode:             "inline",
+				EffectiveProfiles:       apiKey.Profiles,
+				EffectiveProfilesSHA256: hex.EncodeToString(sum[:]),
+				RequestedModelID:        llmRequest.Model,
+			})
+		}
 	}
 
 	if trace, ok := contexts.GetTrace(ctx); ok && trace != nil {
@@ -242,15 +276,50 @@ func (s *RequestService) CreateRequest(
 	// Save request body to external storage if needed
 	if useExternalStorage {
 		key := GenerateRequestBodyKey(projectID, req.ID)
+		disposition.RequestBody.StorageKey = &key
 
 		err := s.DataStorageService.SaveData(ctx, dataStorage, key, requestBodyBytes)
 		if err != nil {
 			log.Error(ctx, "Failed to save request body to external storage", log.Cause(err))
+			failureClass := "external_write_failed"
+			disposition.RequestBody.Outcome = "writeFailed"
+			disposition.RequestBody.FailureClass = &failureClass
 			// Continue anyway, don't fail the request creation
+		} else {
+			disposition.RequestBody.Outcome = "stored"
 		}
+		_, _ = client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		req.EvidenceDisposition = disposition
 	}
 
 	return req, nil
+}
+
+// canonicalJSON normalizes typed values through JSON's data model before the
+// final encoding. encoding/json deterministically orders object member names;
+// UseNumber avoids an intermediate float conversion for numeric lexemes.
+func canonicalJSON(value any) ([]byte, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var normalized any
+	if err := decoder.Decode(&normalized); err != nil {
+		return nil, err
+	}
+	var canonical bytes.Buffer
+	encoder := json.NewEncoder(&canonical)
+	// RFC 8785 uses JSON string escaping rather than encoding/json's
+	// optional HTML-safe escapes. APIKeyProfiles contain integer/decimal-string
+	// numeric values and fixed ASCII member names, so the remaining encoder
+	// behavior matches their JCS representation.
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(normalized); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(canonical.Bytes(), []byte("\n")), nil
 }
 
 // CreateRequestExecution creates a new request execution record.
@@ -331,6 +400,21 @@ func (s *RequestService) CreateRequestExecution(
 		SetStream(request.Stream).
 		SetRequestHeaders(requestHeadersBytes).
 		SetPassThroughApplied(passThroughApplied)
+	now := time.Now().UTC()
+	disposition := &objects.EvidenceDisposition{Version: 1,
+		RequestBody:    objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now},
+		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
+		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
+	}
+	if !storeRequestBody {
+		disposition.RequestBody = objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
+	} else if useExternalStorage {
+		disposition.RequestBody.Location = "external"
+		if dataStorage != nil {
+			disposition.RequestBody.StorageID = &dataStorage.ID
+		}
+	}
+	mut = mut.SetEvidenceDisposition(disposition)
 
 	if channelRequest.URL != "" {
 		mut = mut.SetRequestURL(channelRequest.URL)
@@ -366,12 +450,20 @@ func (s *RequestService) CreateRequestExecution(
 	// Save request body to external storage if needed
 	if useExternalStorage {
 		key := GenerateExecutionRequestBodyKey(request.ProjectID, request.ID, execution.ID)
+		disposition.RequestBody.StorageKey = &key
 
 		err := s.DataStorageService.SaveData(ctx, dataStorage, key, requestBodyBytes)
 		if err != nil {
 			log.Error(ctx, "Failed to save execution request body to external storage", log.Cause(err))
+			failureClass := "external_write_failed"
+			disposition.RequestBody.Outcome = "writeFailed"
+			disposition.RequestBody.FailureClass = &failureClass
 			// Continue anyway, don't fail the execution creation
+		} else {
+			disposition.RequestBody.Outcome = "stored"
 		}
+		_, _ = client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		execution.EvidenceDisposition = disposition
 	}
 
 	if selectedKeyMasked != "" {
@@ -398,6 +490,29 @@ func selectedChannelAPIKeyMasked(ctx context.Context, channel *Channel) string {
 	}
 
 	return ""
+}
+
+func evidenceDisposition(intent, location, outcome string, storage *ent.DataStorage, key *string) objects.Disposition {
+	disposition := objects.Disposition{Intent: intent, Location: location, Outcome: outcome, CapturedAt: time.Now().UTC(), StorageKey: key}
+	if storage != nil {
+		disposition.StorageID = &storage.ID
+	}
+	return disposition
+}
+
+func cloneEvidenceDisposition(current *objects.EvidenceDisposition) *objects.EvidenceDisposition {
+	if current != nil {
+		clone := *current
+		return &clone
+	}
+	failureClass := "legacy_missing_disposition"
+	now := time.Now().UTC()
+	return &objects.EvidenceDisposition{
+		Version:        1,
+		RequestBody:    objects.Disposition{Intent: "persist", Location: "none", Outcome: "writeFailed", CapturedAt: now, FailureClass: &failureClass},
+		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
+		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
+	}
 }
 
 // LatencyMetrics holds latency metrics for a request.
@@ -444,6 +559,7 @@ func (s *RequestService) UpdateRequestCompleted(
 	upd := client.Request.UpdateOneID(requestID).
 		SetStatus(request.StatusCompleted).
 		SetExternalID(externalId)
+	disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
 
 	// Set latency metrics if provided
 	if metrics != nil {
@@ -472,16 +588,24 @@ func (s *RequestService) UpdateRequestCompleted(
 			// Save to external storage
 			key := GenerateResponseBodyKey(req.ProjectID, requestID)
 
+			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 			err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes)
 			if err != nil {
 				log.Error(ctx, "Failed to save response body to external storage", log.Cause(err))
+				failureClass := "external_write_failed"
+				disposition.ResponseBody.Outcome = "writeFailed"
+				disposition.ResponseBody.FailureClass = &failureClass
 				// Continue anyway
 			}
 		} else {
 			// Store in database
 			upd = upd.SetResponseBody(responseBodyBytes)
+			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
 		}
+	} else {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	}
+	upd = upd.SetEvidenceDisposition(disposition)
 
 	_, err = upd.Save(ctx)
 	if err != nil {
@@ -535,6 +659,7 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 	upd := client.Request.UpdateOneID(requestID).
 		SetStatus(request.StatusCompleted).
 		SetExternalID(externalId)
+	disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
 
 	if metrics != nil {
 		if metrics.LatencyMs != nil {
@@ -559,12 +684,19 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 
 		if s.shouldUseExternalStorage(ctx, dataStorage) {
 			key := GenerateResponseBodyKey(req.ProjectID, requestID)
+			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 			if err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes); err != nil {
 				log.Error(ctx, "Failed to save response body to external storage", log.Cause(err))
+				failureClass := "external_write_failed"
+				disposition.ResponseBody.Outcome = "writeFailed"
+				disposition.ResponseBody.FailureClass = &failureClass
 			}
 		} else {
 			upd = upd.SetResponseBody(responseBodyBytes)
+			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
 		}
+	} else {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	}
 
 	// Persist the binary audio to external storage when one is configured.
@@ -581,7 +713,7 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 		}
 	}
 
-	_, err = upd.Save(ctx)
+	_, err = upd.SetEvidenceDisposition(disposition).Save(ctx)
 	if err != nil {
 		log.Error(ctx, "Failed to update audio request status to completed", log.Cause(err))
 		return err
@@ -629,6 +761,7 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
 	upd := client.Request.UpdateOneID(requestID).
 		SetStatus(status).
 		SetExternalID(externalId)
+	disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
 
 	// Set latency metrics if provided
 	if metrics != nil {
@@ -657,16 +790,24 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
 			// Save to external storage
 			key := GenerateResponseBodyKey(req.ProjectID, requestID)
 
+			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 			err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes)
 			if err != nil {
 				log.Error(ctx, "Failed to save response body to external storage", log.Cause(err))
+				failureClass := "external_write_failed"
+				disposition.ResponseBody.Outcome = "writeFailed"
+				disposition.ResponseBody.FailureClass = &failureClass
 				// Continue anyway
 			}
 		} else {
 			// Store in database
 			upd = upd.SetResponseBody(responseBodyBytes)
+			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
 		}
+	} else {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	}
+	upd = upd.SetEvidenceDisposition(disposition)
 
 	_, err = upd.Save(ctx)
 	if err != nil {
@@ -714,6 +855,7 @@ func (s *RequestService) UpdateRequestExecutionCompleted(
 	upd := client.RequestExecution.UpdateOneID(executionID).
 		SetStatus(requestexecution.StatusCompleted).
 		SetExternalID(externalId)
+	disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
 
 	// Set latency metrics if provided
 	if metrics != nil {
@@ -741,15 +883,23 @@ func (s *RequestService) UpdateRequestExecutionCompleted(
 			// Save to external storage
 			key := GenerateExecutionResponseBodyKey(execution.ProjectID, execution.RequestID, executionID)
 
+			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 			err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes)
 			if err != nil {
 				log.Error(ctx, "Failed to save execution response body to external storage", log.Cause(err))
+				failureClass := "external_write_failed"
+				disposition.ResponseBody.Outcome = "writeFailed"
+				disposition.ResponseBody.FailureClass = &failureClass
 			}
 		} else {
 			// Store in database
 			upd = upd.SetResponseBody(responseBodyBytes)
+			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
 		}
+	} else {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	}
+	upd = upd.SetEvidenceDisposition(disposition)
 
 	_, err = upd.Save(ctx)
 	if err != nil {
@@ -890,6 +1040,12 @@ func (s *RequestService) SaveRequestExecutionChunks(
 		return nil
 	}
 
+	client := s.entFromContext(ctx)
+	execution, err := client.RequestExecution.Get(ctx, executionID)
+	if err != nil {
+		return fmt.Errorf("failed to get request execution: %w", err)
+	}
+
 	// Check if chunk storage is enabled
 	storeChunks, err := s.SystemService.StoreChunks(ctx)
 	if err != nil {
@@ -900,7 +1056,10 @@ func (s *RequestService) SaveRequestExecutionChunks(
 
 	// Only store chunks if enabled
 	if !storeChunks {
-		return nil
+		disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("omit", "none", "omitted", nil, nil)
+		_, err = client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition).Save(ctx)
+		return err
 	}
 
 	// Convert chunks to JSON format, filtering out done events
@@ -922,15 +1081,10 @@ func (s *RequestService) SaveRequestExecutionChunks(
 	}
 
 	if len(chunkBytes) == 0 {
-		return nil
-	}
-
-	client := s.entFromContext(ctx)
-
-	// Get the execution to check data storage
-	execution, err := client.RequestExecution.Get(ctx, executionID)
-	if err != nil {
-		return fmt.Errorf("failed to get request execution: %w", err)
+		disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("notApplicable", "none", "omitted", nil, nil)
+		_, err = client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition).Save(ctx)
+		return err
 	}
 
 	// Get data storage if set
@@ -945,6 +1099,8 @@ func (s *RequestService) SaveRequestExecutionChunks(
 	// Check if we should use external storage
 	if s.shouldUseExternalStorage(ctx, dataStorage) {
 		key := GenerateExecutionResponseChunksKey(execution.ProjectID, execution.RequestID, executionID)
+		disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 
 		allChunksBytes, err := json.Marshal(chunkBytes)
 		if err != nil {
@@ -953,12 +1109,23 @@ func (s *RequestService) SaveRequestExecutionChunks(
 
 		err = s.DataStorageService.SaveData(ctx, dataStorage, key, allChunksBytes)
 		if err != nil {
+			failureClass := "external_write_failed"
+			disposition.ResponseChunks.Outcome = "writeFailed"
+			disposition.ResponseChunks.FailureClass = &failureClass
+			_, _ = client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition).Save(ctx)
 			return fmt.Errorf("failed to save chunks to external storage: %w", err)
+		}
+		_, err = client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition).Save(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to save execution chunk disposition: %w", err)
 		}
 	} else {
 		// Store in database
+		disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("persist", "database", "stored", nil, nil)
 		_, err = client.RequestExecution.UpdateOneID(executionID).
 			SetResponseChunks(chunkBytes).
+			SetEvidenceDisposition(disposition).
 			Save(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to save response chunks: %w", err)
@@ -979,6 +1146,12 @@ func (s *RequestService) SaveRequestChunks(
 		return nil
 	}
 
+	client := s.entFromContext(ctx)
+	req, err := client.Request.Get(ctx, requestID)
+	if err != nil {
+		return fmt.Errorf("failed to get request: %w", err)
+	}
+
 	storeChunks, err := s.SystemService.StoreChunks(ctx)
 	if err != nil {
 		log.Warn(ctx, "Failed to get StoreChunks setting, defaulting to false", log.Cause(err))
@@ -988,7 +1161,10 @@ func (s *RequestService) SaveRequestChunks(
 
 	// Only store chunks if enabled
 	if !storeChunks {
-		return nil
+		disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("omit", "none", "omitted", nil, nil)
+		_, err = client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition).Save(ctx)
+		return err
 	}
 
 	// Convert chunks to JSON format, filtering out done events
@@ -1010,15 +1186,10 @@ func (s *RequestService) SaveRequestChunks(
 	}
 
 	if len(chunkBytes) == 0 {
-		return nil
-	}
-
-	client := s.entFromContext(ctx)
-
-	// Get the request to check data storage
-	req, err := client.Request.Get(ctx, requestID)
-	if err != nil {
-		return fmt.Errorf("failed to get request: %w", err)
+		disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("notApplicable", "none", "omitted", nil, nil)
+		_, err = client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition).Save(ctx)
+		return err
 	}
 
 	// Get data storage if set
@@ -1033,6 +1204,8 @@ func (s *RequestService) SaveRequestChunks(
 	// Check if we should use external storage
 	if s.shouldUseExternalStorage(ctx, dataStorage) {
 		key := GenerateResponseChunksKey(req.ProjectID, requestID)
+		disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 
 		allChunksBytes, err := json.Marshal(chunkBytes)
 		if err != nil {
@@ -1041,12 +1214,23 @@ func (s *RequestService) SaveRequestChunks(
 
 		err = s.DataStorageService.SaveData(ctx, dataStorage, key, allChunksBytes)
 		if err != nil {
+			failureClass := "external_write_failed"
+			disposition.ResponseChunks.Outcome = "writeFailed"
+			disposition.ResponseChunks.FailureClass = &failureClass
+			_, _ = client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition).Save(ctx)
 			return fmt.Errorf("failed to save chunks to external storage: %w", err)
+		}
+		_, err = client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition).Save(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to save request chunk disposition: %w", err)
 		}
 	} else {
 		// Store in database
+		disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
+		disposition.ResponseChunks = evidenceDisposition("persist", "database", "stored", nil, nil)
 		_, err = client.Request.UpdateOneID(requestID).
 			SetResponseChunks(chunkBytes).
+			SetEvidenceDisposition(disposition).
 			Save(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to save response chunks: %w", err)

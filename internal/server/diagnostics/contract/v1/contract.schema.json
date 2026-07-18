@@ -1,0 +1,3923 @@
+{
+  "$defs": {
+    "accessGroupsData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "attachedKeyCount": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "profile": {
+            "additionalProperties": false,
+            "properties": {
+              "channelIDs": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "channelTags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "channelTagsMatchMode": {
+                "type": "string"
+              },
+              "loadBalanceStrategy": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "modelIDs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "modelMappings": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "name": {
+                "type": "string"
+              },
+              "quota": {
+                "additionalProperties": false,
+                "properties": {
+                  "cost": {
+                    "additionalProperties": false,
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "period": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "calendarDuration": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "unit": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "unit"
+                        ],
+                        "type": [
+                          "null",
+                          "object"
+                        ]
+                      },
+                      "pastDuration": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "unit": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "unit"
+                        ],
+                        "type": [
+                          "null",
+                          "object"
+                        ]
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  "requests": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "totalTokens": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  }
+                },
+                "required": [
+                  "period"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "modelMappings"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "projectId": {
+            "type": "integer"
+          },
+          "referencedRevisions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "createdAt": {
+                  "type": "string"
+                },
+                "createdByUserId": {
+                  "type": [
+                    "null",
+                    "integer"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "profile": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "channelIDs": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    },
+                    "channelTags": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "channelTagsMatchMode": {
+                      "type": "string"
+                    },
+                    "loadBalanceStrategy": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "modelIDs": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "modelMappings": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "from",
+                          "to"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "quota": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "cost": {
+                          "additionalProperties": false,
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "period": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "calendarDuration": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "unit": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "unit"
+                              ],
+                              "type": [
+                                "null",
+                                "object"
+                              ]
+                            },
+                            "pastDuration": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "unit": {
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "unit"
+                              ],
+                              "type": [
+                                "null",
+                                "object"
+                              ]
+                            },
+                            "type": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "type": "object"
+                        },
+                        "requests": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        },
+                        "totalTokens": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "period"
+                      ],
+                      "type": [
+                        "null",
+                        "object"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "modelMappings"
+                  ],
+                  "type": [
+                    "null",
+                    "object"
+                  ]
+                },
+                "revision": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "revision",
+                "name",
+                "description",
+                "profile",
+                "createdAt",
+                "createdByUserId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "selfServiceVisible": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "name",
+          "description",
+          "profile",
+          "revision",
+          "selfServiceVisible",
+          "attachedKeyCount",
+          "createdAt",
+          "updatedAt",
+          "referencedRevisions"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "accessGroupsSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/accessGroupsData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "apiKeysData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "accessGroupId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "accessGroupRevision": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "key": {
+            "$ref": "#/$defs/credential"
+          },
+          "name": {
+            "type": "string"
+          },
+          "profileMode": {
+            "type": "string"
+          },
+          "profiles": {
+            "additionalProperties": false,
+            "properties": {
+              "activeProfile": {
+                "type": "string"
+              },
+              "profiles": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "channelIDs": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    },
+                    "channelTags": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "channelTagsMatchMode": {
+                      "type": "string"
+                    },
+                    "loadBalanceStrategy": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "modelIDs": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "modelMappings": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "from",
+                          "to"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "quota": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "cost": {
+                          "additionalProperties": false,
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "period": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "calendarDuration": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "unit": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "unit"
+                              ],
+                              "type": [
+                                "null",
+                                "object"
+                              ]
+                            },
+                            "pastDuration": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "unit": {
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "unit"
+                              ],
+                              "type": [
+                                "null",
+                                "object"
+                              ]
+                            },
+                            "type": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "type": "object"
+                        },
+                        "requests": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        },
+                        "totalTokens": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "period"
+                      ],
+                      "type": [
+                        "null",
+                        "object"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "modelMappings"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "activeProfile",
+              "profiles"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "projectId": {
+            "type": "integer"
+          },
+          "provisioningSource": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "userId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "projectId",
+          "name",
+          "type",
+          "status",
+          "scopes",
+          "profiles",
+          "provisioningSource",
+          "profileMode",
+          "accessGroupId",
+          "accessGroupRevision",
+          "key",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "apiKeysSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/apiKeysData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "authorization": {
+      "additionalProperties": false,
+      "properties": {
+        "credentialsIncluded": {
+          "type": "boolean"
+        },
+        "personalDataExcluded": {
+          "type": "boolean"
+        },
+        "principalId": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "principalType": {
+          "enum": [
+            "user",
+            "serviceAccount"
+          ]
+        },
+        "projectId": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "subjectUserId": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "principalType",
+        "principalId",
+        "projectId",
+        "subjectUserId",
+        "credentialsIncluded",
+        "personalDataExcluded"
+      ],
+      "type": "object"
+    },
+    "bundle": {
+      "additionalProperties": false,
+      "properties": {
+        "generatedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "pageGeneratedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "pageIndex": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "generatedAt",
+        "pageIndex",
+        "pageGeneratedAt",
+        "status"
+      ],
+      "type": "object"
+    },
+    "channelsData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "autoSyncModelPattern": {
+            "type": "string"
+          },
+          "autoSyncSupportedModels": {
+            "type": "boolean"
+          },
+          "baseUrl": {
+            "additionalProperties": false,
+            "properties": {
+              "base": {
+                "type": "string"
+              },
+              "query": {
+                "$ref": "#/$defs/credential"
+              },
+              "userInfo": {
+                "$ref": "#/$defs/credential"
+              }
+            },
+            "required": [
+              "base",
+              "userInfo",
+              "query"
+            ],
+            "type": "object"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "credentials": {
+            "$ref": "#/$defs/credential"
+          },
+          "defaultTestModel": {
+            "type": "string"
+          },
+          "disabledApiKeys": {
+            "$ref": "#/$defs/credential"
+          },
+          "endpoints": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "apiFormat": {
+                  "type": "string"
+                },
+                "baseUrl": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base": {
+                      "type": "string"
+                    },
+                    "query": {
+                      "$ref": "#/$defs/credential"
+                    },
+                    "userInfo": {
+                      "$ref": "#/$defs/credential"
+                    }
+                  },
+                  "required": [
+                    "base",
+                    "userInfo",
+                    "query"
+                  ],
+                  "type": "object"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "transport": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "apiFormat",
+                "path",
+                "baseUrl",
+                "transport"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "errorMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "type": "integer"
+          },
+          "manualModels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "orderingWeight": {
+            "type": "integer"
+          },
+          "policies": {
+            "additionalProperties": false,
+            "properties": {
+              "stream": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "remark": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "settings": {
+            "additionalProperties": false,
+            "properties": {
+              "autoTrimedModelPrefixes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "bodyOverrideOperations": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "string"
+                    },
+                    "index": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ]
+                    },
+                    "match": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "eq": {
+                          "$ref": "#/$defs/credential"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "eq"
+                      ],
+                      "type": [
+                        "null",
+                        "object"
+                      ]
+                    },
+                    "op": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "splat": {
+                      "type": [
+                        "null",
+                        "boolean"
+                      ]
+                    },
+                    "to": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "$ref": "#/$defs/credential",
+                      "type": [
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "op"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "disableRetries": {
+                "type": "boolean"
+              },
+              "extraModelPrefix": {
+                "type": "string"
+              },
+              "fullPassThrough": {
+                "type": "boolean"
+              },
+              "headerOverrideOperations": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "string"
+                    },
+                    "index": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ]
+                    },
+                    "match": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "eq": {
+                          "$ref": "#/$defs/credential"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "eq"
+                      ],
+                      "type": [
+                        "null",
+                        "object"
+                      ]
+                    },
+                    "op": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "splat": {
+                      "type": [
+                        "null",
+                        "boolean"
+                      ]
+                    },
+                    "to": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "$ref": "#/$defs/credential",
+                      "type": [
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "op"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "hideMappedModels": {
+                "type": "boolean"
+              },
+              "hideOriginalModels": {
+                "type": "boolean"
+              },
+              "lowercaseModelId": {
+                "type": "boolean"
+              },
+              "modelMappings": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "overrideHeaders": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "$ref": "#/$defs/credential"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "overrideParameters": {
+                "$ref": "#/$defs/credential"
+              },
+              "passThroughBody": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "passThroughUserAgent": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "providerQuota": {
+                "additionalProperties": false,
+                "properties": {
+                  "opencodeGo": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "authCookie": {
+                        "$ref": "#/$defs/credential"
+                      },
+                      "workspaceId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "authCookie"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  }
+                },
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "proxy": {
+                "additionalProperties": false,
+                "properties": {
+                  "password": {
+                    "$ref": "#/$defs/credential"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "base": {
+                        "type": "string"
+                      },
+                      "query": {
+                        "$ref": "#/$defs/credential"
+                      },
+                      "userInfo": {
+                        "$ref": "#/$defs/credential"
+                      }
+                    },
+                    "required": [
+                      "base",
+                      "userInfo",
+                      "query"
+                    ],
+                    "type": "object"
+                  },
+                  "username": {
+                    "$ref": "#/$defs/credential"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url",
+                  "username",
+                  "password"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "rateLimit": {
+                "additionalProperties": false,
+                "properties": {
+                  "maxConcurrent": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "queueSize": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "queueTimeoutMs": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "rpm": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "tpm": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  }
+                },
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "retryableErrorPatterns": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "regex": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "retryableStatusCodes": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "storeExecutionRequestBody": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "storeExecutionResponseBody": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "storeExecutionStreamChunks": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "transformOptions": {
+                "additionalProperties": false,
+                "properties": {
+                  "forceArrayInputs": {
+                    "type": "boolean"
+                  },
+                  "forceArrayInstructions": {
+                    "type": "boolean"
+                  },
+                  "reasoningEffortMapping": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "replaceDeveloperRoleWithSystem": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "forceArrayInstructions",
+                  "forceArrayInputs",
+                  "replaceDeveloperRoleWithSystem"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "extraModelPrefix",
+              "autoTrimedModelPrefixes",
+              "modelMappings",
+              "hideOriginalModels",
+              "hideMappedModels",
+              "lowercaseModelId",
+              "overrideParameters",
+              "overrideHeaders",
+              "transformOptions"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "supportedModels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "baseUrl",
+          "name",
+          "status",
+          "credentials",
+          "disabledApiKeys",
+          "supportedModels",
+          "manualModels",
+          "autoSyncSupportedModels",
+          "autoSyncModelPattern",
+          "tags",
+          "defaultTestModel",
+          "policies",
+          "settings",
+          "orderingWeight",
+          "errorMessage",
+          "remark",
+          "endpoints",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "channelsSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/channelsData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "condition": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/condition"
+          },
+          "type": "array"
+        },
+        "field": {
+          "type": "string"
+        },
+        "logic": {
+          "type": "string"
+        },
+        "operator": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "condition",
+            "group"
+          ]
+        },
+        "value": {}
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "configurationData": {
+      "additionalProperties": false,
+      "properties": {
+        "bodyPassThrough": {
+          "type": "boolean"
+        },
+        "dataStorages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "primary": {
+                "type": "boolean"
+              },
+              "settings": {
+                "additionalProperties": false,
+                "properties": {
+                  "directory": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "dsn": {
+                    "$ref": "#/$defs/credential"
+                  },
+                  "gcs": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "bucketName": {
+                        "type": "string"
+                      },
+                      "credential": {
+                        "$ref": "#/$defs/credential"
+                      }
+                    },
+                    "required": [
+                      "bucketName",
+                      "credential"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "s3": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "accessKey": {
+                        "$ref": "#/$defs/credential"
+                      },
+                      "bucketName": {
+                        "type": "string"
+                      },
+                      "endpoint": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "base": {
+                            "type": "string"
+                          },
+                          "query": {
+                            "$ref": "#/$defs/credential"
+                          },
+                          "userInfo": {
+                            "$ref": "#/$defs/credential"
+                          }
+                        },
+                        "required": [
+                          "base",
+                          "userInfo",
+                          "query"
+                        ],
+                        "type": "object"
+                      },
+                      "pathStyle": {
+                        "type": "boolean"
+                      },
+                      "region": {
+                        "type": "string"
+                      },
+                      "secretKey": {
+                        "$ref": "#/$defs/credential"
+                      }
+                    },
+                    "required": [
+                      "bucketName",
+                      "endpoint",
+                      "region",
+                      "accessKey",
+                      "secretKey",
+                      "pathStyle"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "webdav": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "insecureSkipTls": {
+                        "type": "boolean"
+                      },
+                      "password": {
+                        "$ref": "#/$defs/credential"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "base": {
+                            "type": "string"
+                          },
+                          "query": {
+                            "$ref": "#/$defs/credential"
+                          },
+                          "userInfo": {
+                            "$ref": "#/$defs/credential"
+                          }
+                        },
+                        "required": [
+                          "base",
+                          "userInfo",
+                          "query"
+                        ],
+                        "type": "object"
+                      },
+                      "username": {
+                        "$ref": "#/$defs/credential"
+                      }
+                    },
+                    "required": [
+                      "url",
+                      "username",
+                      "password",
+                      "insecureSkipTls",
+                      "path"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  }
+                },
+                "required": [
+                  "dsn",
+                  "directory",
+                  "s3",
+                  "gcs",
+                  "webdav"
+                ],
+                "type": "object"
+              },
+              "status": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "primary",
+              "type",
+              "status",
+              "settings",
+              "createdAt",
+              "updatedAt"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "defaultDataStorageId": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "modelSettings": {
+          "additionalProperties": false,
+          "properties": {
+            "auto_reasoning_effort": {
+              "type": "boolean"
+            },
+            "default_model_api_include_all": {
+              "type": "boolean"
+            },
+            "developer_settings": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "associations": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "channelModel": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "channelId": {
+                              "type": "integer"
+                            },
+                            "modelId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "channelId",
+                            "modelId"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "channelRegex": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "channelId": {
+                              "type": "integer"
+                            },
+                            "pattern": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "channelId",
+                            "pattern"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "channelTagsModel": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "channelTags": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "modelId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "channelTags",
+                            "modelId"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "channelTagsRegex": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "channelTags": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "pattern": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "channelTags",
+                            "pattern"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "disabled": {
+                          "type": "boolean"
+                        },
+                        "modelId": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "exclude": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "channelIds": {
+                                    "items": {
+                                      "type": "integer"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "channelNamePattern": {
+                                    "type": "string"
+                                  },
+                                  "channelTags": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "channelNamePattern",
+                                  "channelIds",
+                                  "channelTags"
+                                ],
+                                "type": [
+                                  "null",
+                                  "object"
+                                ]
+                              },
+                              "type": "array"
+                            },
+                            "modelId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "modelId",
+                            "exclude"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "priority": {
+                          "type": "integer"
+                        },
+                        "regex": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "exclude": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "channelIds": {
+                                    "items": {
+                                      "type": "integer"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "channelNamePattern": {
+                                    "type": "string"
+                                  },
+                                  "channelTags": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "channelNamePattern",
+                                  "channelIds",
+                                  "channelTags"
+                                ],
+                                "type": [
+                                  "null",
+                                  "object"
+                                ]
+                              },
+                              "type": "array"
+                            },
+                            "pattern": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "pattern",
+                            "exclude"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "when": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "condition": {
+                              "$ref": "#/$defs/condition",
+                              "type": [
+                                "null"
+                              ]
+                            },
+                            "enabled": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "enabled"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "priority",
+                        "disabled",
+                        "channelModel",
+                        "channelRegex",
+                        "regex",
+                        "modelId",
+                        "channelTagsModel",
+                        "channelTagsRegex"
+                      ],
+                      "type": [
+                        "null",
+                        "object"
+                      ]
+                    },
+                    "type": "array"
+                  },
+                  "developer": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "developer",
+                  "associations"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "type": "array"
+            },
+            "fallback_to_channels_on_model_not_found": {
+              "type": "boolean"
+            },
+            "model_blacklist_regex": {
+              "type": "string"
+            },
+            "query_all_channel_models": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "fallback_to_channels_on_model_not_found",
+            "query_all_channel_models",
+            "default_model_api_include_all",
+            "auto_reasoning_effort",
+            "model_blacklist_regex",
+            "developer_settings"
+          ],
+          "type": "object"
+        },
+        "registration": {
+          "additionalProperties": false,
+          "properties": {
+            "allowRequestDetails": {
+              "type": "boolean"
+            },
+            "autoJoinFirstProject": {
+              "type": "boolean"
+            },
+            "defaultProjectId": {
+              "type": "integer"
+            },
+            "defaultProjectScopes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "inviteCode": {
+              "$ref": "#/$defs/credential"
+            },
+            "oidcEnabled": {
+              "type": "boolean"
+            },
+            "selfServiceEnabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled",
+            "oidcEnabled",
+            "defaultProjectId",
+            "autoJoinFirstProject",
+            "defaultProjectScopes",
+            "selfServiceEnabled",
+            "allowRequestDetails",
+            "inviteCode"
+          ],
+          "type": "object"
+        },
+        "retryPolicy": {
+          "additionalProperties": false,
+          "properties": {
+            "auto_disable_channel": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "statuses": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "status": {
+                        "type": "integer"
+                      },
+                      "times": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "times"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "enabled",
+                "statuses"
+              ],
+              "type": "object"
+            },
+            "empty_response_detection": {
+              "type": "boolean"
+            },
+            "empty_response_text_patterns": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "load_balancer_strategy": {
+              "type": "string"
+            },
+            "max_channel_retries": {
+              "type": "integer"
+            },
+            "max_single_channel_retries": {
+              "type": "integer"
+            },
+            "non_stream_response_timeout_seconds": {
+              "type": "integer"
+            },
+            "retry_delay_ms": {
+              "type": "integer"
+            },
+            "stream_first_event_timeout_seconds": {
+              "type": "integer"
+            },
+            "upstream_error_policy": {
+              "additionalProperties": false,
+              "properties": {
+                "custom_message": {
+                  "type": "string"
+                },
+                "mode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mode",
+                "custom_message"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "enabled",
+            "max_channel_retries",
+            "max_single_channel_retries",
+            "retry_delay_ms",
+            "stream_first_event_timeout_seconds",
+            "non_stream_response_timeout_seconds",
+            "load_balancer_strategy",
+            "auto_disable_channel",
+            "empty_response_detection",
+            "empty_response_text_patterns",
+            "upstream_error_policy"
+          ],
+          "type": "object"
+        },
+        "storagePolicy": {
+          "additionalProperties": false,
+          "properties": {
+            "cleanup_options": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "cleanup_days": {
+                    "type": "integer"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "resource_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "resource_type",
+                  "enabled",
+                  "cleanup_days"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "live_preview": {
+              "type": "boolean"
+            },
+            "store_chunks": {
+              "type": "boolean"
+            },
+            "store_request_body": {
+              "type": "boolean"
+            },
+            "store_response_body": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "store_chunks",
+            "live_preview",
+            "store_request_body",
+            "store_response_body",
+            "cleanup_options"
+          ],
+          "type": "object"
+        },
+        "userAgentPassThrough": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "storagePolicy",
+        "retryPolicy",
+        "modelSettings",
+        "userAgentPassThrough",
+        "bodyPassThrough",
+        "defaultDataStorageId",
+        "dataStorages",
+        "registration"
+      ],
+      "type": "object"
+    },
+    "configurationSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/configurationData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "contractRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "const": 1,
+          "type": "integer"
+        },
+        "maxMinor": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minMinor": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "const": "axonhub.remote-diagnostics",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "major",
+        "minMinor",
+        "maxMinor"
+      ],
+      "type": "object"
+    },
+    "contractResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "const": 1,
+          "type": "integer"
+        },
+        "minor": {
+          "const": 0,
+          "type": "integer"
+        },
+        "name": {
+          "const": "axonhub.remote-diagnostics",
+          "type": "string"
+        },
+        "schemaSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "major",
+        "minor",
+        "schemaSha256"
+      ],
+      "type": "object"
+    },
+    "counts": {
+      "additionalProperties": false,
+      "properties": {
+        "accessGroups": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "apiKeys": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "channels": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "executions": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requests": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threads": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "traces": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requests",
+        "executions",
+        "usage",
+        "traces",
+        "threads",
+        "channels",
+        "apiKeys",
+        "accessGroups"
+      ],
+      "type": "object"
+    },
+    "credential": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "excluded",
+            "included",
+            "unavailable"
+          ]
+        },
+        "value": {}
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "errorDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "type": "string"
+        },
+        "correlationId": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "supported": {
+          "items": {
+            "$ref": "#/$defs/supportedRange"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "correlationId",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "errorResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/contractResponse"
+        },
+        "error": {
+          "$ref": "#/$defs/errorDetail"
+        }
+      },
+      "required": [
+        "contract",
+        "error"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "byteLength": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "canonicalization": {
+          "const": "rfc8785",
+          "type": "string"
+        },
+        "canonicalizationReason": {
+          "type": "string"
+        },
+        "canonicalizationStatus": {
+          "enum": [
+            "available",
+            "unavailable"
+          ]
+        },
+        "canonicalSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "encoding": {
+          "enum": [
+            "json",
+            "base64"
+          ]
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "rawSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "database",
+            "external",
+            "live",
+            "none",
+            "unknown"
+          ]
+        },
+        "state": {
+          "enum": [
+            "available",
+            "notPersisted",
+            "notApplicable",
+            "expired",
+            "storageUnavailable",
+            "legacyUnknown"
+          ]
+        },
+        "value": {}
+      },
+      "required": [
+        "state",
+        "source",
+        "mediaType"
+      ],
+      "type": "object"
+    },
+    "executionsData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "channelId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "dataStorageId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "metricsFirstTokenLatencyMs": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "metricsLatencyMs": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "metricsReasoningDurationMs": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "passThroughApplied": {
+            "type": "boolean"
+          },
+          "projectId": {
+            "type": "integer"
+          },
+          "requestBody": {
+            "$ref": "#/$defs/evidence"
+          },
+          "requestHeaders": {
+            "$ref": "#/$defs/evidence"
+          },
+          "requestId": {
+            "type": "integer"
+          },
+          "requestUrl": {
+            "type": "string"
+          },
+          "responseBody": {
+            "$ref": "#/$defs/evidence"
+          },
+          "responseChunks": {
+            "$ref": "#/$defs/evidence"
+          },
+          "responseStatusCode": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "requestId",
+          "channelId",
+          "dataStorageId",
+          "externalId",
+          "modelId",
+          "format",
+          "requestHeaders",
+          "requestBody",
+          "responseBody",
+          "responseChunks",
+          "errorMessage",
+          "responseStatusCode",
+          "status",
+          "stream",
+          "metricsLatencyMs",
+          "metricsFirstTokenLatencyMs",
+          "metricsReasoningDurationMs",
+          "requestUrl",
+          "passThroughApplied",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "executionsSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/executionsData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "healthData": {
+      "additionalProperties": false,
+      "properties": {
+        "buildTime": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "commit": {
+          "type": "string"
+        },
+        "databaseLatencyMs": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "databaseStatus": {
+          "type": "string"
+        },
+        "processStatus": {
+          "type": "string"
+        },
+        "uptimeSeconds": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "processStatus",
+        "databaseStatus",
+        "databaseLatencyMs",
+        "uptimeSeconds",
+        "version",
+        "commit",
+        "buildTime"
+      ],
+      "type": "object"
+    },
+    "healthSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/healthData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "include": {
+      "additionalProperties": false,
+      "properties": {
+        "credentials": {
+          "default": false,
+          "type": "boolean"
+        },
+        "sections": {
+          "items": {
+            "enum": [
+              "health",
+              "configuration",
+              "requests",
+              "executions",
+              "usage",
+              "traces",
+              "threads",
+              "channels",
+              "apiKeys",
+              "accessGroups"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "sections"
+      ],
+      "type": "object"
+    },
+    "issue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "recordId": {
+          "type": "string"
+        },
+        "recordType": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "section": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "retryable",
+        "message"
+      ],
+      "type": "object"
+    },
+    "limits": {
+      "additionalProperties": false,
+      "properties": {
+        "maxExecutions": {
+          "default": 500,
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxRelatedRecords": {
+          "default": 1000,
+          "maximum": 5000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxRequests": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxResponseBytes": {
+          "default": 33554432,
+          "maximum": 67108864,
+          "minimum": 1048576,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "page": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "pullRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/contractRequest"
+        },
+        "include": {
+          "$ref": "#/$defs/include"
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        }
+      },
+      "required": [
+        "contract",
+        "scope",
+        "selector",
+        "include"
+      ],
+      "type": "object"
+    },
+    "pullResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization": {
+          "$ref": "#/$defs/authorization"
+        },
+        "bundle": {
+          "$ref": "#/$defs/bundle"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractResponse"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "sections": {
+          "$ref": "#/$defs/sections"
+        },
+        "selection": {
+          "$ref": "#/$defs/selection"
+        },
+        "server": {
+          "$ref": "#/$defs/serverInfo"
+        }
+      },
+      "required": [
+        "contract",
+        "bundle",
+        "server",
+        "authorization",
+        "selection",
+        "sections",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "requestRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "requestId",
+            "externalId",
+            "traceId",
+            "threadId"
+          ]
+        },
+        "matchedRequestIds": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "notFoundOrNotAuthorized"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "status"
+      ],
+      "type": "object"
+    },
+    "requestsData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKeyId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "clientIp": {
+            "type": "string"
+          },
+          "contentArtifact": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "$ref": "#/$defs/evidence"
+              },
+              "key": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "savedAt": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "storageId": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              }
+            },
+            "required": [
+              "saved",
+              "storageId",
+              "key",
+              "savedAt",
+              "content"
+            ],
+            "type": "object"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "dataStorageId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "metricsFirstTokenLatencyMs": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "metricsLatencyMs": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "metricsReasoningDurationMs": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "integer"
+          },
+          "reasoningEffort": {
+            "type": "string"
+          },
+          "requestBody": {
+            "$ref": "#/$defs/evidence"
+          },
+          "requestHeaders": {
+            "$ref": "#/$defs/evidence"
+          },
+          "responseBody": {
+            "$ref": "#/$defs/evidence"
+          },
+          "responseChunks": {
+            "$ref": "#/$defs/evidence"
+          },
+          "routingContext": {
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "type": "string"
+              },
+              "value": {
+                "additionalProperties": false,
+                "properties": {
+                  "accessGroupId": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "accessGroupRevision": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "apiKeyId": {
+                    "type": "integer"
+                  },
+                  "apiKeyType": {
+                    "type": "string"
+                  },
+                  "effectiveProfiles": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "activeProfile": {
+                        "type": "string"
+                      },
+                      "profiles": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "channelIDs": {
+                              "items": {
+                                "type": "integer"
+                              },
+                              "type": "array"
+                            },
+                            "channelTags": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "channelTagsMatchMode": {
+                              "type": "string"
+                            },
+                            "loadBalanceStrategy": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "modelIDs": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "modelMappings": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "from": {
+                                    "type": "string"
+                                  },
+                                  "to": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "from",
+                                  "to"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "quota": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "cost": {
+                                  "additionalProperties": false,
+                                  "type": [
+                                    "null",
+                                    "object"
+                                  ]
+                                },
+                                "period": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "calendarDuration": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "unit": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "unit"
+                                      ],
+                                      "type": [
+                                        "null",
+                                        "object"
+                                      ]
+                                    },
+                                    "pastDuration": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "unit": {
+                                          "type": "string"
+                                        },
+                                        "value": {
+                                          "type": "integer"
+                                        }
+                                      },
+                                      "required": [
+                                        "value",
+                                        "unit"
+                                      ],
+                                      "type": [
+                                        "null",
+                                        "object"
+                                      ]
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type"
+                                  ],
+                                  "type": "object"
+                                },
+                                "requests": {
+                                  "type": [
+                                    "null",
+                                    "integer"
+                                  ]
+                                },
+                                "totalTokens": {
+                                  "type": [
+                                    "null",
+                                    "integer"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "period"
+                              ],
+                              "type": [
+                                "null",
+                                "object"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "modelMappings"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "activeProfile",
+                      "profiles"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "effectiveProfilesSha256": {
+                    "type": "string"
+                  },
+                  "profileMode": {
+                    "type": "string"
+                  },
+                  "provisioningSource": {
+                    "type": "string"
+                  },
+                  "requestedModelId": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "version",
+                  "apiKeyId",
+                  "apiKeyType",
+                  "provisioningSource",
+                  "profileMode",
+                  "accessGroupId",
+                  "accessGroupRevision",
+                  "effectiveProfiles",
+                  "effectiveProfilesSha256",
+                  "requestedModelId"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "value"
+            ],
+            "type": "object"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "traceDatabaseId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "apiKeyId",
+          "traceDatabaseId",
+          "dataStorageId",
+          "source",
+          "modelId",
+          "reasoningEffort",
+          "format",
+          "requestHeaders",
+          "requestBody",
+          "responseBody",
+          "responseChunks",
+          "channelId",
+          "externalId",
+          "status",
+          "stream",
+          "clientIp",
+          "metricsLatencyMs",
+          "metricsFirstTokenLatencyMs",
+          "metricsReasoningDurationMs",
+          "contentArtifact",
+          "routingContext",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "requestsSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/requestsData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "scope": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "subjectUserId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "sections": {
+      "additionalProperties": false,
+      "properties": {
+        "accessGroups": {
+          "$ref": "#/$defs/accessGroupsSection"
+        },
+        "apiKeys": {
+          "$ref": "#/$defs/apiKeysSection"
+        },
+        "channels": {
+          "$ref": "#/$defs/channelsSection"
+        },
+        "configuration": {
+          "$ref": "#/$defs/configurationSection"
+        },
+        "executions": {
+          "$ref": "#/$defs/executionsSection"
+        },
+        "health": {
+          "$ref": "#/$defs/healthSection"
+        },
+        "requests": {
+          "$ref": "#/$defs/requestsSection"
+        },
+        "threads": {
+          "$ref": "#/$defs/threadsSection"
+        },
+        "traces": {
+          "$ref": "#/$defs/tracesSection"
+        },
+        "usage": {
+          "$ref": "#/$defs/usageSection"
+        }
+      },
+      "required": [
+        "health",
+        "configuration",
+        "requests",
+        "executions",
+        "usage",
+        "traces",
+        "threads",
+        "channels",
+        "apiKeys",
+        "accessGroups"
+      ],
+      "type": "object"
+    },
+    "selection": {
+      "additionalProperties": false,
+      "properties": {
+        "asOf": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/counts"
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "const": "createdAtAsc,idAsc",
+          "type": "string"
+        },
+        "requestRefs": {
+          "items": {
+            "$ref": "#/$defs/requestRef"
+          },
+          "type": "array"
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        }
+      },
+      "required": [
+        "selector",
+        "asOf",
+        "order",
+        "requestRefs",
+        "counts",
+        "hasMore",
+        "nextCursor"
+      ],
+      "type": "object"
+    },
+    "selector": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ids": {
+              "items": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "kind": {
+              "const": "requestIds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ids"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ids": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "kind": {
+              "const": "externalIds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ids"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ids": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "kind": {
+              "const": "traceIds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ids"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ids": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "kind": {
+              "const": "threadIds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ids"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "apiKeyIds": {
+              "items": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "from": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "kind": {
+              "const": "timeRange",
+              "type": "string"
+            },
+            "modelIds": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "statuses": {
+              "items": {
+                "enum": [
+                  "pending",
+                  "processing",
+                  "completed",
+                  "failed",
+                  "canceled"
+                ]
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "to": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "from",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "snapshot",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "serverInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "buildTime": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commit": {
+          "type": "string"
+        },
+        "uptimeSeconds": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "commit",
+        "buildTime",
+        "uptimeSeconds"
+      ],
+      "type": "object"
+    },
+    "supportedRange": {
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "const": 1,
+          "type": "integer"
+        },
+        "maxMinor": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minMinor": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minMinor",
+        "maxMinor"
+      ],
+      "type": "object"
+    },
+    "threadsData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "projectId": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "threadId",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "threadsSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/threadsData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "tracesData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "projectId": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "threadDatabaseId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "traceId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "traceId",
+          "threadDatabaseId",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "tracesSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/tracesData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "usageData": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKeyId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "completionAcceptedPredictionTokens": {
+            "type": "integer"
+          },
+          "completionAudioTokens": {
+            "type": "integer"
+          },
+          "completionReasoningTokens": {
+            "type": "integer"
+          },
+          "completionRejectedPredictionTokens": {
+            "type": "integer"
+          },
+          "completionTokens": {
+            "type": "integer"
+          },
+          "costItems": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "itemCode": {
+                  "type": "string"
+                },
+                "promptWriteCacheVariantCode": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "integer"
+                },
+                "subtotal": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "tierBreakdown": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "subtotal": {
+                        "additionalProperties": false,
+                        "type": "object"
+                      },
+                      "units": {
+                        "type": "integer"
+                      },
+                      "upTo": {
+                        "type": [
+                          "null",
+                          "integer"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "units",
+                      "subtotal"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "itemCode",
+                "quantity",
+                "subtotal"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "costPriceReferenceId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "integer"
+          },
+          "promptAudioTokens": {
+            "type": "integer"
+          },
+          "promptCachedTokens": {
+            "type": "integer"
+          },
+          "promptTokens": {
+            "type": "integer"
+          },
+          "promptWriteCachedTokens": {
+            "type": "integer"
+          },
+          "promptWriteCachedTokens1h": {
+            "type": "integer"
+          },
+          "promptWriteCachedTokens5m": {
+            "type": "integer"
+          },
+          "requestId": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "totalCost": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "totalTokens": {
+            "type": "integer"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "requestId",
+          "apiKeyId",
+          "projectId",
+          "channelId",
+          "modelId",
+          "promptTokens",
+          "completionTokens",
+          "totalTokens",
+          "promptAudioTokens",
+          "promptCachedTokens",
+          "promptWriteCachedTokens",
+          "promptWriteCachedTokens5m",
+          "promptWriteCachedTokens1h",
+          "completionAudioTokens",
+          "completionReasoningTokens",
+          "completionAcceptedPredictionTokens",
+          "completionRejectedPredictionTokens",
+          "source",
+          "format",
+          "totalCost",
+          "costItems",
+          "costPriceReferenceId",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "usageSection": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/usageData"
+            }
+          ]
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/issue"
+          },
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "notRequested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "data",
+        "issues"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://axonhub.dev/contracts/remote-diagnostics/v1.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/pullRequest"
+    },
+    {
+      "$ref": "#/$defs/pullResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "title": "AxonHub Remote Diagnostics v1.0 Bundle"
+}

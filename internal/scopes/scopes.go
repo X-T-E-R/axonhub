@@ -55,6 +55,9 @@ const (
 	// ScopeWriteRequests manage the requests of the project.
 	ScopeWriteRequests ScopeSlug = "write_requests"
 
+	// ScopeReadDiagnostics exports bounded, project-scoped diagnostic evidence.
+	ScopeReadDiagnostics ScopeSlug = "read_diagnostics"
+
 	// ScopeReadPrompts read the prompts of the project.
 	ScopeReadPrompts ScopeSlug = "read_prompts"
 	// ScopeWritePrompts manage the prompts of the project.
@@ -164,6 +167,11 @@ var scopeConfigs = []Scope{
 	{
 		Slug:        ScopeWriteRequests,
 		Description: "Manage request records",
+		Levels:      []ScopeLevel{ScopeLevelSystem, ScopeLevelProject},
+	},
+	{
+		Slug:        ScopeReadDiagnostics,
+		Description: "Pull bounded diagnostic evidence",
 		Levels:      []ScopeLevel{ScopeLevelSystem, ScopeLevelProject},
 	},
 	{

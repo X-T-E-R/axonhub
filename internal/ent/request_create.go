@@ -360,6 +360,18 @@ func (_c *RequestCreate) SetNillableContentSavedAt(v *time.Time) *RequestCreate 
 	return _c
 }
 
+// SetRoutingContext sets the "routing_context" field.
+func (_c *RequestCreate) SetRoutingContext(v *objects.RoutingContext) *RequestCreate {
+	_c.mutation.SetRoutingContext(v)
+	return _c
+}
+
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (_c *RequestCreate) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestCreate {
+	_c.mutation.SetEvidenceDisposition(v)
+	return _c
+}
+
 // SetAPIKey sets the "api_key" edge to the APIKey entity.
 func (_c *RequestCreate) SetAPIKey(v *APIKey) *RequestCreate {
 	return _c.SetAPIKeyID(v.ID)
@@ -654,6 +666,14 @@ func (_c *RequestCreate) createSpec() (*Request, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ContentSavedAt(); ok {
 		_spec.SetField(request.FieldContentSavedAt, field.TypeTime, value)
 		_node.ContentSavedAt = &value
+	}
+	if value, ok := _c.mutation.RoutingContext(); ok {
+		_spec.SetField(request.FieldRoutingContext, field.TypeJSON, value)
+		_node.RoutingContext = value
+	}
+	if value, ok := _c.mutation.EvidenceDisposition(); ok {
+		_spec.SetField(request.FieldEvidenceDisposition, field.TypeJSON, value)
+		_node.EvidenceDisposition = value
 	}
 	if nodes := _c.mutation.APIKeyIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1100,6 +1120,24 @@ func (u *RequestUpsert) ClearContentSavedAt() *RequestUpsert {
 	return u
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (u *RequestUpsert) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestUpsert {
+	u.Set(request.FieldEvidenceDisposition, v)
+	return u
+}
+
+// UpdateEvidenceDisposition sets the "evidence_disposition" field to the value that was provided on create.
+func (u *RequestUpsert) UpdateEvidenceDisposition() *RequestUpsert {
+	u.SetExcluded(request.FieldEvidenceDisposition)
+	return u
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (u *RequestUpsert) ClearEvidenceDisposition() *RequestUpsert {
+	u.SetNull(request.FieldEvidenceDisposition)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -1146,6 +1184,9 @@ func (u *RequestUpsertOne) UpdateNewValues() *RequestUpsertOne {
 		}
 		if _, exists := u.create.mutation.ClientIP(); exists {
 			s.SetIgnore(request.FieldClientIP)
+		}
+		if _, exists := u.create.mutation.RoutingContext(); exists {
+			s.SetIgnore(request.FieldRoutingContext)
 		}
 	}))
 	return u
@@ -1500,6 +1541,27 @@ func (u *RequestUpsertOne) ClearContentSavedAt() *RequestUpsertOne {
 	})
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (u *RequestUpsertOne) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestUpsertOne {
+	return u.Update(func(s *RequestUpsert) {
+		s.SetEvidenceDisposition(v)
+	})
+}
+
+// UpdateEvidenceDisposition sets the "evidence_disposition" field to the value that was provided on create.
+func (u *RequestUpsertOne) UpdateEvidenceDisposition() *RequestUpsertOne {
+	return u.Update(func(s *RequestUpsert) {
+		s.UpdateEvidenceDisposition()
+	})
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (u *RequestUpsertOne) ClearEvidenceDisposition() *RequestUpsertOne {
+	return u.Update(func(s *RequestUpsert) {
+		s.ClearEvidenceDisposition()
+	})
+}
+
 // Exec executes the query.
 func (u *RequestUpsertOne) Exec(ctx context.Context) error {
 	if len(u.create.conflict) == 0 {
@@ -1711,6 +1773,9 @@ func (u *RequestUpsertBulk) UpdateNewValues() *RequestUpsertBulk {
 			}
 			if _, exists := b.mutation.ClientIP(); exists {
 				s.SetIgnore(request.FieldClientIP)
+			}
+			if _, exists := b.mutation.RoutingContext(); exists {
+				s.SetIgnore(request.FieldRoutingContext)
 			}
 		}
 	}))
@@ -2063,6 +2128,27 @@ func (u *RequestUpsertBulk) UpdateContentSavedAt() *RequestUpsertBulk {
 func (u *RequestUpsertBulk) ClearContentSavedAt() *RequestUpsertBulk {
 	return u.Update(func(s *RequestUpsert) {
 		s.ClearContentSavedAt()
+	})
+}
+
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (u *RequestUpsertBulk) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestUpsertBulk {
+	return u.Update(func(s *RequestUpsert) {
+		s.SetEvidenceDisposition(v)
+	})
+}
+
+// UpdateEvidenceDisposition sets the "evidence_disposition" field to the value that was provided on create.
+func (u *RequestUpsertBulk) UpdateEvidenceDisposition() *RequestUpsertBulk {
+	return u.Update(func(s *RequestUpsert) {
+		s.UpdateEvidenceDisposition()
+	})
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (u *RequestUpsertBulk) ClearEvidenceDisposition() *RequestUpsertBulk {
+	return u.Update(func(s *RequestUpsert) {
+		s.ClearEvidenceDisposition()
 	})
 }
 

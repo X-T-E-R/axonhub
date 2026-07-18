@@ -72,6 +72,10 @@ const (
 	FieldContentStorageKey = "content_storage_key"
 	// FieldContentSavedAt holds the string denoting the content_saved_at field in the database.
 	FieldContentSavedAt = "content_saved_at"
+	// FieldRoutingContext holds the string denoting the routing_context field in the database.
+	FieldRoutingContext = "routing_context"
+	// FieldEvidenceDisposition holds the string denoting the evidence_disposition field in the database.
+	FieldEvidenceDisposition = "evidence_disposition"
 	// EdgeAPIKey holds the string denoting the api_key edge name in mutations.
 	EdgeAPIKey = "api_key"
 	// EdgeProject holds the string denoting the project edge name in mutations.
@@ -169,6 +173,8 @@ var Columns = []string{
 	FieldContentStorageID,
 	FieldContentStorageKey,
 	FieldContentSavedAt,
+	FieldRoutingContext,
+	FieldEvidenceDisposition,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).

@@ -1,0 +1,1 @@
+{"contract":{"name":"axonhub.remote-diagnostics","major":1,"minMinor":0,"maxMinor":0},"scope":{"projectId":1},"selector":{"kind":"snapshot","unknown":true},"include":{"sections":["health"]}}

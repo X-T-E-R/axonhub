@@ -37,6 +37,7 @@ type Handlers struct {
 	OIDC           *api.OIDCHandlers
 	RequestPreview *api.RequestPreviewHandlers
 	Management     *api.ManagementHandlers
+	Diagnostics    *api.DiagnosticsHandlers
 }
 
 type Services struct {
@@ -144,6 +145,13 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 
 		handlers.Management.RegisterAdminRoutes(adminGroup)
 	}
+	server.POST(
+		"/admin/diagnostics/v1/pull",
+		middleware.WithJWTAuthResponder(services.AuthService, handlers.Diagnostics.MiddlewareError),
+		middleware.WithProjectIDResponder(handlers.Diagnostics.MiddlewareError),
+		middleware.WithTimeout(server.Config.RequestTimeout),
+		handlers.Diagnostics.Pull,
+	)
 
 	openAPIGroup := server.Group(
 		"/openapi",
@@ -163,6 +171,13 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 
 		handlers.Management.RegisterOpenAPIRoutes(openAPIGroup)
 	}
+	server.POST(
+		"/openapi/v1/diagnostics/pull",
+		middleware.WithIPBlocklist(services.SystemService),
+		middleware.WithOpenAPIAuthResponder(services.AuthService, handlers.Diagnostics.MiddlewareError),
+		middleware.WithTimeout(server.Config.RequestTimeout),
+		handlers.Diagnostics.Pull,
+	)
 
 	apiGroup := server.Group("/",
 		middleware.WithTimeout(server.Config.LLMRequestTimeout),

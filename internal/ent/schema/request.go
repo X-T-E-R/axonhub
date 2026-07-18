@@ -128,6 +128,8 @@ func (Request) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("when the content file was saved"),
+		field.JSON("routing_context", &objects.RoutingContext{}).Optional().Immutable().Annotations(entgql.Skip(entgql.SkipAll)),
+		field.JSON("evidence_disposition", &objects.EvidenceDisposition{}).Optional().Annotations(entgql.Skip(entgql.SkipAll)),
 	}
 }
 

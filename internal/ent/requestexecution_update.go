@@ -307,6 +307,18 @@ func (_u *RequestExecutionUpdate) SetNillablePassThroughApplied(v *bool) *Reques
 	return _u
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (_u *RequestExecutionUpdate) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestExecutionUpdate {
+	_u.mutation.SetEvidenceDisposition(v)
+	return _u
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (_u *RequestExecutionUpdate) ClearEvidenceDisposition() *RequestExecutionUpdate {
+	_u.mutation.ClearEvidenceDisposition()
+	return _u
+}
+
 // Mutation returns the RequestExecutionMutation object of the builder.
 func (_u *RequestExecutionUpdate) Mutation() *RequestExecutionMutation {
 	return _u.mutation
@@ -485,6 +497,12 @@ func (_u *RequestExecutionUpdate) sqlSave(ctx context.Context) (_node int, err e
 	}
 	if value, ok := _u.mutation.PassThroughApplied(); ok {
 		_spec.SetField(requestexecution.FieldPassThroughApplied, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.EvidenceDisposition(); ok {
+		_spec.SetField(requestexecution.FieldEvidenceDisposition, field.TypeJSON, value)
+	}
+	if _u.mutation.EvidenceDispositionCleared() {
+		_spec.ClearField(requestexecution.FieldEvidenceDisposition, field.TypeJSON)
 	}
 	_spec.AddModifiers(_u.modifiers...)
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
@@ -784,6 +802,18 @@ func (_u *RequestExecutionUpdateOne) SetNillablePassThroughApplied(v *bool) *Req
 	return _u
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (_u *RequestExecutionUpdateOne) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestExecutionUpdateOne {
+	_u.mutation.SetEvidenceDisposition(v)
+	return _u
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (_u *RequestExecutionUpdateOne) ClearEvidenceDisposition() *RequestExecutionUpdateOne {
+	_u.mutation.ClearEvidenceDisposition()
+	return _u
+}
+
 // Mutation returns the RequestExecutionMutation object of the builder.
 func (_u *RequestExecutionUpdateOne) Mutation() *RequestExecutionMutation {
 	return _u.mutation
@@ -992,6 +1022,12 @@ func (_u *RequestExecutionUpdateOne) sqlSave(ctx context.Context) (_node *Reques
 	}
 	if value, ok := _u.mutation.PassThroughApplied(); ok {
 		_spec.SetField(requestexecution.FieldPassThroughApplied, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.EvidenceDisposition(); ok {
+		_spec.SetField(requestexecution.FieldEvidenceDisposition, field.TypeJSON, value)
+	}
+	if _u.mutation.EvidenceDispositionCleared() {
+		_spec.ClearField(requestexecution.FieldEvidenceDisposition, field.TypeJSON)
 	}
 	_spec.AddModifiers(_u.modifiers...)
 	_node = &RequestExecution{config: _u.config}

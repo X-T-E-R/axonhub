@@ -71,23 +71,29 @@ func WithAPIKeyConfig(auth *biz.AuthService, config *APIKeyConfig) gin.HandlerFu
 	}
 }
 
+type ErrorResponder func(c *gin.Context, status int, err error)
+
 func WithJWTAuth(auth *biz.AuthService) gin.HandlerFunc {
+	return WithJWTAuthResponder(auth, nil)
+}
+
+func WithJWTAuthResponder(auth *biz.AuthService, responder ErrorResponder) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, err := ExtractAPIKeyFromRequest(c.Request, &APIKeyConfig{
 			Headers:       []string{"Authorization"},
 			RequireBearer: true,
 		})
 		if err != nil {
-			AbortWithError(c, http.StatusUnauthorized, err)
+			respondMiddlewareError(c, responder, http.StatusUnauthorized, err)
 			return
 		}
 
 		user, err := auth.AuthenticateJWTToken(c.Request.Context(), token)
 		if err != nil {
 			if errors.Is(err, biz.ErrInvalidJWT) {
-				AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid token"))
+				respondMiddlewareError(c, responder, http.StatusUnauthorized, errors.New("Invalid token"))
 			} else {
-				AbortWithError(c, http.StatusInternalServerError, errors.New("Failed to validate token"))
+				respondMiddlewareError(c, responder, http.StatusInternalServerError, errors.New("Failed to validate token"))
 			}
 
 			return
@@ -99,7 +105,7 @@ func WithJWTAuth(auth *biz.AuthService) gin.HandlerFunc {
 
 		ctx, err = withUserPrincipal(ctx, user)
 		if err != nil {
-			AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid authentication context"))
+			respondMiddlewareError(c, responder, http.StatusUnauthorized, errors.New("Invalid authentication context"))
 			return
 		}
 
@@ -119,26 +125,30 @@ var apiKeyAuthConfig = &APIKeyConfig{
 // project, and session scope so the ent privacy layer can enforce per-project,
 // scope-gated access for every query and mutation.
 func WithOpenAPIAuth(auth *biz.AuthService) gin.HandlerFunc {
+	return WithOpenAPIAuthResponder(auth, nil)
+}
+
+func WithOpenAPIAuthResponder(auth *biz.AuthService, responder ErrorResponder) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key, err := ExtractAPIKeyFromRequest(c.Request, apiKeyAuthConfig)
 		if err != nil {
-			AbortWithError(c, http.StatusUnauthorized, err)
+			respondMiddlewareError(c, responder, http.StatusUnauthorized, err)
 			return
 		}
 
 		apiKey, err := auth.AuthenticateAPIKey(c.Request.Context(), key)
 		if err != nil {
 			if ent.IsNotFound(err) || errors.Is(err, biz.ErrInvalidAPIKey) {
-				AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid API key"))
+				respondMiddlewareError(c, responder, http.StatusUnauthorized, errors.New("Invalid API key"))
 			} else {
-				AbortWithError(c, http.StatusInternalServerError, errors.New("Failed to validate API key"))
+				respondMiddlewareError(c, responder, http.StatusInternalServerError, errors.New("Failed to validate API key"))
 			}
 
 			return
 		}
 
 		if apiKey.Type != apikey.TypeServiceAccount {
-			AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid API key"))
+			respondMiddlewareError(c, responder, http.StatusUnauthorized, errors.New("Invalid API key"))
 			return
 		}
 
@@ -151,13 +161,22 @@ func WithOpenAPIAuth(auth *biz.AuthService) gin.HandlerFunc {
 
 		ctx, err = withAPIKeyPrincipal(ctx, apiKey)
 		if err != nil {
-			AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid authentication context"))
+			respondMiddlewareError(c, responder, http.StatusUnauthorized, errors.New("Invalid authentication context"))
 			return
 		}
 
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+func respondMiddlewareError(c *gin.Context, responder ErrorResponder, status int, err error) {
+	if responder == nil {
+		AbortWithError(c, status, err)
+		return
+	}
+	responder(c, status, err)
+	c.Abort()
 }
 
 // WithGeminiKeyAuth be compatible with Gemini query key authentication.

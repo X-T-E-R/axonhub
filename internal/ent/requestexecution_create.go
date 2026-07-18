@@ -292,6 +292,12 @@ func (_c *RequestExecutionCreate) SetNillablePassThroughApplied(v *bool) *Reques
 	return _c
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (_c *RequestExecutionCreate) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestExecutionCreate {
+	_c.mutation.SetEvidenceDisposition(v)
+	return _c
+}
+
 // SetRequest sets the "request" edge to the Request entity.
 func (_c *RequestExecutionCreate) SetRequest(v *Request) *RequestExecutionCreate {
 	return _c.SetRequestID(v.ID)
@@ -513,6 +519,10 @@ func (_c *RequestExecutionCreate) createSpec() (*RequestExecution, *sqlgraph.Cre
 	if value, ok := _c.mutation.PassThroughApplied(); ok {
 		_spec.SetField(requestexecution.FieldPassThroughApplied, field.TypeBool, value)
 		_node.PassThroughApplied = value
+	}
+	if value, ok := _c.mutation.EvidenceDisposition(); ok {
+		_spec.SetField(requestexecution.FieldEvidenceDisposition, field.TypeJSON, value)
+		_node.EvidenceDisposition = value
 	}
 	if nodes := _c.mutation.RequestIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -872,6 +882,24 @@ func (u *RequestExecutionUpsert) SetPassThroughApplied(v bool) *RequestExecution
 // UpdatePassThroughApplied sets the "pass_through_applied" field to the value that was provided on create.
 func (u *RequestExecutionUpsert) UpdatePassThroughApplied() *RequestExecutionUpsert {
 	u.SetExcluded(requestexecution.FieldPassThroughApplied)
+	return u
+}
+
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (u *RequestExecutionUpsert) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestExecutionUpsert {
+	u.Set(requestexecution.FieldEvidenceDisposition, v)
+	return u
+}
+
+// UpdateEvidenceDisposition sets the "evidence_disposition" field to the value that was provided on create.
+func (u *RequestExecutionUpsert) UpdateEvidenceDisposition() *RequestExecutionUpsert {
+	u.SetExcluded(requestexecution.FieldEvidenceDisposition)
+	return u
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (u *RequestExecutionUpsert) ClearEvidenceDisposition() *RequestExecutionUpsert {
+	u.SetNull(requestexecution.FieldEvidenceDisposition)
 	return u
 }
 
@@ -1242,6 +1270,27 @@ func (u *RequestExecutionUpsertOne) SetPassThroughApplied(v bool) *RequestExecut
 func (u *RequestExecutionUpsertOne) UpdatePassThroughApplied() *RequestExecutionUpsertOne {
 	return u.Update(func(s *RequestExecutionUpsert) {
 		s.UpdatePassThroughApplied()
+	})
+}
+
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (u *RequestExecutionUpsertOne) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetEvidenceDisposition(v)
+	})
+}
+
+// UpdateEvidenceDisposition sets the "evidence_disposition" field to the value that was provided on create.
+func (u *RequestExecutionUpsertOne) UpdateEvidenceDisposition() *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateEvidenceDisposition()
+	})
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (u *RequestExecutionUpsertOne) ClearEvidenceDisposition() *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.ClearEvidenceDisposition()
 	})
 }
 
@@ -1778,6 +1827,27 @@ func (u *RequestExecutionUpsertBulk) SetPassThroughApplied(v bool) *RequestExecu
 func (u *RequestExecutionUpsertBulk) UpdatePassThroughApplied() *RequestExecutionUpsertBulk {
 	return u.Update(func(s *RequestExecutionUpsert) {
 		s.UpdatePassThroughApplied()
+	})
+}
+
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (u *RequestExecutionUpsertBulk) SetEvidenceDisposition(v *objects.EvidenceDisposition) *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetEvidenceDisposition(v)
+	})
+}
+
+// UpdateEvidenceDisposition sets the "evidence_disposition" field to the value that was provided on create.
+func (u *RequestExecutionUpsertBulk) UpdateEvidenceDisposition() *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateEvidenceDisposition()
+	})
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (u *RequestExecutionUpsertBulk) ClearEvidenceDisposition() *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.ClearEvidenceDisposition()
 	})
 }
 

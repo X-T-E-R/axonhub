@@ -571,6 +571,8 @@ var (
 		{Name: "content_storage_id", Type: field.TypeInt, Nullable: true},
 		{Name: "content_storage_key", Type: field.TypeString, Nullable: true},
 		{Name: "content_saved_at", Type: field.TypeTime, Nullable: true},
+		{Name: "routing_context", Type: field.TypeJSON, Nullable: true},
+		{Name: "evidence_disposition", Type: field.TypeJSON, Nullable: true},
 		{Name: "api_key_id", Type: field.TypeInt, Nullable: true},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "data_storage_id", Type: field.TypeInt, Nullable: true},
@@ -585,31 +587,31 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "requests_api_keys_requests",
-				Columns:    []*schema.Column{RequestsColumns[23]},
+				Columns:    []*schema.Column{RequestsColumns[25]},
 				RefColumns: []*schema.Column{APIKeysColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_channels_requests",
-				Columns:    []*schema.Column{RequestsColumns[24]},
+				Columns:    []*schema.Column{RequestsColumns[26]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_data_storages_requests",
-				Columns:    []*schema.Column{RequestsColumns[25]},
+				Columns:    []*schema.Column{RequestsColumns[27]},
 				RefColumns: []*schema.Column{DataStoragesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_projects_requests",
-				Columns:    []*schema.Column{RequestsColumns[26]},
+				Columns:    []*schema.Column{RequestsColumns[28]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "requests_traces_requests",
-				Columns:    []*schema.Column{RequestsColumns[27]},
+				Columns:    []*schema.Column{RequestsColumns[29]},
 				RefColumns: []*schema.Column{TracesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -618,22 +620,22 @@ var (
 			{
 				Name:    "requests_by_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[23], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[25], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_project_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[26], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[28], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[24], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[26], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_trace_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[27], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[29], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_created_at",
@@ -665,6 +667,7 @@ var (
 		{Name: "request_headers", Type: field.TypeJSON, Nullable: true},
 		{Name: "request_url", Type: field.TypeString, Nullable: true},
 		{Name: "pass_through_applied", Type: field.TypeBool, Default: false},
+		{Name: "evidence_disposition", Type: field.TypeJSON, Nullable: true},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "data_storage_id", Type: field.TypeInt, Nullable: true},
 		{Name: "request_id", Type: field.TypeInt},
@@ -677,19 +680,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "request_executions_channels_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[21]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[22]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_data_storages_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[22]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[23]},
 				RefColumns: []*schema.Column{DataStoragesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_requests_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[23]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[24]},
 				RefColumns: []*schema.Column{RequestsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -698,17 +701,17 @@ var (
 			{
 				Name:    "request_executions_by_request_id_status_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[23], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[24], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_request_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[23], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[24], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[21], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[22], RequestExecutionsColumns[1]},
 			},
 		},
 	}

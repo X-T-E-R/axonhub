@@ -17144,6 +17144,8 @@ type RequestMutation struct {
 	addcontent_storage_id             *int
 	content_storage_key               *string
 	content_saved_at                  *time.Time
+	routing_context                   **objects.RoutingContext
+	evidence_disposition              **objects.EvidenceDisposition
 	clearedFields                     map[string]struct{}
 	api_key                           *int
 	clearedapi_key                    bool
@@ -18591,6 +18593,104 @@ func (m *RequestMutation) ResetContentSavedAt() {
 	delete(m.clearedFields, request.FieldContentSavedAt)
 }
 
+// SetRoutingContext sets the "routing_context" field.
+func (m *RequestMutation) SetRoutingContext(oc *objects.RoutingContext) {
+	m.routing_context = &oc
+}
+
+// RoutingContext returns the value of the "routing_context" field in the mutation.
+func (m *RequestMutation) RoutingContext() (r *objects.RoutingContext, exists bool) {
+	v := m.routing_context
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRoutingContext returns the old "routing_context" field's value of the Request entity.
+// If the Request object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestMutation) OldRoutingContext(ctx context.Context) (v *objects.RoutingContext, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRoutingContext is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRoutingContext requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRoutingContext: %w", err)
+	}
+	return oldValue.RoutingContext, nil
+}
+
+// ClearRoutingContext clears the value of the "routing_context" field.
+func (m *RequestMutation) ClearRoutingContext() {
+	m.routing_context = nil
+	m.clearedFields[request.FieldRoutingContext] = struct{}{}
+}
+
+// RoutingContextCleared returns if the "routing_context" field was cleared in this mutation.
+func (m *RequestMutation) RoutingContextCleared() bool {
+	_, ok := m.clearedFields[request.FieldRoutingContext]
+	return ok
+}
+
+// ResetRoutingContext resets all changes to the "routing_context" field.
+func (m *RequestMutation) ResetRoutingContext() {
+	m.routing_context = nil
+	delete(m.clearedFields, request.FieldRoutingContext)
+}
+
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (m *RequestMutation) SetEvidenceDisposition(od *objects.EvidenceDisposition) {
+	m.evidence_disposition = &od
+}
+
+// EvidenceDisposition returns the value of the "evidence_disposition" field in the mutation.
+func (m *RequestMutation) EvidenceDisposition() (r *objects.EvidenceDisposition, exists bool) {
+	v := m.evidence_disposition
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEvidenceDisposition returns the old "evidence_disposition" field's value of the Request entity.
+// If the Request object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestMutation) OldEvidenceDisposition(ctx context.Context) (v *objects.EvidenceDisposition, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEvidenceDisposition is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEvidenceDisposition requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEvidenceDisposition: %w", err)
+	}
+	return oldValue.EvidenceDisposition, nil
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (m *RequestMutation) ClearEvidenceDisposition() {
+	m.evidence_disposition = nil
+	m.clearedFields[request.FieldEvidenceDisposition] = struct{}{}
+}
+
+// EvidenceDispositionCleared returns if the "evidence_disposition" field was cleared in this mutation.
+func (m *RequestMutation) EvidenceDispositionCleared() bool {
+	_, ok := m.clearedFields[request.FieldEvidenceDisposition]
+	return ok
+}
+
+// ResetEvidenceDisposition resets all changes to the "evidence_disposition" field.
+func (m *RequestMutation) ResetEvidenceDisposition() {
+	m.evidence_disposition = nil
+	delete(m.clearedFields, request.FieldEvidenceDisposition)
+}
+
 // ClearAPIKey clears the "api_key" edge to the APIKey entity.
 func (m *RequestMutation) ClearAPIKey() {
 	m.clearedapi_key = true
@@ -18868,7 +18968,7 @@ func (m *RequestMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RequestMutation) Fields() []string {
-	fields := make([]string, 0, 27)
+	fields := make([]string, 0, 29)
 	if m.created_at != nil {
 		fields = append(fields, request.FieldCreatedAt)
 	}
@@ -18950,6 +19050,12 @@ func (m *RequestMutation) Fields() []string {
 	if m.content_saved_at != nil {
 		fields = append(fields, request.FieldContentSavedAt)
 	}
+	if m.routing_context != nil {
+		fields = append(fields, request.FieldRoutingContext)
+	}
+	if m.evidence_disposition != nil {
+		fields = append(fields, request.FieldEvidenceDisposition)
+	}
 	return fields
 }
 
@@ -19012,6 +19118,10 @@ func (m *RequestMutation) Field(name string) (ent.Value, bool) {
 		return m.ContentStorageKey()
 	case request.FieldContentSavedAt:
 		return m.ContentSavedAt()
+	case request.FieldRoutingContext:
+		return m.RoutingContext()
+	case request.FieldEvidenceDisposition:
+		return m.EvidenceDisposition()
 	}
 	return nil, false
 }
@@ -19075,6 +19185,10 @@ func (m *RequestMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldContentStorageKey(ctx)
 	case request.FieldContentSavedAt:
 		return m.OldContentSavedAt(ctx)
+	case request.FieldRoutingContext:
+		return m.OldRoutingContext(ctx)
+	case request.FieldEvidenceDisposition:
+		return m.OldEvidenceDisposition(ctx)
 	}
 	return nil, fmt.Errorf("unknown Request field %s", name)
 }
@@ -19273,6 +19387,20 @@ func (m *RequestMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetContentSavedAt(v)
 		return nil
+	case request.FieldRoutingContext:
+		v, ok := value.(*objects.RoutingContext)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRoutingContext(v)
+		return nil
+	case request.FieldEvidenceDisposition:
+		v, ok := value.(*objects.EvidenceDisposition)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEvidenceDisposition(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Request field %s", name)
 }
@@ -19402,6 +19530,12 @@ func (m *RequestMutation) ClearedFields() []string {
 	if m.FieldCleared(request.FieldContentSavedAt) {
 		fields = append(fields, request.FieldContentSavedAt)
 	}
+	if m.FieldCleared(request.FieldRoutingContext) {
+		fields = append(fields, request.FieldRoutingContext)
+	}
+	if m.FieldCleared(request.FieldEvidenceDisposition) {
+		fields = append(fields, request.FieldEvidenceDisposition)
+	}
 	return fields
 }
 
@@ -19463,6 +19597,12 @@ func (m *RequestMutation) ClearField(name string) error {
 		return nil
 	case request.FieldContentSavedAt:
 		m.ClearContentSavedAt()
+		return nil
+	case request.FieldRoutingContext:
+		m.ClearRoutingContext()
+		return nil
+	case request.FieldEvidenceDisposition:
+		m.ClearEvidenceDisposition()
 		return nil
 	}
 	return fmt.Errorf("unknown Request nullable field %s", name)
@@ -19552,6 +19692,12 @@ func (m *RequestMutation) ResetField(name string) error {
 		return nil
 	case request.FieldContentSavedAt:
 		m.ResetContentSavedAt()
+		return nil
+	case request.FieldRoutingContext:
+		m.ResetRoutingContext()
+		return nil
+	case request.FieldEvidenceDisposition:
+		m.ResetEvidenceDisposition()
 		return nil
 	}
 	return fmt.Errorf("unknown Request field %s", name)
@@ -19792,6 +19938,7 @@ type RequestExecutionMutation struct {
 	appendrequest_headers             objects.JSONRawMessage
 	request_url                       *string
 	pass_through_applied              *bool
+	evidence_disposition              **objects.EvidenceDisposition
 	clearedFields                     map[string]struct{}
 	request                           *int
 	clearedrequest                    bool
@@ -21066,6 +21213,55 @@ func (m *RequestExecutionMutation) ResetPassThroughApplied() {
 	m.pass_through_applied = nil
 }
 
+// SetEvidenceDisposition sets the "evidence_disposition" field.
+func (m *RequestExecutionMutation) SetEvidenceDisposition(od *objects.EvidenceDisposition) {
+	m.evidence_disposition = &od
+}
+
+// EvidenceDisposition returns the value of the "evidence_disposition" field in the mutation.
+func (m *RequestExecutionMutation) EvidenceDisposition() (r *objects.EvidenceDisposition, exists bool) {
+	v := m.evidence_disposition
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEvidenceDisposition returns the old "evidence_disposition" field's value of the RequestExecution entity.
+// If the RequestExecution object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestExecutionMutation) OldEvidenceDisposition(ctx context.Context) (v *objects.EvidenceDisposition, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEvidenceDisposition is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEvidenceDisposition requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEvidenceDisposition: %w", err)
+	}
+	return oldValue.EvidenceDisposition, nil
+}
+
+// ClearEvidenceDisposition clears the value of the "evidence_disposition" field.
+func (m *RequestExecutionMutation) ClearEvidenceDisposition() {
+	m.evidence_disposition = nil
+	m.clearedFields[requestexecution.FieldEvidenceDisposition] = struct{}{}
+}
+
+// EvidenceDispositionCleared returns if the "evidence_disposition" field was cleared in this mutation.
+func (m *RequestExecutionMutation) EvidenceDispositionCleared() bool {
+	_, ok := m.clearedFields[requestexecution.FieldEvidenceDisposition]
+	return ok
+}
+
+// ResetEvidenceDisposition resets all changes to the "evidence_disposition" field.
+func (m *RequestExecutionMutation) ResetEvidenceDisposition() {
+	m.evidence_disposition = nil
+	delete(m.clearedFields, requestexecution.FieldEvidenceDisposition)
+}
+
 // ClearRequest clears the "request" edge to the Request entity.
 func (m *RequestExecutionMutation) ClearRequest() {
 	m.clearedrequest = true
@@ -21181,7 +21377,7 @@ func (m *RequestExecutionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RequestExecutionMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 24)
 	if m.created_at != nil {
 		fields = append(fields, requestexecution.FieldCreatedAt)
 	}
@@ -21251,6 +21447,9 @@ func (m *RequestExecutionMutation) Fields() []string {
 	if m.pass_through_applied != nil {
 		fields = append(fields, requestexecution.FieldPassThroughApplied)
 	}
+	if m.evidence_disposition != nil {
+		fields = append(fields, requestexecution.FieldEvidenceDisposition)
+	}
 	return fields
 }
 
@@ -21305,6 +21504,8 @@ func (m *RequestExecutionMutation) Field(name string) (ent.Value, bool) {
 		return m.RequestURL()
 	case requestexecution.FieldPassThroughApplied:
 		return m.PassThroughApplied()
+	case requestexecution.FieldEvidenceDisposition:
+		return m.EvidenceDisposition()
 	}
 	return nil, false
 }
@@ -21360,6 +21561,8 @@ func (m *RequestExecutionMutation) OldField(ctx context.Context, name string) (e
 		return m.OldRequestURL(ctx)
 	case requestexecution.FieldPassThroughApplied:
 		return m.OldPassThroughApplied(ctx)
+	case requestexecution.FieldEvidenceDisposition:
+		return m.OldEvidenceDisposition(ctx)
 	}
 	return nil, fmt.Errorf("unknown RequestExecution field %s", name)
 }
@@ -21530,6 +21733,13 @@ func (m *RequestExecutionMutation) SetField(name string, value ent.Value) error 
 		}
 		m.SetPassThroughApplied(v)
 		return nil
+	case requestexecution.FieldEvidenceDisposition:
+		v, ok := value.(*objects.EvidenceDisposition)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEvidenceDisposition(v)
+		return nil
 	}
 	return fmt.Errorf("unknown RequestExecution field %s", name)
 }
@@ -21662,6 +21872,9 @@ func (m *RequestExecutionMutation) ClearedFields() []string {
 	if m.FieldCleared(requestexecution.FieldRequestURL) {
 		fields = append(fields, requestexecution.FieldRequestURL)
 	}
+	if m.FieldCleared(requestexecution.FieldEvidenceDisposition) {
+		fields = append(fields, requestexecution.FieldEvidenceDisposition)
+	}
 	return fields
 }
 
@@ -21714,6 +21927,9 @@ func (m *RequestExecutionMutation) ClearField(name string) error {
 		return nil
 	case requestexecution.FieldRequestURL:
 		m.ClearRequestURL()
+		return nil
+	case requestexecution.FieldEvidenceDisposition:
+		m.ClearEvidenceDisposition()
 		return nil
 	}
 	return fmt.Errorf("unknown RequestExecution nullable field %s", name)
@@ -21791,6 +22007,9 @@ func (m *RequestExecutionMutation) ResetField(name string) error {
 		return nil
 	case requestexecution.FieldPassThroughApplied:
 		m.ResetPassThroughApplied()
+		return nil
+	case requestexecution.FieldEvidenceDisposition:
+		m.ResetEvidenceDisposition()
 		return nil
 	}
 	return fmt.Errorf("unknown RequestExecution field %s", name)

@@ -2,9 +2,12 @@ package api
 
 import (
 	"go.uber.org/fx"
+
+	"github.com/looplj/axonhub/internal/server/diagnostics"
 )
 
 var Module = fx.Module("api",
+	fx.Provide(diagnostics.NewService),
 	fx.Provide(NewOpenAIHandlers),
 	fx.Provide(NewAnthropicHandlers),
 	fx.Provide(NewGeminiHandlers),
@@ -23,5 +26,6 @@ var Module = fx.Module("api",
 	fx.Provide(NewOIDCHandlers),
 	fx.Provide(NewRequestPreviewHandlers),
 	fx.Provide(NewManagementHandlers),
+	fx.Provide(NewDiagnosticsHandlers),
 	fx.Invoke(initLogger),
 )

@@ -434,6 +434,8 @@ var schemaGraph = func() *sqlgraph.Schema {
 			request.FieldContentStorageID:            {Type: field.TypeInt, Column: request.FieldContentStorageID},
 			request.FieldContentStorageKey:           {Type: field.TypeString, Column: request.FieldContentStorageKey},
 			request.FieldContentSavedAt:              {Type: field.TypeTime, Column: request.FieldContentSavedAt},
+			request.FieldRoutingContext:              {Type: field.TypeJSON, Column: request.FieldRoutingContext},
+			request.FieldEvidenceDisposition:         {Type: field.TypeJSON, Column: request.FieldEvidenceDisposition},
 		},
 	}
 	graph.Nodes[16] = &sqlgraph.Node{
@@ -470,6 +472,7 @@ var schemaGraph = func() *sqlgraph.Schema {
 			requestexecution.FieldRequestHeaders:              {Type: field.TypeJSON, Column: requestexecution.FieldRequestHeaders},
 			requestexecution.FieldRequestURL:                  {Type: field.TypeString, Column: requestexecution.FieldRequestURL},
 			requestexecution.FieldPassThroughApplied:          {Type: field.TypeBool, Column: requestexecution.FieldPassThroughApplied},
+			requestexecution.FieldEvidenceDisposition:         {Type: field.TypeJSON, Column: requestexecution.FieldEvidenceDisposition},
 		},
 	}
 	graph.Nodes[17] = &sqlgraph.Node{
@@ -3455,6 +3458,16 @@ func (f *RequestFilter) WhereContentSavedAt(p entql.TimeP) {
 	f.Where(p.Field(request.FieldContentSavedAt))
 }
 
+// WhereRoutingContext applies the entql json.RawMessage predicate on the routing_context field.
+func (f *RequestFilter) WhereRoutingContext(p entql.BytesP) {
+	f.Where(p.Field(request.FieldRoutingContext))
+}
+
+// WhereEvidenceDisposition applies the entql json.RawMessage predicate on the evidence_disposition field.
+func (f *RequestFilter) WhereEvidenceDisposition(p entql.BytesP) {
+	f.Where(p.Field(request.FieldEvidenceDisposition))
+}
+
 // WhereHasAPIKey applies a predicate to check if query has an edge api_key.
 func (f *RequestFilter) WhereHasAPIKey() {
 	f.Where(entql.HasEdge("api_key"))
@@ -3706,6 +3719,11 @@ func (f *RequestExecutionFilter) WhereRequestURL(p entql.StringP) {
 // WherePassThroughApplied applies the entql bool predicate on the pass_through_applied field.
 func (f *RequestExecutionFilter) WherePassThroughApplied(p entql.BoolP) {
 	f.Where(p.Field(requestexecution.FieldPassThroughApplied))
+}
+
+// WhereEvidenceDisposition applies the entql json.RawMessage predicate on the evidence_disposition field.
+func (f *RequestExecutionFilter) WhereEvidenceDisposition(p entql.BytesP) {
+	f.Where(p.Field(requestexecution.FieldEvidenceDisposition))
 }
 
 // WhereHasRequest applies a predicate to check if query has an edge request.

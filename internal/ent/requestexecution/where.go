@@ -1045,6 +1045,16 @@ func PassThroughAppliedNEQ(v bool) predicate.RequestExecution {
 	return predicate.RequestExecution(sql.FieldNEQ(FieldPassThroughApplied, v))
 }
 
+// EvidenceDispositionIsNil applies the IsNil predicate on the "evidence_disposition" field.
+func EvidenceDispositionIsNil() predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldIsNull(FieldEvidenceDisposition))
+}
+
+// EvidenceDispositionNotNil applies the NotNil predicate on the "evidence_disposition" field.
+func EvidenceDispositionNotNil() predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldNotNull(FieldEvidenceDisposition))
+}
+
 // HasRequest applies the HasEdge predicate on the "request" edge.
 func HasRequest() predicate.RequestExecution {
 	return predicate.RequestExecution(func(s *sql.Selector) {
