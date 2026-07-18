@@ -17138,6 +17138,7 @@ type RequestMutation struct {
 	addmetrics_first_token_latency_ms *int64
 	metrics_reasoning_duration_ms     *int64
 	addmetrics_reasoning_duration_ms  *int64
+	selected_channel_api_key_masked   *string
 	content_saved                     *bool
 	content_storage_id                *int
 	addcontent_storage_id             *int
@@ -18337,6 +18338,55 @@ func (m *RequestMutation) ResetMetricsReasoningDurationMs() {
 	delete(m.clearedFields, request.FieldMetricsReasoningDurationMs)
 }
 
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (m *RequestMutation) SetSelectedChannelAPIKeyMasked(s string) {
+	m.selected_channel_api_key_masked = &s
+}
+
+// SelectedChannelAPIKeyMasked returns the value of the "selected_channel_api_key_masked" field in the mutation.
+func (m *RequestMutation) SelectedChannelAPIKeyMasked() (r string, exists bool) {
+	v := m.selected_channel_api_key_masked
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSelectedChannelAPIKeyMasked returns the old "selected_channel_api_key_masked" field's value of the Request entity.
+// If the Request object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestMutation) OldSelectedChannelAPIKeyMasked(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSelectedChannelAPIKeyMasked is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSelectedChannelAPIKeyMasked requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSelectedChannelAPIKeyMasked: %w", err)
+	}
+	return oldValue.SelectedChannelAPIKeyMasked, nil
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (m *RequestMutation) ClearSelectedChannelAPIKeyMasked() {
+	m.selected_channel_api_key_masked = nil
+	m.clearedFields[request.FieldSelectedChannelAPIKeyMasked] = struct{}{}
+}
+
+// SelectedChannelAPIKeyMaskedCleared returns if the "selected_channel_api_key_masked" field was cleared in this mutation.
+func (m *RequestMutation) SelectedChannelAPIKeyMaskedCleared() bool {
+	_, ok := m.clearedFields[request.FieldSelectedChannelAPIKeyMasked]
+	return ok
+}
+
+// ResetSelectedChannelAPIKeyMasked resets all changes to the "selected_channel_api_key_masked" field.
+func (m *RequestMutation) ResetSelectedChannelAPIKeyMasked() {
+	m.selected_channel_api_key_masked = nil
+	delete(m.clearedFields, request.FieldSelectedChannelAPIKeyMasked)
+}
+
 // SetContentSaved sets the "content_saved" field.
 func (m *RequestMutation) SetContentSaved(b bool) {
 	m.content_saved = &b
@@ -18818,7 +18868,7 @@ func (m *RequestMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RequestMutation) Fields() []string {
-	fields := make([]string, 0, 26)
+	fields := make([]string, 0, 27)
 	if m.created_at != nil {
 		fields = append(fields, request.FieldCreatedAt)
 	}
@@ -18885,6 +18935,9 @@ func (m *RequestMutation) Fields() []string {
 	if m.metrics_reasoning_duration_ms != nil {
 		fields = append(fields, request.FieldMetricsReasoningDurationMs)
 	}
+	if m.selected_channel_api_key_masked != nil {
+		fields = append(fields, request.FieldSelectedChannelAPIKeyMasked)
+	}
 	if m.content_saved != nil {
 		fields = append(fields, request.FieldContentSaved)
 	}
@@ -18949,6 +19002,8 @@ func (m *RequestMutation) Field(name string) (ent.Value, bool) {
 		return m.MetricsFirstTokenLatencyMs()
 	case request.FieldMetricsReasoningDurationMs:
 		return m.MetricsReasoningDurationMs()
+	case request.FieldSelectedChannelAPIKeyMasked:
+		return m.SelectedChannelAPIKeyMasked()
 	case request.FieldContentSaved:
 		return m.ContentSaved()
 	case request.FieldContentStorageID:
@@ -19010,6 +19065,8 @@ func (m *RequestMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldMetricsFirstTokenLatencyMs(ctx)
 	case request.FieldMetricsReasoningDurationMs:
 		return m.OldMetricsReasoningDurationMs(ctx)
+	case request.FieldSelectedChannelAPIKeyMasked:
+		return m.OldSelectedChannelAPIKeyMasked(ctx)
 	case request.FieldContentSaved:
 		return m.OldContentSaved(ctx)
 	case request.FieldContentStorageID:
@@ -19181,6 +19238,13 @@ func (m *RequestMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetMetricsReasoningDurationMs(v)
 		return nil
+	case request.FieldSelectedChannelAPIKeyMasked:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSelectedChannelAPIKeyMasked(v)
+		return nil
 	case request.FieldContentSaved:
 		v, ok := value.(bool)
 		if !ok {
@@ -19326,6 +19390,9 @@ func (m *RequestMutation) ClearedFields() []string {
 	if m.FieldCleared(request.FieldMetricsReasoningDurationMs) {
 		fields = append(fields, request.FieldMetricsReasoningDurationMs)
 	}
+	if m.FieldCleared(request.FieldSelectedChannelAPIKeyMasked) {
+		fields = append(fields, request.FieldSelectedChannelAPIKeyMasked)
+	}
 	if m.FieldCleared(request.FieldContentStorageID) {
 		fields = append(fields, request.FieldContentStorageID)
 	}
@@ -19384,6 +19451,9 @@ func (m *RequestMutation) ClearField(name string) error {
 		return nil
 	case request.FieldMetricsReasoningDurationMs:
 		m.ClearMetricsReasoningDurationMs()
+		return nil
+	case request.FieldSelectedChannelAPIKeyMasked:
+		m.ClearSelectedChannelAPIKeyMasked()
 		return nil
 	case request.FieldContentStorageID:
 		m.ClearContentStorageID()
@@ -19467,6 +19537,9 @@ func (m *RequestMutation) ResetField(name string) error {
 		return nil
 	case request.FieldMetricsReasoningDurationMs:
 		m.ResetMetricsReasoningDurationMs()
+		return nil
+	case request.FieldSelectedChannelAPIKeyMasked:
+		m.ResetSelectedChannelAPIKeyMasked()
 		return nil
 	case request.FieldContentSaved:
 		m.ResetContentSaved()
@@ -19714,6 +19787,7 @@ type RequestExecutionMutation struct {
 	addmetrics_first_token_latency_ms *int64
 	metrics_reasoning_duration_ms     *int64
 	addmetrics_reasoning_duration_ms  *int64
+	selected_channel_api_key_masked   *string
 	request_headers                   *objects.JSONRawMessage
 	appendrequest_headers             objects.JSONRawMessage
 	request_url                       *string
@@ -20793,6 +20867,55 @@ func (m *RequestExecutionMutation) ResetMetricsReasoningDurationMs() {
 	delete(m.clearedFields, requestexecution.FieldMetricsReasoningDurationMs)
 }
 
+// SetSelectedChannelAPIKeyMasked sets the "selected_channel_api_key_masked" field.
+func (m *RequestExecutionMutation) SetSelectedChannelAPIKeyMasked(s string) {
+	m.selected_channel_api_key_masked = &s
+}
+
+// SelectedChannelAPIKeyMasked returns the value of the "selected_channel_api_key_masked" field in the mutation.
+func (m *RequestExecutionMutation) SelectedChannelAPIKeyMasked() (r string, exists bool) {
+	v := m.selected_channel_api_key_masked
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSelectedChannelAPIKeyMasked returns the old "selected_channel_api_key_masked" field's value of the RequestExecution entity.
+// If the RequestExecution object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestExecutionMutation) OldSelectedChannelAPIKeyMasked(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSelectedChannelAPIKeyMasked is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSelectedChannelAPIKeyMasked requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSelectedChannelAPIKeyMasked: %w", err)
+	}
+	return oldValue.SelectedChannelAPIKeyMasked, nil
+}
+
+// ClearSelectedChannelAPIKeyMasked clears the value of the "selected_channel_api_key_masked" field.
+func (m *RequestExecutionMutation) ClearSelectedChannelAPIKeyMasked() {
+	m.selected_channel_api_key_masked = nil
+	m.clearedFields[requestexecution.FieldSelectedChannelAPIKeyMasked] = struct{}{}
+}
+
+// SelectedChannelAPIKeyMaskedCleared returns if the "selected_channel_api_key_masked" field was cleared in this mutation.
+func (m *RequestExecutionMutation) SelectedChannelAPIKeyMaskedCleared() bool {
+	_, ok := m.clearedFields[requestexecution.FieldSelectedChannelAPIKeyMasked]
+	return ok
+}
+
+// ResetSelectedChannelAPIKeyMasked resets all changes to the "selected_channel_api_key_masked" field.
+func (m *RequestExecutionMutation) ResetSelectedChannelAPIKeyMasked() {
+	m.selected_channel_api_key_masked = nil
+	delete(m.clearedFields, requestexecution.FieldSelectedChannelAPIKeyMasked)
+}
+
 // SetRequestHeaders sets the "request_headers" field.
 func (m *RequestExecutionMutation) SetRequestHeaders(orm objects.JSONRawMessage) {
 	m.request_headers = &orm
@@ -21058,7 +21181,7 @@ func (m *RequestExecutionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RequestExecutionMutation) Fields() []string {
-	fields := make([]string, 0, 22)
+	fields := make([]string, 0, 23)
 	if m.created_at != nil {
 		fields = append(fields, requestexecution.FieldCreatedAt)
 	}
@@ -21116,6 +21239,9 @@ func (m *RequestExecutionMutation) Fields() []string {
 	if m.metrics_reasoning_duration_ms != nil {
 		fields = append(fields, requestexecution.FieldMetricsReasoningDurationMs)
 	}
+	if m.selected_channel_api_key_masked != nil {
+		fields = append(fields, requestexecution.FieldSelectedChannelAPIKeyMasked)
+	}
 	if m.request_headers != nil {
 		fields = append(fields, requestexecution.FieldRequestHeaders)
 	}
@@ -21171,6 +21297,8 @@ func (m *RequestExecutionMutation) Field(name string) (ent.Value, bool) {
 		return m.MetricsFirstTokenLatencyMs()
 	case requestexecution.FieldMetricsReasoningDurationMs:
 		return m.MetricsReasoningDurationMs()
+	case requestexecution.FieldSelectedChannelAPIKeyMasked:
+		return m.SelectedChannelAPIKeyMasked()
 	case requestexecution.FieldRequestHeaders:
 		return m.RequestHeaders()
 	case requestexecution.FieldRequestURL:
@@ -21224,6 +21352,8 @@ func (m *RequestExecutionMutation) OldField(ctx context.Context, name string) (e
 		return m.OldMetricsFirstTokenLatencyMs(ctx)
 	case requestexecution.FieldMetricsReasoningDurationMs:
 		return m.OldMetricsReasoningDurationMs(ctx)
+	case requestexecution.FieldSelectedChannelAPIKeyMasked:
+		return m.OldSelectedChannelAPIKeyMasked(ctx)
 	case requestexecution.FieldRequestHeaders:
 		return m.OldRequestHeaders(ctx)
 	case requestexecution.FieldRequestURL:
@@ -21372,6 +21502,13 @@ func (m *RequestExecutionMutation) SetField(name string, value ent.Value) error 
 		}
 		m.SetMetricsReasoningDurationMs(v)
 		return nil
+	case requestexecution.FieldSelectedChannelAPIKeyMasked:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSelectedChannelAPIKeyMasked(v)
+		return nil
 	case requestexecution.FieldRequestHeaders:
 		v, ok := value.(objects.JSONRawMessage)
 		if !ok {
@@ -21516,6 +21653,9 @@ func (m *RequestExecutionMutation) ClearedFields() []string {
 	if m.FieldCleared(requestexecution.FieldMetricsReasoningDurationMs) {
 		fields = append(fields, requestexecution.FieldMetricsReasoningDurationMs)
 	}
+	if m.FieldCleared(requestexecution.FieldSelectedChannelAPIKeyMasked) {
+		fields = append(fields, requestexecution.FieldSelectedChannelAPIKeyMasked)
+	}
 	if m.FieldCleared(requestexecution.FieldRequestHeaders) {
 		fields = append(fields, requestexecution.FieldRequestHeaders)
 	}
@@ -21565,6 +21705,9 @@ func (m *RequestExecutionMutation) ClearField(name string) error {
 		return nil
 	case requestexecution.FieldMetricsReasoningDurationMs:
 		m.ClearMetricsReasoningDurationMs()
+		return nil
+	case requestexecution.FieldSelectedChannelAPIKeyMasked:
+		m.ClearSelectedChannelAPIKeyMasked()
 		return nil
 	case requestexecution.FieldRequestHeaders:
 		m.ClearRequestHeaders()
@@ -21636,6 +21779,9 @@ func (m *RequestExecutionMutation) ResetField(name string) error {
 		return nil
 	case requestexecution.FieldMetricsReasoningDurationMs:
 		m.ResetMetricsReasoningDurationMs()
+		return nil
+	case requestexecution.FieldSelectedChannelAPIKeyMasked:
+		m.ResetSelectedChannelAPIKeyMasked()
 		return nil
 	case requestexecution.FieldRequestHeaders:
 		m.ResetRequestHeaders()

@@ -474,7 +474,7 @@ func (svc *ChannelService) buildNonDefaultEndpointOutbound(
 	case llm.APIFormatSeedanceVideo.String():
 		return doubao.NewOutboundTransformerWithConfig(&doubao.Config{
 			BaseURL:        baseURL,
-			APIKeyProvider: apiKeyProvider,
+			APIKeyProvider: apiKeyProvider(),
 		})
 	default:
 		return nil, fmt.Errorf("unsupported api_format %q", ep.APIFormat)

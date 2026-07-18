@@ -89,7 +89,7 @@ func (t *OutboundTransformer) TransformRequest(
 	case llm.RequestTypeChat, "":
 		// continue
 	case llm.RequestTypeImage:
-		return t.buildImageGenerationRequest(llmReq)
+		return t.buildImageGenerationRequest(ctx, llmReq)
 	case llm.RequestTypeEmbedding,
 		llm.RequestTypeSpeech,
 		llm.RequestTypeTranscription,
