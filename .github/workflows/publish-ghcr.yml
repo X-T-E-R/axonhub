@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - unstable
+      - feat/intuitive-multi-user-keys
     tags:
       - 'v*'
 
@@ -33,6 +34,9 @@ jobs:
           SHORT_SHA="${GITHUB_SHA::7}"
           REF_NAME="${GITHUB_REF_NAME}"
           REF_TYPE="${GITHUB_REF_TYPE}"
+          if [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" == "feat/intuitive-multi-user-keys" ]]; then
+            REF_NAME="key-health-latest"
+          fi
           if [[ "${REF_TYPE}" == "tag" ]]; then
             VERSION="${REF_NAME}"
             PUBLISH_LATEST="false"
