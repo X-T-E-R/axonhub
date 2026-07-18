@@ -33,8 +33,8 @@ import {
   OpenCode,
 } from '@lobehub/icons';
 import { AtlasCloudIcon } from '../components/atlas-cloud-icon';
-import { EvolinkIcon } from '../components/evolink-icon';
 import { AxonHubIcon } from '../components/axonhub-icon';
+import { EvolinkIcon } from '../components/evolink-icon';
 import { NanoGPTIcon } from '../components/nanogpt-icon';
 import { CHANNEL_CONFIGS } from './config_channels';
 import { ApiFormat, ChannelType } from './schema';

@@ -29,7 +29,6 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +40,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DataTableColumnHeader } from '@/components/data-table-column-header';
@@ -149,9 +149,7 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
         {t('channels.endpoints.title')}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
-        {t('channels.actions.requestHandling')}
-      </DropdownMenuLabel>
+      <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>{t('channels.actions.requestHandling')}</DropdownMenuLabel>
       <DropdownMenuItem
         onClick={() => {
           setCurrentRow(channel);
@@ -171,9 +169,7 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
         {t('channels.dialogs.transformOptions.action')}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
-        {t('channels.actions.networkAndLimits')}
-      </DropdownMenuLabel>
+      <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>{t('channels.actions.networkAndLimits')}</DropdownMenuLabel>
       <DropdownMenuItem
         onClick={() => {
           setCurrentRow(channel);
@@ -405,9 +401,7 @@ const NameCell = memo(({ row }: { row: Row<Channel> }) => {
       <Tooltip>
         <TooltipTrigger asChild>{content}</TooltipTrigger>
         <TooltipContent>
-          <p className='text-sm text-amber-500'>
-            {t('channels.actions.disabledAPIKeys', { count: disabledKeysCount })}
-          </p>
+          <p className='text-sm text-amber-500'>{t('channels.actions.disabledAPIKeys', { count: disabledKeysCount })}</p>
         </TooltipContent>
       </Tooltip>
     );
@@ -623,11 +617,9 @@ const OrderingWeightCell = memo(({ row }: { row: Row<Channel> }) => {
   }
 
   return (
-    <div className='flex items-center justify-center gap-2 group cursor-pointer' onDoubleClick={handleDoubleClick}>
-      <span className={cn('font-mono text-sm', initialWeight == null && 'text-muted-foreground')}>
-        {initialWeight ?? '-'}
-      </span>
-      {updateChannel.isPending && <IconLoader2 className='h-3 w-3 animate-spin text-muted-foreground' />}
+    <div className='group flex cursor-pointer items-center justify-center gap-2' onDoubleClick={handleDoubleClick}>
+      <span className={cn('font-mono text-sm', initialWeight == null && 'text-muted-foreground')}>{initialWeight ?? '-'}</span>
+      {updateChannel.isPending && <IconLoader2 className='text-muted-foreground h-3 w-3 animate-spin' />}
     </div>
   );
 });

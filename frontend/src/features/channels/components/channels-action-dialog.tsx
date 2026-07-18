@@ -900,7 +900,18 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, selectedApiFormat, isOAuthChannel, passThroughBody, responsesTransport]
+    [
+      form,
+      useGeminiVertex,
+      useAnthropicAws,
+      useKimiCoding,
+      isDuplicate,
+      isEdit,
+      selectedApiFormat,
+      isOAuthChannel,
+      passThroughBody,
+      responsesTransport,
+    ]
   );
 
   const handleApiFormatChange = useCallback(
@@ -2187,7 +2198,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 aria-invalid={!!fieldState.error}
                                 data-testid='channel-base-url-input'
                                 disabled={
-                                  (isCodexType && authMode !== 'third-party') || (isClaudeCodeType && authMode === 'official') || selectedProvider === 'antigravity'
+                                  (isCodexType && authMode !== 'third-party') ||
+                                  (isClaudeCodeType && authMode === 'official') ||
+                                  selectedProvider === 'antigravity'
                                 }
                                 {...field}
                               />
@@ -2791,9 +2804,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                               onCheckedChange={(checked) => setFullPassThrough(checked === true)}
                               className='mt-1'
                             />
-                            <p className='text-muted-foreground text-sm'>
-                              {t('channels.dialogs.fullPassThrough.description')}
-                            </p>
+                            <p className='text-muted-foreground text-sm'>{t('channels.dialogs.fullPassThrough.description')}</p>
                           </div>
                         </FormItem>
                       )}
@@ -2808,9 +2819,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                             onCheckedChange={(checked) => setDisableRetries(checked === true)}
                             className='mt-1'
                           />
-                          <p className='text-muted-foreground text-sm'>
-                            {t('channels.dialogs.disableRetries.description')}
-                          </p>
+                          <p className='text-muted-foreground text-sm'>{t('channels.dialogs.disableRetries.description')}</p>
                         </div>
                       </FormItem>
 
@@ -3106,7 +3115,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         <span className='inline-flex'>
-                                          <Button type='button' variant='ghost' size='sm' className='text-muted-foreground h-7 w-7 p-0' disabled>
+                                          <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='sm'
+                                            className='text-muted-foreground h-7 w-7 p-0'
+                                            disabled
+                                          >
                                             <Ban className='h-4 w-4' />
                                           </Button>
                                         </span>
@@ -3121,7 +3136,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                       onOpenChange={(isOpen) => setConfirmDisableKey(isOpen ? key : null)}
                                     >
                                       <PopoverTrigger asChild>
-                                        <Button type='button' variant='ghost' size='sm' className='text-orange-500 h-7 w-7 p-0' disabled={disableAPIKey.isPending || isFetchingDisabledKeys}>
+                                        <Button
+                                          type='button'
+                                          variant='ghost'
+                                          size='sm'
+                                          className='h-7 w-7 p-0 text-orange-500'
+                                          disabled={disableAPIKey.isPending || isFetchingDisabledKeys}
+                                        >
                                           <Ban className='h-4 w-4' />
                                         </Button>
                                       </PopoverTrigger>

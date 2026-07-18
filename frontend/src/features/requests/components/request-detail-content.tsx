@@ -35,7 +35,6 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
 
   const [showResponseChunks, setShowResponseChunks] = useState(false);
   const [showExecutionChunks, setShowExecutionChunks] = useState(false);
-  const [selectedResponseChunks, setSelectedResponseChunks] = useState<any[]>([]);
   const [selectedExecutionChunks, setSelectedExecutionChunks] = useState<any[]>([]);
   const [showCurlPreview, setShowCurlPreview] = useState(false);
   const [curlCommand, setCurlCommand] = useState('');
@@ -154,7 +153,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
     }
 
     const contentDisposition = resp.headers.get('Content-Disposition') || '';
-    const filenameMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+    const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
     // Return empty string when the header is absent so callers can apply their own
     // extension-aware fallback (e.g. .mp4 for video, .mp3 for audio). A non-empty
     // generic fallback here would silently shadow those defaults.
@@ -262,7 +261,6 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
 
   const showResponseChunksModal = useCallback(() => {
     if (request?.responseChunks) {
-      setSelectedResponseChunks(request.responseChunks);
       setShowResponseChunks(true);
     }
   }, [request]);
@@ -289,11 +287,14 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
     setShowCurlPreview(true);
   }, []);
 
-  const showExecutionCurlPreview = useCallback((headers: any, body: any, channel?: { baseURL?: string; type?: string }, apiFormat?: string, requestURL?: string) => {
-    const curl = generateExecutionCurl(headers, body, channel as any, apiFormat as any, requestURL);
-    setCurlCommand(curl);
-    setShowCurlPreview(true);
-  }, []);
+  const showExecutionCurlPreview = useCallback(
+    (headers: any, body: any, channel?: { baseURL?: string; type?: string }, apiFormat?: string, requestURL?: string) => {
+      const curl = generateExecutionCurl(headers, body, channel as any, apiFormat as any, requestURL);
+      setCurlCommand(curl);
+      setShowCurlPreview(true);
+    },
+    []
+  );
 
   const calculateLatency = (createdAt: string | Date, updatedAt: string | Date) => {
     if (!createdAt || !updatedAt) return null;
@@ -481,7 +482,9 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                           {t('requests.columns.writeCache')}: {writeCachedTokens.toLocaleString()}
                         </p>
                       )}
-                      <p className='text-muted-foreground text-xs'>{renderCost(cost > 0 ? (cacheReadCost || 0) + (cacheWriteCost || 0) : null)}</p>
+                      <p className='text-muted-foreground text-xs'>
+                        {renderCost(cost > 0 ? (cacheReadCost || 0) + (cacheWriteCost || 0) : null)}
+                      </p>
                     </div>
                   </div>
                   <div className='bg-muted/30 flex flex-col justify-center rounded-lg border px-2.5 py-2'>
@@ -888,7 +891,20 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
 
                           {(execution.requestHeaders || execution.requestBody) && (
                             <div className='flex justify-end'>
-                              <Button variant='outline' size='sm' onClick={() => showExecutionCurlPreview(execution.requestHeaders, execution.requestBody, execution.channel, execution.format, execution.requestURL)} className='hover:bg-primary hover:text-primary-foreground'>
+                              <Button
+                                variant='outline'
+                                size='sm'
+                                onClick={() =>
+                                  showExecutionCurlPreview(
+                                    execution.requestHeaders,
+                                    execution.requestBody,
+                                    execution.channel,
+                                    execution.format,
+                                    execution.requestURL
+                                  )
+                                }
+                                className='hover:bg-primary hover:text-primary-foreground'
+                              >
                                 <Terminal className='mr-2 h-4 w-4' />
                                 {t('requests.actions.copyCurl')}
                               </Button>

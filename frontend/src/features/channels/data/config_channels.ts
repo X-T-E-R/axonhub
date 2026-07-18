@@ -33,8 +33,8 @@ import {
   OpenCode,
 } from '@lobehub/icons';
 import { AtlasCloudIcon } from '../components/atlas-cloud-icon';
-import { EvolinkIcon } from '../components/evolink-icon';
 import { AxonHubIcon } from '../components/axonhub-icon';
+import { EvolinkIcon } from '../components/evolink-icon';
 import { NanoGPTIcon } from '../components/nanogpt-icon';
 import { BURNCLOUD_DEFAULT_MODELS } from './burncloud-models';
 import { ApiFormat, ChannelType } from './schema';
@@ -310,10 +310,7 @@ export const CHANNEL_CONFIGS: Record<ChannelType, ChannelConfig> = {
   xiaomi: {
     channelType: 'xiaomi',
     baseURL: 'https://api.xiaomimimo.com/v1',
-    defaultModels: [
-      'mimo-v2.5-pro',
-      'mimo-v2.5',
-    ],
+    defaultModels: ['mimo-v2.5-pro', 'mimo-v2.5'],
     apiFormat: OPENAI_CHAT_COMPLETIONS,
     color: 'bg-orange-100 text-orange-800 border-orange-200',
     icon: XiaomiMiMo,
@@ -321,10 +318,7 @@ export const CHANNEL_CONFIGS: Record<ChannelType, ChannelConfig> = {
   xiaomi_anthropic: {
     channelType: 'xiaomi_anthropic',
     baseURL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
-    defaultModels: [
-      'mimo-v2.5-pro',
-      'mimo-v2.5',
-    ],
+    defaultModels: ['mimo-v2.5-pro', 'mimo-v2.5'],
     apiFormat: ANTHROPIC_MESSAGES,
     color: 'bg-orange-100 text-orange-800 border-orange-200',
     icon: XiaomiMiMo,
@@ -716,12 +710,7 @@ export const CHANNEL_CONFIGS: Record<ChannelType, ChannelConfig> = {
   evolink_anthropic: {
     channelType: 'evolink_anthropic',
     baseURL: 'https://direct.evolink.ai',
-    defaultModels: [
-      'claude-opus-4-8',
-      'claude-opus-4-7',
-      'claude-sonnet-4-6',
-      'claude-haiku-4-5-20251001',
-    ],
+    defaultModels: ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
     apiFormat: ANTHROPIC_MESSAGES,
     color: 'bg-indigo-100 text-indigo-800 border-indigo-200',
     icon: EvolinkIcon,
