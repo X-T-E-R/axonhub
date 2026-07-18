@@ -2217,15 +2217,44 @@
     },
     "credential": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "included"
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "not": {
+            "required": [
+              "value"
+            ]
+          },
+          "properties": {
+            "status": {
+              "enum": [
+                "excluded",
+                "unavailable",
+                "notApplicable"
+              ]
+            }
+          }
+        }
+      ],
       "properties": {
         "reason": {
           "type": "string"
         },
         "status": {
           "enum": [
-            "excluded",
-            "included",
-            "unavailable"
+              "excluded",
+              "included",
+              "unavailable",
+              "notApplicable"
           ]
         },
         "value": {}

@@ -1392,6 +1392,7 @@ type CredentialStatus string
 
 const CredentialStatusExcluded CredentialStatus = "excluded"
 const CredentialStatusIncluded CredentialStatus = "included"
+const CredentialStatusNotApplicable CredentialStatus = "notApplicable"
 const CredentialStatusUnavailable CredentialStatus = "unavailable"
 
 type ErrorDetail struct {

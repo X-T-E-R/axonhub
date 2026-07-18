@@ -5,7 +5,7 @@ const ContractName = "axonhub.remote-diagnostics"
 const ContractMajor = 1
 const ContractMinor = 0
 const ContractMediaType = "application/vnd.axonhub.diagnostics+json;version=1.0"
-const SchemaSHA256 = "1fbfb245d2a20d2bf3de48c6bf1dd4a8ee53c0ddeba689c67965c6c2d0efff11"
+const SchemaSHA256 = "f802fa0c75e9fd62e88c9affbc3939d19a2b997f2509f08a4ece86d7f081e813"
 const ContractMinorMinimum = 0
 const ContractSubjectUserIDMinimum = 1
 const ContractDefaultMaxRequests = 100
