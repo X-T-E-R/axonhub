@@ -205,6 +205,18 @@ type ChannelSettings struct {
 	// and raw response for trusted AxonHub-to-AxonHub upstream boundaries.
 	FullPassThrough bool `json:"fullPassThrough,omitempty"`
 
+	// StoreExecutionRequestBody overrides the global storage policy for provider
+	// request bodies written to request_execution rows. nil inherits the global policy.
+	StoreExecutionRequestBody *bool `json:"storeExecutionRequestBody,omitempty"`
+
+	// StoreExecutionResponseBody overrides the global storage policy for provider
+	// response bodies written to request_execution rows. nil inherits the global policy.
+	StoreExecutionResponseBody *bool `json:"storeExecutionResponseBody,omitempty"`
+
+	// StoreExecutionStreamChunks overrides the global storage policy for provider
+	// stream chunks written to request_execution rows. nil inherits the global policy.
+	StoreExecutionStreamChunks *bool `json:"storeExecutionStreamChunks,omitempty"`
+
 	// RateLimit configures the upstream rate limit for the channel.
 	// When configured, the load balancer will skip channels that have exceeded their rate limits.
 	RateLimit *ChannelRateLimit `json:"rateLimit,omitempty"`

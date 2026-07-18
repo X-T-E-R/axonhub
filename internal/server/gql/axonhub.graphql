@@ -163,6 +163,9 @@ type ChannelSettings {
   passThroughBody: Boolean
   disableRetries: Boolean
   fullPassThrough: Boolean
+  storeExecutionRequestBody: Boolean
+  storeExecutionResponseBody: Boolean
+  storeExecutionStreamChunks: Boolean
   rateLimit: ChannelRateLimit
   retryableStatusCodes: [Int!]
   retryableErrorPatterns: [RetryableErrorPattern!]
@@ -745,6 +748,9 @@ input ChannelSettingsInput {
   passThroughBody: Boolean
   disableRetries: Boolean
   fullPassThrough: Boolean
+  storeExecutionRequestBody: Boolean
+  storeExecutionResponseBody: Boolean
+  storeExecutionStreamChunks: Boolean
   rateLimit: ChannelRateLimitInput
   retryableStatusCodes: [Int!]
   retryableErrorPatterns: [RetryableErrorPatternInput!]

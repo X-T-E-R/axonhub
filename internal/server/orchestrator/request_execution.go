@@ -172,12 +172,13 @@ func (m *persistRequestExecutionMiddleware) OnOutboundLlmResponse(ctx context.Co
 	// before persisting into the JSON response_body column.
 	respBody := audioSafeResponseBody(llmResp.RequestType, m.rawResponse.Headers.Get("Content-Type"), m.rawResponse.Body)
 
-	err := state.RequestService.UpdateRequestExecutionCompleted(
+	err := state.RequestService.UpdateRequestExecutionCompletedForChannel(
 		persistCtx,
 		state.RequestExec.ID,
 		llmResp.ID,
 		respBody,
 		metrics,
+		m.outbound.GetCurrentChannel(),
 	)
 	if err != nil {
 		log.Warn(persistCtx, "Failed to update request execution status to completed", log.Cause(err))

@@ -391,6 +391,9 @@ const CREATE_CHANNEL_MUTATION = `
         passThroughBody
         disableRetries
         fullPassThrough
+        storeExecutionRequestBody
+        storeExecutionResponseBody
+        storeExecutionStreamChunks
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -472,6 +475,9 @@ const DUPLICATE_CHANNEL_MUTATION = `
         passThroughBody
         disableRetries
         fullPassThrough
+        storeExecutionRequestBody
+        storeExecutionResponseBody
+        storeExecutionStreamChunks
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -553,6 +559,9 @@ const BULK_CREATE_CHANNELS_MUTATION = `
         passThroughBody
         disableRetries
         fullPassThrough
+        storeExecutionRequestBody
+        storeExecutionResponseBody
+        storeExecutionStreamChunks
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -634,6 +643,9 @@ const UPDATE_CHANNEL_MUTATION = `
         passThroughBody
         disableRetries
         fullPassThrough
+        storeExecutionRequestBody
+        storeExecutionResponseBody
+        storeExecutionStreamChunks
         retryableStatusCodes
         retryableErrorPatterns {
           pattern
@@ -832,6 +844,9 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
           passThroughBody
           disableRetries
           fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
           retryableStatusCodes
           retryableErrorPatterns {
             pattern
@@ -843,8 +858,6 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
               authCookie
             }
           }
-          disableRetries
-          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -1083,6 +1096,9 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
           passThroughBody
           disableRetries
           fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
           retryableStatusCodes
           retryableErrorPatterns {
             pattern
@@ -1094,8 +1110,6 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
               authCookie
             }
           }
-          disableRetries
-          fullPassThrough
           keySelection {
             strategy
             likelyAffinityTTLMinutes
@@ -1243,6 +1257,9 @@ const QUERY_CHANNELS_QUERY = `
             passThroughBody
             disableRetries
             fullPassThrough
+            storeExecutionRequestBody
+            storeExecutionResponseBody
+            storeExecutionStreamChunks
             rateLimit {
               rpm
               tpm
