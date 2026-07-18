@@ -523,6 +523,7 @@ export type ChannelArchivedAPIKey = z.infer<typeof channelArchivedAPIKeySchema>;
 
 export const channelAPIKeyInventoryItemSchema = z.object({
   id: z.string(),
+  rawKey: z.string().optional().nullable(),
   maskedKey: z.string(),
   status: channelKeyStatusSchema,
   lastCheckedAt: z.string().optional().nullable(),

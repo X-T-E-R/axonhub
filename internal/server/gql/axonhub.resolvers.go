@@ -117,6 +117,15 @@ func (r *channelResolver) LiveLimiterStats(ctx context.Context, obj *ent.Channel
 	}, nil
 }
 
+// RawKey is the resolver for the rawKey field.
+func (r *channelAPIKeyInventoryItemResolver) RawKey(ctx context.Context, obj *biz.ChannelAPIKeyInventoryItem) (*string, error) {
+	if !scopes.UserHasScope(ctx, scopes.ScopeWriteChannels) || obj == nil || obj.RawKey == "" {
+		return nil, nil
+	}
+
+	return &obj.RawKey, nil
+}
+
 // Balance is the resolver for the balance field.
 func (r *channelAPIKeyInventoryItemResolver) Balance(ctx context.Context, obj *biz.ChannelAPIKeyInventoryItem) (objects.JSONRawMessage, error) {
 	return marshalChannelKeyBalance(obj.Balance)

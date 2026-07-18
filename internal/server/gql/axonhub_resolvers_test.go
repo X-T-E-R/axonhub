@@ -14,6 +14,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/scopes"
+	"github.com/looplj/axonhub/internal/server/biz"
 )
 
 func setupTestQueryResolver(t *testing.T) (*queryResolver, context.Context, *ent.Client) {
@@ -62,6 +63,26 @@ func TestChannelResolver_CredentialsExcludeArchivedKeys(t *testing.T) {
 	require.NotNil(t, creds)
 	require.Equal(t, []string{"active-key"}, creds.APIKeys)
 	require.Empty(t, creds.APIKey)
+}
+
+func TestChannelAPIKeyInventoryItemResolver_RawKeyRequiresWriteChannels(t *testing.T) {
+	resolver := &channelAPIKeyInventoryItemResolver{&Resolver{}}
+	item := &biz.ChannelAPIKeyInventoryItem{RawKey: "provider-secret"}
+
+	readOnlyCtx := contexts.WithUser(context.Background(), &ent.User{
+		Scopes: []string{string(scopes.ScopeReadChannels)},
+	})
+	rawKey, err := resolver.RawKey(readOnlyCtx, item)
+	require.NoError(t, err)
+	require.Nil(t, rawKey)
+
+	writeCtx := contexts.WithUser(context.Background(), &ent.User{
+		Scopes: []string{string(scopes.ScopeWriteChannels)},
+	})
+	rawKey, err = resolver.RawKey(writeCtx, item)
+	require.NoError(t, err)
+	require.NotNil(t, rawKey)
+	require.Equal(t, "provider-secret", *rawKey)
 }
 
 func TestQueryResolver_AllChannelSummarys_ProjectProfileUsesIntersection(t *testing.T) {

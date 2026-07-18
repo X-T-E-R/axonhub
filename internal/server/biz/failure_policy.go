@@ -533,7 +533,7 @@ func (svc *ChannelService) recordRequestFailurePolicyHistory(ctx context.Context
 	}
 	settings.KeyHealthCheck.History = appendRequestFailurePolicyChannelHistory(settings.KeyHealthCheck.History, event, matchedPolicy, actionSummary, now, historyLimit)
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(event.ChannelID).SetSettings(settings).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 		return fmt.Errorf("failed to save request failure policy history: %w", err)
 	}
 	if event.Target == objects.FailurePolicyTargetKey && event.Key != "" {
@@ -692,7 +692,7 @@ func (svc *ChannelService) recordFailurePolicyKeyBackoff(ctx context.Context, ev
 	}
 	settings.KeyHealthCheck.KeyMetadata = metadata
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(event.ChannelID).SetSettings(settings).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 		return fmt.Errorf("failed to save key backoff metadata: %w", err)
 	}
 

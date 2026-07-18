@@ -1,17 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { format } from 'date-fns';
 import { useForm, type Resolver, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   IconArchive,
   IconAlertTriangle,
   IconChartLine,
   IconCircleCheck,
   IconCircleX,
+  IconCopy,
+  IconDotsVertical,
   IconEye,
+  IconEyeOff,
+  IconInfoCircle,
   IconKey,
   IconKeyOff,
   IconLoader2,
@@ -19,26 +23,55 @@ import {
   IconRefresh,
   IconRestore,
   IconRoute,
+  IconSearch,
   IconTrash,
 } from '@tabler/icons-react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from 'recharts';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+  type TooltipProps,
+} from 'recharts';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChannelSetting } from '@/features/system/data/system';
 import {
   useAddChannelAPIKey,
@@ -56,7 +89,6 @@ import {
   ChannelAPIKeyInventoryItem,
   ChannelBalanceProbe,
   ChannelKeyBalanceSnapshot,
-  ChannelKeyHealthCheck,
   ChannelKeyHealthCheckHTTPRule,
   ChannelKeyHealthCheckHistoryEntry,
   ChannelAPIKeyHealthCheckMode,
@@ -83,6 +115,7 @@ type KeyInventoryStatus = 'active' | 'disabled' | 'archived';
 
 interface KeyInventoryRow {
   id: string;
+  rawKey: string;
   maskedKey: string;
   status: KeyInventoryStatus;
   lastCheckedAt?: string | null;
@@ -126,19 +159,6 @@ const keysFormSchema = z.object({
   strategy: z.union([z.literal('inherit'), channelKeySelectionStrategySchema]),
   likelyAffinityTTLMinutes: z.coerce.number().int().min(1).max(1440),
   exactAffinityTTLMinutes: z.coerce.number().int().min(1).max(10080),
-  newKey: z.string().optional(),
-  healthCheck: z.object({
-    enabled: z.boolean(),
-    intervalMinutes: z.coerce.number().int().min(5).max(10080),
-    historyLimit: z.coerce.number().int().min(1).max(100),
-    includeDisabled: z.boolean(),
-    builtinRuleEnabled: z.boolean(),
-    deepseekRuleEnabled: z.boolean(),
-    deepseekPath: z.string().min(1),
-    deepseekUseAbsoluteURL: z.boolean(),
-    deepseekExpectedStatuses: z.string(),
-    deepseekPassWhen: z.string(),
-  }),
   balanceProbe: z.object({
     enabled: z.boolean(),
     preset: z.string().min(1),
@@ -245,19 +265,6 @@ const BALANCE_VALUE_KEYS = [
   'topped_up_balance',
 ];
 const BALANCE_COLLECTION_KEYS = ['balance_infos', 'balanceInfos', 'balances'];
-
-const DEFAULT_HEALTH_CHECK: KeysFormValues['healthCheck'] = {
-  enabled: false,
-  intervalMinutes: 60,
-  historyLimit: 20,
-  includeDisabled: false,
-  builtinRuleEnabled: true,
-  deepseekRuleEnabled: false,
-  deepseekPath: 'https://api.deepseek.com/user/balance',
-  deepseekUseAbsoluteURL: true,
-  deepseekExpectedStatuses: '200',
-  deepseekPassWhen: 'json.is_available == true',
-};
 
 const DEFAULT_BALANCE_PROBE: KeysFormValues['balanceProbe'] = {
   enabled: false,
@@ -433,32 +440,10 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
         : balanceProbe?.http
           ? CUSTOM_BALANCE_PROBE_PRESET
           : defaultBalanceProbe.preset;
-  const rules = health?.rules ?? [];
-  const builtinRule = rules.find((rule) => rule.type === 'builtin_test');
-  const deepseekRule = rules.find(
-    (rule) => rule.type === 'http' && (rule.name.toLowerCase().includes('deepseek') || rule.http?.path === '/user/balance')
-  );
-  const deepseekUseAbsoluteURL = deepseekRule ? deepseekRule.http?.urlMode === 'absolute_url' : DEFAULT_HEALTH_CHECK.deepseekUseAbsoluteURL;
-
   return {
     strategy: currentRow.settings?.keySelection?.strategy ?? 'inherit',
     likelyAffinityTTLMinutes: currentRow.settings?.keySelection?.likelyAffinityTTLMinutes ?? DEFAULT_LIKELY_AFFINITY_TTL_MINUTES,
     exactAffinityTTLMinutes: currentRow.settings?.keySelection?.exactAffinityTTLMinutes ?? DEFAULT_EXACT_AFFINITY_TTL_MINUTES,
-    newKey: '',
-    healthCheck: {
-      enabled: health?.enabled ?? DEFAULT_HEALTH_CHECK.enabled,
-      intervalMinutes: health?.intervalMinutes ?? DEFAULT_HEALTH_CHECK.intervalMinutes,
-      historyLimit: positiveOrDefault(health?.historyLimit, DEFAULT_HEALTH_CHECK.historyLimit),
-      includeDisabled: health?.includeDisabled ?? DEFAULT_HEALTH_CHECK.includeDisabled,
-      builtinRuleEnabled: builtinRule ? (builtinRule.enabled ?? true) : DEFAULT_HEALTH_CHECK.builtinRuleEnabled,
-      deepseekRuleEnabled: deepseekRule ? (deepseekRule.enabled ?? true) : DEFAULT_HEALTH_CHECK.deepseekRuleEnabled,
-      deepseekPath: deepseekRule
-        ? (deepseekUseAbsoluteURL ? deepseekRule.http?.url : deepseekRule.http?.path) || DEFAULT_HEALTH_CHECK.deepseekPath
-        : DEFAULT_HEALTH_CHECK.deepseekPath,
-      deepseekUseAbsoluteURL,
-      deepseekExpectedStatuses: (deepseekRule?.http?.expectedStatuses ?? [200]).join(', '),
-      deepseekPassWhen: deepseekRule?.http?.passWhen || DEFAULT_HEALTH_CHECK.deepseekPassWhen,
-    },
     balanceProbe: {
       enabled: balanceProbe?.enabled ?? defaultBalanceProbe.enabled,
       preset: balanceProbePreset,
@@ -522,56 +507,7 @@ function balanceProbeFromValues(values: KeysFormValues, existing?: ChannelBalanc
   };
 }
 
-function healthCheckFromValues(values: KeysFormValues): ChannelKeyHealthCheck {
-  const rules: ChannelKeyHealthCheck['rules'] = [];
-
-  if (values.healthCheck.builtinRuleEnabled) {
-    rules.push({
-      id: 'builtin-key-test',
-      name: 'Built-in key test',
-      type: 'builtin_test',
-      enabled: true,
-      builtin: {
-        kind: 'channel_api_key_test',
-      },
-    });
-  }
-
-  if (values.healthCheck.deepseekRuleEnabled) {
-    rules.push({
-      id: 'deepseek-balance',
-      name: 'DeepSeek balance',
-      type: 'http',
-      enabled: true,
-      http: {
-        method: 'GET',
-        urlMode: values.healthCheck.deepseekUseAbsoluteURL ? 'absolute_url' : 'provider_base_url',
-        path: values.healthCheck.deepseekUseAbsoluteURL ? null : values.healthCheck.deepseekPath,
-        url: values.healthCheck.deepseekUseAbsoluteURL ? values.healthCheck.deepseekPath : null,
-        timeoutMs: 10000,
-        headers: [],
-        keyInjection: {
-          location: 'authorization_bearer',
-        },
-        expectedStatuses: parseStatusList(values.healthCheck.deepseekExpectedStatuses),
-        passWhen: values.healthCheck.deepseekPassWhen,
-      },
-    });
-  }
-
-  return {
-    enabled: values.healthCheck.enabled,
-    intervalMinutes: values.healthCheck.intervalMinutes,
-    historyLimit: values.healthCheck.historyLimit,
-    failureThreshold: 3,
-    failureAction: 'report_only',
-    includeDisabled: values.healthCheck.includeDisabled,
-    rules,
-    policies: [],
-  };
-}
-
-function formatDateTime(value?: string | null): string {
+function formatDateTime(value?: string | null, language?: string): string {
   if (!value) {
     return '-';
   }
@@ -579,12 +515,16 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return format(date, 'yyyy-MM-dd HH:mm:ss');
+  return new Intl.DateTimeFormat(language || undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(date);
 }
 
 function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInventoryRow[] {
   return items.map((item) => ({
     id: item.id,
+    rawKey: item.rawKey ?? '',
     maskedKey: item.maskedKey,
     status: item.status,
     lastCheckedAt: item.lastCheckedAt,
@@ -894,7 +834,7 @@ function KeyHistoryCharts({ history }: { history: ChannelKeyHealthCheckHistoryEn
             <CartesianGrid strokeDasharray='3 3' stroke='var(--border)' vertical={false} />
             <XAxis dataKey='index' tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
             <YAxis hide domain={[0, 1]} />
-            <Tooltip content={<KeyHistoryTooltip />} />
+            <RechartsTooltip content={<KeyHistoryTooltip />} />
             <Bar dataKey='success' name={t('channels.dialogs.keys.healthState.success')} fill='var(--chart-2)' radius={[4, 4, 0, 0]} />
             <Bar dataKey='failure' name={t('channels.dialogs.keys.healthState.failed')} fill='var(--destructive)' radius={[4, 4, 0, 0]} />
           </BarChart>
@@ -912,7 +852,7 @@ function KeyHistoryCharts({ history }: { history: ChannelKeyHealthCheckHistoryEn
               <CartesianGrid strokeDasharray='3 3' stroke='var(--border)' vertical={false} />
               <XAxis dataKey='index' tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
               <YAxis tickLine={false} axisLine={false} width={48} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
-              <Tooltip content={<KeyHistoryTooltip />} />
+              <RechartsTooltip content={<KeyHistoryTooltip />} />
               <Area
                 type='monotone'
                 dataKey='balance'
@@ -1264,6 +1204,17 @@ function KeyDetailsDialog({
 
   const latestTone = healthTone(row.success);
   const history = row.history ?? [];
+  const copyRawKey = async () => {
+    if (!row.rawKey) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(row.rawKey);
+      toast.success(t('channels.dialogs.keys.messages.copied', { count: 1 }));
+    } catch {
+      toast.error(t('common.errors.copyFailed'));
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1278,9 +1229,28 @@ function KeyDetailsDialog({
 
         <div className='min-h-0 flex-1 space-y-4 overflow-y-auto pr-1'>
           <div className='grid gap-3 md:grid-cols-2'>
-            <div className='rounded-lg border p-3'>
-              <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.maskedKey')}</div>
-              <code className='bg-muted mt-1 block w-fit rounded px-2 py-0.5 font-mono text-sm'>{row.maskedKey}</code>
+            <div className='rounded-lg border p-3 md:col-span-2'>
+              <div className='text-muted-foreground text-xs'>
+                {row.rawKey ? t('channels.dialogs.keys.details.rawKey') : t('channels.dialogs.keys.details.maskedKey')}
+              </div>
+              <div className='mt-1 flex min-w-0 items-start gap-2'>
+                <code className='bg-muted min-w-0 flex-1 overflow-x-auto rounded px-2 py-1 font-mono text-sm whitespace-nowrap'>
+                  {row.rawKey || row.maskedKey}
+                </code>
+                {row.rawKey ? (
+                  <Button
+                    type='button'
+                    size='icon'
+                    variant='outline'
+                    className='shrink-0'
+                    onClick={copyRawKey}
+                    aria-label={t('channels.dialogs.keys.actions.copyKey')}
+                  >
+                    <IconCopy className='h-4 w-4' aria-hidden='true' />
+                  </Button>
+                ) : null}
+              </div>
+              {row.rawKey ? <div className='text-muted-foreground mt-2 font-mono text-xs'>{row.maskedKey}</div> : null}
             </div>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.status')}</div>
@@ -1300,7 +1270,7 @@ function KeyDetailsDialog({
                   ? t('channels.dialogs.keys.healthState.unknown')
                   : t(`channels.dialogs.keys.healthState.${row.success ? 'success' : 'failed'}`)}
               </div>
-              <div className='text-muted-foreground mt-1 text-xs'>{formatDateTime(row.lastCheckedAt)}</div>
+              <div className='text-muted-foreground mt-1 text-xs'>{formatDateTime(row.lastCheckedAt, i18n.language)}</div>
             </div>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.balance')}</div>
@@ -1341,7 +1311,7 @@ function KeyDetailsDialog({
             </div>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.nextCheckAt')}</div>
-              <div className='mt-1 text-sm font-medium'>{formatDateTime(row.nextCheckAt)}</div>
+              <div className='mt-1 text-sm font-medium'>{formatDateTime(row.nextCheckAt, i18n.language)}</div>
               {row.backoffAttempt != null && row.backoffAttempt > 0 ? (
                 <div className='text-muted-foreground mt-1 text-xs'>
                   {t('channels.dialogs.keys.details.backoffAttempt', { count: row.backoffAttempt })}
@@ -1383,7 +1353,7 @@ function KeyDetailsDialog({
                           ) : null}
                           {entry.matchedPolicy ? <Badge variant='outline'>{entry.matchedPolicy}</Badge> : null}
                         </div>
-                        <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt)}</div>
+                        <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt, i18n.language)}</div>
                         <div className='text-sm'>{entry.reason || '-'}</div>
                         <div className='text-muted-foreground text-xs'>
                           {formatRowBalance(entry, t, i18n.language)}
@@ -1392,7 +1362,7 @@ function KeyDetailsDialog({
                             : ''}
                           {entry.action ? ` · ${formatPolicyAction(entry.action)}` : ''}
                           {entry.nextCheckAt
-                            ? ` · ${t('channels.dialogs.keys.details.nextCheckAt')}: ${formatDateTime(entry.nextCheckAt)}`
+                            ? ` · ${t('channels.dialogs.keys.details.nextCheckAt')}: ${formatDateTime(entry.nextCheckAt, i18n.language)}`
                             : ''}
                         </div>
                       </div>
@@ -1417,7 +1387,7 @@ function ChannelHistoryDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const latest = history[0] ?? null;
 
   return (
@@ -1446,7 +1416,7 @@ function ChannelHistoryDialog({
               <div className='mt-1 text-sm font-medium'>
                 {latest ? t(`channels.dialogs.keys.healthState.${latest.success ? 'success' : 'failed'}`) : '-'}
               </div>
-              <div className='text-muted-foreground mt-1 text-xs'>{formatDateTime(latest?.checkedAt)}</div>
+              <div className='text-muted-foreground mt-1 text-xs'>{formatDateTime(latest?.checkedAt, i18n.language)}</div>
             </div>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.matchedPolicy')}</div>
@@ -1495,12 +1465,12 @@ function ChannelHistoryDialog({
                           ) : null}
                           {entry.matchedPolicy ? <Badge variant='outline'>{entry.matchedPolicy}</Badge> : null}
                         </div>
-                        <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt)}</div>
+                        <div className='text-muted-foreground text-xs'>{formatDateTime(entry.checkedAt, i18n.language)}</div>
                         <div className='text-sm'>{entry.reason || '-'}</div>
                         <div className='text-muted-foreground text-xs'>
                           {entry.action ? formatPolicyAction(entry.action) : '-'}
                           {entry.nextCheckAt
-                            ? ` · ${t('channels.dialogs.keys.details.nextCheckAt')}: ${formatDateTime(entry.nextCheckAt)}`
+                            ? ` · ${t('channels.dialogs.keys.details.nextCheckAt')}: ${formatDateTime(entry.nextCheckAt, i18n.language)}`
                             : ''}
                         </div>
                       </div>
@@ -1518,12 +1488,18 @@ function ChannelHistoryDialog({
 
 export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
+  const resetContext = useRef({ open: false, channelID: currentRow.id });
+  const [newKey, setNewKey] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<KeyInventoryStatus>>(new Set(DEFAULT_KEY_STATUS_FILTERS));
   const [detailsKeyID, setDetailsKeyID] = useState<string | null>(null);
   const [channelHistoryOpen, setChannelHistoryOpen] = useState(false);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  const [confirmDiscardSettings, setConfirmDiscardSettings] = useState(false);
 
   const keyInventory = useChannelAPIKeyInventory(currentRow.id, { enabled: open });
   const { data: channelSetting } = useChannelSetting();
@@ -1543,15 +1519,23 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   });
 
   useEffect(() => {
-    if (open) {
-      form.reset(valuesFromChannel(currentRow));
-      setSelectedKeys(new Set());
-      setStatusFilter(new Set(DEFAULT_KEY_STATUS_FILTERS));
-      setDetailsKeyID(null);
-      setChannelHistoryOpen(false);
-      setConfirmDeleteKey(null);
-      setConfirmBatchDelete(false);
+    const shouldReset = open && (!resetContext.current.open || resetContext.current.channelID !== currentRow.id);
+    resetContext.current = { open, channelID: currentRow.id };
+    if (!shouldReset) {
+      return;
     }
+
+    form.reset(valuesFromChannel(currentRow));
+    setNewKey('');
+    setSearchQuery('');
+    setSelectedKeys(new Set());
+    setRevealedKeys(new Set());
+    setStatusFilter(new Set(DEFAULT_KEY_STATUS_FILTERS));
+    setDetailsKeyID(null);
+    setChannelHistoryOpen(false);
+    setConfirmDeleteKey(null);
+    setConfirmBatchDelete(false);
+    setConfirmDiscardSettings(false);
   }, [open, currentRow, form]);
 
   const inventory = useMemo(() => inventoryFromBackend(keyInventory.data), [keyInventory.data]);
@@ -1560,7 +1544,17 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const archivedKeys = useMemo(() => inventory.filter((item) => item.status === 'archived'), [inventory]);
   const channelHistory = useMemo(() => currentRow.settings?.keyHealthCheck?.history ?? [], [currentRow.settings?.keyHealthCheck?.history]);
   const activeBalanceSummary = useMemo(() => summarizeActiveBalances(activeKeys, t, i18n.language), [activeKeys, i18n.language, t]);
-  const visibleInventory = useMemo(() => inventory.filter((item) => statusFilter.has(item.status)), [inventory, statusFilter]);
+  const visibleInventory = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    return inventory.filter(
+      (item) =>
+        statusFilter.has(item.status) &&
+        (!query ||
+          item.id.toLocaleLowerCase().includes(query) ||
+          item.maskedKey.toLocaleLowerCase().includes(query) ||
+          item.rawKey.toLocaleLowerCase().includes(query))
+    );
+  }, [inventory, searchQuery, statusFilter]);
   const selectedRows = useMemo(() => visibleInventory.filter((item) => selectedKeys.has(item.id)), [visibleInventory, selectedKeys]);
   const visibleSelectedCount = useMemo(
     () => visibleInventory.filter((item) => selectedKeys.has(item.id)).length,
@@ -1588,6 +1582,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     () => selectedRows.filter((item) => item.status === 'archived').map((item) => item.id),
     [selectedRows]
   );
+  const selectedRawKeys = useMemo(() => selectedRows.map((item) => item.rawKey).filter(Boolean), [selectedRows]);
   const detailsRow = useMemo(() => inventory.find((item) => item.id === detailsKeyID) ?? null, [detailsKeyID, inventory]);
   const keyHealthHistory = useMemo<KeyHistoryListEntry[]>(
     () =>
@@ -1624,6 +1619,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     runHealthCheck.isPending ||
     disableAPIKey.isPending ||
     enableAPIKey.isPending;
+  const hasUnsavedChanges = form.formState.isDirty || newKey.trim().length > 0;
 
   useEffect(() => {
     const visibleIDs = new Set(visibleInventory.map((item) => item.id));
@@ -1671,6 +1667,38 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     });
   };
 
+  const toggleKeyReveal = (id: string) => {
+    setRevealedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const copyKeys = async (keys: string[]) => {
+    if (keys.length === 0) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(keys.join('\n'));
+      toast.success(t('channels.dialogs.keys.messages.copied', { count: keys.length }));
+    } catch {
+      toast.error(t('common.errors.copyFailed'));
+    }
+  };
+
+  const requestOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && hasUnsavedChanges) {
+      setConfirmDiscardSettings(true);
+      return;
+    }
+    onOpenChange(nextOpen);
+  };
+
   const saveSettings = async (values: KeysFormValues) => {
     const nextSettings = mergeChannelSettingsForUpdate(currentRow.settings, {
       keySelection:
@@ -1681,7 +1709,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
               likelyAffinityTTLMinutes: values.likelyAffinityTTLMinutes,
               exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
             },
-      keyHealthCheck: healthCheckFromValues(values),
       balanceProbe: balanceProbeFromValues(values, currentRow.settings?.balanceProbe),
       failurePolicy: failurePolicyFromValues(values),
     });
@@ -1698,6 +1725,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     try {
       await saveSettings(values);
       toast.success(t('channels.messages.updateSuccess'));
+      form.reset(values);
       onOpenChange(false);
     } catch {
       // Error handled by hook.
@@ -1705,14 +1733,14 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   };
 
   const handleAddKey = async () => {
-    const key = form.getValues('newKey')?.trim();
+    const key = newKey.trim();
     if (!key) {
       return;
     }
 
     try {
       await addAPIKey.mutateAsync({ channelID: currentRow.id, key });
-      form.setValue('newKey', '');
+      setNewKey('');
     } catch {
       // Error handled by hook.
     }
@@ -1787,28 +1815,68 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
     if (action === 'health') {
       await handleRunChecks(keyIDs, 'real_request');
-    } else if (action === 'disable') {
-      await Promise.all(keyIDs.map((keyID) => disableAPIKey.mutateAsync({ channelID: currentRow.id, key: keyID })));
-    } else if (action === 'enable') {
-      await Promise.all(keyIDs.map((keyID) => enableAPIKey.mutateAsync({ channelID: currentRow.id, key: keyID })));
-    } else if (action === 'archive') {
-      await Promise.all(
-        keyIDs.map((keyID) => archiveAPIKey.mutateAsync({ channelID: currentRow.id, keyID, reason: 'Manually archived by user' }))
-      );
-    } else if (action === 'restore') {
-      await Promise.all(keyIDs.map((keyID) => restoreAPIKey.mutateAsync({ channelID: currentRow.id, keyID })));
-    } else {
-      await Promise.all(keyIDs.map((keyID) => deleteAPIKey.mutateAsync({ channelID: currentRow.id, keyID })));
+      return;
     }
 
-    setSelectedKeys(new Set());
+    const succeeded = new Set<string>();
+    const failed = new Set<string>();
+    for (const keyID of keyIDs) {
+      try {
+        if (action === 'disable') {
+          await disableAPIKey.mutateAsync({ channelID: currentRow.id, key: keyID, silent: true, deferRefresh: true });
+        } else if (action === 'enable') {
+          await enableAPIKey.mutateAsync({ channelID: currentRow.id, key: keyID, silent: true, deferRefresh: true });
+        } else if (action === 'archive') {
+          await archiveAPIKey.mutateAsync({
+            channelID: currentRow.id,
+            keyID,
+            reason: 'Manually archived by user',
+            silent: true,
+            deferRefresh: true,
+          });
+        } else if (action === 'restore') {
+          await restoreAPIKey.mutateAsync({ channelID: currentRow.id, keyID, silent: true, deferRefresh: true });
+        } else {
+          const result = await deleteAPIKey.mutateAsync({
+            channelID: currentRow.id,
+            keyID,
+            silent: true,
+            deferRefresh: true,
+          });
+          if (result.message === 'ONE_KEY_PRESERVED') {
+            failed.add(keyID);
+            continue;
+          }
+        }
+        succeeded.add(keyID);
+      } catch {
+        failed.add(keyID);
+      }
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['channelAPIKeyInventory', currentRow.id] }),
+      queryClient.invalidateQueries({ queryKey: ['channelDisabledAPIKeys', currentRow.id] }),
+      queryClient.invalidateQueries({ queryKey: ['channels'] }),
+    ]);
+    setSelectedKeys((previous) => new Set([...previous].filter((id) => !succeeded.has(id))));
     setConfirmBatchDelete(false);
+    if (failed.size === 0) {
+      toast.success(t('channels.dialogs.keys.messages.batchComplete', { count: succeeded.size }));
+    } else {
+      toast.error(
+        t('channels.dialogs.keys.messages.batchPartial', {
+          success: succeeded.size,
+          failed: failed.size,
+        })
+      );
+    }
   };
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className='flex max-h-[92vh] flex-col sm:max-w-5xl'>
+      <Dialog open={open} onOpenChange={requestOpenChange}>
+        <DialogContent className='flex max-h-[92dvh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col overflow-hidden sm:max-w-5xl'>
           <DialogHeader className='text-left'>
             <DialogTitle className='flex items-center gap-2'>
               <IconKey className='h-5 w-5' />
@@ -1818,461 +1886,567 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
           </DialogHeader>
 
           <Form {...form}>
-            <Tabs defaultValue='inventory' className='min-h-0 flex-1'>
-              <TabsList className='grid w-full grid-cols-6'>
-                <TabsTrigger value='inventory'>{t('channels.dialogs.keys.tabs.inventory')}</TabsTrigger>
-                <TabsTrigger value='keyHistory'>{t('channels.dialogs.keys.tabs.keyHistory')}</TabsTrigger>
-                <TabsTrigger value='failureHistory'>{t('channels.dialogs.keys.tabs.failureHistory')}</TabsTrigger>
-                <TabsTrigger value='routing'>{t('channels.dialogs.keys.tabs.routing')}</TabsTrigger>
-                <TabsTrigger value='balanceProbe'>{t('channels.dialogs.keys.tabs.balanceProbe')}</TabsTrigger>
-                <TabsTrigger value='failurePolicy'>{t('channels.dialogs.keys.tabs.failurePolicy')}</TabsTrigger>
-              </TabsList>
+            <Tabs defaultValue='inventory' className='min-h-0 min-w-0 flex-1 overflow-hidden'>
+              <div className='w-full max-w-full overflow-x-auto overflow-y-hidden py-1'>
+                <TabsList className='inline-flex h-10 min-w-max justify-start'>
+                  <TabsTrigger className='shrink-0' value='inventory'>
+                    {t('channels.dialogs.keys.tabs.inventory')}
+                  </TabsTrigger>
+                  <TabsTrigger className='shrink-0' value='keyHistory'>
+                    {t('channels.dialogs.keys.tabs.keyHistory')}
+                  </TabsTrigger>
+                  <TabsTrigger className='shrink-0' value='failureHistory'>
+                    {t('channels.dialogs.keys.tabs.failureHistory')}
+                  </TabsTrigger>
+                  <TabsTrigger className='shrink-0' value='routing'>
+                    {t('channels.dialogs.keys.tabs.routing')}
+                  </TabsTrigger>
+                  <TabsTrigger className='shrink-0' value='balanceProbe'>
+                    {t('channels.dialogs.keys.tabs.balanceProbe')}
+                  </TabsTrigger>
+                  <TabsTrigger className='shrink-0' value='failurePolicy'>
+                    {t('channels.dialogs.keys.tabs.failurePolicy')}
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
-              <ScrollArea className='mt-4 h-[58vh] pr-3'>
-                <TabsContent value='inventory' className='mt-0 space-y-4'>
-                  <div className='grid gap-3 md:grid-cols-4'>
-                    <Card>
-                      <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.active')}</CardTitle>
-                      </CardHeader>
-                      <CardContent className='text-2xl font-semibold'>{activeKeys.length}</CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.disabled')}</CardTitle>
-                      </CardHeader>
-                      <CardContent className='text-2xl font-semibold'>{disabledKeys.length}</CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.archived')}</CardTitle>
-                      </CardHeader>
-                      <CardContent className='text-2xl font-semibold'>{archivedKeys.length}</CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className='pb-2'>
-                        <CardTitle className='text-sm'>{t('channels.dialogs.keys.summary.activeBalance')}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className='text-2xl font-semibold'>{activeBalanceSummary?.display ?? '-'}</div>
-                        <div className='text-muted-foreground mt-1 text-xs'>
-                          {activeBalanceSummary
-                            ? t('channels.dialogs.keys.summary.activeBalanceKeys', {
-                                count: activeBalanceSummary.keyCount,
-                              })
-                            : t('channels.dialogs.keys.summary.activeBalanceEmpty')}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className='flex items-center gap-2'>
-                        <IconKey className='h-5 w-5' />
-                        {t('channels.dialogs.keys.inventory.title')}
-                      </CardTitle>
-                      <CardDescription>{t('channels.dialogs.keys.inventory.description')}</CardDescription>
-                    </CardHeader>
-                    <CardContent className='space-y-4'>
-                      <div className='flex flex-col gap-2 sm:flex-row'>
-                        <FormField
-                          control={form.control}
-                          name='newKey'
-                          render={({ field }) => (
-                            <FormItem className='flex-1'>
-                              <FormControl>
-                                <Input
-                                  type='text'
-                                  autoComplete='off'
-                                  autoCorrect='off'
-                                  autoCapitalize='none'
-                                  spellCheck={false}
-                                  data-lpignore='true'
-                                  data-1p-ignore='true'
-                                  data-form-type='other'
-                                  placeholder={t('channels.dialogs.keys.fields.newKey.placeholder')}
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormDescription>{t('channels.dialogs.keys.fields.newKey.description')}</FormDescription>
-                            </FormItem>
-                          )}
-                        />
-                        <Button type='button' className='sm:mt-0' onClick={handleAddKey} disabled={isPending}>
-                          {t('channels.dialogs.keys.actions.add')}
+              <div className='mt-3 h-[min(64dvh,42rem)] w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto pr-3'>
+                <TabsContent value='inventory' className='mt-0 min-w-0 space-y-4'>
+                  {keyInventory.isPending ? (
+                    <div className='text-muted-foreground flex h-40 items-center justify-center gap-2 text-sm' aria-live='polite'>
+                      <IconLoader2 className='h-4 w-4 animate-spin' />
+                      {t('channels.dialogs.keys.inventory.loading')}
+                    </div>
+                  ) : keyInventory.isError ? (
+                    <Alert variant='destructive'>
+                      <IconAlertTriangle className='h-4 w-4' />
+                      <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                        <span>{t('channels.dialogs.keys.inventory.loadError')}</span>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                          onClick={() => keyInventory.refetch()}
+                          disabled={keyInventory.isFetching}
+                        >
+                          {keyInventory.isFetching ? <IconLoader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
+                          {t('channels.dialogs.keys.actions.retry')}
                         </Button>
-                      </div>
-
-                      <Alert>
-                        <IconAlertTriangle className='h-4 w-4' />
-                        <AlertDescription>{t('channels.dialogs.keys.inventory.statusCopy')}</AlertDescription>
-                      </Alert>
-
-                      <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-3 lg:flex-row lg:items-center lg:justify-between'>
-                        <div className='space-y-1'>
-                          <div className='text-sm font-medium'>{t('channels.dialogs.keys.manualTest.title')}</div>
-                          <div className='text-muted-foreground text-sm'>{t('channels.dialogs.keys.manualTest.description')}</div>
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <>
+                      <div className='grid grid-cols-2 overflow-hidden rounded-lg border lg:grid-cols-4 lg:divide-x'>
+                        <div className='border-r border-b px-3 py-3 lg:border-b-0 lg:px-4'>
+                          <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.summary.active')}</div>
+                          <div className='mt-1 font-mono text-xl font-semibold tabular-nums'>{activeKeys.length}</div>
                         </div>
-                        <div className='flex flex-wrap gap-2'>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            onClick={() => handleRunChecks(undefined, 'real_request')}
-                            disabled={isPending || inventory.length === 0}
-                          >
-                            <IconPlayerPlay className='mr-2 h-4 w-4' />
-                            {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
-                          </Button>
-                          {canRunBalanceProbe ? (
-                            <Button
-                              type='button'
-                              variant='outline'
-                              onClick={() => handleRunChecks(undefined, 'balance_probe')}
-                              disabled={isPending || inventory.length === 0}
-                            >
-                              <IconChartLine className='mr-2 h-4 w-4' />
-                              {t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
-                            </Button>
-                          ) : null}
+                        <div className='border-b px-3 py-3 lg:border-b-0 lg:px-4'>
+                          <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.summary.disabled')}</div>
+                          <div className='mt-1 font-mono text-xl font-semibold tabular-nums'>{disabledKeys.length}</div>
                         </div>
-                      </div>
-
-                      <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-2 lg:flex-row lg:items-center lg:justify-between'>
-                        <div className='space-y-1'>
-                          <div className='text-sm font-medium'>{t('channels.dialogs.keys.inventory.statusFilter.label')}</div>
-                          <div className='text-muted-foreground text-sm'>
-                            {statusFilter.size > 0
-                              ? t('channels.dialogs.keys.inventory.statusFilter.summary', {
-                                  count: visibleInventory.length,
-                                  statuses: statusFilterSummary,
-                                })
-                              : t('channels.dialogs.keys.inventory.statusFilter.none')}
+                        <div className='border-r px-3 py-3 lg:px-4'>
+                          <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.summary.archived')}</div>
+                          <div className='mt-1 font-mono text-xl font-semibold tabular-nums'>{archivedKeys.length}</div>
+                        </div>
+                        <div className='px-3 py-3 lg:px-4'>
+                          <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.summary.activeBalance')}</div>
+                          <div className='mt-1 font-mono text-xl font-semibold tabular-nums'>{activeBalanceSummary?.display ?? '-'}</div>
+                          <div className='text-muted-foreground mt-1 text-xs'>
+                            {activeBalanceSummary
+                              ? t('channels.dialogs.keys.summary.activeBalanceKeys', { count: activeBalanceSummary.keyCount })
+                              : t('channels.dialogs.keys.summary.activeBalanceEmpty')}
                           </div>
                         </div>
-                        <div className='flex flex-wrap gap-3'>
-                          {KEY_STATUS_FILTERS.map((status) => (
-                            <label key={status} className='flex items-center gap-2 text-sm'>
-                              <Checkbox
-                                checked={statusFilter.has(status)}
-                                onCheckedChange={(checked) => toggleStatusFilter(status, checked === true)}
-                              />
-                              <span>{t(`channels.dialogs.keys.status.${status}`)}</span>
-                            </label>
-                          ))}
-                        </div>
                       </div>
 
-                      {selectedRows.length > 0 && (
-                        <div className='bg-muted/40 flex flex-col gap-2 rounded-md border px-3 py-2'>
-                          <span className='text-sm'>{t('channels.dialogs.keys.selectedCount', { count: selectedRows.length })}</span>
-                          <div className='flex flex-wrap gap-2'>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              onClick={() => handleRunChecks(selectedHealthCheckKeyIDs, 'real_request')}
-                              disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
-                            >
-                              <IconPlayerPlay className='mr-2 h-4 w-4' />
-                              {t('channels.dialogs.keys.actions.testSelected', { count: selectedHealthCheckKeyIDs.length })}
+                      <Card className='min-w-0 overflow-hidden'>
+                        <CardHeader className='min-w-0'>
+                          <CardTitle className='flex items-center gap-2'>
+                            <IconKey className='h-5 w-5' />
+                            {t('channels.dialogs.keys.inventory.title')}
+                          </CardTitle>
+                          <CardDescription className='break-words'>{t('channels.dialogs.keys.inventory.description')}</CardDescription>
+                        </CardHeader>
+                        <CardContent className='min-w-0 space-y-4'>
+                          <div className='flex flex-col gap-2 sm:flex-row sm:items-start'>
+                            <div className='flex-1 space-y-2'>
+                              <label className='text-sm font-medium' htmlFor='channel-new-api-key'>
+                                {t('channels.dialogs.keys.fields.newKey.label')}
+                              </label>
+                              <Input
+                                id='channel-new-api-key'
+                                name='channel-new-api-key'
+                                type='text'
+                                autoComplete='off'
+                                autoCorrect='off'
+                                autoCapitalize='none'
+                                spellCheck={false}
+                                data-lpignore='true'
+                                data-1p-ignore='true'
+                                data-form-type='other'
+                                placeholder={t('channels.dialogs.keys.fields.newKey.placeholder')}
+                                value={newKey}
+                                onChange={(event) => setNewKey(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    event.preventDefault();
+                                    handleAddKey();
+                                  }
+                                }}
+                              />
+                              <p className='text-muted-foreground text-sm'>{t('channels.dialogs.keys.fields.newKey.description')}</p>
+                            </div>
+                            <Button type='button' className='sm:mt-7' onClick={handleAddKey} disabled={isPending || !newKey.trim()}>
+                              {t('channels.dialogs.keys.actions.add')}
                             </Button>
-                            {canRunBalanceProbe ? (
+                          </div>
+
+                          <Alert>
+                            <IconAlertTriangle className='h-4 w-4' />
+                            <AlertDescription>{t('channels.dialogs.keys.inventory.statusCopy')}</AlertDescription>
+                          </Alert>
+
+                          <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-3 lg:flex-row lg:items-center lg:justify-between'>
+                            <div className='space-y-1'>
+                              <div className='text-sm font-medium'>{t('channels.dialogs.keys.manualTest.title')}</div>
+                              <div className='text-muted-foreground text-sm'>{t('channels.dialogs.keys.manualTest.description')}</div>
+                            </div>
+                            <div className='flex flex-wrap gap-2'>
                               <Button
                                 type='button'
                                 variant='outline'
-                                size='sm'
-                                onClick={() => handleRunChecks(selectedHealthCheckKeyIDs, 'balance_probe')}
-                                disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
+                                onClick={() => handleRunChecks(undefined, 'real_request')}
+                                disabled={isPending || inventory.length === 0}
                               >
-                                <IconChartLine className='mr-2 h-4 w-4' />
-                                {t('channels.dialogs.keys.actions.balanceSelected', { count: selectedHealthCheckKeyIDs.length })}
+                                <IconPlayerPlay className='mr-2 h-4 w-4' />
+                                {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
                               </Button>
-                            ) : null}
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              onClick={() => handleBatchAction('disable')}
-                              disabled={isPending || selectedActiveKeyIDs.length === 0}
-                            >
-                              <IconKeyOff className='mr-2 h-4 w-4' />
-                              {t('channels.dialogs.keys.actions.disableSelected', { count: selectedActiveKeyIDs.length })}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              onClick={() => handleBatchAction('enable')}
-                              disabled={isPending || selectedDisabledKeyIDs.length === 0}
-                            >
-                              <IconRefresh className='mr-2 h-4 w-4' />
-                              {t('channels.dialogs.keys.actions.enableSelected', { count: selectedDisabledKeyIDs.length })}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              onClick={() => handleBatchAction('archive')}
-                              disabled={isPending || selectedActiveKeyIDs.length + selectedDisabledKeyIDs.length === 0}
-                            >
-                              <IconArchive className='mr-2 h-4 w-4' />
-                              {t('channels.dialogs.keys.actions.archiveSelected', {
-                                count: selectedActiveKeyIDs.length + selectedDisabledKeyIDs.length,
-                              })}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='outline'
-                              size='sm'
-                              onClick={() => handleBatchAction('restore')}
-                              disabled={isPending || selectedArchivedKeyIDs.length === 0}
-                            >
-                              <IconRestore className='mr-2 h-4 w-4' />
-                              {t('channels.dialogs.keys.actions.restoreSelected', { count: selectedArchivedKeyIDs.length })}
-                            </Button>
-                            <Popover open={confirmBatchDelete} onOpenChange={setConfirmBatchDelete}>
-                              <PopoverTrigger asChild>
-                                <Button type='button' variant='destructive' size='sm' disabled={isPending}>
-                                  <IconTrash className='mr-2 h-4 w-4' />
-                                  {t('channels.dialogs.keys.actions.deleteSelected', { count: selectedRows.length })}
+                              {canRunBalanceProbe ? (
+                                <Button
+                                  type='button'
+                                  variant='outline'
+                                  onClick={() => handleRunChecks(undefined, 'balance_probe')}
+                                  disabled={isPending || inventory.length === 0}
+                                >
+                                  <IconChartLine className='mr-2 h-4 w-4' />
+                                  {t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
                                 </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className='w-80'>
-                                <div className='space-y-3'>
-                                  <p className='text-sm'>
-                                    {t('channels.dialogs.keys.confirmDeleteSelected', { count: selectedRows.length })}
-                                  </p>
-                                  <div className='flex justify-end gap-2'>
-                                    <Button type='button' size='sm' variant='outline' onClick={() => setConfirmBatchDelete(false)}>
-                                      {t('common.buttons.cancel')}
-                                    </Button>
-                                    <Button
-                                      type='button'
-                                      size='sm'
-                                      variant='destructive'
-                                      onClick={() => handleBatchAction('delete')}
-                                      disabled={isPending}
-                                    >
-                                      {t('common.buttons.confirm')}
-                                    </Button>
-                                  </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                            <Button type='button' variant='ghost' size='sm' onClick={() => setSelectedKeys(new Set())} disabled={isPending}>
-                              {t('channels.dialogs.keys.actions.clearSelection')}
-                            </Button>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      )}
 
-                      <div className='rounded-lg border'>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className='w-12'>
-                                <Checkbox
-                                  checked={allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false}
-                                  onCheckedChange={(checked) => toggleVisibleSelection(checked === true)}
-                                  aria-label={t('channels.dialogs.keys.inventory.selectVisible')}
-                                  disabled={visibleInventory.length === 0 || isPending}
+                          <div className='bg-muted/30 grid gap-3 rounded-md border px-3 py-3 lg:grid-cols-[minmax(14rem,1fr)_auto] lg:items-end'>
+                            <div className='space-y-2'>
+                              <label className='text-sm font-medium' htmlFor='channel-key-search'>
+                                {t('channels.dialogs.keys.inventory.search.label')}
+                              </label>
+                              <div className='relative'>
+                                <IconSearch className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
+                                <Input
+                                  id='channel-key-search'
+                                  name='channel-key-search'
+                                  className='pl-9'
+                                  type='search'
+                                  autoComplete='off'
+                                  spellCheck={false}
+                                  value={searchQuery}
+                                  onChange={(event) => setSearchQuery(event.target.value)}
+                                  placeholder={t('channels.dialogs.keys.inventory.search.placeholder')}
                                 />
-                              </TableHead>
-                              <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
-                              <TableHead>{t('channels.dialogs.keys.columns.status')}</TableHead>
-                              <TableHead>{t('channels.dialogs.keys.columns.lastCheck')}</TableHead>
-                              <TableHead>{t('channels.dialogs.keys.columns.balance')}</TableHead>
-                              <TableHead className='text-right'>{t('common.columns.actions')}</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {visibleInventory.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={6} className='text-muted-foreground h-28 text-center text-sm'>
-                                  {inventory.length === 0
-                                    ? t('channels.dialogs.keys.inventory.empty')
-                                    : t('channels.dialogs.keys.inventory.statusFilter.empty')}
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              visibleInventory.map((item) => {
-                                const tone = healthTone(item.success);
-                                return (
-                                  <TableRow key={item.id}>
-                                    <TableCell>
-                                      <Checkbox
-                                        checked={selectedKeys.has(item.id)}
-                                        onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
-                                      />
-                                    </TableCell>
-                                    <TableCell>
-                                      <div className='flex flex-col gap-1'>
-                                        <code className='bg-muted w-fit rounded px-2 py-0.5 font-mono text-sm'>{item.maskedKey}</code>
-                                        <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
-                                          {item.success != null ? (
-                                            <span className={`inline-flex items-center gap-1 ${tone.textClass}`}>
-                                              {item.success ? (
-                                                <IconCircleCheck className='h-3.5 w-3.5' />
-                                              ) : (
-                                                <IconCircleX className='h-3.5 w-3.5' />
-                                              )}
-                                              {t(`channels.dialogs.keys.healthState.${item.success ? 'success' : 'failed'}`)}
-                                            </span>
-                                          ) : null}
-                                          {item.failureCount != null && item.failureCount > 0 ? (
-                                            <span>{t('channels.dialogs.keys.failureCount', { count: item.failureCount })}</span>
-                                          ) : null}
-                                          {item.reason ? <span className='max-w-64 truncate'>{item.reason}</span> : null}
-                                        </div>
-                                      </div>
-                                    </TableCell>
-                                    <TableCell>
-                                      <Badge
-                                        variant={
-                                          item.status === 'active' ? 'default' : item.status === 'disabled' ? 'secondary' : 'outline'
-                                        }
-                                      >
-                                        {t(`channels.dialogs.keys.status.${item.status}`)}
-                                      </Badge>
-                                    </TableCell>
-                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(item.lastCheckedAt)}</TableCell>
-                                    <TableCell>
-                                      <div className='text-sm'>
-                                        {formatRowBalance(item, t, i18n.language)}
-                                        {(item.balanceSnapshot?.available ?? item.available) != null ? (
-                                          <Badge variant='outline' className='ml-2'>
-                                            {t(
-                                              `channels.dialogs.keys.availability.${(item.balanceSnapshot?.available ?? item.available) ? 'available' : 'unavailable'}`
-                                            )}
-                                          </Badge>
-                                        ) : null}
-                                      </div>
-                                    </TableCell>
-                                    <TableCell>
-                                      <div className='flex justify-end gap-1'>
+                              </div>
+                            </div>
+                            <div className='space-y-2'>
+                              <div className='text-sm font-medium'>{t('channels.dialogs.keys.inventory.statusFilter.label')}</div>
+                              <div className='flex flex-wrap gap-3'>
+                                {KEY_STATUS_FILTERS.map((status) => (
+                                  <label key={status} className='flex items-center gap-2 text-sm'>
+                                    <Checkbox
+                                      checked={statusFilter.has(status)}
+                                      onCheckedChange={(checked) => toggleStatusFilter(status, checked === true)}
+                                    />
+                                    <span>{t(`channels.dialogs.keys.status.${status}`)}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                            <div className='text-muted-foreground text-xs lg:col-span-2'>
+                              {statusFilter.size > 0
+                                ? t('channels.dialogs.keys.inventory.statusFilter.summary', {
+                                    count: visibleInventory.length,
+                                    statuses: statusFilterSummary,
+                                  })
+                                : t('channels.dialogs.keys.inventory.statusFilter.none')}
+                            </div>
+                          </div>
+
+                          {selectedRows.length > 0 && (
+                            <div className='bg-muted/40 flex flex-col gap-2 rounded-md border px-3 py-2'>
+                              <span className='text-sm'>{t('channels.dialogs.keys.selectedCount', { count: selectedRows.length })}</span>
+                              <div className='flex flex-wrap gap-2'>
+                                <Button
+                                  type='button'
+                                  variant='outline'
+                                  size='sm'
+                                  onClick={() => handleRunChecks(selectedHealthCheckKeyIDs, 'real_request')}
+                                  disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
+                                >
+                                  <IconPlayerPlay className='mr-2 h-4 w-4' />
+                                  {t('channels.dialogs.keys.actions.testSelected', { count: selectedHealthCheckKeyIDs.length })}
+                                </Button>
+                                {canRunBalanceProbe ? (
+                                  <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={() => handleRunChecks(selectedHealthCheckKeyIDs, 'balance_probe')}
+                                    disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
+                                  >
+                                    <IconChartLine className='mr-2 h-4 w-4' />
+                                    {t('channels.dialogs.keys.actions.balanceSelected', { count: selectedHealthCheckKeyIDs.length })}
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  type='button'
+                                  variant='outline'
+                                  size='sm'
+                                  onClick={() => copyKeys(selectedRawKeys)}
+                                  disabled={isPending || selectedRawKeys.length === 0}
+                                >
+                                  <IconCopy className='mr-2 h-4 w-4' />
+                                  {t('channels.dialogs.keys.actions.copySelected', { count: selectedRawKeys.length })}
+                                </Button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button type='button' variant='outline' size='sm' disabled={isPending}>
+                                      <IconDotsVertical className='mr-2 h-4 w-4' />
+                                      {t('channels.dialogs.keys.actions.more')}
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align='start'>
+                                    <DropdownMenuItem
+                                      onSelect={() => handleBatchAction('disable')}
+                                      disabled={selectedActiveKeyIDs.length === 0}
+                                    >
+                                      <IconKeyOff className='mr-2 h-4 w-4' />
+                                      {t('channels.dialogs.keys.actions.disableSelected', { count: selectedActiveKeyIDs.length })}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onSelect={() => handleBatchAction('enable')}
+                                      disabled={selectedDisabledKeyIDs.length === 0}
+                                    >
+                                      <IconRefresh className='mr-2 h-4 w-4' />
+                                      {t('channels.dialogs.keys.actions.enableSelected', { count: selectedDisabledKeyIDs.length })}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onSelect={() => handleBatchAction('archive')}
+                                      disabled={selectedActiveKeyIDs.length + selectedDisabledKeyIDs.length === 0}
+                                    >
+                                      <IconArchive className='mr-2 h-4 w-4' />
+                                      {t('channels.dialogs.keys.actions.archiveSelected', {
+                                        count: selectedActiveKeyIDs.length + selectedDisabledKeyIDs.length,
+                                      })}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onSelect={() => handleBatchAction('restore')}
+                                      disabled={selectedArchivedKeyIDs.length === 0}
+                                    >
+                                      <IconRestore className='mr-2 h-4 w-4' />
+                                      {t('channels.dialogs.keys.actions.restoreSelected', { count: selectedArchivedKeyIDs.length })}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                                <Popover open={confirmBatchDelete} onOpenChange={setConfirmBatchDelete}>
+                                  <PopoverTrigger asChild>
+                                    <Button type='button' variant='destructive' size='sm' disabled={isPending}>
+                                      <IconTrash className='mr-2 h-4 w-4' />
+                                      {t('channels.dialogs.keys.actions.deleteSelected', { count: selectedRows.length })}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className='w-80'>
+                                    <div className='space-y-3'>
+                                      <p className='text-sm'>
+                                        {t('channels.dialogs.keys.confirmDeleteSelected', { count: selectedRows.length })}
+                                      </p>
+                                      <div className='flex justify-end gap-2'>
+                                        <Button type='button' size='sm' variant='outline' onClick={() => setConfirmBatchDelete(false)}>
+                                          {t('common.buttons.cancel')}
+                                        </Button>
                                         <Button
                                           type='button'
                                           size='sm'
-                                          variant='ghost'
-                                          onClick={() => handleRunChecks([item.id], 'real_request')}
-                                          disabled={isPending}
-                                          aria-label={t('channels.dialogs.keys.manualTest.modes.real_request.label')}
-                                          title={t('channels.dialogs.keys.manualTest.modes.real_request.label')}
-                                        >
-                                          <IconPlayerPlay className='h-4 w-4' />
-                                        </Button>
-                                        {canRunBalanceProbe ? (
-                                          <Button
-                                            type='button'
-                                            size='sm'
-                                            variant='ghost'
-                                            onClick={() => handleRunChecks([item.id], 'balance_probe')}
-                                            disabled={isPending}
-                                            aria-label={t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
-                                            title={t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
-                                          >
-                                            <IconChartLine className='h-4 w-4' />
-                                          </Button>
-                                        ) : null}
-                                        <Button
-                                          type='button'
-                                          size='sm'
-                                          variant='ghost'
-                                          onClick={() => setDetailsKeyID(item.id)}
+                                          variant='destructive'
+                                          onClick={() => handleBatchAction('delete')}
                                           disabled={isPending}
                                         >
-                                          <IconEye className='h-4 w-4' />
+                                          {t('common.buttons.confirm')}
                                         </Button>
-                                        {item.status === 'active' ? (
-                                          <Button
-                                            type='button'
-                                            size='sm'
-                                            variant='ghost'
-                                            onClick={() => handleDisableKey(item.id)}
-                                            disabled={isPending}
-                                          >
-                                            <IconKeyOff className='h-4 w-4' />
-                                          </Button>
-                                        ) : null}
-                                        {item.status === 'disabled' ? (
-                                          <Button
-                                            type='button'
-                                            size='sm'
-                                            variant='ghost'
-                                            onClick={() => handleEnableKey(item.id)}
-                                            disabled={isPending}
-                                          >
-                                            <IconRefresh className='h-4 w-4' />
-                                          </Button>
-                                        ) : null}
-                                        <Popover
-                                          open={confirmDeleteKey === item.id}
-                                          onOpenChange={(state) => setConfirmDeleteKey(state ? item.id : null)}
-                                        >
-                                          <PopoverTrigger asChild>
-                                            <Button
-                                              type='button'
-                                              size='sm'
-                                              variant='ghost'
-                                              className='text-destructive'
-                                              disabled={isPending}
-                                            >
-                                              <IconTrash className='h-4 w-4' />
-                                            </Button>
-                                          </PopoverTrigger>
-                                          <PopoverContent className='w-72'>
-                                            <div className='space-y-3'>
-                                              <p className='text-sm'>{t('channels.dialogs.keys.confirmDelete')}</p>
-                                              <div className='flex justify-end gap-2'>
-                                                <Button type='button' size='sm' variant='outline' onClick={() => setConfirmDeleteKey(null)}>
-                                                  {t('common.buttons.cancel')}
-                                                </Button>
-                                                <Button
-                                                  type='button'
-                                                  size='sm'
-                                                  variant='destructive'
-                                                  onClick={() => handleDeleteKey(item.id)}
-                                                  disabled={isPending}
-                                                >
-                                                  {t('common.buttons.confirm')}
-                                                </Button>
-                                              </div>
-                                            </div>
-                                          </PopoverContent>
-                                        </Popover>
-                                        {item.status === 'archived' ? (
-                                          <Button
-                                            type='button'
-                                            size='sm'
-                                            variant='ghost'
-                                            onClick={() => handleRestoreKey(item.id)}
-                                            disabled={isPending}
-                                          >
-                                            <IconRestore className='h-4 w-4' />
-                                          </Button>
-                                        ) : (
-                                          <Button
-                                            type='button'
-                                            size='sm'
-                                            variant='ghost'
-                                            onClick={() => handleArchiveKey(item.id)}
-                                            disabled={isPending}
-                                          >
-                                            <IconArchive className='h-4 w-4' />
-                                          </Button>
-                                        )}
                                       </div>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                                <Button
+                                  type='button'
+                                  variant='ghost'
+                                  size='sm'
+                                  onClick={() => setSelectedKeys(new Set())}
+                                  disabled={isPending}
+                                >
+                                  {t('channels.dialogs.keys.actions.clearSelection')}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className='overflow-x-auto rounded-lg border'>
+                            <Table className='min-w-[54rem]'>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className='w-12'>
+                                    <Checkbox
+                                      checked={allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false}
+                                      onCheckedChange={(checked) => toggleVisibleSelection(checked === true)}
+                                      aria-label={t('channels.dialogs.keys.inventory.selectVisible')}
+                                      disabled={visibleInventory.length === 0 || isPending}
+                                    />
+                                  </TableHead>
+                                  <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
+                                  <TableHead>{t('channels.dialogs.keys.columns.status')}</TableHead>
+                                  <TableHead>{t('channels.dialogs.keys.columns.lastCheck')}</TableHead>
+                                  <TableHead>{t('channels.dialogs.keys.columns.balance')}</TableHead>
+                                  <TableHead className='text-right'>{t('common.columns.actions')}</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {visibleInventory.length === 0 ? (
+                                  <TableRow>
+                                    <TableCell colSpan={6} className='text-muted-foreground h-28 text-center text-sm'>
+                                      {inventory.length === 0
+                                        ? t('channels.dialogs.keys.inventory.empty')
+                                        : t('channels.dialogs.keys.inventory.statusFilter.empty')}
                                     </TableCell>
                                   </TableRow>
-                                );
-                              })
-                            )}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </CardContent>
-                  </Card>
+                                ) : (
+                                  visibleInventory.map((item) => {
+                                    const tone = healthTone(item.success);
+                                    return (
+                                      <TableRow key={item.id}>
+                                        <TableCell>
+                                          <Checkbox
+                                            checked={selectedKeys.has(item.id)}
+                                            onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
+                                            aria-label={t('channels.dialogs.keys.inventory.selectKey', { key: item.maskedKey })}
+                                            disabled={isPending}
+                                          />
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className='flex flex-col gap-1'>
+                                            <div className='flex min-w-0 items-center gap-1'>
+                                              <code className='bg-muted max-w-80 overflow-x-auto rounded px-2 py-0.5 font-mono text-sm whitespace-nowrap'>
+                                                {revealedKeys.has(item.id) && item.rawKey ? item.rawKey : item.maskedKey}
+                                              </code>
+                                              {item.rawKey ? (
+                                                <>
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <Button
+                                                        type='button'
+                                                        size='icon'
+                                                        variant='ghost'
+                                                        className='h-7 w-7 shrink-0'
+                                                        onClick={() => toggleKeyReveal(item.id)}
+                                                        aria-label={t(
+                                                          revealedKeys.has(item.id)
+                                                            ? 'channels.dialogs.keys.actions.hideKey'
+                                                            : 'channels.dialogs.keys.actions.revealKey'
+                                                        )}
+                                                      >
+                                                        {revealedKeys.has(item.id) ? (
+                                                          <IconEyeOff className='h-4 w-4' aria-hidden='true' />
+                                                        ) : (
+                                                          <IconEye className='h-4 w-4' aria-hidden='true' />
+                                                        )}
+                                                      </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                      {t(
+                                                        revealedKeys.has(item.id)
+                                                          ? 'channels.dialogs.keys.actions.hideKey'
+                                                          : 'channels.dialogs.keys.actions.revealKey'
+                                                      )}
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <Button
+                                                        type='button'
+                                                        size='icon'
+                                                        variant='ghost'
+                                                        className='h-7 w-7 shrink-0'
+                                                        onClick={() => copyKeys([item.rawKey])}
+                                                        aria-label={t('channels.dialogs.keys.actions.copyKey')}
+                                                      >
+                                                        <IconCopy className='h-4 w-4' aria-hidden='true' />
+                                                      </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>{t('channels.dialogs.keys.actions.copyKey')}</TooltipContent>
+                                                  </Tooltip>
+                                                </>
+                                              ) : null}
+                                            </div>
+                                            <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
+                                              {item.success != null ? (
+                                                <span className={`inline-flex items-center gap-1 ${tone.textClass}`}>
+                                                  {item.success ? (
+                                                    <IconCircleCheck className='h-3.5 w-3.5' />
+                                                  ) : (
+                                                    <IconCircleX className='h-3.5 w-3.5' />
+                                                  )}
+                                                  {t(`channels.dialogs.keys.healthState.${item.success ? 'success' : 'failed'}`)}
+                                                </span>
+                                              ) : null}
+                                              {item.failureCount != null && item.failureCount > 0 ? (
+                                                <span>{t('channels.dialogs.keys.failureCount', { count: item.failureCount })}</span>
+                                              ) : null}
+                                              {item.reason ? <span className='max-w-64 truncate'>{item.reason}</span> : null}
+                                            </div>
+                                          </div>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Badge
+                                            variant={
+                                              item.status === 'active' ? 'default' : item.status === 'disabled' ? 'secondary' : 'outline'
+                                            }
+                                          >
+                                            {t(`channels.dialogs.keys.status.${item.status}`)}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className='text-muted-foreground text-sm'>
+                                          {formatDateTime(item.lastCheckedAt, i18n.language)}
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className='text-sm'>
+                                            {formatRowBalance(item, t, i18n.language)}
+                                            {(item.balanceSnapshot?.available ?? item.available) != null ? (
+                                              <Badge variant='outline' className='ml-2'>
+                                                {t(
+                                                  `channels.dialogs.keys.availability.${(item.balanceSnapshot?.available ?? item.available) ? 'available' : 'unavailable'}`
+                                                )}
+                                              </Badge>
+                                            ) : null}
+                                          </div>
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className='flex justify-end gap-1'>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  type='button'
+                                                  size='icon'
+                                                  variant='ghost'
+                                                  onClick={() => handleRunChecks([item.id], 'real_request')}
+                                                  disabled={isPending || item.status === 'archived'}
+                                                  aria-label={t('channels.dialogs.keys.manualTest.modes.real_request.label')}
+                                                >
+                                                  <IconPlayerPlay className='h-4 w-4' aria-hidden='true' />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                            {canRunBalanceProbe ? (
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Button
+                                                    type='button'
+                                                    size='icon'
+                                                    variant='ghost'
+                                                    onClick={() => handleRunChecks([item.id], 'balance_probe')}
+                                                    disabled={isPending || item.status === 'archived'}
+                                                    aria-label={t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
+                                                  >
+                                                    <IconChartLine className='h-4 w-4' aria-hidden='true' />
+                                                  </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                  {t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            ) : null}
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  type='button'
+                                                  size='icon'
+                                                  variant='ghost'
+                                                  onClick={() => setDetailsKeyID(item.id)}
+                                                  aria-label={t('channels.dialogs.keys.actions.viewDetails')}
+                                                >
+                                                  <IconInfoCircle className='h-4 w-4' aria-hidden='true' />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>{t('channels.dialogs.keys.actions.viewDetails')}</TooltipContent>
+                                            </Tooltip>
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild>
+                                                <Button
+                                                  type='button'
+                                                  size='icon'
+                                                  variant='ghost'
+                                                  disabled={isPending}
+                                                  aria-label={t('channels.dialogs.keys.actions.moreForKey', { key: item.maskedKey })}
+                                                >
+                                                  <IconDotsVertical className='h-4 w-4' aria-hidden='true' />
+                                                </Button>
+                                              </DropdownMenuTrigger>
+                                              <DropdownMenuContent align='end'>
+                                                {item.status === 'active' ? (
+                                                  <DropdownMenuItem onSelect={() => handleDisableKey(item.id)}>
+                                                    <IconKeyOff className='mr-2 h-4 w-4' aria-hidden='true' />
+                                                    {t('channels.dialogs.keys.actions.disable')}
+                                                  </DropdownMenuItem>
+                                                ) : null}
+                                                {item.status === 'disabled' ? (
+                                                  <DropdownMenuItem onSelect={() => handleEnableKey(item.id)}>
+                                                    <IconRefresh className='mr-2 h-4 w-4' aria-hidden='true' />
+                                                    {t('channels.dialogs.keys.actions.enable')}
+                                                  </DropdownMenuItem>
+                                                ) : null}
+                                                {item.status === 'archived' ? (
+                                                  <DropdownMenuItem onSelect={() => handleRestoreKey(item.id)}>
+                                                    <IconRestore className='mr-2 h-4 w-4' aria-hidden='true' />
+                                                    {t('channels.dialogs.keys.actions.restore')}
+                                                  </DropdownMenuItem>
+                                                ) : (
+                                                  <DropdownMenuItem onSelect={() => handleArchiveKey(item.id)}>
+                                                    <IconArchive className='mr-2 h-4 w-4' aria-hidden='true' />
+                                                    {t('channels.dialogs.keys.actions.archive')}
+                                                  </DropdownMenuItem>
+                                                )}
+                                                <DropdownMenuSeparator />
+                                                <DropdownMenuItem
+                                                  className='text-destructive'
+                                                  onSelect={() => setConfirmDeleteKey(item.id)}
+                                                >
+                                                  <IconTrash className='mr-2 h-4 w-4' aria-hidden='true' />
+                                                  {t('channels.dialogs.keys.actions.delete')}
+                                                </DropdownMenuItem>
+                                              </DropdownMenuContent>
+                                            </DropdownMenu>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
                 </TabsContent>
 
                 <TabsContent value='keyHistory' className='mt-0 space-y-4'>
@@ -2285,8 +2459,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                       <CardDescription>{t('channels.dialogs.keys.keyHistory.description')}</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className='rounded-lg border'>
-                        <Table>
+                      <div className='overflow-x-auto rounded-lg border'>
+                        <Table className='min-w-[44rem]'>
                           <TableHeader>
                             <TableRow>
                               <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
@@ -2311,7 +2485,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                     <TableCell>
                                       <code className='bg-muted w-fit rounded px-2 py-0.5 font-mono text-sm'>{key.maskedKey}</code>
                                     </TableCell>
-                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(entry.checkedAt)}</TableCell>
+                                    <TableCell className='text-muted-foreground text-sm'>
+                                      {formatDateTime(entry.checkedAt, i18n.language)}
+                                    </TableCell>
                                     <TableCell>{entry.statusCode ?? '-'}</TableCell>
                                     <TableCell>
                                       <div className='flex flex-col gap-1'>
@@ -2322,8 +2498,14 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                       </div>
                                     </TableCell>
                                     <TableCell className='text-right'>
-                                      <Button type='button' variant='ghost' size='sm' onClick={() => setDetailsKeyID(key.id)}>
-                                        <IconEye className='h-4 w-4' />
+                                      <Button
+                                        type='button'
+                                        variant='ghost'
+                                        size='sm'
+                                        onClick={() => setDetailsKeyID(key.id)}
+                                        aria-label={t('channels.dialogs.keys.actions.viewDetails')}
+                                      >
+                                        <IconEye className='h-4 w-4' aria-hidden='true' />
                                       </Button>
                                     </TableCell>
                                   </TableRow>
@@ -2362,8 +2544,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                       <CardDescription>{t('channels.dialogs.keys.failureHistory.description')}</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className='rounded-lg border'>
-                        <Table>
+                      <div className='overflow-x-auto rounded-lg border'>
+                        <Table className='min-w-[52rem]'>
                           <TableHeader>
                             <TableRow>
                               <TableHead>{t('channels.dialogs.keys.columns.key')}</TableHead>
@@ -2387,7 +2569,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                     <TableCell>
                                       <Badge variant='outline'>{t('channels.dialogs.keys.channelHistory.scopeValue')}</Badge>
                                     </TableCell>
-                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(entry.checkedAt)}</TableCell>
+                                    <TableCell className='text-muted-foreground text-sm'>
+                                      {formatDateTime(entry.checkedAt, i18n.language)}
+                                    </TableCell>
                                     <TableCell>{entry.matchedPolicy || '-'}</TableCell>
                                     <TableCell>{formatPolicyAction(entry.action)}</TableCell>
                                     <TableCell>{entry.reason || '-'}</TableCell>
@@ -2398,7 +2582,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                     <TableCell>
                                       <code className='bg-muted w-fit rounded px-2 py-0.5 font-mono text-sm'>{key.maskedKey}</code>
                                     </TableCell>
-                                    <TableCell className='text-muted-foreground text-sm'>{formatDateTime(entry.checkedAt)}</TableCell>
+                                    <TableCell className='text-muted-foreground text-sm'>
+                                      {formatDateTime(entry.checkedAt, i18n.language)}
+                                    </TableCell>
                                     <TableCell>{entry.matchedPolicy || '-'}</TableCell>
                                     <TableCell>{formatPolicyAction(entry.action)}</TableCell>
                                     <TableCell>{entry.reason || '-'}</TableCell>
@@ -2432,51 +2618,26 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                     </CardContent>
                   </Card>
                 </TabsContent>
-              </ScrollArea>
+              </div>
             </Tabs>
           </Form>
 
-          <DialogFooter className='gap-2 sm:justify-between'>
-            <div className='flex flex-wrap items-center gap-2'>
-              <Button
-                type='button'
-                variant='outline'
-                onClick={() => handleRunChecks(undefined, 'real_request')}
-                disabled={isPending || inventory.length === 0}
-              >
-                {runHealthCheck.isPending ? (
-                  <IconLoader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <IconPlayerPlay className='mr-2 h-4 w-4' />
-                )}
-                {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
-              </Button>
-              {canRunBalanceProbe ? (
-                <Button
-                  type='button'
-                  variant='outline'
-                  onClick={() => handleRunChecks(undefined, 'balance_probe')}
-                  disabled={isPending || inventory.length === 0}
-                >
-                  {runHealthCheck.isPending ? (
-                    <IconLoader2 className='mr-2 h-4 w-4 animate-spin' />
-                  ) : (
-                    <IconChartLine className='mr-2 h-4 w-4' />
-                  )}
-                  {t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
-                </Button>
-              ) : null}
-              <div className='text-muted-foreground hidden items-center gap-1 text-xs sm:flex'>
-                <IconAlertTriangle className='h-3.5 w-3.5' />
-                {t('channels.dialogs.keys.rawKeySafety')}
-              </div>
+          <DialogFooter className='flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div className='text-muted-foreground flex items-start gap-1.5 text-left text-xs'>
+              <IconInfoCircle className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+              <span>{t('channels.dialogs.keys.persistenceNote')}</span>
             </div>
-            <div className='flex gap-2'>
-              <Button type='button' variant='outline' onClick={() => onOpenChange(false)}>
-                {t('common.buttons.cancel')}
+            <div className='flex w-full shrink-0 gap-2 sm:w-auto'>
+              <Button className='flex-1 sm:flex-none' type='button' variant='outline' onClick={() => requestOpenChange(false)}>
+                {hasUnsavedChanges ? t('channels.dialogs.keys.actions.discardChanges') : t('common.buttons.close')}
               </Button>
-              <Button type='button' onClick={form.handleSubmit(handleSaveSettings)} disabled={isPending || !form.formState.isValid}>
-                {updateChannel.isPending ? t('common.buttons.saving') : t('common.buttons.save')}
+              <Button
+                className='flex-1 sm:flex-none'
+                type='button'
+                onClick={form.handleSubmit(handleSaveSettings)}
+                disabled={isPending || !form.formState.isValid || !form.formState.isDirty}
+              >
+                {updateChannel.isPending ? t('common.buttons.saving') : t('channels.dialogs.keys.actions.saveSettings')}
               </Button>
             </div>
           </DialogFooter>
@@ -2484,6 +2645,51 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
       </Dialog>
       <KeyDetailsDialog row={detailsRow} open={!!detailsRow} onOpenChange={(state) => !state && setDetailsKeyID(null)} />
       <ChannelHistoryDialog history={channelHistory} open={channelHistoryOpen} onOpenChange={setChannelHistoryOpen} />
+      <AlertDialog open={confirmDeleteKey != null} onOpenChange={(state) => !state && setConfirmDeleteKey(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('channels.dialogs.keys.deleteDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('channels.dialogs.keys.confirmDelete')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.buttons.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={(event) => {
+                event.preventDefault();
+                if (confirmDeleteKey) {
+                  handleDeleteKey(confirmDeleteKey);
+                }
+              }}
+              disabled={deleteAPIKey.isPending}
+            >
+              {deleteAPIKey.isPending ? <IconLoader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
+              {t('channels.dialogs.keys.actions.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmDiscardSettings} onOpenChange={setConfirmDiscardSettings}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('channels.dialogs.keys.discardDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('channels.dialogs.keys.discardDialog.description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.buttons.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                form.reset(valuesFromChannel(currentRow));
+                setNewKey('');
+                setConfirmDiscardSettings(false);
+                onOpenChange(false);
+              }}
+            >
+              {t('channels.dialogs.keys.actions.discardChanges')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

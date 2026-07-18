@@ -276,6 +276,37 @@ func TestChannelService_UpdateChannelPreservesArchivedCredentialKeys(t *testing.
 	require.Contains(t, lo.Map(inventory, func(item *ChannelAPIKeyInventoryItem, _ int) string {
 		return item.ID
 	}), archivedID)
+	require.ElementsMatch(t, []string{"active-key", "archived-key"}, lo.Map(inventory, func(item *ChannelAPIKeyInventoryItem, _ int) string {
+		return item.RawKey
+	}))
+}
+
+func TestChannelAPIKeyStateUpdateRejectsStaleSnapshot(t *testing.T) {
+	_, client := setupTestChannelService(t)
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("CAS channel").
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"key-1", "key-2"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetStatus(channel.StatusEnabled).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = client.Channel.UpdateOneID(ch.ID).
+		SetName("updated elsewhere").
+		SetUpdatedAt(ch.UpdatedAt.Add(time.Second)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = channelAPIKeyStateUpdate(client, ch).
+		SetDisabledAPIKeys([]objects.DisabledAPIKey{{Key: "key-1"}}).
+		Save(ctx)
+	require.True(t, ent.IsNotFound(err), "stale key-state writes must fail instead of overwriting a concurrent update: %v", err)
 }
 
 func TestChannelService_UpdateChannelPreservesArchivedCredentialKeysWhenSettingsSubmitted(t *testing.T) {

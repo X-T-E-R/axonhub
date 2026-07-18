@@ -275,6 +275,7 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
 
 const CHANNEL_API_KEY_INVENTORY_FIELDS = `
   id
+  rawKey
   maskedKey
   status
   lastCheckedAt
@@ -2190,7 +2191,7 @@ export function useChannelAPIKeyInventory(channelId: string, options?: { enabled
         return z.array(channelAPIKeyInventoryItemSchema).parse(data.channelAPIKeyInventory);
       } catch (error) {
         handleError(error, t('common.errors.internalServerError'));
-        return [];
+        throw error;
       }
     },
     enabled: !!channelId && options?.enabled !== false,
@@ -2209,7 +2210,7 @@ export function useDisableChannelAPIKey() {
   const { handleError } = useErrorHandler();
 
   return useMutation({
-    mutationFn: async ({ channelID, key }: { channelID: string; key: string }) => {
+    mutationFn: async ({ channelID, key, silent }: { channelID: string; key: string; silent?: boolean; deferRefresh?: boolean }) => {
       try {
         const data = await graphqlRequest<{ disableChannelAPIKey: boolean }>(DISABLE_CHANNEL_API_KEY_MUTATION, {
           channelID,
@@ -2217,13 +2218,19 @@ export function useDisableChannelAPIKey() {
         });
         return data.disableChannelAPIKey;
       } catch (error) {
-        handleError(error, { context: 'Disable Channel API Key' });
+        if (!silent) {
+          handleError(error, { context: 'Disable Channel API Key' });
+        }
         throw error;
       }
     },
     onSuccess: (_data, variables) => {
-      invalidateChannelKeyQueries(queryClient, variables.channelID);
-      toast.success(t('channels.messages.disableAPIKeySuccess'));
+      if (!variables.deferRefresh) {
+        invalidateChannelKeyQueries(queryClient, variables.channelID);
+      }
+      if (!variables.silent) {
+        toast.success(t('channels.messages.disableAPIKeySuccess'));
+      }
     },
   });
 }
@@ -2234,7 +2241,7 @@ export function useEnableChannelAPIKey() {
   const { handleError } = useErrorHandler();
 
   return useMutation({
-    mutationFn: async ({ channelID, key }: { channelID: string; key: string }) => {
+    mutationFn: async ({ channelID, key, silent }: { channelID: string; key: string; silent?: boolean; deferRefresh?: boolean }) => {
       try {
         const data = await graphqlRequest<{ enableChannelAPIKey: boolean }>(ENABLE_CHANNEL_API_KEY_MUTATION, {
           channelID,
@@ -2242,13 +2249,19 @@ export function useEnableChannelAPIKey() {
         });
         return data.enableChannelAPIKey;
       } catch (error) {
-        handleError(error, { context: 'Enable Channel API Key' });
+        if (!silent) {
+          handleError(error, { context: 'Enable Channel API Key' });
+        }
         throw error;
       }
     },
     onSuccess: (_data, variables) => {
-      invalidateChannelKeyQueries(queryClient, variables.channelID);
-      toast.success(t('channels.messages.enableAPIKeySuccess'));
+      if (!variables.deferRefresh) {
+        invalidateChannelKeyQueries(queryClient, variables.channelID);
+      }
+      if (!variables.silent) {
+        toast.success(t('channels.messages.enableAPIKeySuccess'));
+      }
     },
   });
 }
@@ -2361,7 +2374,7 @@ export function useDeleteChannelAPIKey() {
   const { handleError } = useErrorHandler();
 
   return useMutation({
-    mutationFn: async ({ channelID, keyID }: { channelID: string; keyID: string }) => {
+    mutationFn: async ({ channelID, keyID, silent }: { channelID: string; keyID: string; silent?: boolean; deferRefresh?: boolean }) => {
       try {
         const data = await graphqlRequest<{ deleteChannelAPIKey: { success: boolean; message?: string } }>(
           DELETE_CHANNEL_API_KEY_MUTATION,
@@ -2372,17 +2385,23 @@ export function useDeleteChannelAPIKey() {
         );
         return data.deleteChannelAPIKey;
       } catch (error) {
-        handleError(error, { context: 'Delete Channel API Key' });
+        if (!silent) {
+          handleError(error, { context: 'Delete Channel API Key' });
+        }
         throw error;
       }
     },
     onSuccess: (data, variables) => {
-      invalidateChannelKeyQueries(queryClient, variables.channelID);
-      toast.success(
-        data.message === 'ONE_KEY_PRESERVED'
-          ? t('channels.messages.deleteDisabledAPIKeysPreserved')
-          : t('channels.dialogs.keys.messages.deleted')
-      );
+      if (!variables.deferRefresh) {
+        invalidateChannelKeyQueries(queryClient, variables.channelID);
+      }
+      if (!variables.silent) {
+        toast.success(
+          data.message === 'ONE_KEY_PRESERVED'
+            ? t('channels.messages.deleteDisabledAPIKeysPreserved')
+            : t('channels.dialogs.keys.messages.deleted')
+        );
+      }
     },
   });
 }
@@ -2393,7 +2412,18 @@ export function useArchiveChannelAPIKey() {
   const { handleError } = useErrorHandler();
 
   return useMutation({
-    mutationFn: async ({ channelID, keyID, reason }: { channelID: string; keyID: string; reason?: string }) => {
+    mutationFn: async ({
+      channelID,
+      keyID,
+      reason,
+      silent,
+    }: {
+      channelID: string;
+      keyID: string;
+      reason?: string;
+      silent?: boolean;
+      deferRefresh?: boolean;
+    }) => {
       try {
         const data = await graphqlRequest<{ archiveChannelAPIKey: boolean }>(ARCHIVE_CHANNEL_API_KEY_MUTATION, {
           channelID,
@@ -2402,13 +2432,19 @@ export function useArchiveChannelAPIKey() {
         });
         return data.archiveChannelAPIKey;
       } catch (error) {
-        handleError(error, { context: 'Archive Channel API Key' });
+        if (!silent) {
+          handleError(error, { context: 'Archive Channel API Key' });
+        }
         throw error;
       }
     },
     onSuccess: (_data, variables) => {
-      invalidateChannelKeyQueries(queryClient, variables.channelID);
-      toast.success(t('channels.dialogs.keys.messages.archived'));
+      if (!variables.deferRefresh) {
+        invalidateChannelKeyQueries(queryClient, variables.channelID);
+      }
+      if (!variables.silent) {
+        toast.success(t('channels.dialogs.keys.messages.archived'));
+      }
     },
   });
 }
@@ -2419,7 +2455,7 @@ export function useRestoreChannelAPIKey() {
   const { handleError } = useErrorHandler();
 
   return useMutation({
-    mutationFn: async ({ channelID, keyID }: { channelID: string; keyID: string }) => {
+    mutationFn: async ({ channelID, keyID, silent }: { channelID: string; keyID: string; silent?: boolean; deferRefresh?: boolean }) => {
       try {
         const data = await graphqlRequest<{ restoreChannelAPIKey: boolean }>(RESTORE_CHANNEL_API_KEY_MUTATION, {
           channelID,
@@ -2427,13 +2463,19 @@ export function useRestoreChannelAPIKey() {
         });
         return data.restoreChannelAPIKey;
       } catch (error) {
-        handleError(error, { context: 'Restore Channel API Key' });
+        if (!silent) {
+          handleError(error, { context: 'Restore Channel API Key' });
+        }
         throw error;
       }
     },
     onSuccess: (_data, variables) => {
-      invalidateChannelKeyQueries(queryClient, variables.channelID);
-      toast.success(t('channels.dialogs.keys.messages.restored'));
+      if (!variables.deferRefresh) {
+        invalidateChannelKeyQueries(queryClient, variables.channelID);
+      }
+      if (!variables.silent) {
+        toast.success(t('channels.dialogs.keys.messages.restored'));
+      }
     },
   });
 }

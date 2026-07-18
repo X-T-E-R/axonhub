@@ -413,7 +413,7 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 	}
 	mergeChannelKeyOperationalStatus(ch, settings.KeyHealthCheck)
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(ch.ID).SetSettings(settings).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 		return channelKeyHealthCheckChannelResult{}, fmt.Errorf("failed to save channel key metadata: %w", err)
 	}
 
@@ -1597,7 +1597,7 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	}
 	mergeChannelKeyOperationalStatus(ch, settings.KeyHealthCheck)
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 		return nil, fmt.Errorf("failed to save channel key metadata: %w", err)
 	}
 

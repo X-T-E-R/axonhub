@@ -779,6 +779,9 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 			SetNillableDefaultTestModel(input.DefaultTestModel).
 			SetNillableOrderingWeight(input.OrderingWeight).
 			SetNillableAutoSyncSupportedModels(input.AutoSyncSupportedModels)
+		if current != nil {
+			mut.Where(channel.UpdatedAtEQ(current.UpdatedAt))
+		}
 
 		if input.SupportedModels != nil {
 			mut.SetSupportedModels(input.SupportedModels)

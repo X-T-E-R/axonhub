@@ -692,6 +692,7 @@ input BalanceAmountInput {
 
 type ChannelAPIKeyInventoryItem {
   id: String!
+  rawKey: String @goField(forceResolver: true)
   maskedKey: String!
   status: ChannelKeyStatus!
   lastCheckedAt: Time

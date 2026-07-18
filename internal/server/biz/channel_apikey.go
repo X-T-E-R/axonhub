@@ -10,6 +10,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
@@ -18,8 +19,13 @@ import (
 
 var errCannotArchiveLastUsableChannelAPIKey = errors.New("cannot archive the last usable channel api key")
 
+func channelAPIKeyStateUpdate(client *ent.Client, ch *ent.Channel) *ent.ChannelUpdateOne {
+	return client.Channel.UpdateOneID(ch.ID).Where(channel.UpdatedAtEQ(ch.UpdatedAt))
+}
+
 type ChannelAPIKeyInventoryItem struct {
 	ID              string
+	RawKey          string
 	MaskedKey       string
 	Status          objects.ChannelKeyStatus
 	LastCheckedAt   *time.Time
@@ -81,6 +87,7 @@ func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID
 
 		item := &ChannelAPIKeyInventoryItem{
 			ID:        id,
+			RawKey:    key,
 			MaskedKey: objects.MaskChannelAPIKey(key),
 			Status:    status,
 		}
@@ -139,7 +146,7 @@ func (svc *ChannelService) AddChannelAPIKey(ctx context.Context, channelID int, 
 	credentials := ch.Credentials
 	credentials.APIKeys = append(credentials.APIKeys, key)
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetCredentials(credentials).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetCredentials(credentials).Save(ctx); err != nil {
 		return fmt.Errorf("failed to add channel api key: %w", err)
 	}
 
@@ -161,7 +168,7 @@ func (svc *ChannelService) DeleteChannelAPIKey(ctx context.Context, channelID in
 	if !ok {
 		if channelKeySettingsHasKeyID(ch.Settings, normalizeChannelKeyID(keyID)) {
 			settings := removeChannelKeySettingsMetadata(ch.Settings, normalizeChannelKeyID(keyID))
-			if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+			if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 				return nil, fmt.Errorf("failed to delete archived channel api key: %w", err)
 			}
 
@@ -181,7 +188,7 @@ func (svc *ChannelService) DeleteChannelAPIKey(ctx context.Context, channelID in
 		return result, nil
 	}
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
 		SetCredentials(credentials).
 		SetDisabledAPIKeys(disabled).
 		SetSettings(settings).
@@ -243,7 +250,7 @@ func (svc *ChannelService) ArchiveChannelAPIKey(ctx context.Context, channelID i
 		return errCannotArchiveLastUsableChannelAPIKey
 	}
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 		return fmt.Errorf("failed to archive channel api key: %w", err)
 	}
 
@@ -277,7 +284,7 @@ func (svc *ChannelService) RestoreChannelAPIKey(ctx context.Context, channelID i
 	}
 	settings.KeyHealthCheck.ArchivedKeys = next
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).SetSettings(settings).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 		return fmt.Errorf("failed to restore channel api key: %w", err)
 	}
 
@@ -328,7 +335,7 @@ func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key
 	enabledKeys := ch.Credentials.GetRoutableAPIKeys(newDisabledKeys, channelArchivedAPIKeys(ch.Settings))
 
 	// 更新 channel
-	update := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
+	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
 		SetDisabledAPIKeys(newDisabledKeys)
 
 	// 如果没有可用 key 了，禁用整个 channel
@@ -406,7 +413,7 @@ func (svc *ChannelService) EnableAPIKey(ctx context.Context, channelID int, key 
 	}
 
 	// 更新 channel
-	update := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
+	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
 		SetDisabledAPIKeys(newDisabledKeys)
 
 	if _, err := update.Save(ctx); err != nil {
@@ -432,7 +439,7 @@ func (svc *ChannelService) EnableAllAPIKeys(ctx context.Context, channelID int) 
 	}
 
 	// 更新 channel，清空 disabled_api_keys
-	update := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
+	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
 		SetDisabledAPIKeys([]objects.DisabledAPIKey{})
 
 	if _, err := update.Save(ctx); err != nil {
@@ -479,7 +486,7 @@ func (svc *ChannelService) EnableSelectedAPIKeys(ctx context.Context, channelID 
 		return nil
 	}
 
-	update := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
+	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
 		SetDisabledAPIKeys(newDisabledKeys)
 
 	if _, err := update.Save(ctx); err != nil {
@@ -560,7 +567,7 @@ func (svc *ChannelService) DeleteDisabledAPIKeys(ctx context.Context, channelID 
 		newCredentials.APIKeys = []string{restoredKey}
 	}
 
-	update := svc.entFromContext(ctx).Channel.UpdateOneID(channelID).
+	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
 		SetDisabledAPIKeys(newDisabledKeys).
 		SetCredentials(newCredentials)
 

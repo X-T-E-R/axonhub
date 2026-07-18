@@ -391,6 +391,7 @@ type ComplexityRoot struct {
 		MaskedKey       func(childComplexity int) int
 		MatchedPolicy   func(childComplexity int) int
 		NextCheckAt     func(childComplexity int) int
+		RawKey          func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		Status          func(childComplexity int) int
 		StatusCode      func(childComplexity int) int
@@ -2406,6 +2407,8 @@ type ChannelResolver interface {
 	LiveLimiterStats(ctx context.Context, obj *ent.Channel) (*ChannelLimiterStats, error)
 }
 type ChannelAPIKeyInventoryItemResolver interface {
+	RawKey(ctx context.Context, obj *biz.ChannelAPIKeyInventoryItem) (*string, error)
+
 	Balance(ctx context.Context, obj *biz.ChannelAPIKeyInventoryItem) (objects.JSONRawMessage, error)
 }
 type ChannelArchivedAPIKeyResolver interface {
@@ -3960,6 +3963,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.NextCheckAt(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.rawKey":
+		if e.complexity.ChannelAPIKeyInventoryItem.RawKey == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.RawKey(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.reason":
 		if e.complexity.ChannelAPIKeyInventoryItem.Reason == nil {
 			break
@@ -22541,6 +22550,35 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_id(_ context
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_rawKey(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_rawKey,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ChannelAPIKeyInventoryItem().RawKey(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_rawKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelAPIKeyInventoryItem_maskedKey(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -41001,6 +41039,8 @@ func (ec *executionContext) fieldContext_Mutation_runChannelAPIKeyHealthCheck(ct
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_id(ctx, field)
+			case "rawKey":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_rawKey(ctx, field)
 			case "maskedKey":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_maskedKey(ctx, field)
 			case "status":
@@ -51884,6 +51924,8 @@ func (ec *executionContext) fieldContext_Query_channelAPIKeyInventory(ctx contex
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_id(ctx, field)
+			case "rawKey":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_rawKey(ctx, field)
 			case "maskedKey":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_maskedKey(ctx, field)
 			case "status":
@@ -103004,6 +103046,39 @@ func (ec *executionContext) _ChannelAPIKeyInventoryItem(ctx context.Context, sel
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "rawKey":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ChannelAPIKeyInventoryItem_rawKey(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "maskedKey":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_maskedKey(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

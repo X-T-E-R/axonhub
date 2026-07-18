@@ -269,7 +269,7 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 	}
 	mergeChannelKeyOperationalStatus(ch, settings.KeyHealthCheck)
 
-	if _, err := svc.entFromContext(ctx).Channel.UpdateOneID(ch.ID).SetSettings(settings).Save(ctx); err != nil {
+	if _, err := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).SetSettings(settings).Save(ctx); err != nil {
 		return channelKeyHealthCheckChannelResult{}, fmt.Errorf("failed to save monitoring key metadata: %w", err)
 	}
 
