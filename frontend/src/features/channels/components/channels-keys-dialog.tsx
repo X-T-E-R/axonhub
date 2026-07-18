@@ -64,9 +64,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -178,6 +177,7 @@ const keysFormSchema = z.object({
 });
 
 type KeysFormValues = z.output<typeof keysFormSchema>;
+type BalanceProbeFormDefaults = Omit<KeysFormValues['balanceProbe'], 'preset'> & { preset: BalanceProbePresetOption };
 const keysFormResolver = zodResolver(keysFormSchema) as unknown as Resolver<KeysFormValues, unknown, KeysFormValues>;
 
 const BALANCE_PROBE_PRESETS = [
@@ -394,8 +394,8 @@ function balanceProbeHTTPValuesFromStored(
   };
 }
 
-function defaultBalanceProbeForChannel(type: Channel['type']): KeysFormValues['balanceProbe'] {
-  const preset = BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[type] ?? DEFAULT_BALANCE_PROBE.preset;
+function defaultBalanceProbeForChannel(type: Channel['type']): BalanceProbeFormDefaults {
+  const preset: BalanceProbePresetOption = BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[type] ?? 'deepseek_balance';
   return {
     ...DEFAULT_BALANCE_PROBE,
     preset,
@@ -519,6 +519,50 @@ function formatDateTime(value?: string | null, language?: string): string {
     dateStyle: 'medium',
     timeStyle: 'medium',
   }).format(date);
+}
+
+function formatCompactDateTime(value: string, language: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(localeForLanguage(language), {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back for self-hosted HTTP/LAN deployments where Clipboard API access is denied.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  document.body.appendChild(textarea);
+  let copied = false;
+  try {
+    textarea.select();
+    copied = document.execCommand('copy');
+  } finally {
+    textarea.remove();
+    previousFocus?.focus();
+  }
+  if (!copied) {
+    throw new Error('Clipboard copy failed');
+  }
 }
 
 function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInventoryRow[] {
@@ -807,17 +851,17 @@ function KeyHistoryTooltip({ active, payload, label }: KeyHistoryTooltipProps) {
 }
 
 function KeyHistoryCharts({ history }: { history: ChannelKeyHealthCheckHistoryEntry[] }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const chartData = useMemo(
     () =>
       [...history].reverse().map((entry, index) => ({
-        name: format(new Date(entry.checkedAt), 'MM-dd HH:mm'),
+        name: formatCompactDateTime(entry.checkedAt, i18n.language),
         success: entry.success ? 1 : 0,
         failure: entry.success ? 0 : 1,
         balance: numericBalance(entry.balance, entry.balanceSnapshot),
         index: index + 1,
       })),
-    [history]
+    [history, i18n.language]
   );
   const balanceData = chartData.filter((item) => item.balance != null);
 
@@ -1173,6 +1217,7 @@ function BalanceProbeEditor({
                     disabled={disabled}
                   />
                 </FormControl>
+                <FormMessage />
               </FormItem>
             )}
           />
@@ -1209,7 +1254,7 @@ function KeyDetailsDialog({
       return;
     }
     try {
-      await navigator.clipboard.writeText(row.rawKey);
+      await copyTextToClipboard(row.rawKey);
       toast.success(t('channels.dialogs.keys.messages.copied', { count: 1 }));
     } catch {
       toast.error(t('common.errors.copyFailed'));
@@ -1584,6 +1629,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   );
   const selectedRawKeys = useMemo(() => selectedRows.map((item) => item.rawKey).filter(Boolean), [selectedRows]);
   const detailsRow = useMemo(() => inventory.find((item) => item.id === detailsKeyID) ?? null, [detailsKeyID, inventory]);
+  const confirmDeleteRow = useMemo(() => inventory.find((item) => item.id === confirmDeleteKey) ?? null, [confirmDeleteKey, inventory]);
   const keyHealthHistory = useMemo<KeyHistoryListEntry[]>(
     () =>
       visibleInventory.flatMap((item) =>
@@ -1684,7 +1730,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(keys.join('\n'));
+      await copyTextToClipboard(keys.join('\n'));
       toast.success(t('channels.dialogs.keys.messages.copied', { count: keys.length }));
     } catch {
       toast.error(t('common.errors.copyFailed'));
@@ -1887,30 +1933,30 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
           <Form {...form}>
             <Tabs defaultValue='inventory' className='min-h-0 min-w-0 flex-1 overflow-hidden'>
-              <div className='w-full max-w-full overflow-x-auto overflow-y-hidden py-1'>
+              <div className='w-full max-w-full touch-pan-x snap-x overflow-x-auto overflow-y-hidden overscroll-x-contain py-1'>
                 <TabsList className='inline-flex h-10 min-w-max justify-start'>
-                  <TabsTrigger className='shrink-0' value='inventory'>
+                  <TabsTrigger className='shrink-0 snap-start' value='inventory'>
                     {t('channels.dialogs.keys.tabs.inventory')}
                   </TabsTrigger>
-                  <TabsTrigger className='shrink-0' value='keyHistory'>
+                  <TabsTrigger className='shrink-0 snap-start' value='keyHistory'>
                     {t('channels.dialogs.keys.tabs.keyHistory')}
                   </TabsTrigger>
-                  <TabsTrigger className='shrink-0' value='failureHistory'>
+                  <TabsTrigger className='shrink-0 snap-start' value='failureHistory'>
                     {t('channels.dialogs.keys.tabs.failureHistory')}
                   </TabsTrigger>
-                  <TabsTrigger className='shrink-0' value='routing'>
+                  <TabsTrigger className='shrink-0 snap-start' value='routing'>
                     {t('channels.dialogs.keys.tabs.routing')}
                   </TabsTrigger>
-                  <TabsTrigger className='shrink-0' value='balanceProbe'>
+                  <TabsTrigger className='shrink-0 snap-start' value='balanceProbe'>
                     {t('channels.dialogs.keys.tabs.balanceProbe')}
                   </TabsTrigger>
-                  <TabsTrigger className='shrink-0' value='failurePolicy'>
+                  <TabsTrigger className='shrink-0 snap-start' value='failurePolicy'>
                     {t('channels.dialogs.keys.tabs.failurePolicy')}
                   </TabsTrigger>
                 </TabsList>
               </div>
 
-              <div className='mt-3 h-[min(64dvh,42rem)] w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto pr-3'>
+              <div className='mt-3 h-[min(64dvh,42rem)] w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain pr-3'>
                 <TabsContent value='inventory' className='mt-0 min-w-0 space-y-4'>
                   {keyInventory.isPending ? (
                     <div className='text-muted-foreground flex h-40 items-center justify-center gap-2 text-sm' aria-live='polite'>
@@ -2156,35 +2202,16 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
-                                <Popover open={confirmBatchDelete} onOpenChange={setConfirmBatchDelete}>
-                                  <PopoverTrigger asChild>
-                                    <Button type='button' variant='destructive' size='sm' disabled={isPending}>
-                                      <IconTrash className='mr-2 h-4 w-4' />
-                                      {t('channels.dialogs.keys.actions.deleteSelected', { count: selectedRows.length })}
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className='w-80'>
-                                    <div className='space-y-3'>
-                                      <p className='text-sm'>
-                                        {t('channels.dialogs.keys.confirmDeleteSelected', { count: selectedRows.length })}
-                                      </p>
-                                      <div className='flex justify-end gap-2'>
-                                        <Button type='button' size='sm' variant='outline' onClick={() => setConfirmBatchDelete(false)}>
-                                          {t('common.buttons.cancel')}
-                                        </Button>
-                                        <Button
-                                          type='button'
-                                          size='sm'
-                                          variant='destructive'
-                                          onClick={() => handleBatchAction('delete')}
-                                          disabled={isPending}
-                                        >
-                                          {t('common.buttons.confirm')}
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
+                                <Button
+                                  type='button'
+                                  variant='destructive'
+                                  size='sm'
+                                  disabled={isPending}
+                                  onClick={() => setConfirmBatchDelete(true)}
+                                >
+                                  <IconTrash className='mr-2 h-4 w-4' aria-hidden='true' />
+                                  {t('channels.dialogs.keys.actions.deleteSelected', { count: selectedRows.length })}
+                                </Button>
                                 <Button
                                   type='button'
                                   variant='ghost'
@@ -2649,7 +2676,11 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('channels.dialogs.keys.deleteDialog.title')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('channels.dialogs.keys.confirmDelete')}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {confirmDeleteRow
+                ? t('channels.dialogs.keys.confirmDeleteNamed', { key: confirmDeleteRow.maskedKey })
+                : t('channels.dialogs.keys.confirmDelete')}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.buttons.cancel')}</AlertDialogCancel>
@@ -2665,6 +2696,30 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
             >
               {deleteAPIKey.isPending ? <IconLoader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
               {t('channels.dialogs.keys.actions.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmBatchDelete} onOpenChange={setConfirmBatchDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('channels.dialogs.keys.deleteDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('channels.dialogs.keys.confirmDeleteSelected', { count: selectedRows.length })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.buttons.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={(event) => {
+                event.preventDefault();
+                handleBatchAction('delete');
+              }}
+              disabled={isPending}
+            >
+              {isPending ? <IconLoader2 className='mr-2 h-4 w-4 animate-spin' aria-hidden='true' /> : null}
+              {t('channels.dialogs.keys.actions.deleteSelected', { count: selectedRows.length })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
