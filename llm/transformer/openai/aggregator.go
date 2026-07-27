@@ -26,6 +26,70 @@ type choiceAggregator struct {
 	annotations         map[string]llm.Annotation // Map to track unique annotations by stable annotation key
 }
 
+func (ca *choiceAggregator) messageToolCallIndex(toolCall ToolCall, position int) int {
+	if toolCall.ID != "" {
+		for index, existing := range ca.toolCalls {
+			if existing.ID == toolCall.ID {
+				return index
+			}
+		}
+	}
+
+	index := toolCall.Index
+	if existing, ok := ca.toolCalls[index]; !ok ||
+		existing.ID == "" ||
+		toolCall.ID == "" ||
+		existing.ID == toolCall.ID {
+		return index
+	}
+
+	if _, ok := ca.toolCalls[position]; !ok {
+		return position
+	}
+
+	for index = 0; ; index++ {
+		if _, ok := ca.toolCalls[index]; !ok {
+			return index
+		}
+	}
+}
+
+// addMessageToolCalls merges complete tool-call snapshots without appending their
+// arguments to any partial delta accumulation.
+func (ca *choiceAggregator) addMessageToolCalls(msg *Message) {
+	if msg == nil || len(msg.ToolCalls) == 0 {
+		return
+	}
+
+	for position, messageToolCall := range msg.ToolCalls {
+		index := ca.messageToolCallIndex(messageToolCall, position)
+		incoming := messageToolCall.ToLLMToolCall()
+		incoming.Index = index
+
+		existing, ok := ca.toolCalls[index]
+		if !ok {
+			ca.toolCalls[index] = &incoming
+			continue
+		}
+
+		if incoming.ID != "" {
+			existing.ID = incoming.ID
+		}
+		if incoming.Type != "" {
+			existing.Type = incoming.Type
+		}
+		if incoming.Function.Name != "" {
+			existing.Function.Name = incoming.Function.Name
+		}
+		if incoming.Function.Arguments != "" {
+			existing.Function.Arguments = incoming.Function.Arguments
+		}
+		if len(incoming.TransformerMetadata) > 0 {
+			existing.TransformerMetadata = incoming.TransformerMetadata
+		}
+	}
+}
+
 func buildAnnotationKey(annotation Annotation) string {
 	url := ""
 	if annotation.URLCitation != nil {
@@ -220,6 +284,10 @@ func AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent
 					}
 				}
 			}
+
+			// Some OpenAI-compatible providers put the complete tool-call value in
+			// Choice.Message instead of (or in addition to) streaming deltas.
+			choiceAgg.addMessageToolCalls(choice.Message)
 
 			// Handle annotations from Delta (streaming) and Message (non-streaming chunks)
 			choiceAgg.addAnnotations(choice.Delta)

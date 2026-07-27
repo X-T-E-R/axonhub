@@ -71,3 +71,65 @@ func TestAggregateStreamChunksNonZeroToolCallIndex(t *testing.T) {
 	require.Equal(t, "search", got.Choices[0].Message.ToolCalls[0].Function.Name)
 	require.Equal(t, `{"q":"axonhub"}`, got.Choices[0].Message.ToolCalls[0].Function.Arguments)
 }
+
+func TestAggregateStreamChunksMessageToolCallsOverridePartialDeltas(t *testing.T) {
+	tests := []struct {
+		name      string
+		chunks    []*httpclient.StreamEvent
+		arguments string
+	}{
+		{
+			name: "complete message value without deltas",
+			chunks: []*httpclient.StreamEvent{
+				{
+					Data: []byte(`{"id":"chatcmpl-terminal","model":"gpt-4o-mini","object":"chat.completion.chunk","created":1,` +
+						`"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"index":0,"id":"call_terminal","type":"function","function":{"name":"search","arguments":"{\"q\":\"axonhub\"}"}}]},"finish_reason":"tool_calls"}]}`),
+				},
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+		{
+			name: "complete message value replaces partial delta",
+			chunks: []*httpclient.StreamEvent{
+				{
+					Data: []byte(`{"id":"chatcmpl-terminal","model":"gpt-4o-mini","object":"chat.completion.chunk","created":1,` +
+						`"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_terminal","type":"function","function":{"name":"search","arguments":"{\"q\":"}}]}}]}`),
+				},
+				{
+					Data: []byte(`{"id":"chatcmpl-terminal","model":"gpt-4o-mini","object":"chat.completion.chunk","created":1,` +
+						`"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"index":0,"id":"call_terminal","type":"function","function":{"name":"search","arguments":"{\"q\":\"axonhub\"}"}}]},"finish_reason":"tool_calls"}]}`),
+				},
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+		{
+			name: "ordinary deltas still concatenate",
+			chunks: []*httpclient.StreamEvent{
+				{
+					Data: []byte(`{"id":"chatcmpl-terminal","model":"gpt-4o-mini","object":"chat.completion.chunk","created":1,` +
+						`"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_terminal","type":"function","function":{"name":"search","arguments":"{\"q\":"}}]}}]}`),
+				},
+				{
+					Data: []byte(`{"id":"chatcmpl-terminal","model":"gpt-4o-mini","object":"chat.completion.chunk","created":1,` +
+						`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"axonhub\"}"}}]},"finish_reason":"tool_calls"}]}`),
+				},
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotBytes, _, err := AggregateStreamChunks(t.Context(), tt.chunks, DefaultTransformChunk)
+			require.NoError(t, err)
+
+			var got llm.Response
+			require.NoError(t, json.Unmarshal(gotBytes, &got))
+			require.Len(t, got.Choices, 1)
+			require.Len(t, got.Choices[0].Message.ToolCalls, 1)
+			require.Equal(t, "call_terminal", got.Choices[0].Message.ToolCalls[0].ID)
+			require.Equal(t, "search", got.Choices[0].Message.ToolCalls[0].Function.Name)
+			require.Equal(t, tt.arguments, got.Choices[0].Message.ToolCalls[0].Function.Arguments)
+		})
+	}
+}

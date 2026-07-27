@@ -362,7 +362,7 @@ func TestConvertStreamTransformer_TransformStream_ToolCalls(t *testing.T) {
 	hasStart := false
 	hasToolInputStart := false
 	hasToolInputDelta := false
-	hasToolInputAvailable := false
+	toolInputAvailableCount := 0
 	hasFinishStep := false
 	hasFinish := false
 	hasDone := false
@@ -398,7 +398,7 @@ func TestConvertStreamTransformer_TransformStream_ToolCalls(t *testing.T) {
 			assert.Equal(t, "tool_call_123", streamEvent.ToolCallID)
 			assert.NotEmpty(t, streamEvent.InputTextDelta)
 		case "tool-input-available":
-			hasToolInputAvailable = true
+			toolInputAvailableCount++
 
 			assert.Equal(t, "tool_call_123", streamEvent.ToolCallID)
 			assert.Equal(t, "get_weather", streamEvent.ToolName)
@@ -414,8 +414,137 @@ func TestConvertStreamTransformer_TransformStream_ToolCalls(t *testing.T) {
 	// Note: Tool calls don't generate start-step events automatically in the current implementation
 	assert.True(t, hasToolInputStart, "Should have tool-input-start event")
 	assert.True(t, hasToolInputDelta, "Should have tool-input-delta event")
-	assert.True(t, hasToolInputAvailable, "Should have tool-input-available event")
+	assert.Equal(t, 1, toolInputAvailableCount, "Should emit one authoritative tool-input-available event")
 	assert.True(t, hasFinishStep, "Should have finish-step event")
 	assert.True(t, hasFinish, "Should have finish event")
 	assert.True(t, hasDone, "Should have [DONE] event")
+}
+
+func TestConvertStreamTransformer_TransformStream_ToolCallDeltaIdentity(t *testing.T) {
+	transformer := NewConvertStreamTransformer()
+	responses := []*llm.Response{
+		{
+			ID:     "msg_parallel_tools",
+			Object: "chat.completion.chunk",
+			Choices: []llm.Choice{{
+				Index: 2,
+				Delta: &llm.Message{
+					ToolCalls: []llm.ToolCall{{
+						Index: 0,
+						Type:  "function",
+						Function: llm.FunctionCall{
+							Name:      "look",
+							Arguments: `{"city":"`,
+						},
+					}},
+				},
+			}},
+		},
+		{
+			ID:     "msg_parallel_tools",
+			Object: "chat.completion.chunk",
+			Choices: []llm.Choice{{
+				Index: 2,
+				Delta: &llm.Message{
+					ToolCalls: []llm.ToolCall{{
+						Index: 1,
+						ID:    "call_time",
+						Type:  "function",
+						Function: llm.FunctionCall{
+							Name:      "current_time",
+							Arguments: `{"zone":"`,
+						},
+					}},
+				},
+			}},
+		},
+		{
+			ID:     "msg_parallel_tools",
+			Object: "chat.completion.chunk",
+			Choices: []llm.Choice{{
+				Index: 2,
+				Delta: &llm.Message{
+					ToolCalls: []llm.ToolCall{{
+						Index: 0,
+						ID:    "call_lookup",
+						Function: llm.FunctionCall{
+							Name:      "up",
+							Arguments: `Paris"}`,
+						},
+					}},
+				},
+			}},
+		},
+		{
+			ID:     "msg_parallel_tools",
+			Object: "chat.completion.chunk",
+			Choices: []llm.Choice{{
+				Index: 2,
+				Delta: &llm.Message{
+					ToolCalls: []llm.ToolCall{{
+						Index: 1,
+						Function: llm.FunctionCall{
+							Arguments: `UTC"}`,
+						},
+					}},
+				},
+			}},
+		},
+		{
+			ID:     "msg_parallel_tools",
+			Object: "chat.completion.chunk",
+			Choices: []llm.Choice{{
+				Index:        2,
+				FinishReason: lo.ToPtr("tool_calls"),
+			}},
+		},
+	}
+
+	resultStream, err := transformer.TransformStream(context.Background(), &mockLLMStream{responses: responses})
+	require.NoError(t, err)
+
+	var events []StreamEvent
+	for resultStream.Next() {
+		event := resultStream.Current()
+		if string(event.Data) == "[DONE]" {
+			continue
+		}
+
+		var streamEvent StreamEvent
+		require.NoError(t, json.Unmarshal(event.Data, &streamEvent))
+		events = append(events, streamEvent)
+	}
+	require.NoError(t, resultStream.Err())
+
+	var (
+		startIDs    []string
+		deltaIDs    []string
+		available   []StreamEvent
+		syntheticID string
+	)
+
+	for _, event := range events {
+		switch event.Type {
+		case "tool-input-start":
+			startIDs = append(startIDs, event.ToolCallID)
+			if event.ToolName == "look" {
+				syntheticID = event.ToolCallID
+			}
+		case "tool-input-delta":
+			deltaIDs = append(deltaIDs, event.ToolCallID)
+		case "tool-input-available":
+			available = append(available, event)
+		}
+	}
+
+	require.NotEmpty(t, syntheticID)
+	require.Equal(t, []string{syntheticID, "call_time"}, startIDs)
+	require.Equal(t, []string{syntheticID, "call_time", syntheticID, "call_time"}, deltaIDs)
+	require.Len(t, available, 2)
+	require.Equal(t, syntheticID, available[0].ToolCallID)
+	require.Equal(t, "lookup", available[0].ToolName)
+	require.JSONEq(t, `{"city":"Paris"}`, string(available[0].Input))
+	require.Equal(t, "call_time", available[1].ToolCallID)
+	require.Equal(t, "current_time", available[1].ToolName)
+	require.JSONEq(t, `{"zone":"UTC"}`, string(available[1].Input))
 }

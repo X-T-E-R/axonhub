@@ -148,6 +148,53 @@ func TestAggregateStreamChunks(t *testing.T) {
 	}
 }
 
+func TestAggregateStreamChunks_ToolUseInputFromStartAndDeltas(t *testing.T) {
+	tests := []struct {
+		name      string
+		chunks    []*httpclient.StreamEvent
+		arguments string
+	}{
+		{
+			name: "complete input in content block start",
+			chunks: []*httpclient.StreamEvent{
+				{Data: []byte(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"search","input":{"q":"axonhub"}}}`)},
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+		{
+			name: "deltas replace start snapshot instead of appending",
+			chunks: []*httpclient.StreamEvent{
+				{Data: []byte(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"search","input":{"stale":true}}}`)},
+				{Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q\":"}}`)},
+				{Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"axonhub\"}"}}`)},
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+		{
+			name: "normal empty start input and deltas",
+			chunks: []*httpclient.StreamEvent{
+				{Data: []byte(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"search","input":{}}}`)},
+				{Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q\":"}}`)},
+				{Data: []byte(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"axonhub\"}"}}`)},
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resultBytes, _, err := AggregateStreamChunks(t.Context(), tt.chunks, PlatformDirect)
+			require.NoError(t, err)
+
+			var result Message
+			require.NoError(t, json.Unmarshal(resultBytes, &result))
+			require.Len(t, result.Content, 1)
+			require.Equal(t, "tool_use", result.Content[0].Type)
+			require.Equal(t, tt.arguments, string(result.Content[0].Input))
+		})
+	}
+}
+
 func TestAggregateStreamChunks_EdgeCases(t *testing.T) {
 	t.Run("Streaming edge cases", func(t *testing.T) {
 		tests := []struct {

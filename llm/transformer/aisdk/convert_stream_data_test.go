@@ -56,8 +56,18 @@ func TestDataStreamTransformer_StreamTransformation_WithTestData(t *testing.T) {
 				// Verify aggregated response basic fields
 				require.Equal(t, "chatcmpl-C2WBYGbjjGZj4CJNJI1FSlzO8U4vj", result.ID)
 				require.Equal(t, "assistant", result.Role)
-				// No text or reasoning parts expected in this case
-				require.Len(t, result.Parts, 0)
+				require.NotEmpty(t, result.Parts)
+
+				var toolNames []string
+
+				for _, part := range result.Parts {
+					if toolName, ok := strings.CutPrefix(part.Type, "tool-"); ok {
+						toolNames = append(toolNames, toolName)
+					}
+				}
+
+				require.Contains(t, toolNames, "get_user_city")
+				require.Contains(t, toolNames, "get_user_language")
 			},
 		},
 		{

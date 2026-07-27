@@ -30,10 +30,10 @@ func TestOutboundTransformer_ServerToolUse_NoPanic(t *testing.T) {
 		sseEvent(t, "message_start", map[string]any{
 			"type": "message_start",
 			"message": map[string]any{
-				"id":    "msg_01AEsGpin3gJumakZWMTyQp3",
-				"type":  "message",
-				"role":  "assistant",
-				"model": "claude-opus-4-7",
+				"id":      "msg_01AEsGpin3gJumakZWMTyQp3",
+				"type":    "message",
+				"role":    "assistant",
+				"model":   "claude-opus-4-7",
 				"content": []any{},
 				"usage": map[string]any{
 					"input_tokens":  6,
@@ -136,6 +136,120 @@ func TestOutboundTransformer_ServerToolUse_NoPanic(t *testing.T) {
 	require.Equal(t, "server_tool_use", anthropicType)
 	require.Equal(t, `{"query": "KWin"}`, combinedArgs.String())
 	require.True(t, json.Valid([]byte(combinedArgs.String())))
+}
+
+func TestOutboundTransformer_ToolUseInputFromStartAndDeltas(t *testing.T) {
+	tests := []struct {
+		name      string
+		events    []*httpclient.StreamEvent
+		arguments string
+	}{
+		{
+			name: "zero argument input is emitted at content block stop",
+			events: []*httpclient.StreamEvent{
+				sseEvent(t, "content_block_start", map[string]any{
+					"type":  "content_block_start",
+					"index": 0,
+					"content_block": map[string]any{
+						"type": "tool_use", "id": "tool_1", "name": "ping",
+						"input": map[string]any{},
+					},
+				}),
+				sseEvent(t, "content_block_stop", map[string]any{
+					"type": "content_block_stop", "index": 0,
+				}),
+			},
+			arguments: `{}`,
+		},
+		{
+			name: "complete input in content block start",
+			events: []*httpclient.StreamEvent{
+				sseEvent(t, "content_block_start", map[string]any{
+					"type":  "content_block_start",
+					"index": 0,
+					"content_block": map[string]any{
+						"type": "tool_use", "id": "tool_1", "name": "search",
+						"input": map[string]any{"q": "axonhub"},
+					},
+				}),
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+		{
+			name: "complete start input is not duplicated by compatibility deltas",
+			events: []*httpclient.StreamEvent{
+				sseEvent(t, "content_block_start", map[string]any{
+					"type":  "content_block_start",
+					"index": 0,
+					"content_block": map[string]any{
+						"type": "tool_use", "id": "tool_1", "name": "search",
+						"input": map[string]any{"q": "axonhub"},
+					},
+				}),
+				sseEvent(t, "content_block_delta", map[string]any{
+					"type": "content_block_delta", "index": 0,
+					"delta": map[string]any{"type": "input_json_delta", "partial_json": `{"q":"axonhub"}`},
+				}),
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+		{
+			name: "normal empty start input uses deltas",
+			events: []*httpclient.StreamEvent{
+				sseEvent(t, "content_block_start", map[string]any{
+					"type":  "content_block_start",
+					"index": 0,
+					"content_block": map[string]any{
+						"type": "tool_use", "id": "tool_1", "name": "search",
+						"input": map[string]any{},
+					},
+				}),
+				sseEvent(t, "content_block_delta", map[string]any{
+					"type": "content_block_delta", "index": 0,
+					"delta": map[string]any{"type": "input_json_delta", "partial_json": `{"q":`},
+				}),
+				sseEvent(t, "content_block_delta", map[string]any{
+					"type": "content_block_delta", "index": 0,
+					"delta": map[string]any{"type": "input_json_delta", "partial_json": `"axonhub"}`},
+				}),
+			},
+			arguments: `{"q":"axonhub"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			transformer, err := NewOutboundTransformerWithConfig(&Config{
+				Type:           PlatformDirect,
+				BaseURL:        "https://api.anthropic.com",
+				APIKeyProvider: auth.NewStaticKeyProvider("dummy"),
+			})
+			require.NoError(t, err)
+
+			transformed, err := transformer.TransformStream(t.Context(), nil, streams.SliceStream(tt.events))
+			require.NoError(t, err)
+
+			var combinedArgs strings.Builder
+			for transformed.Next() {
+				resp := transformed.Current()
+				if resp == nil || resp == llm.DoneResponse {
+					continue
+				}
+
+				for _, choice := range resp.Choices {
+					if choice.Delta == nil {
+						continue
+					}
+					for _, toolCall := range choice.Delta.ToolCalls {
+						combinedArgs.WriteString(toolCall.Function.Arguments)
+					}
+				}
+			}
+
+			require.NoError(t, transformed.Err())
+			require.Equal(t, tt.arguments, combinedArgs.String())
+		})
+	}
 }
 
 // TestOutboundTransformer_WebSearchToolResult_InlineResult ensures a

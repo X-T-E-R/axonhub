@@ -29,7 +29,7 @@ func (t *OutboundTransformer) TransformStream(
 }
 
 // filterStreamEvent determines if a stream event should be processed
-// Filters out unnecessary events like ping, content_block_start, and content_block_stop.
+// Filters out unnecessary events like ping.
 func filterStreamEvent(event *httpclient.StreamEvent) bool {
 	if event == nil || len(event.Data) == 0 {
 		return false
@@ -37,12 +37,12 @@ func filterStreamEvent(event *httpclient.StreamEvent) bool {
 
 	// Only process events that contribute to the OpenAI response format
 	switch event.Type {
-	case "message_start", "content_block_start", "content_block_delta", "message_delta", "message_stop":
+	case "message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop":
 		return true
 	case "error":
 		return true
-	case "ping", "content_block_stop":
-		return false // Skip these events as they're not needed for OpenAI format
+	case "ping":
+		return false
 	default:
 		return false // Skip unknown event types
 	}
@@ -55,8 +55,10 @@ type streamState struct {
 	streamUsage  *llm.Usage
 	platformType PlatformType
 	// Tool call tracking
-	toolIndex int
-	toolCalls map[int]*llm.ToolCall // index -> tool call
+	toolIndex            int
+	toolCalls            map[int]*llm.ToolCall // index -> tool call
+	toolBlockIndexes     map[int]int           // Anthropic content block index -> tool call index
+	pendingToolArguments map[int]string        // empty-object start inputs waiting for a possible delta
 }
 
 // outboundStream wraps a stream and maintains state during processing.
@@ -71,11 +73,30 @@ func newOutboundStream(stream streams.Stream[*httpclient.StreamEvent], platformT
 	return &outboundStream{
 		stream: stream,
 		state: &streamState{
-			toolCalls:    make(map[int]*llm.ToolCall),
-			toolIndex:    -1,
-			platformType: platformType,
+			toolCalls:            make(map[int]*llm.ToolCall),
+			toolBlockIndexes:     make(map[int]int),
+			pendingToolArguments: make(map[int]string),
+			toolIndex:            -1,
+			platformType:         platformType,
 		},
 	}
+}
+
+func toolUseStartArguments(input json.RawMessage) (string, bool) {
+	if len(input) == 0 || !json.Valid(input) {
+		return "", false
+	}
+
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(input, &object); err == nil && object != nil && len(object) == 0 {
+		// Anthropic normally starts tool_use blocks with input: {} and sends
+		// the actual arguments in subsequent input_json_delta events. Defer this
+		// value until content_block_stop so a real zero-argument call can still
+		// emit {} when no deltas arrive.
+		return string(input), true
+	}
+
+	return string(input), false
 }
 
 func (s *outboundStream) Next() bool {
@@ -186,26 +207,33 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 			}
 
 			state.toolIndex++
+			startArguments, deferStartArguments := toolUseStartArguments(cb.Input)
 			toolCall := llm.ToolCall{
 				Index: state.toolIndex,
 				ID:    cb.ID,
 				Type:  "function",
 				Function: llm.FunctionCall{
 					Name:      *cb.Name,
-					Arguments: "",
+					Arguments: startArguments,
 				},
 			}
 			setAnthropicSpecialMeta(&toolCall.TransformerMetadata, cb.Type, cb.Caller)
 			if blockIdx >= 0 {
 				setAnthropicBlockIndex(&toolCall.TransformerMetadata, blockIdx)
+				state.toolBlockIndexes[blockIdx] = state.toolIndex
 			}
 			state.toolCalls[state.toolIndex] = &toolCall
+			emittedToolCall := toolCall
+			if deferStartArguments {
+				state.pendingToolArguments[state.toolIndex] = startArguments
+				emittedToolCall.Function.Arguments = ""
+			}
 
 			choice := llm.Choice{
 				Index: 0,
 				Delta: &llm.Message{
 					Role:      "assistant",
-					ToolCalls: []llm.ToolCall{toolCall},
+					ToolCalls: []llm.ToolCall{emittedToolCall},
 				},
 			}
 			resp.Choices = []llm.Choice{choice}
@@ -245,7 +273,14 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 			switch *streamEvent.Delta.Type {
 			case "input_json_delta":
 				if streamEvent.Delta.PartialJSON != nil {
-					tc, ok := state.toolCalls[state.toolIndex]
+					toolIndex := state.toolIndex
+					if streamEvent.Index != nil {
+						if mappedIndex, ok := state.toolBlockIndexes[int(*streamEvent.Index)]; ok {
+							toolIndex = mappedIndex
+						}
+					}
+
+					tc, ok := state.toolCalls[toolIndex]
 					if !ok || tc == nil {
 						// A tool_use-style delta arrived without a preceding
 						// content_block_start we registered (e.g. a block type
@@ -255,8 +290,20 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 						return nil, nil
 					}
 
+					if _, ok := state.pendingToolArguments[toolIndex]; ok {
+						delete(state.pendingToolArguments, toolIndex)
+						tc.Function.Arguments = ""
+					}
+
+					if tc.Function.Arguments != "" {
+						// The start event already carried the complete input.
+						// Ignore compatibility-provider deltas so downstream
+						// aggregators do not concatenate the same value twice.
+						return nil, nil
+					}
+
 					deltaTC := llm.ToolCall{
-						Index: state.toolIndex,
+						Index: toolIndex,
 						ID:    tc.ID,
 						Type:  "function",
 						Function: llm.FunctionCall{
@@ -300,6 +347,52 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 			}
 
 			resp.Choices = []llm.Choice{choice}
+		}
+
+	case "content_block_stop":
+		if streamEvent.Index == nil {
+			//nolint:nilnil // No content block to finalize.
+			return nil, nil
+		}
+
+		toolIndex, ok := state.toolBlockIndexes[int(*streamEvent.Index)]
+		if !ok {
+			//nolint:nilnil // This was not a tool-use content block.
+			return nil, nil
+		}
+
+		arguments, ok := state.pendingToolArguments[toolIndex]
+		if !ok {
+			//nolint:nilnil // Deltas already supplied the arguments.
+			return nil, nil
+		}
+		delete(state.pendingToolArguments, toolIndex)
+
+		tc := state.toolCalls[toolIndex]
+		if tc == nil {
+			//nolint:nilnil // Defensive state check.
+			return nil, nil
+		}
+
+		deltaTC := llm.ToolCall{
+			Index: toolIndex,
+			ID:    tc.ID,
+			Type:  "function",
+			Function: llm.FunctionCall{
+				Arguments: arguments,
+			},
+		}
+		if len(tc.TransformerMetadata) > 0 {
+			deltaTC.TransformerMetadata = tc.TransformerMetadata
+		}
+		resp.Choices = []llm.Choice{
+			{
+				Index: 0,
+				Delta: &llm.Message{
+					Role:      "assistant",
+					ToolCalls: []llm.ToolCall{deltaTC},
+				},
+			},
 		}
 
 	case "message_delta":

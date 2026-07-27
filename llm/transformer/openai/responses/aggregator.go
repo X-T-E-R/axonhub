@@ -149,19 +149,31 @@ func (a *streamAggregator) lastItemByOutputIndex(outputIndex int) *aggregatedIte
 	return items[len(items)-1]
 }
 
+func (a *streamAggregator) itemByIdentity(identity string) *aggregatedItem {
+	if identity == "" {
+		return nil
+	}
+
+	if item, ok := a.outputItemsByID[identity]; ok {
+		return item
+	}
+
+	// Some upstream implementations might use call_id as item_id in delta events.
+	for _, items := range a.outputItems {
+		for _, item := range items {
+			if item.CallID == identity {
+				return item
+			}
+		}
+	}
+
+	return nil
+}
+
 func (a *streamAggregator) getItemForEvent(outputIndex int, itemID *string) *aggregatedItem {
 	if itemID != nil && *itemID != "" {
-		if item, ok := a.outputItemsByID[*itemID]; ok {
+		if item := a.itemByIdentity(*itemID); item != nil {
 			return item
-		}
-
-		// Some upstream implementations might use call_id as item_id in delta events.
-		for _, items := range a.outputItems {
-			for _, it := range items {
-				if it.CallID == *itemID {
-					return it
-				}
-			}
 		}
 	}
 
@@ -518,12 +530,9 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 		}
 
 	case StreamEventTypeResponseCompleted:
-		a.status = "completed"
-		if ev.Response != nil {
-			a.previousResponseID = ev.Response.PreviousResponseID
-			if ev.Response.Usage != nil {
-				a.usage = ev.Response.Usage
-			}
+		a.applyResponseSnapshot(ev.Response)
+		if ev.Response == nil || ev.Response.Status == nil {
+			a.status = "completed"
 		}
 
 	case StreamEventTypeResponseFailed:
@@ -574,6 +583,116 @@ func (a *streamAggregator) applyResponseSnapshot(response *Response) {
 	}
 	if response.IncompleteDetails != nil {
 		a.incompleteDetails = response.IncompleteDetails
+	}
+
+	a.applyOutputSnapshot(response.Output)
+}
+
+func (a *streamAggregator) applyOutputSnapshot(output []Item) {
+	for outputIndex := range output {
+		snapshot := &output[outputIndex]
+
+		var item *aggregatedItem
+		if snapshot.ID != "" {
+			item = a.itemByIdentity(snapshot.ID)
+		}
+		if item == nil && snapshot.CallID != "" {
+			item = a.itemByIdentity(snapshot.CallID)
+		}
+
+		if item == nil {
+			indexedItem := a.lastItemByOutputIndex(outputIndex)
+			if indexedItem != nil &&
+				(snapshot.ID == "" || indexedItem.ID == "" || indexedItem.ID == snapshot.ID) &&
+				(snapshot.CallID == "" || indexedItem.CallID == "" || indexedItem.CallID == snapshot.CallID) {
+				item = indexedItem
+			}
+		}
+
+		if item == nil {
+			item = newAggregatedItem()
+			a.outputItems[outputIndex] = append(a.outputItems[outputIndex], item)
+		}
+
+		previousID := item.ID
+		a.applyOutputItemSnapshot(item, snapshot)
+
+		if previousID != "" && previousID != item.ID && a.outputItemsByID[previousID] == item {
+			delete(a.outputItemsByID, previousID)
+		}
+		if item.ID != "" {
+			a.outputItemsByID[item.ID] = item
+		}
+	}
+}
+
+func (a *streamAggregator) applyOutputItemSnapshot(item *aggregatedItem, snapshot *Item) {
+	if snapshot.ID != "" {
+		item.ID = snapshot.ID
+	}
+	if snapshot.Type != "" {
+		item.Type = snapshot.Type
+	}
+	if snapshot.Status != nil {
+		item.Status = *snapshot.Status
+	}
+	if snapshot.Role != "" {
+		item.Role = snapshot.Role
+	}
+	if snapshot.CallID != "" {
+		item.CallID = snapshot.CallID
+	}
+	if snapshot.Name != "" {
+		item.Name = snapshot.Name
+	}
+	if snapshot.Namespace != "" {
+		item.Namespace = snapshot.Namespace
+	}
+	if snapshot.EncryptedContent != nil {
+		item.EncryptedContent = snapshot.EncryptedContent
+	}
+	if snapshot.Result != nil {
+		item.Result = snapshot.Result
+	}
+
+	switch item.Type {
+	case "message":
+		if snapshot.Content == nil {
+			return
+		}
+
+		item.Content = make([]*aggregatedContentPart, 0, len(snapshot.Content.Items))
+		for _, contentItem := range snapshot.Content.Items {
+			part := newAggregatedContentPart()
+			part.Type = contentItem.Type
+			if contentItem.Text != nil {
+				part.Text.WriteString(*contentItem.Text)
+			}
+			part.Annotations = append([]Annotation(nil), contentItem.Annotations...)
+			item.Content = append(item.Content, part)
+		}
+
+	case "function_call":
+		item.Arguments.Reset()
+		item.Arguments.WriteString(snapshot.Arguments)
+
+	case "custom_tool_call":
+		if snapshot.Input != nil {
+			item.Input = snapshot.Input
+		}
+
+	case "reasoning":
+		if snapshot.Summary == nil {
+			return
+		}
+
+		item.SummaryParts = make(map[int]*aggregatedSummaryPart, len(snapshot.Summary))
+		for summaryIndex, summary := range snapshot.Summary {
+			part := ensureSummaryPart(item, summaryIndex)
+			part.Type = summary.Type
+			part.Text.WriteString(summary.Text)
+			part.Final = true
+		}
 	}
 }
 

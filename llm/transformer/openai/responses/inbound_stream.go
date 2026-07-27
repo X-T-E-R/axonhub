@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/samber/lo"
@@ -676,10 +677,17 @@ func (s *responsesInboundStream) initToolCall(tc llm.ToolCall) error {
 
 func (s *responsesInboundStream) handleFunctionCallDelta(tc llm.ToolCall) error {
 	toolCallIndex := tc.Index
-	s.toolCalls[toolCallIndex].Function.Arguments += tc.Function.Arguments
+	stored := s.toolCalls[toolCallIndex]
+	if tc.Function.Name != "" {
+		stored.Function.Name = tc.Function.Name
+	}
+	if tc.Function.Namespace != "" {
+		stored.Function.Namespace = tc.Function.Namespace
+	}
+	stored.Function.Arguments += tc.Function.Arguments
 
 	if tc.Function.Arguments != "" {
-		itemID := s.toolCalls[toolCallIndex].ID
+		itemID := stored.ID
 		if itemID == "" {
 			itemID = s.currentItemID
 		}
@@ -701,7 +709,14 @@ func (s *responsesInboundStream) handleFunctionCallDelta(tc llm.ToolCall) error 
 
 func (s *responsesInboundStream) handleCustomToolCallDelta(tc llm.ToolCall) error {
 	toolCallIndex := tc.Index
-	s.toolCalls[toolCallIndex].ResponseCustomToolCall.Input += tc.ResponseCustomToolCall.Input
+	stored := s.toolCalls[toolCallIndex].ResponseCustomToolCall
+	if tc.ResponseCustomToolCall.CallID != "" {
+		stored.CallID = tc.ResponseCustomToolCall.CallID
+	}
+	if tc.ResponseCustomToolCall.Name != "" {
+		stored.Name = tc.ResponseCustomToolCall.Name
+	}
+	stored.Input += tc.ResponseCustomToolCall.Input
 
 	if tc.ResponseCustomToolCall.Input != "" {
 		itemID := s.toolCalls[toolCallIndex].ID
@@ -912,8 +927,15 @@ func (s *responsesInboundStream) closeCurrentOutputItem() error {
 		}
 	}
 
-	// Close any open tool call items
-	for idx, tc := range s.toolCalls {
+	// Close any open tool call items in stable tool-call index order.
+	toolCallIndexes := make([]int, 0, len(s.toolCalls))
+	for idx := range s.toolCalls {
+		toolCallIndexes = append(toolCallIndexes, idx)
+	}
+	sort.Ints(toolCallIndexes)
+
+	for _, idx := range toolCallIndexes {
+		tc := s.toolCalls[idx]
 		if !s.toolCallItemStarted[idx] {
 			continue
 		}

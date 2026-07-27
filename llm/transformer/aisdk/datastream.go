@@ -58,7 +58,13 @@ func (t *DataStreamTransformer) AggregateStreamChunks(
 	// and we reconstruct high-level parts:
 	// - text: aggregate between text-start/text-end
 	// - reasoning: aggregate between reasoning-start/reasoning-end
-	// - tool inputs: currently ignored for final aggregation (can be added later)
+	// - tool inputs: aggregate start/delta/available events by toolCallId
+	type aggregatedToolInput struct {
+		partIndex      int
+		inputText      strings.Builder
+		inputAvailable bool
+	}
+
 	var (
 		result        UIMessage
 		meta          llm.ResponseMeta
@@ -67,10 +73,63 @@ func (t *DataStreamTransformer) AggregateStreamChunks(
 		currentReason strings.Builder
 		reasoningOpen bool
 		parts         []UIMessagePart
+		toolInputs    = make(map[string]*aggregatedToolInput)
 	)
 
 	// Always assistant for aggregated assistant output
 	result.Role = "assistant"
+
+	closeText := func() {
+		if !textOpen {
+			return
+		}
+
+		parts = append(parts, UIMessagePart{Type: "text", Text: currentText.String()})
+		currentText.Reset()
+		textOpen = false
+	}
+
+	closeReasoning := func() {
+		if !reasoningOpen {
+			return
+		}
+
+		parts = append(parts, UIMessagePart{Type: "reasoning", Text: currentReason.String()})
+		currentReason.Reset()
+		reasoningOpen = false
+	}
+
+	getToolInput := func(toolCallID, toolName string) *aggregatedToolInput {
+		toolInput, ok := toolInputs[toolCallID]
+		if !ok {
+			// TransformStream normally closes text/reasoning before tool input starts.
+			// Do the same defensively when an end event is missing so part order is kept.
+			closeText()
+			closeReasoning()
+
+			part := UIMessagePart{
+				Type:       "dynamic-tool",
+				State:      "input-streaming",
+				ToolCallID: toolCallID,
+			}
+			if toolName != "" {
+				part.Type = "tool-" + toolName
+			}
+
+			parts = append(parts, part)
+			toolInput = &aggregatedToolInput{partIndex: len(parts) - 1}
+			toolInputs[toolCallID] = toolInput
+		}
+
+		if toolName != "" {
+			// The AI SDK represents named tool UI parts as tool-<NAME>. toolName is
+			// reserved for dynamic-tool parts and is therefore intentionally omitted.
+			parts[toolInput.partIndex].Type = "tool-" + toolName
+			parts[toolInput.partIndex].ToolName = ""
+		}
+
+		return toolInput
+	}
 
 	for _, ev := range chunks {
 		if ev == nil || len(ev.Data) == 0 {
@@ -98,10 +157,7 @@ func (t *DataStreamTransformer) AggregateStreamChunks(
 
 		case "text-start":
 			// Close any open text block defensively
-			if textOpen {
-				parts = append(parts, UIMessagePart{Type: "text", Text: currentText.String()})
-				currentText.Reset()
-			}
+			closeText()
 
 			textOpen = true
 
@@ -111,18 +167,10 @@ func (t *DataStreamTransformer) AggregateStreamChunks(
 			}
 
 		case "text-end":
-			if textOpen {
-				parts = append(parts, UIMessagePart{Type: "text", Text: currentText.String()})
-				currentText.Reset()
-
-				textOpen = false
-			}
+			closeText()
 
 		case "reasoning-start":
-			if reasoningOpen {
-				parts = append(parts, UIMessagePart{Type: "reasoning", Text: currentReason.String()})
-				currentReason.Reset()
-			}
+			closeReasoning()
 
 			reasoningOpen = true
 
@@ -132,32 +180,61 @@ func (t *DataStreamTransformer) AggregateStreamChunks(
 			}
 
 		case "reasoning-end":
-			if reasoningOpen {
-				parts = append(parts, UIMessagePart{Type: "reasoning", Text: currentReason.String()})
-				currentReason.Reset()
-
-				reasoningOpen = false
-			}
+			closeReasoning()
 
 		case "finish-step", "finish":
 			// Nothing to aggregate; markers for UI flows.
-		case "tool-input-start", "tool-input-delta", "tool-input-available":
-			// For now we don't include tool inputs in the aggregated UIMessage parts.
-			// Can be added later if needed by consumers.
-			continue
+		case "tool-input-start":
+			toolInput := getToolInput(se.ToolCallID, se.ToolName)
+			if !toolInput.inputAvailable {
+				parts[toolInput.partIndex].State = "input-streaming"
+			}
+
+		case "tool-input-delta":
+			toolInput := getToolInput(se.ToolCallID, "")
+			toolInput.inputText.WriteString(se.InputTextDelta)
+			if toolInput.inputAvailable {
+				// A complete input event is authoritative even if a malformed stream
+				// sends additional deltas afterwards.
+				continue
+			}
+
+			part := &parts[toolInput.partIndex]
+			part.State = "input-streaming"
+
+			inputText := toolInput.inputText.String()
+			if json.Valid([]byte(inputText)) {
+				part.Input = json.RawMessage(append([]byte(nil), inputText...))
+				part.InputTextDelta = ""
+			} else {
+				// Preserve an incomplete delta sequence for audit/debug consumers.
+				// Once it becomes valid JSON, Input replaces this transitional field.
+				part.Input = nil
+				part.InputTextDelta = inputText
+			}
+
+		case "tool-input-available":
+			toolInput := getToolInput(se.ToolCallID, se.ToolName)
+			toolInput.inputAvailable = true
+
+			part := &parts[toolInput.partIndex]
+			part.State = "input-available"
+			part.InputTextDelta = ""
+			if len(se.Input) > 0 {
+				// Keep the terminal input as raw JSON so explicit null and the exact
+				// JSON value survive marshaling. It also repairs any partial delta.
+				part.Input = json.RawMessage(append([]byte(nil), se.Input...))
+			} else {
+				part.Input = nil
+			}
 		default:
 			// Ignore unknown types in aggregation
 		}
 	}
 
 	// Close any dangling blocks
-	if textOpen {
-		parts = append(parts, UIMessagePart{Type: "text", Text: currentText.String()})
-	}
-
-	if reasoningOpen {
-		parts = append(parts, UIMessagePart{Type: "reasoning", Text: currentReason.String()})
-	}
+	closeText()
+	closeReasoning()
 
 	result.Parts = parts
 

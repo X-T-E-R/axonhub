@@ -133,6 +133,126 @@ func TestAggregateStreamChunks_WithTestData(t *testing.T) {
 	}
 }
 
+func TestAggregateStreamChunks_CompletedResponseOutputSnapshot(t *testing.T) {
+	t.Run("completed-only provider preserves all output item types", func(t *testing.T) {
+		resp := aggregateResponseEvents(t,
+			`{
+				"type":"response.completed",
+				"response":{
+					"id":"resp_completed_only",
+					"object":"response",
+					"created_at":1700000000,
+					"model":"gpt-5",
+					"status":"completed",
+					"output":[
+						{"id":"fc_1","type":"function_call","status":"completed","call_id":"call_1","name":"lookup","arguments":"{\"city\":\"Paris\"}"},
+						{"type":"custom_tool_call","status":"completed","call_id":"call_2","name":"shell","input":"echo completed"},
+						{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Finished"}]},
+						{"id":"rs_1","type":"reasoning","status":"completed","summary":[{"type":"summary_text","text":"Checked the result"}],"encrypted_content":"encrypted"}
+					]
+				}
+			}`,
+		)
+
+		require.Equal(t, "resp_completed_only", resp.ID)
+		require.Equal(t, "gpt-5", resp.Model)
+		require.Equal(t, int64(1700000000), resp.CreatedAt)
+		require.NotNil(t, resp.Status)
+		require.Equal(t, "completed", *resp.Status)
+		require.Len(t, resp.Output, 4)
+
+		require.Equal(t, "function_call", resp.Output[0].Type)
+		require.Equal(t, "call_1", resp.Output[0].CallID)
+		require.Equal(t, "lookup", resp.Output[0].Name)
+		require.JSONEq(t, `{"city":"Paris"}`, resp.Output[0].Arguments)
+
+		require.Equal(t, "custom_tool_call", resp.Output[1].Type)
+		require.Equal(t, "call_2", resp.Output[1].CallID)
+		require.Equal(t, "shell", resp.Output[1].Name)
+		require.NotNil(t, resp.Output[1].Input)
+		require.Equal(t, "echo completed", *resp.Output[1].Input)
+
+		require.Equal(t, "message", resp.Output[2].Type)
+		require.Equal(t, "assistant", resp.Output[2].Role)
+		require.Len(t, resp.Output[2].GetContentItems(), 1)
+		require.Equal(t, "Finished", resp.Output[2].GetContentItems()[0].Text)
+
+		require.Equal(t, "reasoning", resp.Output[3].Type)
+		require.Equal(t, []ReasoningSummary{{Type: "summary_text", Text: "Checked the result"}}, resp.Output[3].Summary)
+		require.NotNil(t, resp.Output[3].EncryptedContent)
+		require.Equal(t, "encrypted", *resp.Output[3].EncryptedContent)
+	})
+
+	t.Run("completed snapshot replaces partial deltas", func(t *testing.T) {
+		resp := aggregateResponseEvents(t,
+			`{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_partial","type":"function_call","status":"in_progress","call_id":"call_partial","name":"lookup","arguments":""}}`,
+			`{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_partial","delta":"{\"city\":\"Par"}`,
+			`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_partial","type":"message","status":"in_progress","role":"assistant"}}`,
+			`{"type":"response.content_part.added","output_index":1,"item_id":"msg_partial","content_index":0,"part":{"type":"output_text","text":""}}`,
+			`{"type":"response.output_text.delta","output_index":1,"item_id":"msg_partial","content_index":0,"delta":"Fin"}`,
+			`{
+				"type":"response.completed",
+				"response":{
+					"id":"resp_partial",
+					"object":"response",
+					"created_at":1700000000,
+					"model":"gpt-5",
+					"status":"completed",
+					"output":[
+						{"id":"fc_partial","type":"function_call","status":"completed","call_id":"call_partial","name":"lookup","arguments":"{\"city\":\"Paris\"}"},
+						{"id":"msg_partial","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Finished"}]}
+					]
+				}
+			}`,
+		)
+
+		require.Len(t, resp.Output, 2)
+		require.JSONEq(t, `{"city":"Paris"}`, resp.Output[0].Arguments)
+		require.Len(t, resp.Output[1].GetContentItems(), 1)
+		require.Equal(t, "Finished", resp.Output[1].GetContentItems()[0].Text)
+	})
+
+	t.Run("done item-done and completed snapshots remain idempotent", func(t *testing.T) {
+		resp := aggregateResponseEvents(t,
+			`{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_done","type":"function_call","status":"in_progress","call_id":"call_done","name":"lookup","arguments":""}}`,
+			`{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_done","delta":"{\"city\":\"Paris\"}"}`,
+			`{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_done","name":"lookup","arguments":"{\"city\":\"Paris\"}"}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"id":"fc_done","type":"function_call","status":"completed","call_id":"call_done","name":"lookup","arguments":"{\"city\":\"Paris\"}"}}`,
+			`{"type":"response.output_item.added","output_index":1,"item":{"type":"custom_tool_call","status":"in_progress","call_id":"custom_done","name":"shell","input":""}}`,
+			`{"type":"response.custom_tool_call_input.delta","output_index":1,"item_id":"custom_done","delta":"echo done"}`,
+			`{"type":"response.custom_tool_call_input.done","output_index":1,"item_id":"custom_done","input":"echo done"}`,
+			`{"type":"response.output_item.done","output_index":1,"item":{"type":"custom_tool_call","status":"completed","call_id":"custom_done","name":"shell","input":"echo done"}}`,
+			`{"type":"response.completed","response":{"id":"resp_done","object":"response","created_at":1700000000,"model":"gpt-5","status":"completed","output":[{"id":"fc_done","type":"function_call","status":"completed","call_id":"call_done","name":"lookup","arguments":"{\"city\":\"Paris\"}"},{"type":"custom_tool_call","status":"completed","call_id":"custom_done","name":"shell","input":"echo done"}]}}`,
+		)
+
+		require.Len(t, resp.Output, 2)
+		require.Equal(t, "fc_done", resp.Output[0].ID)
+		require.Equal(t, "completed", *resp.Output[0].Status)
+		require.JSONEq(t, `{"city":"Paris"}`, resp.Output[0].Arguments)
+		require.Equal(t, "custom_tool_call", resp.Output[1].Type)
+		require.Equal(t, "custom_done", resp.Output[1].CallID)
+		require.NotNil(t, resp.Output[1].Input)
+		require.Equal(t, "echo done", *resp.Output[1].Input)
+	})
+}
+
+func aggregateResponseEvents(t *testing.T, events ...string) Response {
+	t.Helper()
+
+	chunks := make([]*httpclient.StreamEvent, 0, len(events))
+	for _, event := range events {
+		chunks = append(chunks, &httpclient.StreamEvent{Data: []byte(event)})
+	}
+
+	resultBytes, _, err := AggregateStreamChunks(t.Context(), chunks)
+	require.NoError(t, err)
+
+	var resp Response
+	require.NoError(t, json.Unmarshal(resultBytes, &resp))
+
+	return resp
+}
+
 func TestAggregateStreamChunks_BasicEvents(t *testing.T) {
 	// Create basic stream events for a simple text response
 	chunks := []*httpclient.StreamEvent{

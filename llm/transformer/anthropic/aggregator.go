@@ -20,10 +20,11 @@ func AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent
 	}
 
 	var (
-		messageStart  *StreamEvent
-		contentBlocks []MessageContentBlock
-		usage         *Usage
-		stopReason    *string
+		messageStart      *StreamEvent
+		contentBlocks     []MessageContentBlock
+		inputDeltaStarted = make(map[int]bool)
+		usage             *Usage
+		stopReason        *string
 	)
 
 	for _, chunk := range chunks {
@@ -45,11 +46,6 @@ func AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent
 		case "content_block_start":
 			if event.ContentBlock != nil {
 				block := *event.ContentBlock
-				// For tool-use-like blocks, reset Input to nil so it is built
-				// from subsequent input_json_delta events.
-				if isAnthropicToolUseLike(block.Type) {
-					block.Input = nil
-				}
 				// redacted_thinking blocks come complete in content_block_start
 				// with their Data field already populated.
 				// *_tool_result blocks also arrive complete (content + caller);
@@ -116,11 +112,15 @@ func AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent
 					if event.Delta.PartialJSON != nil {
 						switch {
 						case isAnthropicToolUseLike(contentBlocks[index].Type):
-							if contentBlocks[index].Input == nil {
-								contentBlocks[index].Input = []byte(*event.Delta.PartialJSON)
-							} else {
-								contentBlocks[index].Input = append(contentBlocks[index].Input, []byte(*event.Delta.PartialJSON)...)
+							// A non-empty input on content_block_start is a complete
+							// snapshot. If deltas do follow, they are the authoritative
+							// incremental representation and must replace, not append to,
+							// that snapshot.
+							if !inputDeltaStarted[index] {
+								contentBlocks[index].Input = nil
+								inputDeltaStarted[index] = true
 							}
+							contentBlocks[index].Input = append(contentBlocks[index].Input, []byte(*event.Delta.PartialJSON)...)
 						case contentBlocks[index].Type == "text":
 							if contentBlocks[index].Text == nil {
 								contentBlocks[index].Text = lo.ToPtr("")

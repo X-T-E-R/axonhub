@@ -169,6 +169,80 @@ func TestDataStreamTransformer_TransformResponse(t *testing.T) {
 	require.Contains(t, err.Error(), "data stream protocol only supports streaming responses")
 }
 
+func TestDataStreamTransformer_AggregateStreamChunks_ToolInputs(t *testing.T) {
+	transformer := NewDataStreamTransformer()
+	chunks := []*httpclient.StreamEvent{
+		{Data: []byte(`{"type":"start","messageId":"msg_tools"}`)},
+		{Data: []byte(`{"type":"tool-input-start","toolCallId":"call_city","toolName":"get_city"}`)},
+		{Data: []byte(`{"type":"tool-input-delta","toolCallId":"call_city","inputTextDelta":"{\"userId\":\"stale"}`)},
+		{Data: []byte(`{"type":"tool-input-start","toolCallId":"call_language","toolName":"get_language"}`)},
+		{Data: []byte(`{"type":"tool-input-delta","toolCallId":"call_language","inputTextDelta":"{\"userId\":\"123\"}"}`)},
+		{Data: []byte(`{"type":"tool-input-available","toolCallId":"call_city","toolName":"get_city","input":{"userId":"123"}}`)},
+		{Data: []byte(`{"type":"tool-input-available","toolCallId":"call_language","toolName":"get_language","input":{"userId":"456"}}`)},
+	}
+
+	resultBytes, meta, err := transformer.AggregateStreamChunks(t.Context(), chunks)
+	require.NoError(t, err)
+	require.Equal(t, "msg_tools", meta.ID)
+
+	var result UIMessage
+	require.NoError(t, json.Unmarshal(resultBytes, &result))
+	require.Equal(t, "assistant", result.Role)
+	require.Len(t, result.Parts, 2)
+
+	require.Equal(t, "tool-get_city", result.Parts[0].Type)
+	require.Equal(t, "call_city", result.Parts[0].ToolCallID)
+	require.Equal(t, "input-available", result.Parts[0].State)
+	require.Empty(t, result.Parts[0].InputTextDelta)
+	require.Equal(t, map[string]any{"userId": "123"}, result.Parts[0].Input)
+
+	require.Equal(t, "tool-get_language", result.Parts[1].Type)
+	require.Equal(t, "call_language", result.Parts[1].ToolCallID)
+	require.Equal(t, "input-available", result.Parts[1].State)
+	require.Empty(t, result.Parts[1].InputTextDelta)
+	require.Equal(t, map[string]any{"userId": "456"}, result.Parts[1].Input)
+}
+
+func TestDataStreamTransformer_AggregateStreamChunks_ToolInputMissingEvents(t *testing.T) {
+	transformer := NewDataStreamTransformer()
+
+	t.Run("available without start", func(t *testing.T) {
+		resultBytes, _, err := transformer.AggregateStreamChunks(t.Context(), []*httpclient.StreamEvent{
+			{Data: []byte(`{"type":"tool-input-available","toolCallId":"call_1","toolName":"lookup","input":null}`)},
+		})
+		require.NoError(t, err)
+		require.JSONEq(t,
+			`{"role":"assistant","content":null,"parts":[{"type":"tool-lookup","state":"input-available","toolCallId":"call_1","input":null}]}`,
+			string(resultBytes),
+		)
+	})
+
+	t.Run("complete deltas without available", func(t *testing.T) {
+		resultBytes, _, err := transformer.AggregateStreamChunks(t.Context(), []*httpclient.StreamEvent{
+			{Data: []byte(`{"type":"tool-input-delta","toolCallId":"call_2","inputTextDelta":"{\"city\":"}`)},
+			{Data: []byte(`{"type":"tool-input-start","toolCallId":"call_2","toolName":"weather"}`)},
+			{Data: []byte(`{"type":"tool-input-delta","toolCallId":"call_2","inputTextDelta":"\"Paris\"}"}`)},
+		})
+		require.NoError(t, err)
+		require.JSONEq(t,
+			`{"role":"assistant","content":null,"parts":[{"type":"tool-weather","state":"input-streaming","toolCallId":"call_2","input":{"city":"Paris"}}]}`,
+			string(resultBytes),
+		)
+	})
+
+	t.Run("incomplete deltas remain inspectable", func(t *testing.T) {
+		resultBytes, _, err := transformer.AggregateStreamChunks(t.Context(), []*httpclient.StreamEvent{
+			{Data: []byte(`{"type":"tool-input-start","toolCallId":"call_3","toolName":"weather"}`)},
+			{Data: []byte(`{"type":"tool-input-delta","toolCallId":"call_3","inputTextDelta":"{\"city\":\"Par"}`)},
+		})
+		require.NoError(t, err)
+		require.JSONEq(t,
+			`{"role":"assistant","content":null,"parts":[{"type":"tool-weather","state":"input-streaming","toolCallId":"call_3","inputTextDelta":"{\"city\":\"Par"}]}`,
+			string(resultBytes),
+		)
+	})
+}
+
 func TestSetDataStreamHeaders(t *testing.T) {
 	headers := make(http.Header)
 	SetDataStreamHeaders(headers)
