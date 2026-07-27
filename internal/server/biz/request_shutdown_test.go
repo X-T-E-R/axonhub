@@ -131,7 +131,7 @@ func TestRequestService_ClearStaleProcessingOnStartup(t *testing.T) {
 	for _, id := range staleRequestIDs {
 		req, err := client.Request.Get(ctx, id)
 		require.NoError(t, err)
-		require.Equal(t, request.StatusCanceled, req.Status)
+		require.Equal(t, request.StatusFailed, req.Status)
 	}
 
 	for _, id := range recentRequestIDs {
@@ -143,7 +143,8 @@ func TestRequestService_ClearStaleProcessingOnStartup(t *testing.T) {
 	for _, id := range staleExecIDs {
 		exec, err := client.RequestExecution.Get(ctx, id)
 		require.NoError(t, err)
-		require.Equal(t, requestexecution.StatusCanceled, exec.Status)
+		require.Equal(t, requestexecution.StatusFailed, exec.Status)
+		require.Equal(t, "request execution interrupted before server restart", exec.ErrorMessage)
 	}
 
 	for _, id := range recentExecIDs {
@@ -208,13 +209,14 @@ func TestRequestService_ClearStaleProcessingOnStartup_PartialFailure(t *testing.
 	err = svc.ClearStaleProcessingOnStartup(ctx)
 	require.NoError(t, err)
 
-	// Verify execution was canceled
+	// Verify execution was failed rather than mislabeled as caller cancellation.
 	exec, err = client.RequestExecution.Get(ctx, exec.ID)
 	require.NoError(t, err)
-	require.Equal(t, requestexecution.StatusCanceled, exec.Status)
+	require.Equal(t, requestexecution.StatusFailed, exec.Status)
+	require.Equal(t, "request execution interrupted before server restart", exec.ErrorMessage)
 
-	// Verify request was also canceled
+	// Verify request was also failed.
 	req, err = client.Request.Get(ctx, req.ID)
 	require.NoError(t, err)
-	require.Equal(t, request.StatusCanceled, req.Status)
+	require.Equal(t, request.StatusFailed, req.Status)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
@@ -59,6 +60,9 @@ type streamState struct {
 	toolCalls            map[int]*llm.ToolCall // index -> tool call
 	toolBlockIndexes     map[int]int           // Anthropic content block index -> tool call index
 	pendingToolArguments map[int]string        // empty-object start inputs waiting for a possible delta
+	toolArguments        map[int]string        // authoritative accumulated arguments
+	toolArgumentDeltas   map[int]bool          // whether incremental deltas replaced a start snapshot
+	terminalSeen         bool                  // provider terminal boundary observed before synthetic [DONE]
 }
 
 // outboundStream wraps a stream and maintains state during processing.
@@ -76,6 +80,8 @@ func newOutboundStream(stream streams.Stream[*httpclient.StreamEvent], platformT
 			toolCalls:            make(map[int]*llm.ToolCall),
 			toolBlockIndexes:     make(map[int]int),
 			pendingToolArguments: make(map[int]string),
+			toolArguments:        make(map[int]string),
+			toolArgumentDeltas:   make(map[int]bool),
 			toolIndex:            -1,
 			platformType:         platformType,
 		},
@@ -131,6 +137,12 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 
 	// Handle DONE event specially
 	if string(event.Data) == "[DONE]" {
+		if len(s.state.toolCalls) > 0 && !s.state.terminalSeen {
+			return nil, fmt.Errorf(
+				"%w: anthropic stream ended before message_stop",
+				transformer.ErrToolCallIntegrity,
+			)
+		}
 		return llm.DoneResponse, nil
 	}
 
@@ -223,6 +235,7 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 				state.toolBlockIndexes[blockIdx] = state.toolIndex
 			}
 			state.toolCalls[state.toolIndex] = &toolCall
+			state.toolArguments[state.toolIndex] = startArguments
 			emittedToolCall := toolCall
 			if deferStartArguments {
 				state.pendingToolArguments[state.toolIndex] = startArguments
@@ -293,14 +306,18 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 					if _, ok := state.pendingToolArguments[toolIndex]; ok {
 						delete(state.pendingToolArguments, toolIndex)
 						tc.Function.Arguments = ""
+						state.toolArguments[toolIndex] = ""
+						state.toolArgumentDeltas[toolIndex] = true
 					}
 
-					if tc.Function.Arguments != "" {
+					if !state.toolArgumentDeltas[toolIndex] && state.toolArguments[toolIndex] != "" {
 						// The start event already carried the complete input.
 						// Ignore compatibility-provider deltas so downstream
 						// aggregators do not concatenate the same value twice.
 						return nil, nil
 					}
+					state.toolArgumentDeltas[toolIndex] = true
+					state.toolArguments[toolIndex] += *streamEvent.Delta.PartialJSON
 
 					deltaTC := llm.ToolCall{
 						Index: toolIndex,
@@ -367,6 +384,7 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 			return nil, nil
 		}
 		delete(state.pendingToolArguments, toolIndex)
+		state.toolArguments[toolIndex] = arguments
 
 		tc := state.toolCalls[toolIndex]
 		if tc == nil {
@@ -415,6 +433,18 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 		}
 
 		if streamEvent.Delta != nil && streamEvent.Delta.StopReason != nil {
+			if *streamEvent.Delta.StopReason == "tool_use" {
+				for _, toolCall := range state.toolCalls {
+					if err := transformer.ValidateFunctionCall(
+						toolCall.Function.Name,
+						state.toolArguments[toolCall.Index],
+					); err != nil {
+						return nil, err
+					}
+				}
+			}
+			state.terminalSeen = true
+
 			// Determine finish reason
 			var finishReason *string
 
@@ -461,6 +491,7 @@ func (s *outboundStream) transformStreamChunk(event *httpclient.StreamEvent) (*l
 		}
 
 	case "message_stop":
+		state.terminalSeen = true
 		// Final event - return empty response to indicate completion
 		resp.Choices = []llm.Choice{}
 		// Include final merged usage information (OpenAI include_usage style).

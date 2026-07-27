@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"maps"
 	"sort"
-	"strings"
 
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
-	"github.com/looplj/axonhub/llm/internal/pkg/xjson"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 // TransformStream transforms the unified stream response format to Gemini HTTP response stream.
@@ -34,6 +33,7 @@ type toolCallAgg struct {
 	name                string
 	arguments           string
 	transformerMetadata map[string]any
+	validBeforeTerminal bool
 }
 
 // geminiInboundStream is a stateful transformer that aggregates tool call deltas.
@@ -47,6 +47,7 @@ type geminiInboundStream struct {
 
 	current *httpclient.StreamEvent
 	err     error
+	queue   []*httpclient.StreamEvent
 
 	// choiceIndex -> toolCallIndex -> aggregator
 	pendingToolCallsByC map[int]map[int]*toolCallAgg
@@ -57,6 +58,11 @@ type geminiInboundStream struct {
 func (s *geminiInboundStream) Next() bool {
 	if s.err != nil {
 		return false
+	}
+	if len(s.queue) > 0 {
+		s.current = s.queue[0]
+		s.queue = s.queue[1:]
+		return true
 	}
 
 	for s.source.Next() {
@@ -69,6 +75,11 @@ func (s *geminiInboundStream) Next() bool {
 		}
 
 		if event == nil {
+			if len(s.queue) > 0 {
+				s.current = s.queue[0]
+				s.queue = s.queue[1:]
+				return true
+			}
 			continue
 		}
 
@@ -79,6 +90,14 @@ func (s *geminiInboundStream) Next() bool {
 
 	if err := s.source.Err(); err != nil {
 		s.err = err
+		return false
+	}
+
+	for _, pending := range s.pendingToolCallsByC {
+		if len(pending) > 0 {
+			s.err = transformer.ErrIncompleteToolCall
+			break
+		}
 	}
 
 	return false
@@ -137,6 +156,11 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 	}
 
 	emitAny := false
+	var (
+		splitTerminalCalls       []llm.ToolCall
+		splitTerminalChoiceIndex int
+		splitTerminalSeparate    bool
+	)
 
 	for _, choice := range chunk.Choices {
 		outChoice := llm.Choice{
@@ -210,8 +234,12 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 				agg.name = tc.Function.Name
 			}
 
-			if tc.Function.Arguments != "" {
+			if tc.Function.Arguments != "" && targetIsDelta {
 				agg.arguments += tc.Function.Arguments
+			}
+			if !targetIsDelta {
+				// Choice.Message is a complete snapshot, not another delta.
+				agg.arguments = tc.Function.Arguments
 			}
 
 			if tc.TransformerMetadata != nil {
@@ -223,10 +251,24 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 			}
 		}
 
-		// Decide if we should flush tool calls:
-		// - If any pending tool call has valid JSON args, flush that tool call.
-		// - If finish_reason == "tool_calls", flush all pending tool calls (repairing JSON if needed).
+		// Gemini requires complete functionCall objects. Hold every call until the
+		// terminal choice so a later complete snapshot can authoritatively replace
+		// provisional fragments without being concatenated or duplicated.
 		flushAll := choice.FinishReason != nil && *choice.FinishReason == "tool_calls"
+		if !flushAll {
+			for _, agg := range pendingByIndex {
+				if agg != nil && transformer.ValidateFunctionCall(agg.name, agg.arguments) == nil {
+					agg.validBeforeTerminal = true
+				}
+			}
+		}
+		validBeforeTerminal := false
+		for _, agg := range pendingByIndex {
+			if agg != nil && agg.validBeforeTerminal {
+				validBeforeTerminal = true
+				break
+			}
+		}
 
 		var completed []llm.ToolCall
 
@@ -245,31 +287,13 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 			}
 
 			args := agg.arguments
-			// Gemini requires function_call.name, so don't emit tool calls until we have it.
-			if agg.name == "" {
-				// Even if flushAll, emitting an empty name would poison subsequent rounds (client will replay it).
+			if !flushAll {
 				continue
 			}
-
-			// If arguments were never provided, don't emit early. We only know it's a no-arg tool call when the tool_calls turn ends.
-			if strings.TrimSpace(args) == "" {
-				if !flushAll {
-					continue
-				}
-
-				args = "{}"
+			if err := transformer.ValidateFunctionCall(agg.name, args); err != nil {
+				return nil, err
 			}
 
-			if flushAll && args != "" && !json.Valid([]byte(args)) {
-				args = string(xjson.SafeJSONRawMessage(args))
-			}
-
-			isValidNow := json.Valid([]byte(args))
-			if !flushAll && !isValidNow {
-				continue
-			}
-
-			// When not flushing all, only emit once we have valid JSON.
 			completed = append(completed, llm.ToolCall{
 				ID:   agg.id,
 				Type: agg.typ,
@@ -285,7 +309,13 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 		}
 
 		if len(completed) > 0 {
-			dstMsg.ToolCalls = completed
+			if flushAll && (len(completed) > 1 || validBeforeTerminal) {
+				splitTerminalCalls = completed
+				splitTerminalChoiceIndex = choice.Index
+				splitTerminalSeparate = validBeforeTerminal
+			} else {
+				dstMsg.ToolCalls = completed
+			}
 		}
 
 		if targetIsDelta {
@@ -312,6 +342,67 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 	}
 
 	if !emitAny {
+		return nil, nil
+	}
+
+	if len(splitTerminalCalls) > 0 {
+		if splitTerminalSeparate {
+			callOut := *out
+			callOut.Usage = nil
+			callOut.Choices = []llm.Choice{{
+				Index: splitTerminalChoiceIndex,
+				Delta: &llm.Message{
+					Role:      "assistant",
+					ToolCalls: splitTerminalCalls,
+				},
+			}}
+			geminiResp := convertLLMToGeminiResponse(&callOut, true)
+			eventData, err := json.Marshal(geminiResp)
+			if err != nil {
+				return nil, err
+			}
+			s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
+
+			geminiResp = convertLLMToGeminiResponse(out, true)
+			eventData, err = json.Marshal(geminiResp)
+			if err != nil {
+				return nil, err
+			}
+			s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
+			return nil, nil
+		}
+
+		for _, toolCall := range splitTerminalCalls[:len(splitTerminalCalls)-1] {
+			callOut := *out
+			callOut.Usage = nil
+			callOut.Choices = []llm.Choice{{
+				Index: splitTerminalChoiceIndex,
+				Delta: &llm.Message{
+					Role:      "assistant",
+					ToolCalls: []llm.ToolCall{toolCall},
+				},
+			}}
+			geminiResp := convertLLMToGeminiResponse(&callOut, true)
+			eventData, err := json.Marshal(geminiResp)
+			if err != nil {
+				return nil, err
+			}
+			s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
+		}
+
+		last := splitTerminalCalls[len(splitTerminalCalls)-1]
+		if out.Choices[0].Delta != nil {
+			out.Choices[0].Delta.ToolCalls = []llm.ToolCall{last}
+		} else if out.Choices[0].Message != nil {
+			out.Choices[0].Message.ToolCalls = []llm.ToolCall{last}
+		}
+		geminiResp := convertLLMToGeminiResponse(out, true)
+		eventData, err := json.Marshal(geminiResp)
+		if err != nil {
+			return nil, err
+		}
+		s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
+
 		return nil, nil
 	}
 

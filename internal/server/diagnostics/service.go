@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/sql"
 	"github.com/google/uuid"
 	"go.uber.org/fx"
 	"golang.org/x/crypto/hkdf"
@@ -88,6 +90,27 @@ var sectionScopes = map[string][]scopes.ScopeSlug{
 	"configuration": {scopes.ScopeReadSettings, scopes.ScopeReadDataStorages},
 }
 
+var requestMetadataFields = []string{
+	request.FieldID, request.FieldCreatedAt, request.FieldUpdatedAt,
+	request.FieldAPIKeyID, request.FieldProjectID, request.FieldTraceID, request.FieldDataStorageID,
+	request.FieldSource, request.FieldModelID, request.FieldReasoningEffort, request.FieldFormat,
+	request.FieldChannelID, request.FieldExternalID, request.FieldStatus, request.FieldStream, request.FieldClientIP,
+	request.FieldMetricsLatencyMs, request.FieldMetricsFirstTokenLatencyMs, request.FieldMetricsReasoningDurationMs,
+	request.FieldSelectedChannelAPIKeyMasked, request.FieldContentSaved, request.FieldContentStorageID,
+	request.FieldContentStorageKey, request.FieldContentSavedAt, request.FieldRoutingContext, request.FieldEvidenceDisposition,
+}
+
+var requestExecutionMetadataFields = []string{
+	requestexecution.FieldID, requestexecution.FieldCreatedAt, requestexecution.FieldUpdatedAt,
+	requestexecution.FieldProjectID, requestexecution.FieldRequestID, requestexecution.FieldChannelID,
+	requestexecution.FieldDataStorageID, requestexecution.FieldExternalID, requestexecution.FieldModelID,
+	requestexecution.FieldFormat, requestexecution.FieldErrorMessage, requestexecution.FieldResponseStatusCode,
+	requestexecution.FieldStatus, requestexecution.FieldStream, requestexecution.FieldMetricsLatencyMs,
+	requestexecution.FieldMetricsFirstTokenLatencyMs, requestexecution.FieldMetricsReasoningDurationMs,
+	requestexecution.FieldSelectedChannelAPIKeyMasked, requestexecution.FieldRequestURL,
+	requestexecution.FieldPassThroughApplied, requestexecution.FieldEvidenceDisposition,
+}
+
 func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, error) {
 	if err := validateRequest(req); err != nil {
 		return nil, err
@@ -132,7 +155,23 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 		}
 	}
 
-	limits := defaultLimits(req.Limits)
+	release, err := acquirePull(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(ctx, serverPullTimeout)
+	defer cancel()
+
+	limits := effectiveLimits(req.Limits)
+	materialized := newResponseBudget(limits.MaxResponseBytes)
+	allowExternalEvidence := req.Selector.Kind == "requestIds"
+	if req.Selector.Kind == "requestIds" {
+		ids, _ := decodeRequestIDs(req.Selector.IDs)
+		if len(ids) > limits.MaxRequests {
+			return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "requestIds exceeds the server diagnostics work budget")
+		}
+	}
 	asOf := time.Now().UTC()
 	bundleID := uuid.NewString()
 	pageIndex := 1
@@ -172,6 +211,9 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 	// metadata referenced by those selected requests and executions.
 	if requested["requests"] || requested["executions"] || requested["usage"] || requested["traces"] || requested["threads"] || requested["channels"] || requested["apiKeys"] || requested["accessGroups"] || requested["configuration"] {
 		for _, item := range selected {
+			if err := checkPullContext(bypassCtx); err != nil {
+				return nil, err
+			}
 			if item.DataStorageID != 0 {
 				storageIDs[item.DataStorageID] = struct{}{}
 			}
@@ -193,7 +235,20 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 				referencedGroupRevisions[groupID][revision] = struct{}{}
 			}
 			if requested["requests"] {
-				record, itemIssues := s.requestRecord(bypassCtx, item)
+				if hydrateErr := s.hydrateRequestEvidence(bypassCtx, item); hydrateErr != nil {
+					return nil, hydrateErr
+				}
+				record, itemIssues, recordErr := s.requestRecord(bypassCtx, item, allowExternalEvidence)
+				item.RequestHeaders = nil
+				item.RequestBody = nil
+				item.ResponseBody = nil
+				item.ResponseChunks = nil
+				if recordErr != nil {
+					return nil, recordErr
+				}
+				if err := materialized.add(bypassCtx, record); err != nil {
+					return nil, err
+				}
 				requestRecords = append(requestRecords, record)
 				issues = append(issues, itemIssues...)
 			}
@@ -201,14 +256,19 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 		ids := requestIDs(selected)
 		if len(ids) > 0 {
 			if requested["executions"] || requested["channels"] || requested["configuration"] {
-				execs, qerr := s.ent.RequestExecution.Query().Where(requestexecution.RequestIDIn(ids...), requestexecution.CreatedAtLTE(asOf)).Order(ent.Asc(requestexecution.FieldCreatedAt), ent.Asc(requestexecution.FieldID)).All(bypassCtx)
+				execQuery := s.ent.RequestExecution.Query().Where(requestexecution.RequestIDIn(ids...), requestexecution.CreatedAtLTE(asOf)).Order(ent.Asc(requestexecution.FieldCreatedAt), ent.Asc(requestexecution.FieldID)).Limit(limits.MaxExecutions + 1)
+				execQuery.Select(requestExecutionMetadataFields...)
+				execs, qerr := execQuery.All(bypassCtx)
 				if qerr != nil {
-					return nil, coreDBError()
+					return nil, queryError(bypassCtx, qerr)
 				}
-				if requested["executions"] && len(execs) > limits.MaxExecutions {
-					return nil, serviceError(413, "RELATED_LIMIT_EXCEEDED", "execution limit exceeded")
+				if len(execs) > limits.MaxExecutions {
+					return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "execution selection exceeds the server diagnostics work budget")
 				}
 				for _, exec := range execs {
+					if err := checkPullContext(bypassCtx); err != nil {
+						return nil, err
+					}
 					if exec.DataStorageID != 0 {
 						storageIDs[exec.DataStorageID] = struct{}{}
 					}
@@ -216,46 +276,83 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 						channelIDs[exec.ChannelID] = struct{}{}
 					}
 					if requested["executions"] {
-						record, itemIssues := s.executionRecord(bypassCtx, exec)
+						if hydrateErr := s.hydrateExecutionEvidence(bypassCtx, exec); hydrateErr != nil {
+							return nil, hydrateErr
+						}
+						record, itemIssues, recordErr := s.executionRecord(bypassCtx, exec, allowExternalEvidence)
+						exec.RequestHeaders = nil
+						exec.RequestBody = nil
+						exec.ResponseBody = nil
+						exec.ResponseChunks = nil
+						if recordErr != nil {
+							return nil, recordErr
+						}
+						if err := materialized.add(bypassCtx, record); err != nil {
+							return nil, err
+						}
 						executionRecords = append(executionRecords, record)
 						issues = append(issues, itemIssues...)
 					}
 				}
 			}
 			if requested["usage"] {
-				rows, qerr := s.ent.UsageLog.Query().Where(usagelog.RequestIDIn(ids...), usagelog.CreatedAtLTE(asOf)).Order(ent.Asc(usagelog.FieldCreatedAt), ent.Asc(usagelog.FieldID)).All(bypassCtx)
+				rows, qerr := s.ent.UsageLog.Query().Where(usagelog.RequestIDIn(ids...), usagelog.CreatedAtLTE(asOf)).Order(ent.Asc(usagelog.FieldCreatedAt), ent.Asc(usagelog.FieldID)).Limit(limits.MaxRelatedRecords + 1).All(bypassCtx)
 				if qerr != nil {
-					return nil, coreDBError()
+					return nil, queryError(bypassCtx, qerr)
+				}
+				if len(rows) > limits.MaxRelatedRecords {
+					return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "related selection exceeds the server diagnostics work budget")
 				}
 				for _, row := range rows {
+					if err := checkPullContext(bypassCtx); err != nil {
+						return nil, err
+					}
 					if row.ChannelID != 0 {
 						channelIDs[row.ChannelID] = struct{}{}
 					}
-					usageRecords = append(usageRecords, usageRecord(row))
+					record := usageRecord(row)
+					if err := materialized.add(bypassCtx, record); err != nil {
+						return nil, err
+					}
+					usageRecords = append(usageRecords, record)
 				}
 			}
 		}
 		if (requested["traces"] || requested["threads"]) && len(traceIDs) > 0 {
 			rows, qerr := s.ent.Trace.Query().Where(trace.IDIn(mapKeys(traceIDs)...), trace.CreatedAtLTE(asOf)).Order(ent.Asc(trace.FieldCreatedAt), ent.Asc(trace.FieldID)).All(bypassCtx)
 			if qerr != nil {
-				return nil, coreDBError()
+				return nil, queryError(bypassCtx, qerr)
 			}
 			for _, row := range rows {
+				if err := checkPullContext(bypassCtx); err != nil {
+					return nil, err
+				}
 				if row.ThreadID != 0 {
 					threadIDs[row.ThreadID] = struct{}{}
 				}
 				if requested["traces"] {
-					traceRecords = append(traceRecords, traceRecord(row))
+					record := traceRecord(row)
+					if err := materialized.add(bypassCtx, record); err != nil {
+						return nil, err
+					}
+					traceRecords = append(traceRecords, record)
 				}
 			}
 		}
 		if requested["threads"] && len(threadIDs) > 0 {
 			rows, qerr := s.ent.Thread.Query().Where(thread.IDIn(mapKeys(threadIDs)...), thread.CreatedAtLTE(asOf)).Order(ent.Asc(thread.FieldCreatedAt), ent.Asc(thread.FieldID)).All(bypassCtx)
 			if qerr != nil {
-				return nil, coreDBError()
+				return nil, queryError(bypassCtx, qerr)
 			}
 			for _, row := range rows {
-				threadRecords = append(threadRecords, threadRecord(row))
+				if err := checkPullContext(bypassCtx); err != nil {
+					return nil, err
+				}
+				record := threadRecord(row)
+				if err := materialized.add(bypassCtx, record); err != nil {
+					return nil, err
+				}
+				threadRecords = append(threadRecords, record)
 			}
 		}
 	}
@@ -275,7 +372,16 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 		sections.Threads = sectionWithStatus(threadRecords, nil)
 	}
 	if requested["health"] {
+		if err := checkPullContext(bypassCtx); err != nil {
+			return nil, err
+		}
 		sections.Health = s.healthSection(bypassCtx)
+		if err := checkPullContext(bypassCtx); err != nil {
+			return nil, err
+		}
+		if err := materialized.add(bypassCtx, sections.Health.Data); err != nil {
+			return nil, err
+		}
 	}
 
 	channelRecords := []any{}
@@ -284,32 +390,43 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 	if requested["channels"] {
 		rows, qerr := s.loadChannels(bypassCtx, req.Selector.Kind, projectID, channelIDs, principalType, principalID)
 		if qerr != nil {
-			return nil, coreDBError()
+			return nil, queryError(bypassCtx, qerr)
 		}
 		for _, row := range rows {
-			channelRecords = append(channelRecords, channelRecord(row, req.Include.Credentials))
+			record := channelRecord(row, req.Include.Credentials)
+			if err := materialized.add(bypassCtx, record); err != nil {
+				return nil, err
+			}
+			channelRecords = append(channelRecords, record)
 		}
 		sections.Channels = sectionWithStatus(channelRecords, nil)
 	}
 	if requested["apiKeys"] {
 		rows, qerr := s.loadAPIKeys(bypassCtx, req.Selector.Kind, projectID, keyIDs, principalType, principalID)
 		if qerr != nil {
-			return nil, coreDBError()
+			return nil, queryError(bypassCtx, qerr)
 		}
 		for _, row := range rows {
-			keyRecords = append(keyRecords, apiKeyRecord(row, req.Include.Credentials))
+			record := apiKeyRecord(row, req.Include.Credentials)
+			if err := materialized.add(bypassCtx, record); err != nil {
+				return nil, err
+			}
+			keyRecords = append(keyRecords, record)
 		}
 		sections.APIKeys = sectionWithStatus(keyRecords, nil)
 	}
 	if requested["accessGroups"] {
 		rows, qerr := s.loadGroups(bypassCtx, req.Selector.Kind, projectID, groupIDs)
 		if qerr != nil {
-			return nil, coreDBError()
+			return nil, queryError(bypassCtx, qerr)
 		}
 		for _, row := range rows {
 			record, qerr := s.accessGroupRecord(bypassCtx, row, referencedGroupRevisions[row.ID])
 			if qerr != nil {
-				return nil, coreDBError()
+				return nil, queryError(bypassCtx, qerr)
+			}
+			if err := materialized.add(bypassCtx, record); err != nil {
+				return nil, err
 			}
 			groupRecords = append(groupRecords, record)
 		}
@@ -319,7 +436,10 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 	if requested["configuration"] {
 		configuration, qerr := s.configurationRecord(bypassCtx, req.Include.Credentials, storageIDs)
 		if qerr != nil {
-			return nil, coreDBError()
+			return nil, queryError(bypassCtx, qerr)
+		}
+		if err := materialized.add(bypassCtx, configuration); err != nil {
+			return nil, err
 		}
 		sections.Configuration = Section{Status: "available", Data: configuration, Issues: []Issue{}}
 		emittedStorageCount = len(storageIDs)
@@ -359,9 +479,18 @@ func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, err
 		nextCursor = &token
 	}
 	response := &PullResponse{Contract: ContractResponse{Name: ContractName, Major: ContractMajor, Minor: ContractMinor, SchemaSHA256: SchemaSHA256}, Bundle: Bundle{ID: bundleID, GeneratedAt: generated, PageIndex: pageIndex, PageGeneratedAt: now, Status: status}, Server: ServerInfo{Version: build.Version, Commit: build.Commit, BuildTime: nullableBuildTime(), UptimeSeconds: int64(time.Since(build.StartTime).Seconds())}, Authorization: Authorization{PrincipalType: principalType, PrincipalID: principalID, ProjectID: projectID, SubjectUserID: req.Scope.SubjectUserID, CredentialsIncluded: req.Include.Credentials, PersonalDataExcluded: principalType == "serviceAccount" || req.Scope.SubjectUserID == nil || (req.Scope.SubjectUserID != nil && *req.Scope.SubjectUserID != principalID)}, Selection: Selection{Selector: req.Selector, AsOf: generated, Order: "createdAtAsc,idAsc", RequestRefs: refs, Counts: Counts{Requests: len(requestRecords), Executions: len(executionRecords), Usage: len(usageRecords), Traces: len(traceRecords), Threads: len(threadRecords), Channels: len(channelRecords), APIKeys: len(keyRecords), AccessGroups: len(groupRecords)}, HasMore: hasMore, NextCursor: nextCursor}, Sections: sections, Issues: issues}
-	encoded, _ := json.Marshal(response)
+	if err := checkPullContext(bypassCtx); err != nil {
+		return nil, err
+	}
+	encoded, marshalErr := json.Marshal(response)
+	if marshalErr != nil {
+		return nil, serviceError(500, "SERIALIZATION_FAILED", "diagnostics response could not be serialized")
+	}
+	if err := checkPullContext(bypassCtx); err != nil {
+		return nil, err
+	}
 	if len(encoded) > limits.MaxResponseBytes {
-		return nil, serviceError(413, "RESPONSE_TOO_LARGE", "reduce maxRequests or increase maxResponseBytes within the hard limit")
+		return nil, serviceError(413, "RESPONSE_TOO_LARGE", "use the next cursor or request fewer sections")
 	}
 	return response, nil
 }
@@ -502,9 +631,10 @@ func (s *Service) selectRequests(ctx context.Context, req PullRequest, limits Li
 	case "requestIds":
 		ids, _ := decodeRequestIDs(req.Selector.IDs)
 		q = q.Where(request.IDIn(ids...))
+		q.Select(requestMetadataFields...)
 		rows, err := q.All(ctx)
 		if err != nil {
-			return nil, nil, false, coreDBError()
+			return nil, nil, false, queryError(ctx, err)
 		}
 		byID := map[int]*ent.Request{}
 		for _, row := range rows {
@@ -550,9 +680,10 @@ func (s *Service) selectRequests(ctx context.Context, req PullRequest, limits Li
 			q = q.Where(request.APIKeyIDIn(req.Selector.APIKeyIDs...))
 		}
 	}
+	q.Select(requestMetadataFields...)
 	rows, err := q.Order(ent.Desc(request.FieldCreatedAt), ent.Desc(request.FieldID)).Limit(limits.MaxRequests + 1).All(ctx)
 	if err != nil {
-		return nil, nil, false, coreDBError()
+		return nil, nil, false, queryError(ctx, err)
 	}
 	hasMore := len(rows) > limits.MaxRequests
 	if hasMore {
@@ -563,6 +694,9 @@ func (s *Service) selectRequests(ctx context.Context, req PullRequest, limits Li
 		for i := range refs {
 			matched := []int{}
 			for _, row := range rows {
+				if err := checkPullContext(ctx); err != nil {
+					return nil, nil, false, err
+				}
 				switch refs[i].Kind {
 				case "externalId":
 					if row.ExternalID == refs[i].Value {
@@ -590,7 +724,248 @@ func (s *Service) selectRequests(ctx context.Context, req PullRequest, limits Li
 	return rows, refs, hasMore, nil
 }
 
-func (s *Service) requestRecord(ctx context.Context, row *ent.Request) (map[string]any, []Issue) {
+func (s *Service) hydrateRequestEvidence(ctx context.Context, row *ent.Request) error {
+	type requestEvidenceSizes struct {
+		RequestHeaders int `json:"request_headers_bytes"`
+		RequestBody    int `json:"request_body_bytes"`
+		ResponseBody   int `json:"response_body_bytes"`
+		ResponseChunks int `json:"response_chunks_bytes"`
+	}
+	var results []requestEvidenceSizes
+	dialectName := s.ent.Driver().Dialect()
+	err := s.ent.Request.Query().Where(request.IDEQ(row.ID)).Modify(func(selector *sql.Selector) {
+		selector.Select(
+			sql.As(evidenceLengthExpression(dialectName, selector.C(request.FieldRequestHeaders)), "request_headers_bytes"),
+			sql.As(evidenceLengthExpression(dialectName, selector.C(request.FieldRequestBody)), "request_body_bytes"),
+			sql.As(evidenceLengthExpression(dialectName, selector.C(request.FieldResponseBody)), "response_body_bytes"),
+			sql.As(evidenceLengthExpression(dialectName, selector.C(request.FieldResponseChunks)), "response_chunks_bytes"),
+		)
+	}).Scan(ctx, &results)
+	if err != nil {
+		return queryError(ctx, err)
+	}
+	if len(results) != 1 {
+		return coreDBError()
+	}
+	sizes := results[0]
+	for _, size := range []int{sizes.RequestHeaders, sizes.RequestBody, sizes.ResponseBody, sizes.ResponseChunks} {
+		if size > serverMaxEvidenceBytes {
+			return serviceError(413, "EVIDENCE_BUDGET_EXCEEDED", "one evidence item exceeds the server diagnostics budget")
+		}
+	}
+	q := s.ent.Request.Query().Where(request.IDEQ(row.ID))
+	q.Select(request.FieldRequestHeaders, request.FieldRequestBody, request.FieldResponseBody, request.FieldResponseChunks)
+	evidence, err := q.Only(ctx)
+	if err != nil {
+		return queryError(ctx, err)
+	}
+	row.RequestHeaders = evidence.RequestHeaders
+	row.RequestBody = evidence.RequestBody
+	row.ResponseBody = evidence.ResponseBody
+	row.ResponseChunks = evidence.ResponseChunks
+	return nil
+}
+
+func (s *Service) hydrateExecutionEvidence(ctx context.Context, row *ent.RequestExecution) error {
+	type executionEvidenceSizes struct {
+		RequestHeaders int `json:"request_headers_bytes"`
+		RequestBody    int `json:"request_body_bytes"`
+		ResponseBody   int `json:"response_body_bytes"`
+		ResponseChunks int `json:"response_chunks_bytes"`
+	}
+	var results []executionEvidenceSizes
+	dialectName := s.ent.Driver().Dialect()
+	err := s.ent.RequestExecution.Query().Where(requestexecution.IDEQ(row.ID)).Modify(func(selector *sql.Selector) {
+		selector.Select(
+			sql.As(evidenceLengthExpression(dialectName, selector.C(requestexecution.FieldRequestHeaders)), "request_headers_bytes"),
+			sql.As(evidenceLengthExpression(dialectName, selector.C(requestexecution.FieldRequestBody)), "request_body_bytes"),
+			sql.As(evidenceLengthExpression(dialectName, selector.C(requestexecution.FieldResponseBody)), "response_body_bytes"),
+			sql.As(evidenceLengthExpression(dialectName, selector.C(requestexecution.FieldResponseChunks)), "response_chunks_bytes"),
+		)
+	}).Scan(ctx, &results)
+	if err != nil {
+		return queryError(ctx, err)
+	}
+	if len(results) != 1 {
+		return coreDBError()
+	}
+	sizes := results[0]
+	for _, size := range []int{sizes.RequestHeaders, sizes.RequestBody, sizes.ResponseBody, sizes.ResponseChunks} {
+		if size > serverMaxEvidenceBytes {
+			return serviceError(413, "EVIDENCE_BUDGET_EXCEEDED", "one evidence item exceeds the server diagnostics budget")
+		}
+	}
+	q := s.ent.RequestExecution.Query().Where(requestexecution.IDEQ(row.ID))
+	q.Select(requestexecution.FieldRequestHeaders, requestexecution.FieldRequestBody, requestexecution.FieldResponseBody, requestexecution.FieldResponseChunks)
+	evidence, err := q.Only(ctx)
+	if err != nil {
+		return queryError(ctx, err)
+	}
+	row.RequestHeaders = evidence.RequestHeaders
+	row.RequestBody = evidence.RequestBody
+	row.ResponseBody = evidence.ResponseBody
+	row.ResponseChunks = evidence.ResponseChunks
+	return nil
+}
+
+func evidenceLengthExpression(dialectName, column string) string {
+	switch dialectName {
+	case dialect.Postgres:
+		// PostgreSQL JSON columns are jsonb. Cast to text before measuring and
+		// use octet_length so the preflight matches the bytes the driver returns.
+		return fmt.Sprintf("COALESCE(OCTET_LENGTH(CAST(%s AS TEXT)), 0)", column)
+	case dialect.SQLite:
+		// SQLite LENGTH(text) counts characters, not bytes. Casting to BLOB keeps
+		// the preflight conservative for non-ASCII JSON.
+		return fmt.Sprintf("COALESCE(LENGTH(CAST(%s AS BLOB)), 0)", column)
+	case dialect.MySQL:
+		// MySQL and TiDB expose Ent's mysql dialect. JSON can be rendered as
+		// CHAR, and OCTET_LENGTH measures encoded bytes rather than characters.
+		return fmt.Sprintf("COALESCE(OCTET_LENGTH(CAST(%s AS CHAR)), 0)", column)
+	default:
+		// Unknown dialects must fail conservatively instead of emitting a cast
+		// syntax that may be invalid or under-count evidence bytes.
+		return "NULL"
+	}
+}
+
+func shouldSkipExternalEvidence(disposition *objects.EvidenceDisposition, field string, allowExternal bool) bool {
+	if allowExternal || disposition == nil {
+		return false
+	}
+	var fieldDisposition objects.Disposition
+	switch field {
+	case "requestBody":
+		fieldDisposition = disposition.RequestBody
+	case "responseBody":
+		fieldDisposition = disposition.ResponseBody
+	case "responseChunks":
+		fieldDisposition = disposition.ResponseChunks
+	default:
+		return false
+	}
+	return fieldDisposition.Location == "external"
+}
+
+func skippedExternalEvidence() Evidence {
+	return Evidence{
+		State:     "storageUnavailable",
+		Source:    "external",
+		MediaType: "application/json",
+		Reason:    "explicit_request_ids_required",
+	}
+}
+
+func unsupportedBoundedEvidence() Evidence {
+	return Evidence{
+		State:     "storageUnavailable",
+		Source:    "external",
+		MediaType: "application/json",
+		Reason:    "cancelable_bounded_read_unsupported",
+	}
+}
+
+func externalSelectionIssue(section, recordType string, recordID int, field string) Issue {
+	return Issue{
+		Code:       "EXTERNAL_EVIDENCE_REQUIRES_EXPLICIT_REQUEST_IDS",
+		Section:    section,
+		RecordType: recordType,
+		RecordID:   strconv.Itoa(recordID),
+		Retryable:  false,
+		Message:    field + " was not loaded for a broad diagnostics selector; use explicit requestIds",
+	}
+}
+
+func unsupportedBoundedReadIssue(section, recordType string, recordID int, field string) Issue {
+	return Issue{
+		Code:       "CANCELABLE_BOUNDED_READ_UNSUPPORTED",
+		Section:    section,
+		RecordType: recordType,
+		RecordID:   strconv.Itoa(recordID),
+		Retryable:  false,
+		Message:    field + " uses a storage backend that cannot honor diagnostics cancellation",
+	}
+}
+
+func loadBudgetedJSONEvidence(
+	ctx context.Context,
+	disposition *objects.EvidenceDisposition,
+	field string,
+	allowExternal bool,
+	inline objects.JSONRawMessage,
+	load func(context.Context) (objects.JSONRawMessage, error),
+) (Evidence, bool, error) {
+	if shouldSkipExternalEvidence(disposition, field, allowExternal) {
+		return skippedExternalEvidence(), true, nil
+	}
+	if !allowExternal {
+		if err := ensureEvidenceBudget(inline); err != nil {
+			return Evidence{}, false, err
+		}
+		return evidenceFromRaw(inline, disposition, nil, field), false, nil
+	}
+	raw, loadErr := withStorageReadDeadline(ctx, load)
+	if err := checkPullContext(ctx); err != nil {
+		return Evidence{}, false, err
+	}
+	if errors.Is(loadErr, biz.ErrBoundedReadUnsupported) {
+		return unsupportedBoundedEvidence(), false, nil
+	}
+	if errors.Is(loadErr, biz.ErrDataTooLarge) {
+		return Evidence{}, false, serviceError(413, "EVIDENCE_BUDGET_EXCEEDED", "one evidence item exceeds the server diagnostics budget")
+	}
+	if err := ensureEvidenceBudget(raw); err != nil {
+		return Evidence{}, false, err
+	}
+	return evidenceFromRaw(raw, disposition, loadErr, field), false, nil
+}
+
+func loadBudgetedChunkEvidence(
+	ctx context.Context,
+	disposition *objects.EvidenceDisposition,
+	allowExternal bool,
+	source string,
+	inline []objects.JSONRawMessage,
+	load func(context.Context) ([]objects.JSONRawMessage, error),
+) (Evidence, bool, error) {
+	if source != "live" && shouldSkipExternalEvidence(disposition, "responseChunks", allowExternal) {
+		return skippedExternalEvidence(), true, nil
+	}
+	chunks := inline
+	var loadErr error
+	if allowExternal || source == "live" {
+		chunks, loadErr = withStorageReadDeadline(ctx, load)
+		if err := checkPullContext(ctx); err != nil {
+			return Evidence{}, false, err
+		}
+		if errors.Is(loadErr, biz.ErrBoundedReadUnsupported) {
+			return unsupportedBoundedEvidence(), false, nil
+		}
+		if errors.Is(loadErr, biz.ErrDataTooLarge) {
+			return Evidence{}, false, serviceError(413, "EVIDENCE_BUDGET_EXCEEDED", "one evidence item exceeds the server diagnostics budget")
+		}
+	}
+	rawChunks := make([]json.RawMessage, len(chunks))
+	for index := range chunks {
+		rawChunks[index] = json.RawMessage(chunks[index])
+	}
+	if err := ensureChunkBudget(rawChunks); err != nil {
+		return Evidence{}, false, err
+	}
+	if source == "live" && chunks == nil {
+		chunks = []objects.JSONRawMessage{}
+	}
+	raw, err := json.Marshal(chunks)
+	if err != nil {
+		return Evidence{}, false, serviceError(500, "SERIALIZATION_FAILED", "diagnostics chunks could not be serialized")
+	}
+	return evidenceFromRawWithSource(raw, disposition, loadErr, "responseChunks", source), false, nil
+}
+
+func (s *Service) requestRecord(ctx context.Context, row *ent.Request, allowExternalEvidence bool) (map[string]any, []Issue, error) {
+	if err := checkPullContext(ctx); err != nil {
+		return nil, nil, err
+	}
 	m := map[string]any{
 		"id": row.ID, "projectId": row.ProjectID, "apiKeyId": nullablePositiveInt(row.APIKeyID),
 		"traceDatabaseId": nullablePositiveInt(row.TraceID), "dataStorageId": nullablePositiveInt(row.DataStorageID),
@@ -601,46 +976,63 @@ func (s *Service) requestRecord(ctx context.Context, row *ent.Request) (map[stri
 		"createdAt": row.CreatedAt, "updatedAt": row.UpdatedAt,
 	}
 	issues := []Issue{}
+	if err := ensureEvidenceBudget(row.RequestHeaders); err != nil {
+		return nil, nil, err
+	}
 	requestHeaders := evidenceFromRaw(row.RequestHeaders, row.EvidenceDisposition, nil, "requestHeaders")
 	m["requestHeaders"] = requestHeaders
 	issues = appendCanonicalizationIssue(issues, "requests", "request", row.ID, "requestHeaders", requestHeaders)
-	body, e := withStorageReadDeadline(ctx, func(readCtx context.Context) (objects.JSONRawMessage, error) {
-		return s.requests.LoadRequestBody(readCtx, row)
+	requestEvidence, requestSkipped, err := loadBudgetedJSONEvidence(ctx, row.EvidenceDisposition, "requestBody", allowExternalEvidence, row.RequestBody, func(readCtx context.Context) (objects.JSONRawMessage, error) {
+		return s.requests.LoadRequestBodyBounded(readCtx, row, serverMaxEvidenceBytes)
 	})
-	requestEvidence := evidenceFromRaw(body, row.EvidenceDisposition, e, "requestBody")
+	if err != nil {
+		return nil, nil, err
+	}
 	m["requestBody"] = requestEvidence
 	issues = appendCanonicalizationIssue(issues, "requests", "request", row.ID, "requestBody", requestEvidence)
-	if requestEvidence.State == "storageUnavailable" {
+	if requestEvidence.Reason == "cancelable_bounded_read_unsupported" {
+		issues = append(issues, unsupportedBoundedReadIssue("requests", "request", row.ID, "requestBody"))
+	} else if requestSkipped {
+		issues = append(issues, externalSelectionIssue("requests", "request", row.ID, "requestBody"))
+	} else if requestEvidence.State == "storageUnavailable" {
 		issues = append(issues, availabilityIssue("requests", "request", row.ID, "REQUEST_BODY_STORAGE_UNAVAILABLE"))
 	} else if requestEvidence.State == "legacyUnknown" {
 		issues = append(issues, availabilityIssue("requests", "request", row.ID, "REQUEST_BODY_LEGACY_UNKNOWN"))
 	}
-	body, e = withStorageReadDeadline(ctx, func(readCtx context.Context) (objects.JSONRawMessage, error) {
-		return s.requests.LoadResponseBody(readCtx, row)
+	responseEvidence, responseSkipped, err := loadBudgetedJSONEvidence(ctx, row.EvidenceDisposition, "responseBody", allowExternalEvidence, row.ResponseBody, func(readCtx context.Context) (objects.JSONRawMessage, error) {
+		return s.requests.LoadResponseBodyEvidenceBounded(readCtx, row, serverMaxEvidenceBytes)
 	})
-	responseEvidence := evidenceFromRaw(body, row.EvidenceDisposition, e, "responseBody")
+	if err != nil {
+		return nil, nil, err
+	}
 	m["responseBody"] = responseEvidence
 	issues = appendCanonicalizationIssue(issues, "requests", "request", row.ID, "responseBody", responseEvidence)
-	if responseEvidence.State == "storageUnavailable" {
+	if responseEvidence.Reason == "cancelable_bounded_read_unsupported" {
+		issues = append(issues, unsupportedBoundedReadIssue("requests", "request", row.ID, "responseBody"))
+	} else if responseSkipped {
+		issues = append(issues, externalSelectionIssue("requests", "request", row.ID, "responseBody"))
+	} else if responseEvidence.State == "storageUnavailable" {
 		issues = append(issues, availabilityIssue("requests", "request", row.ID, "RESPONSE_BODY_STORAGE_UNAVAILABLE"))
 	} else if responseEvidence.State == "legacyUnknown" {
 		issues = append(issues, availabilityIssue("requests", "request", row.ID, "RESPONSE_BODY_LEGACY_UNKNOWN"))
 	}
-	chunks, e := withStorageReadDeadline(ctx, func(readCtx context.Context) ([]objects.JSONRawMessage, error) {
-		return s.requests.LoadResponseChunks(readCtx, row)
-	})
 	chunkSource := ""
 	if row.Stream && row.Status == request.StatusProcessing {
 		chunkSource = "live"
-		if chunks == nil {
-			chunks = []objects.JSONRawMessage{}
-		}
 	}
-	raw, _ := json.Marshal(chunks)
-	chunkEvidence := evidenceFromRawWithSource(raw, row.EvidenceDisposition, e, "responseChunks", chunkSource)
+	chunkEvidence, chunksSkipped, err := loadBudgetedChunkEvidence(ctx, row.EvidenceDisposition, allowExternalEvidence, chunkSource, row.ResponseChunks, func(readCtx context.Context) ([]objects.JSONRawMessage, error) {
+		return s.requests.LoadResponseChunksBounded(readCtx, row, serverMaxEvidenceBytes)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
 	m["responseChunks"] = chunkEvidence
 	issues = appendCanonicalizationIssue(issues, "requests", "request", row.ID, "responseChunks", chunkEvidence)
-	if chunkEvidence.State == "storageUnavailable" {
+	if chunkEvidence.Reason == "cancelable_bounded_read_unsupported" {
+		issues = append(issues, unsupportedBoundedReadIssue("requests", "request", row.ID, "responseChunks"))
+	} else if chunksSkipped {
+		issues = append(issues, externalSelectionIssue("requests", "request", row.ID, "responseChunks"))
+	} else if chunkEvidence.State == "storageUnavailable" {
 		issues = append(issues, availabilityIssue("requests", "request", row.ID, "RESPONSE_CHUNKS_STORAGE_UNAVAILABLE"))
 	} else if chunkEvidence.State == "legacyUnknown" {
 		issues = append(issues, availabilityIssue("requests", "request", row.ID, "RESPONSE_CHUNKS_LEGACY_UNKNOWN"))
@@ -653,30 +1045,51 @@ func (s *Service) requestRecord(ctx context.Context, row *ent.Request) (map[stri
 	}
 	artifactEvidence := Evidence{State: "notApplicable", Source: "none", MediaType: "application/octet-stream"}
 	if row.ContentSaved && row.ContentStorageID != nil && row.ContentStorageKey != nil {
-		ds, loadErr := s.storage.GetDataStorageByID(ctx, *row.ContentStorageID)
-		if loadErr == nil {
-			var content []byte
-			content, loadErr = withStorageReadDeadline(ctx, func(readCtx context.Context) ([]byte, error) {
-				return s.storage.LoadData(readCtx, ds, *row.ContentStorageKey)
-			})
+		if !allowExternalEvidence {
+			artifactEvidence = Evidence{State: "storageUnavailable", Source: "external", MediaType: "application/octet-stream", Reason: "explicit_request_ids_required"}
+			issues = append(issues, externalSelectionIssue("requests", "request", row.ID, "contentArtifact"))
+		} else {
+			ds, loadErr := s.storage.GetDataStorageByID(ctx, *row.ContentStorageID)
 			if loadErr == nil {
-				sum := sha256.Sum256(content)
-				mediaType := mime.TypeByExtension(filepath.Ext(*row.ContentStorageKey))
-				if mediaType == "" {
-					mediaType = "application/octet-stream"
+				var content []byte
+				content, loadErr = withStorageReadDeadline(ctx, func(readCtx context.Context) ([]byte, error) {
+					return s.storage.LoadDataBounded(readCtx, ds, *row.ContentStorageKey, serverMaxEvidenceBytes)
+				})
+				if err := checkPullContext(ctx); err != nil {
+					return nil, nil, err
 				}
-				artifactEvidence = Evidence{State: "available", Source: "external", MediaType: mediaType, Encoding: "base64", ByteLength: len(content), SHA256: hex.EncodeToString(sum[:]), Value: base64.StdEncoding.EncodeToString(content)}
+				if errors.Is(loadErr, biz.ErrBoundedReadUnsupported) {
+					artifactEvidence = Evidence{State: "storageUnavailable", Source: "external", MediaType: "application/octet-stream", Reason: "cancelable_bounded_read_unsupported"}
+					issues = append(issues, unsupportedBoundedReadIssue("requests", "request", row.ID, "contentArtifact"))
+					loadErr = nil
+				} else if errors.Is(loadErr, biz.ErrDataTooLarge) {
+					return nil, nil, serviceError(413, "EVIDENCE_BUDGET_EXCEEDED", "one evidence item exceeds the server diagnostics budget")
+				}
+				if loadErr == nil && artifactEvidence.Reason == "" {
+					if err := ensureEvidenceBudget(content); err != nil {
+						return nil, nil, err
+					}
+					sum := sha256.Sum256(content)
+					mediaType := mime.TypeByExtension(filepath.Ext(*row.ContentStorageKey))
+					if mediaType == "" {
+						mediaType = "application/octet-stream"
+					}
+					artifactEvidence = Evidence{State: "available", Source: "external", MediaType: mediaType, Encoding: "base64", ByteLength: len(content), SHA256: hex.EncodeToString(sum[:]), Value: base64.StdEncoding.EncodeToString(content)}
+				}
 			}
-		}
-		if loadErr != nil {
-			artifactEvidence = Evidence{State: "storageUnavailable", Source: "external", MediaType: "application/octet-stream"}
-			issues = append(issues, availabilityIssue("requests", "request", row.ID, "CONTENT_ARTIFACT_STORAGE_UNAVAILABLE"))
+			if loadErr != nil {
+				artifactEvidence = Evidence{State: "storageUnavailable", Source: "external", MediaType: "application/octet-stream"}
+				issues = append(issues, availabilityIssue("requests", "request", row.ID, "CONTENT_ARTIFACT_STORAGE_UNAVAILABLE"))
+			}
 		}
 	}
 	m["contentArtifact"] = map[string]any{"saved": row.ContentSaved, "storageId": row.ContentStorageID, "key": row.ContentStorageKey, "savedAt": row.ContentSavedAt, "content": artifactEvidence}
-	return m, issues
+	return m, issues, nil
 }
-func (s *Service) executionRecord(ctx context.Context, row *ent.RequestExecution) (map[string]any, []Issue) {
+func (s *Service) executionRecord(ctx context.Context, row *ent.RequestExecution, allowExternalEvidence bool) (map[string]any, []Issue, error) {
+	if err := checkPullContext(ctx); err != nil {
+		return nil, nil, err
+	}
 	m := map[string]any{
 		"id": row.ID, "projectId": row.ProjectID, "requestId": row.RequestID,
 		"channelId": nullablePositiveInt(row.ChannelID), "dataStorageId": nullablePositiveInt(row.DataStorageID),
@@ -688,51 +1101,68 @@ func (s *Service) executionRecord(ctx context.Context, row *ent.RequestExecution
 		"createdAt": row.CreatedAt, "updatedAt": row.UpdatedAt,
 	}
 	issues := []Issue{}
+	if err := ensureEvidenceBudget(row.RequestHeaders); err != nil {
+		return nil, nil, err
+	}
 	requestHeaders := evidenceFromRaw(row.RequestHeaders, row.EvidenceDisposition, nil, "requestHeaders")
 	m["requestHeaders"] = requestHeaders
 	issues = appendCanonicalizationIssue(issues, "executions", "execution", row.ID, "requestHeaders", requestHeaders)
-	body, e := withStorageReadDeadline(ctx, func(readCtx context.Context) (objects.JSONRawMessage, error) {
-		return s.requests.LoadRequestExecutionRequestBody(readCtx, row)
+	requestEvidence, requestSkipped, err := loadBudgetedJSONEvidence(ctx, row.EvidenceDisposition, "requestBody", allowExternalEvidence, row.RequestBody, func(readCtx context.Context) (objects.JSONRawMessage, error) {
+		return s.requests.LoadRequestExecutionRequestBodyBounded(readCtx, row, serverMaxEvidenceBytes)
 	})
-	requestEvidence := evidenceFromRaw(body, row.EvidenceDisposition, e, "requestBody")
+	if err != nil {
+		return nil, nil, err
+	}
 	m["requestBody"] = requestEvidence
 	issues = appendCanonicalizationIssue(issues, "executions", "execution", row.ID, "requestBody", requestEvidence)
-	if requestEvidence.State == "storageUnavailable" {
+	if requestEvidence.Reason == "cancelable_bounded_read_unsupported" {
+		issues = append(issues, unsupportedBoundedReadIssue("executions", "execution", row.ID, "requestBody"))
+	} else if requestSkipped {
+		issues = append(issues, externalSelectionIssue("executions", "execution", row.ID, "requestBody"))
+	} else if requestEvidence.State == "storageUnavailable" {
 		issues = append(issues, availabilityIssue("executions", "execution", row.ID, "REQUEST_BODY_STORAGE_UNAVAILABLE"))
 	} else if requestEvidence.State == "legacyUnknown" {
 		issues = append(issues, availabilityIssue("executions", "execution", row.ID, "REQUEST_BODY_LEGACY_UNKNOWN"))
 	}
-	body, e = withStorageReadDeadline(ctx, func(readCtx context.Context) (objects.JSONRawMessage, error) {
-		return s.requests.LoadRequestExecutionResponseBody(readCtx, row)
+	responseEvidence, responseSkipped, err := loadBudgetedJSONEvidence(ctx, row.EvidenceDisposition, "responseBody", allowExternalEvidence, row.ResponseBody, func(readCtx context.Context) (objects.JSONRawMessage, error) {
+		return s.requests.LoadRequestExecutionResponseBodyEvidenceBounded(readCtx, row, serverMaxEvidenceBytes)
 	})
-	responseEvidence := evidenceFromRaw(body, row.EvidenceDisposition, e, "responseBody")
+	if err != nil {
+		return nil, nil, err
+	}
 	m["responseBody"] = responseEvidence
 	issues = appendCanonicalizationIssue(issues, "executions", "execution", row.ID, "responseBody", responseEvidence)
-	if responseEvidence.State == "storageUnavailable" {
+	if responseEvidence.Reason == "cancelable_bounded_read_unsupported" {
+		issues = append(issues, unsupportedBoundedReadIssue("executions", "execution", row.ID, "responseBody"))
+	} else if responseSkipped {
+		issues = append(issues, externalSelectionIssue("executions", "execution", row.ID, "responseBody"))
+	} else if responseEvidence.State == "storageUnavailable" {
 		issues = append(issues, availabilityIssue("executions", "execution", row.ID, "RESPONSE_BODY_STORAGE_UNAVAILABLE"))
 	} else if responseEvidence.State == "legacyUnknown" {
 		issues = append(issues, availabilityIssue("executions", "execution", row.ID, "RESPONSE_BODY_LEGACY_UNKNOWN"))
 	}
-	chunks, e := withStorageReadDeadline(ctx, func(readCtx context.Context) ([]objects.JSONRawMessage, error) {
-		return s.requests.LoadRequestExecutionResponseChunks(readCtx, row)
-	})
 	chunkSource := ""
 	if row.Stream && row.Status == requestexecution.StatusProcessing {
 		chunkSource = "live"
-		if chunks == nil {
-			chunks = []objects.JSONRawMessage{}
-		}
 	}
-	raw, _ := json.Marshal(chunks)
-	chunkEvidence := evidenceFromRawWithSource(raw, row.EvidenceDisposition, e, "responseChunks", chunkSource)
+	chunkEvidence, chunksSkipped, err := loadBudgetedChunkEvidence(ctx, row.EvidenceDisposition, allowExternalEvidence, chunkSource, row.ResponseChunks, func(readCtx context.Context) ([]objects.JSONRawMessage, error) {
+		return s.requests.LoadRequestExecutionResponseChunksBounded(readCtx, row, serverMaxEvidenceBytes)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
 	m["responseChunks"] = chunkEvidence
 	issues = appendCanonicalizationIssue(issues, "executions", "execution", row.ID, "responseChunks", chunkEvidence)
-	if chunkEvidence.State == "storageUnavailable" {
+	if chunkEvidence.Reason == "cancelable_bounded_read_unsupported" {
+		issues = append(issues, unsupportedBoundedReadIssue("executions", "execution", row.ID, "responseChunks"))
+	} else if chunksSkipped {
+		issues = append(issues, externalSelectionIssue("executions", "execution", row.ID, "responseChunks"))
+	} else if chunkEvidence.State == "storageUnavailable" {
 		issues = append(issues, availabilityIssue("executions", "execution", row.ID, "RESPONSE_CHUNKS_STORAGE_UNAVAILABLE"))
 	} else if chunkEvidence.State == "legacyUnknown" {
 		issues = append(issues, availabilityIssue("executions", "execution", row.ID, "RESPONSE_CHUNKS_LEGACY_UNKNOWN"))
 	}
-	return m, issues
+	return m, issues, nil
 }
 
 func evidenceFromRaw(raw objects.JSONRawMessage, d *objects.EvidenceDisposition, loadErr error, field string) Evidence {
@@ -837,16 +1267,19 @@ func (s *Service) loadChannels(ctx context.Context, kind string, projectID int, 
 			return []*ent.Channel{}, nil
 		}
 		q = q.Where(channel.IDIn(mapKeys(ids)...))
-		return q.Order(ent.Asc(channel.FieldID)).All(ctx)
+		return q.Order(ent.Asc(channel.FieldID)).Limit(serverMaxRelatedRecords).All(ctx)
 	}
 
 	// Channel is a global entity, so a snapshot must derive project relevance
 	// rather than exporting the global table. A channel is relevant when retained
 	// project evidence references it or a currently visible key/access group could
 	// select it under the project's active profile.
-	rows, err := q.Order(ent.Asc(channel.FieldID)).All(ctx)
+	rows, err := q.Order(ent.Asc(channel.FieldID)).Limit(serverMaxRelatedRecords + 1).All(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if len(rows) > serverMaxRelatedRecords {
+		return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "channel snapshot exceeds the server diagnostics work budget")
 	}
 	projectRow, err := s.ent.Project.Get(ctx, projectID)
 	if err != nil {
@@ -861,21 +1294,33 @@ func (s *Service) loadChannels(ctx context.Context, kind string, projectID int, 
 			apikey.And(apikey.UserIDEQ(principalID), apikey.TypeEQ(apikey.TypePersonal)),
 		))
 	}
-	keys, err := keysQuery.All(ctx)
+	keys, err := keysQuery.Limit(serverMaxRelatedRecords + 1).All(ctx)
 	if err != nil {
 		return nil, err
 	}
-	groups, err := s.ent.APIKeyProfileTemplate.Query().Where(apikeyprofiletemplate.ProjectIDEQ(projectID)).All(ctx)
+	if len(keys) > serverMaxRelatedRecords {
+		return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "API key snapshot exceeds the server diagnostics work budget")
+	}
+	groups, err := s.ent.APIKeyProfileTemplate.Query().Where(apikeyprofiletemplate.ProjectIDEQ(projectID)).Limit(serverMaxRelatedRecords + 1).All(ctx)
 	if err != nil {
 		return nil, err
 	}
-	requestChannelIDs, err := s.ent.Request.Query().Where(request.ProjectIDEQ(projectID), request.ChannelIDNotNil()).Select(request.FieldChannelID).Ints(ctx)
+	if len(groups) > serverMaxRelatedRecords {
+		return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "access group snapshot exceeds the server diagnostics work budget")
+	}
+	requestChannelIDs, err := s.ent.Request.Query().Where(request.ProjectIDEQ(projectID), request.ChannelIDNotNil()).Limit(serverMaxRelatedRecords + 1).Select(request.FieldChannelID).Ints(ctx)
 	if err != nil {
 		return nil, err
 	}
-	executionChannelIDs, err := s.ent.RequestExecution.Query().Where(requestexecution.ProjectIDEQ(projectID), requestexecution.ChannelIDNotNil()).Select(requestexecution.FieldChannelID).Ints(ctx)
+	if len(requestChannelIDs) > serverMaxRelatedRecords {
+		return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "request references exceed the server diagnostics work budget")
+	}
+	executionChannelIDs, err := s.ent.RequestExecution.Query().Where(requestexecution.ProjectIDEQ(projectID), requestexecution.ChannelIDNotNil()).Limit(serverMaxRelatedRecords + 1).Select(requestexecution.FieldChannelID).Ints(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if len(executionChannelIDs) > serverMaxRelatedRecords {
+		return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "execution references exceed the server diagnostics work budget")
 	}
 	referenced := map[int]struct{}{}
 	for _, id := range append(requestChannelIDs, executionChannelIDs...) {
@@ -957,7 +1402,14 @@ func (s *Service) loadAPIKeys(ctx context.Context, kind string, projectID int, i
 			apikey.And(apikey.UserIDEQ(principalID), apikey.TypeEQ(apikey.TypePersonal)),
 		))
 	}
-	return q.Order(ent.Asc(apikey.FieldID)).All(ctx)
+	rows, err := q.Order(ent.Asc(apikey.FieldID)).Limit(serverMaxRelatedRecords + 1).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > serverMaxRelatedRecords {
+		return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "API key selection exceeds the server diagnostics work budget")
+	}
+	return rows, nil
 }
 func (s *Service) loadGroups(ctx context.Context, kind string, projectID int, ids map[int]struct{}) ([]*ent.APIKeyProfileTemplate, error) {
 	q := s.ent.APIKeyProfileTemplate.Query().Where(apikeyprofiletemplate.ProjectIDEQ(projectID))
@@ -967,7 +1419,14 @@ func (s *Service) loadGroups(ctx context.Context, kind string, projectID int, id
 		}
 		q = q.Where(apikeyprofiletemplate.IDIn(mapKeys(ids)...))
 	}
-	return q.Order(ent.Asc(apikeyprofiletemplate.FieldID)).All(ctx)
+	rows, err := q.Order(ent.Asc(apikeyprofiletemplate.FieldID)).Limit(serverMaxRelatedRecords + 1).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > serverMaxRelatedRecords {
+		return nil, serviceError(413, "SERVER_WORK_BUDGET_EXCEEDED", "access group selection exceeds the server diagnostics work budget")
+	}
+	return rows, nil
 }
 func channelRecord(row *ent.Channel, credentials bool) map[string]any {
 	m := map[string]any{

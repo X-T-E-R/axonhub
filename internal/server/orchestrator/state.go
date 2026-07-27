@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"sync"
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/server/biz"
@@ -87,4 +88,44 @@ type PersistenceState struct {
 
 	// PassThroughApplied records whether the inbound request body was substituted during pass-through.
 	PassThroughApplied bool
+
+	deferredFailureMu                 sync.Mutex
+	deferredStreamError               error
+	deferredRequestFailurePersisted   bool
+	deferredExecutionFailurePersisted bool
+}
+
+func (s *PersistenceState) recordDeferredRequestFailure(err error, persisted bool) {
+	if s == nil || err == nil {
+		return
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+
+	s.deferredStreamError = err
+	s.deferredRequestFailurePersisted = persisted
+}
+
+func (s *PersistenceState) recordDeferredExecutionFailure(err error, persisted bool) {
+	if s == nil || err == nil {
+		return
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+
+	s.deferredStreamError = err
+	s.deferredExecutionFailurePersisted = persisted
+}
+
+func (s *PersistenceState) deferredStreamFailure() (error, bool, bool) {
+	if s == nil {
+		return nil, false, false
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+
+	return s.deferredStreamError, s.deferredRequestFailurePersisted, s.deferredExecutionFailurePersisted
 }

@@ -3,12 +3,17 @@ package responses
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -749,6 +754,55 @@ func TestWebSocketStreamReturnsErrorWhenReusedConnectionClosesBeforeEvent(t *tes
 	defer stream.Close()
 	require.False(t, stream.Next())
 	require.ErrorContains(t, stream.Err(), "websocket closed before response event")
+}
+
+func TestIsWebSocketTransportClosureClassifiesPlatformErrorsPrecisely(t *testing.T) {
+	windowsAbort := &net.OpError{
+		Op: "read",
+		Err: &os.SyscallError{
+			Syscall: "wsarecv",
+			Err:     syscall.ECONNABORTED,
+		},
+	}
+
+	require.True(t, isWebSocketTransportClosure(windowsAbort))
+	require.True(t, isWebSocketTransportClosure(io.EOF))
+	require.False(t, isWebSocketTransportClosure(context.DeadlineExceeded))
+	require.False(t, isWebSocketTransportClosure(errors.New("provider framing error")))
+}
+
+func TestWebSocketStreamPreservesMidStreamTransportFailure(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		var payload map[string]any
+		require.NoError(t, conn.ReadJSON(&payload))
+		require.NoError(t, conn.WriteJSON(map[string]any{
+			"type":        "response.output_text.delta",
+			"response_id": "resp_1",
+			"delta":       "partial",
+		}))
+	}))
+	defer server.Close()
+
+	executor := NewWebSocketExecutor(nil)
+	stream, err := executor.DoStream(webSocketTestContext(), &httpclient.Request{
+		Method: http.MethodPost,
+		URL:    "http" + strings.TrimPrefix(server.URL, "http") + "/v1/responses",
+		Auth:   &httpclient.AuthConfig{Type: httpclient.AuthTypeBearer, APIKey: "test-key"},
+		Body:   []byte(`{"model":"gpt-5"}`),
+	})
+	require.NoError(t, err)
+	defer stream.Close()
+
+	require.True(t, stream.Next())
+	require.Equal(t, "response.output_text.delta", stream.Current().Type)
+	require.False(t, stream.Next())
+	require.Error(t, stream.Err())
+	require.NotContains(t, stream.Err().Error(), "websocket closed before response event")
 }
 
 func TestWebSocketExecutorSeparatesPoolByOrganizationHeaders(t *testing.T) {

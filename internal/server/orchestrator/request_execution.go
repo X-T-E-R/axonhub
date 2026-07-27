@@ -214,18 +214,27 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 		log.Warn(ctx, "request process failed", logFields...)
 	}
 
+	deferredStreamFailure := pipeline.IsDeferredStreamError(err)
+	requestContextErr := context.Cause(ctx)
+	err = terminalErrorCause(err, requestContextErr)
+
 	// Use context without cancellation to ensure persistence even if client canceled
 	persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	updateErr := state.RequestService.UpdateRequestExecutionFailed(
+	updateErr := state.RequestService.UpdateRequestExecutionStatusFromErrorDetails(
 		persistCtx,
 		state.RequestExec.ID,
+		err,
+		requestContextErr,
 		ExtractErrorMessage(err),
 		ExtractErrorInfo(err),
 	)
 	if updateErr != nil {
-		log.Warn(persistCtx, "Failed to update request execution status to failed", log.Cause(updateErr))
+		log.Warn(persistCtx, "Failed to update request execution terminal status", log.Cause(updateErr))
+	}
+	if deferredStreamFailure {
+		state.recordDeferredExecutionFailure(err, updateErr == nil)
 	}
 }
 

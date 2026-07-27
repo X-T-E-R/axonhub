@@ -15,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/internal/pkg/xurl"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
@@ -309,6 +310,58 @@ func (s *responsesOutboundStream) reconcileFunctionCall(
 	}))
 }
 
+func (s *responsesOutboundStream) bufferFunctionCallSnapshot(
+	callID string,
+	itemID *string,
+	name string,
+	namespace string,
+	arguments string,
+	argumentsPresent bool,
+) error {
+	recoveries := s.reconcileFunctionCall(callID, itemID, name, namespace, "", false, false)
+	for _, recovery := range recoveries {
+		s.enqueue(recovery)
+	}
+
+	_, toolCall, ok := s.resolveToolCall(callID, itemID)
+	if !ok || toolCall == nil {
+		return nil
+	}
+	if callID != "" && toolCall.ID != "" && toolCall.ID != callID {
+		return fmt.Errorf(
+			"%w: item changed call id from %s to %s",
+			transformer.ErrToolCallIntegrity,
+			toolCall.ID,
+			callID,
+		)
+	}
+	if name != "" && toolCall.Function.Name != "" && toolCall.Function.Name != name {
+		return fmt.Errorf(
+			"%w: call %s changed name from %s to %s",
+			transformer.ErrIncompleteToolCall,
+			toolCall.ID,
+			toolCall.Function.Name,
+			name,
+		)
+	}
+	if namespace != "" && toolCall.Function.Namespace != "" &&
+		toolCall.Function.Namespace != namespace {
+		return fmt.Errorf(
+			"%w: call %s changed namespace",
+			transformer.ErrIncompleteToolCall,
+			toolCall.ID,
+		)
+	}
+	if argumentsPresent {
+		// Terminal payloads are authoritative snapshots. Keep the latest one
+		// buffered until response.completed, where it can be emitted exactly
+		// once without concatenating a provisional terminal value.
+		toolCall.Function.Arguments = arguments
+	}
+
+	return nil
+}
+
 func (s *responsesOutboundStream) reconcileCustomToolCall(
 	callID string,
 	itemID *string,
@@ -538,6 +591,16 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			return nil
 
 		case "function_call":
+			if item.CallID == "" || item.ID == "" {
+				return fmt.Errorf("%w: responses function call missing identity", transformer.ErrIncompleteToolCall)
+			}
+			if _, exists := s.state.toolCalls[item.CallID]; exists {
+				return fmt.Errorf(
+					"%w: duplicate responses call id %s",
+					transformer.ErrIncompleteToolCall,
+					item.CallID,
+				)
+			}
 			// Initialize tool call tracking
 			toolCallIdx := len(s.state.toolCalls)
 			s.state.toolCalls[item.CallID] = &llm.ToolCall{
@@ -630,17 +693,15 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		return nil
 
 	case StreamEventTypeFunctionCallArgumentsDone:
-		recoveries := s.reconcileFunctionCall(
+		if err := s.bufferFunctionCallSnapshot(
 			streamEvent.CallID,
 			streamEvent.ItemID,
 			streamEvent.Name,
 			streamEvent.Namespace,
 			streamEvent.Arguments,
 			jsonFieldPresent(event.Data, "arguments"),
-			false,
-		)
-		for _, recovery := range recoveries {
-			s.enqueue(recovery)
+		); err != nil {
+			return err
 		}
 
 		return nil // Intentionally skip this event
@@ -722,20 +783,15 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		}
 		if streamEvent.Item.Type == "function_call" {
 			itemID := streamEvent.Item.ID
-			if itemID != "" && streamEvent.Item.CallID != "" {
-				s.state.itemToCallID[itemID] = streamEvent.Item.CallID
-			}
-			recoveries := s.reconcileFunctionCall(
+			if err := s.bufferFunctionCallSnapshot(
 				streamEvent.Item.CallID,
 				&itemID,
 				streamEvent.Item.Name,
 				streamEvent.Item.Namespace,
 				streamEvent.Item.Arguments,
 				jsonFieldPresent(event.Data, "item", "arguments"),
-				false,
-			)
-			for _, recovery := range recoveries {
-				s.enqueue(recovery)
+			); err != nil {
+				return err
 			}
 
 			return nil
@@ -831,22 +887,23 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 				if item.Type != "function_call" && item.Type != "custom_tool_call" {
 					continue
 				}
-				if item.ID != "" && item.CallID != "" {
-					s.state.itemToCallID[item.ID] = item.CallID
-				}
 				itemID := item.ID
 				var recoveries []*llm.Response
 				if item.Type == "function_call" {
-					recoveries = s.reconcileFunctionCall(
+					if err := s.bufferFunctionCallSnapshot(
 						item.CallID,
 						&itemID,
 						item.Name,
 						item.Namespace,
 						item.Arguments,
 						responseOutputFieldPresent(event.Data, i, "arguments"),
-						true,
-					)
+					); err != nil {
+						return err
+					}
 				} else {
+					if item.ID != "" && item.CallID != "" {
+						s.state.itemToCallID[item.ID] = item.CallID
+					}
 					recoveries = s.reconcileCustomToolCall(
 						item.CallID,
 						&itemID,
@@ -859,6 +916,17 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 				for _, recovery := range recoveries {
 					s.enqueue(recovery)
 				}
+			}
+		}
+		for _, toolCall := range s.state.toolCalls {
+			if toolCall.ResponseCustomToolCall != nil {
+				continue
+			}
+			if err := transformer.ValidateFunctionCall(
+				toolCall.Function.Name,
+				toolCall.Function.Arguments,
+			); err != nil {
+				return err
 			}
 		}
 		s.flushPendingToolCallPayloads()

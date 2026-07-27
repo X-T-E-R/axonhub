@@ -728,7 +728,7 @@ func TestOutboundTransformer_TransformResponse_MultipleFunctionCalls(t *testing.
 			},
 		},
 		{
-			name: "function call without ID gets generated UUID",
+			name: "function call without ID remains absent",
 			geminiResponse: &GenerateContentResponse{
 				ResponseID:   "resp-no-id",
 				ModelVersion: "gemini-2.0-flash",
@@ -761,9 +761,9 @@ func TestOutboundTransformer_TransformResponse_MultipleFunctionCalls(t *testing.
 				require.Len(t, resp.Choices, 1)
 				require.Len(t, resp.Choices[0].Message.ToolCalls, 2)
 
-				// IDs should be generated (non-empty UUIDs)
-				require.NotEmpty(t, resp.Choices[0].Message.ToolCalls[0].ID)
-				require.NotEmpty(t, resp.Choices[0].Message.ToolCalls[1].ID)
+				// The gateway must not invent provider identities.
+				require.Empty(t, resp.Choices[0].Message.ToolCalls[0].ID)
+				require.Empty(t, resp.Choices[0].Message.ToolCalls[1].ID)
 
 				// Indices should still be correct
 				require.Equal(t, 0, resp.Choices[0].Message.ToolCalls[0].Index)

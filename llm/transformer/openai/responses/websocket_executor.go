@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -1048,11 +1050,16 @@ func (s *webSocketStream) Next() bool {
 
 	_, msg, err := s.lease.conn.ReadMessage()
 	if err != nil {
-		if websocket.IsCloseError(err, websocket.CloseNormalClosure) || strings.Contains(err.Error(), "use of closed network connection") {
+		if isWebSocketTransportClosure(err) {
 			if ctxErr := s.ctx.Err(); ctxErr != nil {
 				s.setErr(ctxErr)
 			} else if !s.hasSeenEvent() {
-				s.setErr(fmt.Errorf("websocket closed before response event"))
+				s.setErr(fmt.Errorf("websocket closed before response event: %w", err))
+			} else if !isGracefulWebSocketClosure(err) {
+				// Once an event has been delivered, preserve abnormal transport
+				// failures verbatim rather than relabeling an ordinary
+				// mid-stream failure as a stale pooled connection.
+				s.setErr(err)
 			}
 			s.finish(true)
 			return false
@@ -1089,6 +1096,37 @@ func (s *webSocketStream) Next() bool {
 	}
 
 	return true
+}
+
+func isWebSocketTransportClosure(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "read" && !opErr.Timeout() {
+		// Windows may surface a stale peer close as WSAECONNABORTED through
+		// net.OpError without matching the portable syscall sentinel.
+		return true
+	}
+
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		strings.Contains(err.Error(), "use of closed network connection")
+}
+
+func isGracefulWebSocketClosure(err error) bool {
+	return websocket.IsCloseError(err, websocket.CloseNormalClosure) ||
+		errors.Is(err, net.ErrClosed) ||
+		strings.Contains(err.Error(), "use of closed network connection")
 }
 
 func (s *webSocketStream) Current() *httpclient.StreamEvent {

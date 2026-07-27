@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"time"
 
 	"github.com/looplj/axonhub/internal/dumper"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/pkg/xcontext"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -110,6 +112,29 @@ func (ts *InboundPersistentStream) Close() error {
 
 	streamErr := ts.stream.Err()
 	ctxErr := ctx.Err()
+	requestFailurePersisted := false
+	if deferredErr, persisted, _ := ts.state.deferredStreamFailure(); deferredErr != nil {
+		streamErr = deferredErr
+		requestFailurePersisted = persisted
+	}
+	requestContextCause := context.Cause(ctx)
+	requestCancellation := (errors.Is(streamErr, context.Canceled) && errors.Is(requestContextCause, context.Canceled)) ||
+		(errors.Is(streamErr, context.DeadlineExceeded) && errors.Is(requestContextCause, context.DeadlineExceeded))
+
+	// A provider terminal event only proves that the raw upstream stream
+	// completed. A later outbound/unified/inbound transform error still makes
+	// the client-visible response invalid and must supersede that provisional
+	// success. Cancellation remains handled below so a valid client disconnect
+	// after a terminal event does not overwrite completion.
+	if streamErr != nil && !requestCancellation {
+		if requestFailurePersisted {
+			ts.persistTerminalStreamFailureChunks(ctx)
+		} else {
+			ts.persistTerminalStreamFailure(ctx, streamErr)
+		}
+
+		return ts.stream.Close()
+	}
 
 	// If we received the [DONE] event, treat the stream as successfully completed
 	// even if there's a context cancellation error. This handles the case where
@@ -118,21 +143,6 @@ func (ts *InboundPersistentStream) Close() error {
 		// Stream completed successfully - perform final persistence
 		log.Debug(ctx, "Stream completed successfully (received terminal event), performing final persistence")
 		ts.persistResponseChunks(ctx)
-
-		return ts.stream.Close()
-	}
-
-	// If there's an explicit stream error (not just context cancellation), treat as failure
-	// regardless of what chunks we have. Stream errors indicate the upstream response
-	// was incomplete or corrupted.
-	if streamErr != nil && !errors.Is(streamErr, context.Canceled) && !errors.Is(streamErr, context.DeadlineExceeded) {
-		if ts.request != nil {
-			persistCtx := context.WithoutCancel(ctx)
-
-			if err := ts.requestService.UpdateRequestStatusFromError(persistCtx, ts.request.ID, streamErr); err != nil {
-				log.Warn(persistCtx, "Failed to update request status from error", log.Cause(err))
-			}
-		}
 
 		return ts.stream.Close()
 	}
@@ -155,18 +165,11 @@ func (ts *InboundPersistentStream) Close() error {
 	// Check if context was canceled (client disconnected before [DONE]).
 	// Skip the error path if we determined the stream actually completed successfully above.
 	if (ctxErr != nil || streamErr != nil) && !ts.state.StreamCompleted {
-		if ts.request != nil {
-			persistCtx := context.WithoutCancel(ctx)
-
-			errToReport := ctxErr
-			if errToReport == nil {
-				errToReport = streamErr
-			}
-
-			if err := ts.requestService.UpdateRequestStatusFromError(persistCtx, ts.request.ID, errToReport); err != nil {
-				log.Warn(persistCtx, "Failed to update request status from error", log.Cause(err))
-			}
+		errToReport := streamErr
+		if errToReport == nil {
+			errToReport = ctxErr
 		}
+		ts.persistTerminalStreamFailure(ctx, errToReport)
 
 		return ts.stream.Close()
 	}
@@ -178,15 +181,8 @@ func (ts *InboundPersistentStream) Close() error {
 	if !ts.state.StreamCompleted {
 		log.Debug(ctx, "Stream ended without terminal event or completed response, treating as incomplete")
 
-		if ts.request != nil {
-			persistCtx := context.WithoutCancel(ctx)
-
-			errToReport := errors.New("stream ended without terminal event or completed response")
-
-			if err := ts.requestService.UpdateRequestStatusFromError(persistCtx, ts.request.ID, errToReport); err != nil {
-				log.Warn(persistCtx, "Failed to update request status from error", log.Cause(err))
-			}
-		}
+		errToReport := errors.New("stream ended without terminal event or completed response")
+		ts.persistTerminalStreamFailure(ctx, errToReport)
 
 		return ts.stream.Close()
 	}
@@ -202,6 +198,36 @@ func (ts *InboundPersistentStream) Close() error {
 	}
 
 	return ts.stream.Close()
+}
+
+func (ts *InboundPersistentStream) persistTerminalStreamFailure(ctx context.Context, streamErr error) {
+	if ts.request == nil {
+		return
+	}
+
+	requestContextCause := context.Cause(ctx)
+	streamErr = terminalErrorCause(streamErr, requestContextCause)
+
+	statusCtx, cancelStatus := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	if err := ts.requestService.UpdateRequestStatusFromError(statusCtx, ts.request.ID, streamErr, requestContextCause); err != nil {
+		log.Warn(statusCtx, "Failed to update request status from error", log.Cause(err))
+	}
+	cancelStatus()
+
+	ts.persistTerminalStreamFailureChunks(ctx)
+}
+
+func (ts *InboundPersistentStream) persistTerminalStreamFailureChunks(ctx context.Context) {
+	if ts.request == nil {
+		return
+	}
+
+	chunksCtx, cancelChunks := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	defer cancelChunks()
+
+	if err := ts.requestService.SaveRequestChunks(chunksCtx, ts.request.ID, ts.responseChunks); err != nil {
+		log.Warn(chunksCtx, "Failed to save terminal request chunks", log.Cause(err))
+	}
 }
 
 func (ts *InboundPersistentStream) persistResponseChunks(ctx context.Context) {

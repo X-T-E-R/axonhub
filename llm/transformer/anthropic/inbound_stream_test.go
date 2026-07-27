@@ -14,6 +14,7 @@ import (
 	"github.com/looplj/axonhub/llm/internal/pkg/xjson"
 	"github.com/looplj/axonhub/llm/internal/pkg/xtest"
 	"github.com/looplj/axonhub/llm/streams"
+	baseTransformer "github.com/looplj/axonhub/llm/transformer"
 )
 
 type failingResponseStream struct {
@@ -51,6 +52,7 @@ func TestInboundStream_FinalizesOnCleanExhaustionWithoutFinishReason(t *testing.
 		delta              *llm.Message
 		usage              *llm.Usage
 		expectedStopReason string
+		wantIncomplete     bool
 	}{
 		{
 			name: "tool call",
@@ -70,6 +72,7 @@ func TestInboundStream_FinalizesOnCleanExhaustionWithoutFinishReason(t *testing.
 				CompletionTokens: 7,
 			},
 			expectedStopReason: "tool_use",
+			wantIncomplete:     true,
 		},
 		{
 			name: "server tool call",
@@ -89,6 +92,7 @@ func TestInboundStream_FinalizesOnCleanExhaustionWithoutFinishReason(t *testing.
 				}},
 			},
 			expectedStopReason: "end_turn",
+			wantIncomplete:     true,
 		},
 		{
 			name: "mcp tool call",
@@ -108,6 +112,7 @@ func TestInboundStream_FinalizesOnCleanExhaustionWithoutFinishReason(t *testing.
 				}},
 			},
 			expectedStopReason: "end_turn",
+			wantIncomplete:     true,
 		},
 		{
 			name: "text",
@@ -148,6 +153,14 @@ func TestInboundStream_FinalizesOnCleanExhaustionWithoutFinishReason(t *testing.
 					Choices: []llm.Choice{{Index: 0}},
 					Usage:   tt.usage,
 				},
+			}
+
+			if tt.wantIncomplete {
+				stream, err := transformer.TransformStream(t.Context(), streams.SliceStream(input))
+				require.NoError(t, err)
+				_, err = streams.All(stream)
+				require.ErrorIs(t, err, baseTransformer.ErrIncompleteToolCall)
+				return
 			}
 
 			events := collectInboundStreamEvents(t, transformer, input)
@@ -392,8 +405,8 @@ func TestInboundStream_RemovesEmptyReadPages(t *testing.T) {
 		}
 	}
 
-	require.Len(t, argumentDeltas, 1)
-	require.JSONEq(t, `{"file_path":"/tmp/a.go"}`, argumentDeltas[0])
+	require.Equal(t, []string{`{"file_path":`, `"/tmp/a.go","pages":""}`}, argumentDeltas)
+	require.JSONEq(t, `{"file_path":"/tmp/a.go","pages":""}`, argumentDeltas[0]+argumentDeltas[1])
 }
 
 func TestInboundStream_EmitsCitationsDeltaWhenAnnotationsArriveBeforeText(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 // streamAggregator holds the state for aggregating stream chunks.
@@ -222,6 +223,16 @@ func AggregateStreamChunks(_ context.Context, chunks []*httpclient.StreamEvent) 
 	}
 
 	resp := agg.buildResponse()
+	if resp.Status != nil && *resp.Status == "completed" {
+		for _, item := range resp.Output {
+			if item.Type != "function_call" {
+				continue
+			}
+			if err := transformer.ValidateFunctionCall(item.Name, item.Arguments); err != nil {
+				return nil, llm.ResponseMeta{}, err
+			}
+		}
+	}
 
 	body, err := json.Marshal(resp)
 	if err != nil {

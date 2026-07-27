@@ -37,7 +37,8 @@ type Middleware interface {
 	// Order: Forward.
 	OnOutboundRawRequest(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error)
 
-	// OnOutboundRawError executes if the provider request fails (network error or status code >= 400).
+	// OnOutboundRawError executes if an outbound attempt fails, including a network/status
+	// failure or an error deferred by a streaming provider/transformer until iteration.
 	// Timing: Once per failed Attempt.
 	// Order: Reverse (last registered executes first).
 	OnOutboundRawError(ctx context.Context, err error)

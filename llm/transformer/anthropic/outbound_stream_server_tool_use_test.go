@@ -226,7 +226,19 @@ func TestOutboundTransformer_ToolUseInputFromStartAndDeltas(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			transformed, err := transformer.TransformStream(t.Context(), nil, streams.SliceStream(tt.events))
+			events := append([]*httpclient.StreamEvent(nil), tt.events...)
+			events = append(events,
+				sseEvent(t, "message_delta", map[string]any{
+					"type": "message_delta",
+					"delta": map[string]any{
+						"stop_reason": "tool_use",
+					},
+				}),
+				sseEvent(t, "message_stop", map[string]any{
+					"type": "message_stop",
+				}),
+			)
+			transformed, err := transformer.TransformStream(t.Context(), nil, streams.SliceStream(events))
 			require.NoError(t, err)
 
 			var combinedArgs strings.Builder

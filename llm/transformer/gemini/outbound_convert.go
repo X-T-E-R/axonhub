@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -734,11 +733,6 @@ func convertGeminiCandidateToLLMChoiceWithState(candidate *Candidate, isStream b
 						Arguments: string(argsJSON),
 					},
 				}
-				// Gemini may response empty tool call ID.
-				if tc.ID == "" {
-					tc.ID = fmt.Sprintf("tc_%s", uuid.NewString())
-				}
-
 				setOutboundToolCallThoughtSignature(&tc, part.ThoughtSignature)
 				toolCalls = append(toolCalls, tc)
 				nextToolCallIndex++

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -12,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 func (t *InboundTransformer) TransformStream(
@@ -23,6 +25,8 @@ func (t *InboundTransformer) TransformStream(
 		source:               stream,
 		ctx:                  ctx,
 		toolCalls:            make(map[int]*llm.ToolCall),
+		toolCallDeltas:       make(map[int][]string),
+		toolCallSnapshots:    make(map[int]bool),
 		pendingTextCitations: nil,
 	}, nil
 }
@@ -51,6 +55,9 @@ type anthropicInboundStream struct {
 	toolCalls            map[int]*llm.ToolCall // Track tool calls by index
 	currentToolCallIndex int
 	hasCurrentToolCall   bool
+	toolCallsFlushed     bool
+	toolCallDeltas       map[int][]string
+	toolCallSnapshots    map[int]bool
 
 	lastEventType string
 
@@ -181,6 +188,133 @@ func (s *anthropicInboundStream) closeToolBlock() error {
 	return nil
 }
 
+func (s *anthropicInboundStream) accumulateToolCalls(toolCalls []llm.ToolCall, snapshot bool) error {
+	if s.toolCallsFlushed && len(toolCalls) > 0 {
+		return fmt.Errorf("%w: received tool data after tool blocks were finalized", transformer.ErrIncompleteToolCall)
+	}
+
+	for _, incoming := range toolCalls {
+		existing, ok := s.toolCalls[incoming.Index]
+		wasNew := !ok
+		if !ok {
+			existing = &llm.ToolCall{Index: incoming.Index}
+			s.toolCalls[incoming.Index] = existing
+		}
+
+		if incoming.ID != "" && existing.ID != "" && existing.ID != incoming.ID {
+			return fmt.Errorf(
+				"%w: tool index %d changed id from %s to %s",
+				transformer.ErrIncompleteToolCall,
+				incoming.Index,
+				existing.ID,
+				incoming.ID,
+			)
+		}
+		if incoming.ID != "" {
+			existing.ID = incoming.ID
+		}
+		if incoming.Type != "" {
+			existing.Type = incoming.Type
+		}
+		if incoming.Function.Name != "" {
+			existing.Function.Name = incoming.Function.Name
+		}
+		if incoming.Function.Namespace != "" {
+			existing.Function.Namespace = incoming.Function.Namespace
+		}
+		if snapshot {
+			existing.Function.Arguments = incoming.Function.Arguments
+			s.toolCallSnapshots[incoming.Index] = true
+		} else {
+			existing.Function.Arguments += incoming.Function.Arguments
+			if !wasNew || incoming.Function.Arguments != "" {
+				s.toolCallDeltas[incoming.Index] = append(
+					s.toolCallDeltas[incoming.Index],
+					incoming.Function.Arguments,
+				)
+			}
+		}
+		if incoming.TransformerMetadata != nil {
+			existing.TransformerMetadata = incoming.TransformerMetadata
+		}
+	}
+
+	return nil
+}
+
+func (s *anthropicInboundStream) flushBufferedToolCalls() error {
+	if s.toolCallsFlushed || len(s.toolCalls) == 0 {
+		return nil
+	}
+
+	indexes := make([]int, 0, len(s.toolCalls))
+	for index := range s.toolCalls {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+
+	for _, index := range indexes {
+		toolCall := s.toolCalls[index]
+		if toolCall.ID == "" {
+			return fmt.Errorf("%w: missing call id for %s", transformer.ErrIncompleteToolCall, toolCall.Function.Name)
+		}
+		if err := transformer.ValidateFunctionCall(
+			toolCall.Function.Name,
+			toolCall.Function.Arguments,
+		); err != nil {
+			return err
+		}
+
+		blockType := "tool_use"
+		if anthropicType := getAnthropicType(toolCall.TransformerMetadata); anthropicType != "" {
+			blockType = anthropicType
+		}
+		if err := s.enqueEvent(&StreamEvent{
+			Type:  "content_block_start",
+			Index: &s.contentIndex,
+			ContentBlock: &MessageContentBlock{
+				Type:   blockType,
+				ID:     toolCall.ID,
+				Name:   &toolCall.Function.Name,
+				Input:  json.RawMessage("{}"),
+				Caller: getAnthropicCaller(toolCall.TransformerMetadata),
+			},
+		}); err != nil {
+			return fmt.Errorf("failed to enqueue content_block_start event: %w", err)
+		}
+
+		deltas := s.toolCallDeltas[index]
+		if s.toolCallSnapshots[index] || len(deltas) == 0 {
+			deltas = []string{toolCall.Function.Arguments}
+		}
+		for deltaIndex := range deltas {
+			arguments := deltas[deltaIndex]
+			if err := s.enqueEvent(&StreamEvent{
+				Type:  "content_block_delta",
+				Index: &s.contentIndex,
+				Delta: &StreamDelta{
+					Type:        lo.ToPtr("input_json_delta"),
+					PartialJSON: &arguments,
+				},
+			}); err != nil {
+				return fmt.Errorf("failed to enqueue content_block_delta event: %w", err)
+			}
+		}
+
+		if err := s.enqueEvent(&StreamEvent{
+			Type:  "content_block_stop",
+			Index: &s.contentIndex,
+		}); err != nil {
+			return fmt.Errorf("failed to enqueue content_block_stop event: %w", err)
+		}
+		s.contentIndex++
+	}
+
+	s.toolCallsFlushed = true
+
+	return nil
+}
+
 // closeThinkingBlock ensures any open or implied thinking block is properly
 // closed. It handles three scenarios:
 //  1. pendingSignature exists but no thinking block was started — creates a
@@ -193,6 +327,12 @@ func (s *anthropicInboundStream) closeToolBlock() error {
 // base64-encoded UUID is generated as a placeholder signature.
 func (s *anthropicInboundStream) closeThinkingBlock() error {
 	if s.pendingSignature != nil && !s.hasThinkingContentStarted {
+		if len(s.toolCalls) > 0 && !s.toolCallsFlushed {
+			if err := s.flushBufferedToolCalls(); err != nil {
+				return fmt.Errorf("failed to flush tool calls before pending signature: %w", err)
+			}
+		}
+
 		sig := s.pendingSignature
 		s.pendingSignature = nil
 
@@ -381,6 +521,10 @@ func (s *anthropicInboundStream) Next() bool {
 	// Try to get the next chunk from source
 	if !s.source.Next() {
 		if s.source.Err() != nil || !s.hasStarted || s.messageStoped {
+			return false
+		}
+		if len(s.toolCalls) > 0 && !s.hasFinished {
+			s.err = fmt.Errorf("%w: stream ended before tool-call finish", transformer.ErrIncompleteToolCall)
 			return false
 		}
 
@@ -673,8 +817,12 @@ func (s *anthropicInboundStream) Next() bool {
 			}
 		}
 
-		// Handle tool calls
-		if choice.Delta != nil && len(choice.Delta.ToolCalls) > 0 {
+		// Buffer tool calls until the terminal choice. Anthropic content blocks
+		// cannot be interleaved, while unified/OpenAI streams can interleave
+		// argument fragments by tool index. Delaying emission also lets an
+		// authoritative Choice.Message snapshot replace provisional fragments.
+		if (choice.Delta != nil && len(choice.Delta.ToolCalls) > 0) ||
+			(choice.Message != nil && len(choice.Message.ToolCalls) > 0) {
 			if err := s.closeThinkingBlock(); err != nil {
 				s.err = fmt.Errorf("failed to close thinking block: %w", err)
 				return false
@@ -703,109 +851,16 @@ func (s *anthropicInboundStream) Next() bool {
 				s.contentIndex += 1
 			}
 
-			for _, deltaToolCall := range choice.Delta.ToolCalls {
-				toolCallIndex := deltaToolCall.Index
-
-				// Initialize tool call if it doesn't exist
-				if _, ok := s.toolCalls[toolCallIndex]; !ok {
-					// Start a new tool use block, we should stop the previous tool use block
-					if toolCallIndex > 0 {
-						if s.hasToolContentStarted {
-							if err := s.closeToolBlock(); err != nil {
-								s.err = fmt.Errorf("failed to close previous tool block: %w", err)
-								return false
-							}
-						}
-					}
-
-					s.hasToolContentStarted = true
-					s.currentToolCallIndex = toolCallIndex
-					s.hasCurrentToolCall = true
-					s.toolCalls[toolCallIndex] = &llm.ToolCall{
-						Index: toolCallIndex,
-						ID:    deltaToolCall.ID,
-						Type:  deltaToolCall.Type,
-						Function: llm.FunctionCall{
-							Name:      deltaToolCall.Function.Name,
-							Arguments: "",
-						},
-						TransformerMetadata: deltaToolCall.TransformerMetadata,
-					}
-
-					// Restore the original Anthropic block type (tool_use /
-					// server_tool_use / mcp_tool_use / ...) and caller when the
-					// upstream tagged it via TransformerMetadata.
-					blockType := "tool_use"
-					if at := getAnthropicType(deltaToolCall.TransformerMetadata); at != "" {
-						blockType = at
-					}
-
-					streamEvent := StreamEvent{
-						Type:  "content_block_start",
-						Index: &s.contentIndex,
-						ContentBlock: &MessageContentBlock{
-							Type:   blockType,
-							ID:     deltaToolCall.ID,
-							Name:   &deltaToolCall.Function.Name,
-							Input:  json.RawMessage("{}"),
-							Caller: getAnthropicCaller(deltaToolCall.TransformerMetadata),
-						},
-					}
-
-					err := s.enqueEvent(&streamEvent)
-					if err != nil {
-						s.err = fmt.Errorf("failed to enqueue content_block_start event: %w", err)
-						return false
-					}
-
-					// If the tool call has arguments, we need to generate a content_block_delta.
-					if deltaToolCall.Function.Arguments != "" {
-						s.toolCalls[toolCallIndex].Function.Arguments += deltaToolCall.Function.Arguments
-						if isReadToolName(deltaToolCall.Function.Name) {
-							continue
-						}
-
-						streamEvent := StreamEvent{
-							Type:  "content_block_delta",
-							Index: &s.contentIndex,
-							Delta: &StreamDelta{
-								Type:        lo.ToPtr("input_json_delta"),
-								PartialJSON: &deltaToolCall.Function.Arguments,
-							},
-						}
-
-						err := s.enqueEvent(&streamEvent)
-						if err != nil {
-							s.err = fmt.Errorf("failed to enqueue content_block_delta event: %w", err)
-							return false
-						}
-					}
-				} else {
-					s.toolCalls[toolCallIndex].Function.Arguments += deltaToolCall.Function.Arguments
-					if isReadToolName(s.toolCalls[toolCallIndex].Function.Name) {
-						continue
-					}
-
-					// Generate content_block_delta for input_json_delta
-					// contentBlockIndex := int64(toolCallIndex)
-					// if s.hasTextContentStarted || s.hasThinkingContentStarted {
-					// 	contentBlockIndex = s.contentIndex + 1 + int64(toolCallIndex)
-					// }
-
-					streamEvent := StreamEvent{
-						Type:  "content_block_delta",
-						Index: &s.contentIndex,
-						Delta: &StreamDelta{
-							Type:        lo.ToPtr("input_json_delta"),
-							PartialJSON: &deltaToolCall.Function.Arguments,
-						},
-					}
-
-					err := s.enqueEvent(&streamEvent)
-					if err != nil {
-						s.err = fmt.Errorf("failed to enqueue content_block_delta event: %w", err)
-						return false
-					}
+			if choice.Delta != nil {
+				if err := s.accumulateToolCalls(choice.Delta.ToolCalls, false); err != nil {
+					s.err = err
+					return false
+				}
+			}
+			if choice.Message != nil {
+				if err := s.accumulateToolCalls(choice.Message.ToolCalls, true); err != nil {
+					s.err = err
+					return false
 				}
 			}
 		}
@@ -820,10 +875,10 @@ func (s *anthropicInboundStream) Next() bool {
 				return false
 			}
 
-			// Close any open tool_use block before starting a tool_result.
-			if s.hasToolContentStarted {
-				if err := s.closeToolBlock(); err != nil {
-					s.err = fmt.Errorf("failed to close tool block before tool_result: %w", err)
+			// Complete buffered tool-use blocks before starting their results.
+			if len(s.toolCalls) > 0 && !s.toolCallsFlushed {
+				if err := s.flushBufferedToolCalls(); err != nil {
+					s.err = fmt.Errorf("failed to flush tool calls before tool_result: %w", err)
 					return false
 				}
 			}
@@ -910,9 +965,9 @@ func (s *anthropicInboundStream) Next() bool {
 				contentClosed = true
 			}
 
-			if s.hasToolContentStarted {
-				if err := s.closeToolBlock(); err != nil {
-					s.err = fmt.Errorf("failed to close tool block at finish: %w", err)
+			if len(s.toolCalls) > 0 {
+				if err := s.flushBufferedToolCalls(); err != nil {
+					s.err = err
 					return false
 				}
 				contentClosed = true

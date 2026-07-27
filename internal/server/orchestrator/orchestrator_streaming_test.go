@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,13 +20,16 @@ import (
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/pipeline/stream"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 	anthropictransformer "github.com/looplj/axonhub/llm/transformer/anthropic"
 	geminitransformer "github.com/looplj/axonhub/llm/transformer/gemini"
 	"github.com/looplj/axonhub/llm/transformer/openai"
+	responsestransformer "github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
 
 func mustMarshalGeminiStreamChunk(resp *geminitransformer.GenerateContentResponse) []byte {
@@ -734,6 +738,372 @@ func (s *errorAfterEventsStream) Err() error {
 }
 
 func (s *errorAfterEventsStream) Close() error { return nil }
+
+// terminalIntegrityOutbound simulates a streaming transformer that discovers a
+// terminal integrity violation only after consuming the provider's successful
+// terminal event. Closing the source before surfacing the error exercises the
+// completed -> failed persistence transition rather than a direct middleware call.
+type terminalIntegrityOutbound struct {
+	transformer.Outbound
+	err error
+}
+
+func (t *terminalIntegrityOutbound) TransformStream(
+	ctx context.Context,
+	req *httpclient.Request,
+	raw streams.Stream[*httpclient.StreamEvent],
+) (streams.Stream[*llm.Response], error) {
+	source, err := t.Outbound.TransformStream(ctx, req, raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return &terminalIntegrityLlmStream{
+		source: source,
+		err:    t.err,
+	}, nil
+}
+
+type terminalIntegrityLlmStream struct {
+	source  streams.Stream[*llm.Response]
+	current *llm.Response
+	err     error
+	failed  bool
+}
+
+func (s *terminalIntegrityLlmStream) Next() bool {
+	if !s.source.Next() {
+		return false
+	}
+
+	current := s.source.Current()
+	if current == llm.DoneResponse || (current != nil && current.Object == "[DONE]") {
+		// The raw persistence wrapper has observed provider success. Closing here
+		// makes that provisional completion durable before the integrity error is
+		// returned through Err.
+		_ = s.source.Close()
+		s.failed = true
+		return false
+	}
+
+	s.current = current
+
+	return true
+}
+
+func (s *terminalIntegrityLlmStream) Current() *llm.Response {
+	return s.current
+}
+
+func (s *terminalIntegrityLlmStream) Err() error {
+	if sourceErr := s.source.Err(); sourceErr != nil {
+		return sourceErr
+	}
+
+	if s.failed {
+		return s.err
+	}
+
+	return nil
+}
+
+func (s *terminalIntegrityLlmStream) Close() error {
+	return s.source.Close()
+}
+
+type terminalErrorCountingMiddleware struct {
+	pipeline.DummyMiddleware
+	calls int
+	err   error
+}
+
+func (m *terminalErrorCountingMiddleware) Name() string {
+	return "terminal-error-counting"
+}
+
+func (m *terminalErrorCountingMiddleware) OnOutboundRawError(_ context.Context, err error) {
+	m.calls++
+	m.err = err
+}
+
+func TestChatCompletionOrchestrator_StreamTerminalTransformErrorSupersedesProviderCompletion(t *testing.T) {
+	ctx := authz.WithTestBypass(context.Background())
+
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx = ent.NewContext(ctx, client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+	project := createTestProject(t, ctx, client)
+	ch := createTestChannel(t, ctx, client)
+	channelService, requestService, systemService, usageLogService := setupTestServices(t, client)
+	require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{
+		StoreChunks:       true,
+		StoreRequestBody:  true,
+		StoreResponseBody: true,
+	}))
+
+	streamEvents := []*httpclient.StreamEvent{
+		{Data: []byte(`{"id":"chatcmpl-integrity","object":"chat.completion.chunk","created":1,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"},"finish_reason":null}]}`)},
+		{Data: []byte("[DONE]")},
+	}
+	executor := &mockExecutor{streamEvents: streamEvents}
+
+	baseOutbound, err := openai.NewOutboundTransformer(ch.BaseURL, ch.Credentials.APIKey)
+	require.NoError(t, err)
+	integrityErr := errors.New("terminal tool-call integrity validation failed")
+	outbound := &terminalIntegrityOutbound{
+		Outbound: baseOutbound,
+		err:      integrityErr,
+	}
+	bizChannel := &biz.Channel{Channel: ch, Outbound: outbound}
+	channelSelector := &staticChannelSelector{
+		candidates: channelsToTestCandidates([]*biz.Channel{bizChannel}, "gpt-4"),
+	}
+	errorCounter := &terminalErrorCountingMiddleware{}
+
+	orchestrator := &ChatCompletionOrchestrator{
+		channelSelector:       channelSelector,
+		Inbound:               openai.NewInboundTransformer(),
+		RequestService:        requestService,
+		ChannelService:        channelService,
+		PromptProvider:        &stubPromptProvider{},
+		SystemService:         systemService,
+		UsageLogService:       usageLogService,
+		PipelineFactory:       pipeline.NewFactory(executor),
+		ModelMapper:           NewModelMapper(),
+		channelLimiterManager: NewChannelLimiterManager(),
+		Middlewares:           []pipeline.Middleware{errorCounter},
+	}
+
+	ctx = contexts.WithProjectID(ctx, project.ID)
+	result, err := orchestrator.Process(ctx, buildTestRequest("gpt-4", "Call the tool", true))
+	require.NoError(t, err)
+	require.NotNil(t, result.ChatCompletionStream)
+
+	var clientChunks []*httpclient.StreamEvent
+	for result.ChatCompletionStream.Next() {
+		clientChunks = append(clientChunks, result.ChatCompletionStream.Current())
+	}
+
+	require.ErrorIs(t, result.ChatCompletionStream.Err(), integrityErr)
+	require.Equal(t, 1, errorCounter.calls, "deferred stream errors must invoke middleware exactly once")
+	require.ErrorIs(t, errorCounter.err, integrityErr)
+	require.Len(t, clientChunks, 1)
+	require.Contains(t, string(clientChunks[0].Data), "partial")
+	require.NoError(t, result.ChatCompletionStream.Close())
+	require.Equal(t, 1, errorCounter.calls, "Err and Close must not double-call middleware")
+
+	requests, err := client.Request.Query().All(ctx)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, request.StatusFailed, requests[0].Status)
+	requestChunks, err := requestService.LoadResponseChunks(ctx, requests[0])
+	require.NoError(t, err)
+	require.Len(t, requestChunks, 1)
+	require.Contains(t, string(requestChunks[0]), "partial")
+
+	executions, err := client.RequestExecution.Query().All(ctx)
+	require.NoError(t, err)
+	require.Len(t, executions, 1)
+	require.Equal(t, requestexecution.StatusFailed, executions[0].Status)
+	require.Equal(t, integrityErr.Error(), executions[0].ErrorMessage)
+	require.Equal(t, "chatcmpl-integrity", executions[0].ExternalID,
+		"the failed row should retain evidence from provisional raw completion")
+	require.NotEmpty(t, executions[0].ResponseBody)
+	executionChunks, err := requestService.LoadRequestExecutionResponseChunks(ctx, executions[0])
+	require.NoError(t, err)
+	require.Len(t, executionChunks, 1)
+	require.Contains(t, string(executionChunks[0]), "partial")
+}
+
+type responsesStreamingFixture struct {
+	ctx            context.Context
+	client         *ent.Client
+	requestService *biz.RequestService
+	orchestrator   *ChatCompletionOrchestrator
+}
+
+func newResponsesStreamingFixture(
+	t *testing.T,
+	streamEvents []*httpclient.StreamEvent,
+	middlewares ...pipeline.Middleware,
+) *responsesStreamingFixture {
+	t.Helper()
+
+	ctx := authz.WithTestBypass(context.Background())
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	t.Cleanup(func() { client.Close() })
+
+	ctx = ent.NewContext(ctx, client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+	project := createTestProject(t, ctx, client)
+	ch := createTestChannel(t, ctx, client)
+	channelService, requestService, systemService, usageLogService := setupTestServices(t, client)
+	require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{
+		StoreChunks:       true,
+		StoreRequestBody:  true,
+		StoreResponseBody: true,
+	}))
+
+	outbound, err := responsestransformer.NewOutboundTransformer(ch.BaseURL, ch.Credentials.APIKey)
+	require.NoError(t, err)
+	bizChannel := &biz.Channel{Channel: ch, Outbound: outbound}
+	channelSelector := &staticChannelSelector{
+		candidates: channelsToTestCandidates([]*biz.Channel{bizChannel}, "gpt-4"),
+	}
+
+	return &responsesStreamingFixture{
+		ctx:            contexts.WithProjectID(ctx, project.ID),
+		client:         client,
+		requestService: requestService,
+		orchestrator: &ChatCompletionOrchestrator{
+			channelSelector:       channelSelector,
+			Inbound:               responsestransformer.NewInboundTransformer(),
+			RequestService:        requestService,
+			ChannelService:        channelService,
+			PromptProvider:        &stubPromptProvider{},
+			SystemService:         systemService,
+			UsageLogService:       usageLogService,
+			PipelineFactory:       pipeline.NewFactory(&mockExecutor{streamEvents: streamEvents}),
+			ModelMapper:           NewModelMapper(),
+			channelLimiterManager: NewChannelLimiterManager(),
+			Middlewares:           middlewares,
+		},
+	}
+}
+
+func buildTestResponsesRequest() *httpclient.Request {
+	return &httpclient.Request{
+		Method: http.MethodPost,
+		URL:    "/v1/responses",
+		Headers: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		Body: []byte(`{"model":"gpt-4","input":"Call the tool","stream":true}`),
+	}
+}
+
+func TestChatCompletionOrchestrator_ResponsesTerminalIntegrityErrorEmitsFailureAndPersistsCause(t *testing.T) {
+	errorCounter := &terminalErrorCountingMiddleware{}
+	fixture := newResponsesStreamingFixture(t, []*httpclient.StreamEvent{
+		{
+			Type: "response.created",
+			Data: []byte(`{"type":"response.created","response":{"id":"resp_integrity","object":"response","created_at":1,"model":"gpt-4","status":"in_progress","output":[]}}`),
+		},
+		{
+			Type: "response.output_text.delta",
+			Data: []byte(`{"type":"response.output_text.delta","item_id":"msg_integrity","output_index":0,"content_index":0,"delta":"partial"}`),
+		},
+		{
+			Type: "response.completed",
+			Data: []byte(`{"type":"response.completed","response":{"id":"resp_integrity","object":"response","created_at":1,"model":"gpt-4","status":"completed","output":[{"id":"fc_integrity","type":"function_call","call_id":"call_integrity","name":"spawn_agent","arguments":""}]}}`),
+		},
+	}, errorCounter)
+
+	result, err := fixture.orchestrator.Process(fixture.ctx, buildTestResponsesRequest())
+	require.NoError(t, err)
+	require.NotNil(t, result.ChatCompletionStream)
+
+	var clientEventTypes []string
+	for result.ChatCompletionStream.Next() {
+		eventType := result.ChatCompletionStream.Current().Type
+		if eventType == "response.failed" {
+			require.Equal(t, 1, errorCounter.calls,
+				"causal persistence must run before response.failed is exposed")
+			persistedRequests, queryErr := fixture.client.Request.Query().All(fixture.ctx)
+			require.NoError(t, queryErr)
+			require.Len(t, persistedRequests, 1)
+			require.Equal(t, request.StatusFailed, persistedRequests[0].Status)
+			persistedExecutions, queryErr := fixture.client.RequestExecution.Query().All(fixture.ctx)
+			require.NoError(t, queryErr)
+			require.Len(t, persistedExecutions, 1)
+			require.Equal(t, requestexecution.StatusFailed, persistedExecutions[0].Status)
+		}
+		clientEventTypes = append(clientEventTypes, eventType)
+	}
+
+	require.NoError(t, result.ChatCompletionStream.Err(),
+		"Responses protocol converts the causal source error into response.failed")
+	require.Contains(t, clientEventTypes, "response.output_text.delta")
+	require.Contains(t, clientEventTypes, "response.failed")
+	require.NotContains(t, clientEventTypes, "response.completed")
+	require.Equal(t, 1, errorCounter.calls)
+	require.ErrorIs(t, errorCounter.err, transformer.ErrToolCallIntegrity)
+	require.True(t, pipeline.IsDeferredStreamError(errorCounter.err))
+	require.NoError(t, result.ChatCompletionStream.Close())
+	require.Equal(t, 1, errorCounter.calls)
+
+	requests, err := fixture.client.Request.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, request.StatusFailed, requests[0].Status)
+	requestChunks, err := fixture.requestService.LoadResponseChunks(fixture.ctx, requests[0])
+	require.NoError(t, err)
+	require.NotEmpty(t, requestChunks)
+	var persistedResponseFailed bool
+	for _, chunk := range requestChunks {
+		if strings.Contains(string(chunk), `"type":"response.failed"`) {
+			persistedResponseFailed = true
+			break
+		}
+	}
+	require.True(t, persistedResponseFailed)
+
+	executions, err := fixture.client.RequestExecution.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, executions, 1)
+	require.Equal(t, requestexecution.StatusFailed, executions[0].Status)
+	require.Contains(t, executions[0].ErrorMessage, transformer.ErrToolCallIntegrity.Error())
+	executionChunks, err := fixture.requestService.LoadRequestExecutionResponseChunks(fixture.ctx, executions[0])
+	require.NoError(t, err)
+	require.NotEmpty(t, executionChunks)
+	require.Contains(t, string(executionChunks[len(executionChunks)-1]), `"type":"response.completed"`)
+}
+
+func TestChatCompletionOrchestrator_ResponsesValidCompletionSurvivesClientCancellation(t *testing.T) {
+	errorCounter := &terminalErrorCountingMiddleware{}
+	fixture := newResponsesStreamingFixture(t, []*httpclient.StreamEvent{
+		{
+			Type: "response.created",
+			Data: []byte(`{"type":"response.created","response":{"id":"resp_valid","object":"response","created_at":1,"model":"gpt-4","status":"in_progress","output":[]}}`),
+		},
+		{
+			Type: "response.output_text.delta",
+			Data: []byte(`{"type":"response.output_text.delta","item_id":"msg_valid","output_index":0,"content_index":0,"delta":"complete"}`),
+		},
+		{
+			Type: "response.completed",
+			Data: []byte(`{"type":"response.completed","response":{"id":"resp_valid","object":"response","created_at":1,"model":"gpt-4","status":"completed","output":[{"id":"msg_valid","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"complete"}]}]}}`),
+		},
+	}, errorCounter)
+
+	requestCtx, cancel := context.WithCancel(fixture.ctx)
+	result, err := fixture.orchestrator.Process(requestCtx, buildTestResponsesRequest())
+	require.NoError(t, err)
+	require.NotNil(t, result.ChatCompletionStream)
+
+	var clientEventTypes []string
+	for result.ChatCompletionStream.Next() {
+		clientEventTypes = append(clientEventTypes, result.ChatCompletionStream.Current().Type)
+	}
+	require.NoError(t, result.ChatCompletionStream.Err())
+	require.Contains(t, clientEventTypes, "response.completed")
+
+	cancel()
+	require.NoError(t, result.ChatCompletionStream.Close())
+	require.Zero(t, errorCounter.calls)
+
+	requests, err := fixture.client.Request.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, request.StatusCompleted, requests[0].Status)
+
+	executions, err := fixture.client.RequestExecution.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, executions, 1)
+	require.Equal(t, requestexecution.StatusCompleted, executions[0].Status)
+}
 
 // TestChatCompletionOrchestrator_Process_QueueRejectionDoesNotConsumeRPM is a
 // regression test for the middleware ordering invariant: channel admission must

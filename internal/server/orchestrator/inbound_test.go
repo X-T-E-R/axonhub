@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/enttest"
+	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
@@ -227,6 +229,34 @@ func TestInboundPersistentStream_Close_WithTerminalEvent(t *testing.T) {
 	assert.True(t, mockStream.closed, "Stream should be closed")
 }
 
+func TestInboundPersistentStream_Close_TerminalEventSurvivesClientCancellation(t *testing.T) {
+	requestCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	rawStream := &mockStream{
+		events: []*httpclient.StreamEvent{{Data: []byte("[DONE]")}},
+		err:    context.Canceled,
+	}
+	state := &PersistenceState{}
+	persistentStream := NewInboundPersistentStream(
+		requestCtx,
+		rawStream,
+		nil,
+		nil,
+		nil,
+		&mockInboundTransformer{},
+		nil,
+		state,
+	)
+
+	require.True(t, persistentStream.Next())
+	require.NotNil(t, persistentStream.Current())
+	require.True(t, state.StreamCompleted)
+	require.NoError(t, persistentStream.Close())
+	require.True(t, state.StreamCompleted)
+	require.True(t, rawStream.closed)
+}
+
 // TestInboundPersistentStream_Close_WithAggregationError tests the error path:
 // aggregation fails but fallback behavior still works (persistResponseChunks called in final block).
 func TestInboundPersistentStream_Close_WithAggregationError(t *testing.T) {
@@ -258,6 +288,61 @@ func TestInboundPersistentStream_Close_WithAggregationError(t *testing.T) {
 
 	assert.False(t, state.StreamCompleted, "StreamCompleted should remain false after Close() with aggregation error")
 	assert.True(t, mockStream.closed, "Stream should be closed")
+}
+
+func TestInboundPersistentStream_Close_PreservesFailedPartialChunks(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(context.Background())
+	ctx = ent.NewContext(ctx, client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+	project := createTestProject(t, ctx, client)
+	_, requestService, systemService, _ := setupTestServices(t, client)
+	require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{StoreChunks: true}))
+
+	req, err := client.Request.Create().
+		SetProjectID(project.ID).
+		SetModelID("gpt-4.1").
+		SetStatus(request.StatusProcessing).
+		SetRequestBody([]byte(`{"stream":true}`)).
+		SetStream(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	partial := &httpclient.StreamEvent{
+		Type: "response.output_text.delta",
+		Data: []byte(`{"type":"response.output_text.delta","delta":"partial"}`),
+	}
+	streamErr := errors.New("client-visible stream transform failed")
+	rawStream := &mockStream{
+		events: []*httpclient.StreamEvent{partial},
+		err:    streamErr,
+	}
+	persistentStream := NewInboundPersistentStream(
+		ctx,
+		rawStream,
+		req,
+		nil,
+		requestService,
+		&mockInboundTransformer{},
+		nil,
+		&PersistenceState{},
+	)
+
+	require.True(t, persistentStream.Next())
+	require.Equal(t, partial, persistentStream.Current())
+	require.False(t, persistentStream.Next())
+	require.NoError(t, persistentStream.Close())
+
+	req, err = client.Request.Get(ctx, req.ID)
+	require.NoError(t, err)
+	require.Equal(t, request.StatusFailed, req.Status)
+
+	chunks, err := requestService.LoadResponseChunks(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, chunks, 1)
+	require.JSONEq(t, `{"event":"response.output_text.delta","data":{"type":"response.output_text.delta","delta":"partial"}}`, string(chunks[0]))
 }
 
 func TestIsTerminalStreamEvent_AudioDoneEvents(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 // TransformStream transforms the unified llm.Response stream to OpenAI Responses API SSE events.
@@ -125,6 +126,21 @@ func (s *responsesInboundStream) Next() bool {
 
 	// Try to get the next chunk from source
 	if !s.source.Next() {
+		if s.err == nil && !s.errorEventEmitted && s.source.Err() == nil && !s.hasFinished {
+			for _, started := range s.toolCallItemStarted {
+				if !started {
+					continue
+				}
+				if err := s.emitStreamErrorEvent(fmt.Errorf(
+					"%w: stream ended before tool-call finish",
+					transformer.ErrToolCallIntegrity,
+				)); err != nil {
+					s.err = fmt.Errorf("failed to enqueue stream error event: %w", err)
+					return false
+				}
+				return s.Next()
+			}
+		}
 		if s.err == nil && !s.errorEventEmitted && s.source.Err() == nil && s.hasFinished && !s.responseCompleted {
 			s.responseCompleted = true
 			s.aggregator.status = "completed"
@@ -278,6 +294,12 @@ func (s *responsesInboundStream) Next() bool {
 		// Handle tool calls
 		if choice.Delta != nil && len(choice.Delta.ToolCalls) > 0 {
 			if err := s.handleToolCalls(choice.Delta.ToolCalls); err != nil {
+				s.err = err
+				return false
+			}
+		}
+		if choice.Message != nil && len(choice.Message.ToolCalls) > 0 {
+			if err := s.handleToolCallSnapshots(choice.Message.ToolCalls); err != nil {
 				s.err = err
 				return false
 			}
@@ -581,6 +603,15 @@ func (s *responsesInboundStream) handleToolCalls(toolCalls []llm.ToolCall) error
 			if err := s.initToolCall(tc); err != nil {
 				return err
 			}
+		} else if existing := s.toolCalls[toolCallIndex]; tc.ID != "" &&
+			existing.ID != "" && existing.ID != tc.ID {
+			return fmt.Errorf(
+				"%w: tool index %d changed id from %s to %s",
+				transformer.ErrIncompleteToolCall,
+				toolCallIndex,
+				existing.ID,
+				tc.ID,
+			)
 		}
 
 		// Process delta based on tool type
@@ -599,15 +630,69 @@ func (s *responsesInboundStream) handleToolCalls(toolCalls []llm.ToolCall) error
 	return nil
 }
 
+func (s *responsesInboundStream) handleToolCallSnapshots(toolCalls []llm.ToolCall) error {
+	for _, tc := range toolCalls {
+		if _, ok := s.toolCalls[tc.Index]; !ok {
+			if err := s.initToolCall(tc); err != nil {
+				return err
+			}
+		}
+
+		stored := s.toolCalls[tc.Index]
+		if tc.ID != "" && stored.ID != "" && stored.ID != tc.ID {
+			return fmt.Errorf(
+				"%w: tool index %d changed id from %s to %s",
+				transformer.ErrIncompleteToolCall,
+				tc.Index,
+				stored.ID,
+				tc.ID,
+			)
+		}
+
+		if tc.ID != "" {
+			stored.ID = tc.ID
+		}
+		if tc.Type != "" {
+			stored.Type = tc.Type
+		}
+		if tc.ResponseCustomToolCall != nil {
+			copy := *tc.ResponseCustomToolCall
+			stored.ResponseCustomToolCall = &copy
+			continue
+		}
+		if tc.Function.Name != "" {
+			stored.Function.Name = tc.Function.Name
+		}
+		if tc.Function.Namespace != "" {
+			stored.Function.Namespace = tc.Function.Namespace
+		}
+		stored.Function.Arguments = tc.Function.Arguments
+	}
+
+	return nil
+}
+
 func (s *responsesInboundStream) initToolCall(tc llm.ToolCall) error {
 	toolCallIndex := tc.Index
+	if tc.ResponseCustomToolCall == nil && tc.ID == "" {
+		return fmt.Errorf("%w: missing call id for %s", transformer.ErrIncompleteToolCall, tc.Function.Name)
+	}
 
 	if err := s.closeCurrentContentPart(); err != nil {
 		return err
 	}
 
-	if err := s.closeCurrentOutputItem(); err != nil {
-		return err
+	// Tool calls may be interleaved. Close text/reasoning items, but leave
+	// previously started tool items open until the terminal choice.
+	if s.hasMessageItemStarted {
+		if err := s.closeMessageItem(); err != nil {
+			return err
+		}
+	}
+	if s.hasReasoningItemStarted {
+		if err := s.closeReasoningItem(); err != nil {
+			return err
+		}
 	}
 
 	s.toolCalls[toolCallIndex] = &llm.ToolCall{
@@ -980,6 +1065,13 @@ func (s *responsesInboundStream) closeCurrentOutputItem() error {
 
 		default:
 			// Function call - emit function_call_arguments.done then output_item.done
+			if err := transformer.ValidateFunctionCall(
+				tc.Function.Name,
+				tc.Function.Arguments,
+			); err != nil {
+				return err
+			}
+
 			err := s.enqueueEvent(&StreamEvent{
 				Type:        StreamEventTypeFunctionCallArgumentsDone,
 				ItemID:      &itemID,
@@ -1045,6 +1137,12 @@ func (s *responsesInboundStream) emitStreamErrorEvent(err error) error {
 func classifyStreamError(err error) (code, message string) {
 	code = "stream_error"
 	message = err.Error()
+
+	if errors.Is(err, transformer.ErrToolCallIntegrity) {
+		code = "tool_call_integrity"
+		message = "tool call stream ended before a valid terminal boundary"
+		return code, message
+	}
 
 	if errors.Is(err, io.EOF) {
 		code = "upstream_eof"

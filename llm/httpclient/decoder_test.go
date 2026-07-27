@@ -95,6 +95,20 @@ func (r *readChunkThenError) Close() error {
 	return nil
 }
 
+type cancelThenErrorReadCloser struct {
+	cancel context.CancelFunc
+	err    error
+}
+
+func (r *cancelThenErrorReadCloser) Read([]byte) (int, error) {
+	r.cancel()
+	return 0, r.err
+}
+
+func (r *cancelThenErrorReadCloser) Close() error {
+	return nil
+}
+
 func TestRegisterDecoder(t *testing.T) {
 	// Save original state
 	originalDecoders := make(map[string]StreamDecoderFactory)
@@ -202,6 +216,28 @@ func TestDefaultSSEDecoder_NextAfterClose(t *testing.T) {
 	require.NoError(t, decoder.Err())
 }
 
+func TestDefaultSSEDecoder_PreservesTransportErrorWhenContextIsCanceledLater(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	transportErr := errors.New("upstream connection reset")
+	decoder := NewDefaultSSEDecoder(ctx, &cancelThenErrorReadCloser{
+		cancel: cancel,
+		err:    transportErr,
+	})
+
+	require.False(t, decoder.Next())
+	require.ErrorIs(t, decoder.Err(), transportErr)
+	require.NotErrorIs(t, decoder.Err(), context.Canceled)
+}
+
+func TestDefaultSSEDecoder_GenuineCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	decoder := NewDefaultSSEDecoder(ctx, newMockReadCloser(nil))
+
+	require.False(t, decoder.Next())
+	require.ErrorIs(t, decoder.Err(), context.Canceled)
+}
+
 func TestBinaryChunkDecoder(t *testing.T) {
 	ctx := context.Background()
 	rc := newMockReadCloser([]byte("abcdefgh"))
@@ -242,6 +278,28 @@ func TestBinaryChunkDecoder_PreservesReadErrorAfterChunk(t *testing.T) {
 
 	require.False(t, decoder.Next())
 	require.ErrorIs(t, decoder.Err(), streamErr)
+}
+
+func TestBinaryChunkDecoder_PreservesTransportErrorWhenContextIsCanceledLater(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	transportErr := errors.New("truncated upstream audio")
+	decoder := NewBinaryChunkDecoder("audio/mpeg")(ctx, &cancelThenErrorReadCloser{
+		cancel: cancel,
+		err:    transportErr,
+	})
+
+	require.False(t, decoder.Next())
+	require.ErrorIs(t, decoder.Err(), transportErr)
+	require.NotErrorIs(t, decoder.Err(), context.Canceled)
+}
+
+func TestBinaryChunkDecoder_GenuineCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	decoder := NewBinaryChunkDecoder("audio/mpeg")(ctx, newMockReadCloser(nil))
+
+	require.False(t, decoder.Next())
+	require.ErrorIs(t, decoder.Err(), context.Canceled)
 }
 
 func TestStreamDecoderInterface(t *testing.T) {

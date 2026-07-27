@@ -33,6 +33,38 @@ func (m *persistRequestMiddleware) Name() string {
 	return "persist-request"
 }
 
+func (m *persistRequestMiddleware) OnOutboundRawError(ctx context.Context, err error) {
+	if !pipeline.IsDeferredStreamError(err) {
+		return
+	}
+
+	state := m.inbound.state
+	if state == nil {
+		return
+	}
+
+	requestContextCause := context.Cause(ctx)
+	causalErr := terminalErrorCause(err, requestContextCause)
+	persisted := false
+	if state.Request != nil {
+		persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+		updateErr := state.RequestService.UpdateRequestStatusFromError(
+			persistCtx,
+			state.Request.ID,
+			causalErr,
+			requestContextCause,
+		)
+		if updateErr != nil {
+			log.Warn(persistCtx, "Failed to update request terminal stream status", log.Cause(updateErr))
+		} else {
+			persisted = true
+		}
+		cancel()
+	}
+
+	state.recordDeferredRequestFailure(causalErr, persisted)
+}
+
 func (m *persistRequestMiddleware) OnInboundLlmRequest(ctx context.Context, llmRequest *llm.Request) (*llm.Request, error) {
 	if m.inbound.state.Request != nil {
 		return llmRequest, nil

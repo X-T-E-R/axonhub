@@ -419,11 +419,20 @@ func (p *pipeline) stream(
 		firstEventGuard.stop()
 	}
 
+	terminalErrorReporter := &terminalErrorReporter{
+		ctx:     ctx,
+		onError: p.applyRawErrorResponseMiddlewares,
+	}
+	llmStream = &terminalErrorReportingStream[*llm.Response]{
+		stream:   llmStream,
+		reporter: terminalErrorReporter,
+	}
+
 	inboundStream, err := p.Inbound.TransformStream(ctx, llmStream)
 	if err != nil {
 		llmStream.Close()
 		firstEventGuard.cancelStream()
-		p.applyRawErrorResponseMiddlewares(ctx, err)
+		terminalErrorReporter.report(err)
 
 		slog.ErrorContext(ctx, "Failed to transform streaming request", slog.Any("error", err))
 
@@ -436,7 +445,7 @@ func (p *pipeline) stream(
 	if err != nil {
 		rawInboundStream.Close()
 		firstEventGuard.cancelStream()
-		p.applyRawErrorResponseMiddlewares(ctx, err)
+		terminalErrorReporter.report(err)
 
 		return nil, fmt.Errorf("failed to apply inbound raw stream middlewares: %w", err)
 	}
@@ -449,6 +458,11 @@ func (p *pipeline) stream(
 				return event
 			},
 		)
+	}
+
+	inboundStream = &terminalErrorReportingStream[*httpclient.StreamEvent]{
+		stream:   inboundStream,
+		reporter: terminalErrorReporter,
 	}
 
 	if firstEventGuard != nil {

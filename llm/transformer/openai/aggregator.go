@@ -12,6 +12,7 @@ import (
 
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 // choiceAggregator is a helper struct to aggregate data for each choice.
@@ -350,6 +351,12 @@ func AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent
 			finalToolCalls = make([]llm.ToolCall, 0, len(toolCallIndexes))
 			for _, toolCallIndex := range toolCallIndexes {
 				toolCall := choiceAgg.toolCalls[toolCallIndex]
+				if err := transformer.ValidateFunctionCall(
+					toolCall.Function.Name,
+					toolCall.Function.Arguments,
+				); err != nil {
+					return nil, llm.ResponseMeta{}, err
+				}
 				finalToolCalls = append(finalToolCalls, *toolCall)
 			}
 		}

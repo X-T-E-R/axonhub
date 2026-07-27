@@ -517,19 +517,15 @@ func TestConvertStreamTransformer_TransformStream_ToolCallDeltaIdentity(t *testi
 	require.NoError(t, resultStream.Err())
 
 	var (
-		startIDs    []string
-		deltaIDs    []string
-		available   []StreamEvent
-		syntheticID string
+		startIDs  []string
+		deltaIDs  []string
+		available []StreamEvent
 	)
 
 	for _, event := range events {
 		switch event.Type {
 		case "tool-input-start":
 			startIDs = append(startIDs, event.ToolCallID)
-			if event.ToolName == "look" {
-				syntheticID = event.ToolCallID
-			}
 		case "tool-input-delta":
 			deltaIDs = append(deltaIDs, event.ToolCallID)
 		case "tool-input-available":
@@ -537,11 +533,10 @@ func TestConvertStreamTransformer_TransformStream_ToolCallDeltaIdentity(t *testi
 		}
 	}
 
-	require.NotEmpty(t, syntheticID)
-	require.Equal(t, []string{syntheticID, "call_time"}, startIDs)
-	require.Equal(t, []string{syntheticID, "call_time", syntheticID, "call_time"}, deltaIDs)
+	require.Equal(t, []string{"call_time", "call_lookup"}, startIDs)
+	require.Equal(t, []string{"call_time", "call_lookup", "call_lookup", "call_time"}, deltaIDs)
 	require.Len(t, available, 2)
-	require.Equal(t, syntheticID, available[0].ToolCallID)
+	require.Equal(t, "call_lookup", available[0].ToolCallID)
 	require.Equal(t, "lookup", available[0].ToolName)
 	require.JSONEq(t, `{"city":"Paris"}`, string(available[0].Input))
 	require.Equal(t, "call_time", available[1].ToolCallID)

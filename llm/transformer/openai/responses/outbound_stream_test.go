@@ -15,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/internal/pkg/xtest"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 func TestOutboundTransformer_StreamTransformation_WithTestData(t *testing.T) {
@@ -279,7 +280,7 @@ func TestOutboundTransformer_TransformStream_RecoversFunctionCallArgumentsFromTe
 	}
 }
 
-func TestOutboundTransformer_TransformStream_RecoversMissingFunctionCallIdentityFromTerminalEvent(t *testing.T) {
+func TestOutboundTransformer_TransformStream_RejectsMissingFunctionCallArguments(t *testing.T) {
 	trans, err := NewOutboundTransformer("https://api.openai.com", "test-api-key")
 	require.NoError(t, err)
 
@@ -293,22 +294,8 @@ func TestOutboundTransformer_TransformStream_RecoversMissingFunctionCallIdentity
 	stream, err := trans.TransformStream(t.Context(), nil, streams.SliceStream(events))
 	require.NoError(t, err)
 
-	responses, err := streams.All(stream)
-	require.NoError(t, err)
-
-	var identityDeltas []llm.FunctionCall
-	for _, response := range responses {
-		if response == llm.DoneResponse || len(response.Choices) == 0 || response.Choices[0].Delta == nil {
-			continue
-		}
-		for _, toolCall := range response.Choices[0].Delta.ToolCalls {
-			if toolCall.Function.Name != "" || toolCall.Function.Namespace != "" {
-				identityDeltas = append(identityDeltas, toolCall.Function)
-			}
-		}
-	}
-
-	require.Equal(t, []llm.FunctionCall{{Name: "Read", Namespace: "project"}}, identityDeltas)
+	_, err = streams.All(stream)
+	require.ErrorIs(t, err, transformer.ErrIncompleteToolCall)
 }
 
 func TestOutboundTransformer_TransformStream_RecoversCustomToolInputFromTerminalEvents(t *testing.T) {

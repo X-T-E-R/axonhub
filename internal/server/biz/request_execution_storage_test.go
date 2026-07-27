@@ -349,3 +349,38 @@ func TestRequestService_LoadFailedExecutionResponseChunksFromExternalStorage(t *
 	require.Len(t, chunks, 1)
 	require.JSONEq(t, `{"event":"message","data":{"delta":"external partial"}}`, string(chunks[0]))
 }
+
+func TestRequestService_LoadTerminalRequestResponseChunks(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+
+	require.NoError(t, svc.SystemService.SetStoragePolicy(ctx, &StoragePolicy{StoreChunks: true}))
+	storedEvent := &httpclient.StreamEvent{Type: "message", Data: []byte(`{"delta":"partial"}`)}
+
+	for _, status := range []request.Status{
+		request.StatusCompleted,
+		request.StatusFailed,
+		request.StatusCanceled,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			req := createStorageTestRequest(t, ctx, client, proj, true)
+			require.NoError(t, svc.SaveRequestChunks(ctx, req.ID, []*httpclient.StreamEvent{storedEvent}))
+			req, err := client.Request.UpdateOneID(req.ID).SetStatus(status).Save(ctx)
+			require.NoError(t, err)
+
+			chunks, err := svc.LoadResponseChunks(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, chunks, 1)
+			require.JSONEq(t, `{"event":"message","data":{"delta":"partial"}}`, string(chunks[0]))
+		})
+	}
+
+	t.Run("pending does not expose stored chunks", func(t *testing.T) {
+		req := createStorageTestRequest(t, ctx, client, proj, true)
+		require.NoError(t, svc.SaveRequestChunks(ctx, req.ID, []*httpclient.StreamEvent{storedEvent}))
+
+		chunks, err := svc.LoadResponseChunks(ctx, req)
+		require.NoError(t, err)
+		require.Empty(t, chunks)
+	})
+}

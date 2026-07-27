@@ -12,6 +12,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 // TransformStream transforms LLM response stream to AI SDK data stream protocol format.
@@ -70,6 +71,8 @@ type toolCallIDKey struct {
 type activeToolCall struct {
 	toolCall         llm.ToolCall
 	providerID       string
+	startedEmitted   bool
+	argumentsEmitted int
 	availableEmitted bool
 }
 
@@ -100,6 +103,18 @@ func (s *aiSDKConvertStream) Next() bool {
 
 	// Try to get the next chunk from source
 	if !s.source.Next() {
+		if s.source.Err() == nil {
+			for _, active := range s.activeToolCallOrder {
+				if !active.availableEmitted {
+					s.err = fmt.Errorf(
+						"%w: stream ended before tool call %q completed",
+						transformer.ErrToolCallIntegrity,
+						active.toolCall.ID,
+					)
+					return false
+				}
+			}
+		}
 		return false
 	}
 
@@ -233,45 +248,34 @@ func (s *aiSDKConvertStream) Next() bool {
 			}
 
 			for _, deltaToolCall := range choice.Delta.ToolCalls {
-				active, created := s.resolveToolCall(choice.Index, deltaToolCall)
+				active, _, err := s.resolveToolCall(choice.Index, deltaToolCall)
+				if err != nil {
+					s.err = err
+					return false
+				}
 				if deltaToolCall.Type != "" {
 					active.toolCall.Type = deltaToolCall.Type
 				}
 
 				active.toolCall.Function.Name += deltaToolCall.Function.Name
 
-				if created {
-
-					// Start tool content if not already started
-					if !s.hasToolContentStarted {
-						s.hasToolContentStarted = true
-					}
-
-					// Tool input start
-					toolInputStart := StreamEvent{
-						Type:       "tool-input-start",
-						ToolCallID: active.toolCall.ID,
-						ToolName:   active.toolCall.Function.Name,
-					}
-					if err := s.enqueueEvent("tool-input-start", toolInputStart); err != nil {
-						s.err = fmt.Errorf("failed to enqueue tool-input-start event: %w", err)
-						return false
-					}
+				if err := s.ensureToolInputStarted(active); err != nil {
+					s.err = err
+					return false
 				}
 
 				// Update arguments
 				if deltaToolCall.Function.Arguments != "" {
 					active.toolCall.Function.Arguments += deltaToolCall.Function.Arguments
-
-					// Tool input delta
-					toolInputDelta := StreamEvent{
-						Type:           "tool-input-delta",
-						ToolCallID:     active.toolCall.ID,
-						InputTextDelta: deltaToolCall.Function.Arguments,
-					}
-					if err := s.enqueueEvent("tool-input-delta", toolInputDelta); err != nil {
-						s.err = fmt.Errorf("failed to enqueue tool-input-delta event: %w", err)
+					if err := s.ensureToolInputStarted(active); err != nil {
+						s.err = err
 						return false
+					}
+					if active.startedEmitted {
+						if err := s.emitPendingToolArguments(active); err != nil {
+							s.err = err
+							return false
+						}
 					}
 				}
 			}
@@ -280,12 +284,27 @@ func (s *aiSDKConvertStream) Next() bool {
 		// Handle complete tool calls (tool-input-available)
 		if choice.Message != nil && len(choice.Message.ToolCalls) > 0 {
 			for _, toolCall := range choice.Message.ToolCalls {
-				active, _ := s.resolveToolCall(choice.Index, toolCall)
+				active, _, err := s.resolveToolCall(choice.Index, toolCall)
+				if err != nil {
+					s.err = err
+					return false
+				}
 				if toolCall.Type != "" {
 					active.toolCall.Type = toolCall.Type
 				}
 
 				if toolCall.Function.Name != "" {
+					if active.toolCall.Function.Name != "" &&
+						active.toolCall.Function.Name != toolCall.Function.Name {
+						s.err = fmt.Errorf(
+							"%w: call %s changed name from %s to %s",
+							transformer.ErrToolCallIntegrity,
+							active.toolCall.ID,
+							active.toolCall.Function.Name,
+							toolCall.Function.Name,
+						)
+						return false
+					}
 					active.toolCall.Function.Name = toolCall.Function.Name
 				}
 
@@ -348,7 +367,10 @@ func (s *aiSDKConvertStream) Next() bool {
 	return s.Next()
 }
 
-func (s *aiSDKConvertStream) resolveToolCall(choiceIndex int, delta llm.ToolCall) (*activeToolCall, bool) {
+func (s *aiSDKConvertStream) resolveToolCall(
+	choiceIndex int,
+	delta llm.ToolCall,
+) (*activeToolCall, bool, error) {
 	key := toolCallKey{
 		choiceIndex: choiceIndex,
 		callIndex:   delta.Index,
@@ -356,27 +378,47 @@ func (s *aiSDKConvertStream) resolveToolCall(choiceIndex int, delta llm.ToolCall
 
 	if delta.ID != "" {
 		if active, ok := s.activeToolCallsByID[toolCallIDKey{choiceIndex: choiceIndex, id: delta.ID}]; ok {
+			if keyed, exists := s.activeToolCalls[key]; exists && keyed != active {
+				return nil, false, fmt.Errorf(
+					"%w: tool index %d conflicts with call id %s",
+					transformer.ErrToolCallIntegrity,
+					delta.Index,
+					delta.ID,
+				)
+			}
+			if active.toolCall.Index != delta.Index {
+				return nil, false, fmt.Errorf(
+					"%w: call id %s changed index from %d to %d",
+					transformer.ErrToolCallIntegrity,
+					delta.ID,
+					active.toolCall.Index,
+					delta.Index,
+				)
+			}
 			s.activeToolCalls[key] = active
 
-			return active, false
+			return active, false, nil
 		}
 	}
 
-	if active, ok := s.activeToolCalls[key]; ok &&
-		(delta.ID == "" || active.providerID == "" || active.providerID == delta.ID) {
+	if active, ok := s.activeToolCalls[key]; ok {
+		if delta.ID != "" && active.providerID != "" && active.providerID != delta.ID {
+			return nil, false, fmt.Errorf(
+				"%w: tool index %d changed id from %s to %s",
+				transformer.ErrToolCallIntegrity,
+				delta.Index,
+				active.providerID,
+				delta.ID,
+			)
+		}
 		s.bindToolCallID(choiceIndex, active, delta.ID)
 
-		return active, false
-	}
-
-	toolCallID := delta.ID
-	if toolCallID == "" {
-		toolCallID = generateID("tool")
+		return active, false, nil
 	}
 
 	active := &activeToolCall{
 		toolCall: llm.ToolCall{
-			ID:    toolCallID,
+			ID:    delta.ID,
 			Index: delta.Index,
 		},
 	}
@@ -384,7 +426,7 @@ func (s *aiSDKConvertStream) resolveToolCall(choiceIndex int, delta llm.ToolCall
 	s.activeToolCallOrder = append(s.activeToolCallOrder, active)
 	s.bindToolCallID(choiceIndex, active, delta.ID)
 
-	return active, true
+	return active, true, nil
 }
 
 func (s *aiSDKConvertStream) bindToolCallID(choiceIndex int, active *activeToolCall, providerID string) {
@@ -393,7 +435,49 @@ func (s *aiSDKConvertStream) bindToolCallID(choiceIndex int, active *activeToolC
 	}
 
 	active.providerID = providerID
+	active.toolCall.ID = providerID
 	s.activeToolCallsByID[toolCallIDKey{choiceIndex: choiceIndex, id: providerID}] = active
+}
+
+func (s *aiSDKConvertStream) ensureToolInputStarted(active *activeToolCall) error {
+	if active.startedEmitted ||
+		active.toolCall.ID == "" ||
+		active.toolCall.Function.Name == "" {
+		return nil
+	}
+
+	if !s.hasToolContentStarted {
+		s.hasToolContentStarted = true
+	}
+	if err := s.enqueueEvent("tool-input-start", StreamEvent{
+		Type:       "tool-input-start",
+		ToolCallID: active.toolCall.ID,
+		ToolName:   active.toolCall.Function.Name,
+	}); err != nil {
+		return fmt.Errorf("failed to enqueue tool-input-start event: %w", err)
+	}
+	active.startedEmitted = true
+
+	return s.emitPendingToolArguments(active)
+}
+
+func (s *aiSDKConvertStream) emitPendingToolArguments(active *activeToolCall) error {
+	arguments := active.toolCall.Function.Arguments
+	if active.argumentsEmitted >= len(arguments) {
+		return nil
+	}
+
+	delta := arguments[active.argumentsEmitted:]
+	if err := s.enqueueEvent("tool-input-delta", StreamEvent{
+		Type:           "tool-input-delta",
+		ToolCallID:     active.toolCall.ID,
+		InputTextDelta: delta,
+	}); err != nil {
+		return fmt.Errorf("failed to enqueue tool-input-delta event: %w", err)
+	}
+	active.argumentsEmitted = len(arguments)
+
+	return nil
 }
 
 func (s *aiSDKConvertStream) emitToolInputAvailable(active *activeToolCall) error {
@@ -401,23 +485,24 @@ func (s *aiSDKConvertStream) emitToolInputAvailable(active *activeToolCall) erro
 		return nil
 	}
 
-	var input any
-	if active.toolCall.Function.Arguments != "" {
-		if err := json.Unmarshal([]byte(active.toolCall.Function.Arguments), &input); err != nil {
-			return fmt.Errorf("failed to unmarshal tool call arguments: %w", err)
-		}
+	if err := transformer.ValidateToolCallJSON(
+		active.toolCall.Function.Name,
+		active.toolCall.Function.Arguments,
+	); err != nil {
+		return err
 	}
-
-	inputData, err := json.Marshal(input)
-	if err != nil {
-		return fmt.Errorf("failed to marshal tool input: %w", err)
+	if active.toolCall.ID == "" {
+		return fmt.Errorf("%w: missing call id for %s", transformer.ErrIncompleteToolCall, active.toolCall.Function.Name)
+	}
+	if err := s.ensureToolInputStarted(active); err != nil {
+		return err
 	}
 
 	toolInputAvailable := StreamEvent{
 		Type:       "tool-input-available",
 		ToolCallID: active.toolCall.ID,
 		ToolName:   active.toolCall.Function.Name,
-		Input:      json.RawMessage(inputData),
+		Input:      json.RawMessage(active.toolCall.Function.Arguments),
 	}
 	if err := s.enqueueEvent("data", toolInputAvailable); err != nil {
 		return fmt.Errorf("failed to enqueue tool-input-available event: %w", err)

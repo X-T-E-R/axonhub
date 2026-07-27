@@ -142,14 +142,10 @@ func (s *defaultSSEDecoder) Next() bool {
 			return false
 		}
 
-		// If the error surfaced because ctx was canceled (or the reader was
-		// closed by an external Close), surface ctx.Err() to callers so they
-		// can distinguish cancellation from genuine transport errors.
-		if ctxErr := s.ctx.Err(); ctxErr != nil {
-			s.err = ctxErr
-		} else {
-			s.err = err
-		}
+		// Recv's concrete error is the causal evidence. The context can be
+		// canceled immediately afterward by retry/cleanup code; consulting
+		// ctx.Err here would then overwrite a provider/transport failure.
+		s.err = err
 
 		return false
 	}
@@ -265,11 +261,7 @@ func (d *binaryChunkDecoder) Next() bool {
 	n, err := d.reader.Read(d.buf)
 	if n > 0 {
 		if err != nil && !errors.Is(err, io.EOF) {
-			if ctxErr := d.ctx.Err(); ctxErr != nil {
-				d.pendingErr = ctxErr
-			} else {
-				d.pendingErr = err
-			}
+			d.pendingErr = err
 		}
 
 		payload := bytes.Clone(d.buf[:n])
@@ -297,11 +289,7 @@ func (d *binaryChunkDecoder) Next() bool {
 		return false
 	}
 
-	if ctxErr := d.ctx.Err(); ctxErr != nil {
-		d.err = ctxErr
-	} else {
-		d.err = err
-	}
+	d.err = err
 
 	return false
 }

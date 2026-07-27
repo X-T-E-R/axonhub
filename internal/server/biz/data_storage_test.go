@@ -668,6 +668,15 @@ func TestDataStorageService_LoadData(t *testing.T) {
 		result, err := service.LoadData(ctx, dbDS, dataKey)
 		require.NoError(t, err)
 		require.Equal(t, testData, result)
+
+		result, err = service.LoadDataBounded(ctx, dbDS, dataKey, int64(len(testData)))
+		require.NoError(t, err)
+		require.Equal(t, testData, result)
+		_, err = service.LoadDataBounded(ctx, dbDS, dataKey, int64(len(testData)-1))
+		require.ErrorIs(t, err, ErrDataTooLarge)
+		var sizeErr *DataTooLargeError
+		require.ErrorAs(t, err, &sizeErr)
+		require.Equal(t, int64(len(testData)), sizeErr.Size)
 	})
 
 	t.Run("load data from fs storage", func(t *testing.T) {
@@ -681,6 +690,12 @@ func TestDataStorageService_LoadData(t *testing.T) {
 		result, err := service.LoadData(ctx, fsDS, testKey)
 		require.NoError(t, err)
 		require.Equal(t, testData, result)
+
+		result, err = service.LoadDataBounded(ctx, fsDS, testKey, int64(len(testData)))
+		require.NoError(t, err)
+		require.Equal(t, testData, result)
+		_, err = service.LoadDataBounded(ctx, fsDS, testKey, int64(len(testData)-1))
+		require.ErrorIs(t, err, ErrDataTooLarge)
 	})
 
 	t.Run("load non-existent file from fs storage", func(t *testing.T) {
@@ -689,6 +704,14 @@ func TestDataStorageService_LoadData(t *testing.T) {
 		_, err := service.LoadData(ctx, fsDS, "non-existent.txt")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to read file")
+	})
+
+	t.Run("canceled context stops bounded load", func(t *testing.T) {
+		dbDS := createTestDataStorage(t, client, ctx, "db-storage-canceled", false, datastorage.TypeDatabase)
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		_, err := service.LoadDataBounded(canceled, dbDS, string(testData), int64(len(testData)))
+		require.ErrorIs(t, err, context.Canceled)
 	})
 }
 

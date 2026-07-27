@@ -314,6 +314,8 @@ func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, reques
 
 	result, err := pipe.Process(ctx, request)
 	if err != nil {
+		requestContextErr := context.Cause(ctx)
+		causalErr := terminalErrorCause(err, requestContextErr)
 		persistCtx, cancel := xcontext.DetachWithTimeout(ctx, time.Second*10)
 		defer cancel()
 
@@ -323,7 +325,8 @@ func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, reques
 			if updateErr := processor.RequestService.UpdateRequestExecutionStatusFromError(
 				persistCtx,
 				requestExec.ID,
-				err,
+				causalErr,
+				requestContextErr,
 			); updateErr != nil {
 				log.Warn(persistCtx, "Failed to update request execution status from error", log.Cause(updateErr))
 			}
@@ -334,7 +337,8 @@ func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, reques
 			if updateErr := processor.RequestService.UpdateRequestStatusFromError(
 				persistCtx,
 				request.ID,
-				err,
+				causalErr,
+				requestContextErr,
 			); updateErr != nil {
 				log.Warn(persistCtx, "Failed to update request status from error", log.Cause(updateErr))
 			}

@@ -23,6 +23,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
+	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
@@ -209,6 +210,374 @@ func TestPullChannelSnapshotIsProjectDerivedAndCredentialSafe(t *testing.T) {
 	configurationBundle, err := service.Pull(ctx, PullRequest{Contract: ContractRequest{Name: ContractName, Major: 1, MinMinor: 0, MaxMinor: 0}, Scope: Scope{ProjectID: p.ID}, Selector: Selector{Kind: "snapshot"}, Include: Include{Sections: []string{"configuration"}}})
 	require.NoError(t, err)
 	requireContractDecode[ConfigurationDataContract](t, configurationBundle.Sections.Configuration.Data)
+}
+
+func TestPullRejectsEvidenceAboveServerBudgetDespiteClientMaximum(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:diagnostics-evidence-budget?mode=memory&_fk=1")
+	defer client.Close()
+	setupCtx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+	systems := biz.NewSystemService(biz.SystemServiceParams{Ent: client})
+	channels := biz.NewChannelServiceForTest(client)
+	usage := biz.NewUsageLogService(client, systems, channels)
+	storage := biz.NewDataStorageService(biz.DataStorageServiceParams{SystemService: systems, CacheConfig: xcache.Config{}, Client: client})
+	requests := biz.NewRequestService(client, systems, usage, storage, biz.NewLiveStreamRegistry())
+	service := NewService(Params{Ent: client, Requests: requests, Systems: systems, Storage: storage})
+	client.DataStorage.Create().SetName("Primary").SetDescription("Diagnostics budget test storage").SetPrimary(true).SetType(datastorage.TypeDatabase).SetStatus(datastorage.StatusActive).SetSettings(&objects.DataStorageSettings{}).SaveX(setupCtx)
+	p := client.Project.Create().SetName("diagnostics-project").SetStatus(project.StatusActive).SaveX(setupCtx)
+	u := client.User.Create().SetEmail("owner@example.com").SetPassword("x").SetStatus(user.StatusActivated).SetIsOwner(true).SaveX(setupCtx)
+	row := client.Request.Create().
+		SetProject(p).
+		SetModelID("model").
+		SetRequestBody([]byte(`{"payload":"` + strings.Repeat("a", serverMaxEvidenceBytes) + `"}`)).
+		SetStatus(request.StatusCompleted).
+		SaveX(setupCtx)
+
+	ctx := authz.NewUserContext(context.Background(), u.ID)
+	ctx = contexts.WithUser(ctx, u)
+	ctx = contexts.WithProjectID(ctx, p.ID)
+	_, err := service.Pull(ctx, PullRequest{
+		Contract: ContractRequest{Name: ContractName, Major: ContractMajor, MinMinor: ContractMinor, MaxMinor: ContractMinor},
+		Scope:    Scope{ProjectID: p.ID},
+		Selector: Selector{Kind: "requestIds", IDs: json.RawMessage(fmt.Sprintf("[%d]", row.ID))},
+		Include:  Include{Sections: []string{"requests"}},
+		Limits:   Limits{MaxRequests: ContractMaximumMaxRequests, MaxResponseBytes: ContractMaximumMaxResponseBytes},
+	})
+	var serviceErr *ServiceError
+	require.ErrorAs(t, err, &serviceErr)
+	require.Equal(t, "EVIDENCE_BUDGET_EXCEEDED", serviceErr.Code)
+	require.Equal(t, 413, serviceErr.Status)
+}
+
+func TestPullBroadSelectorDoesNotLoadExternalEvidence(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:diagnostics-broad-external?mode=memory&_fk=1")
+	defer client.Close()
+	setupCtx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+	p := client.Project.Create().SetName("diagnostics-project").SetStatus(project.StatusActive).SaveX(setupCtx)
+	u := client.User.Create().SetEmail("owner@example.com").SetPassword("x").SetStatus(user.StatusActivated).SetIsOwner(true).SaveX(setupCtx)
+	now := time.Now().UTC()
+	external := objects.Disposition{Intent: "persist", Location: "external", Outcome: "stored", CapturedAt: now}
+	client.Request.Create().
+		SetProject(p).
+		SetModelID("model").
+		SetRequestBody([]byte(`{}`)).
+		SetStatus(request.StatusCompleted).
+		SetStream(true).
+		SetCreatedAt(now).
+		SetUpdatedAt(now).
+		SetEvidenceDisposition(&objects.EvidenceDisposition{
+			Version:        1,
+			RequestBody:    external,
+			ResponseBody:   external,
+			ResponseChunks: external,
+		}).
+		SaveX(setupCtx)
+
+	// Requests and storage are deliberately nil. A broad selector must project
+	// external evidence as unavailable without entering the full-buffer biz
+	// loaders.
+	service := NewService(Params{Ent: client})
+	ctx := authz.NewUserContext(context.Background(), u.ID)
+	ctx = contexts.WithUser(ctx, u)
+	ctx = contexts.WithProjectID(ctx, p.ID)
+	bundle, err := service.Pull(ctx, PullRequest{
+		Contract: ContractRequest{Name: ContractName, Major: ContractMajor, MinMinor: ContractMinor, MaxMinor: ContractMinor},
+		Scope:    Scope{ProjectID: p.ID},
+		Selector: Selector{Kind: "timeRange", From: now.Add(-time.Minute).Format(time.RFC3339Nano), To: now.Add(time.Minute).Format(time.RFC3339Nano)},
+		Include:  Include{Sections: []string{"requests"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "partial", bundle.Bundle.Status)
+	record := bundle.Sections.Requests.Data.([]any)[0].(map[string]any)
+	for _, field := range []string{"requestBody", "responseBody", "responseChunks"} {
+		evidence := record[field].(Evidence)
+		require.Equal(t, "storageUnavailable", evidence.State)
+		require.Equal(t, "explicit_request_ids_required", evidence.Reason)
+	}
+	require.Len(t, issuesFor(bundle.Issues, "requests"), 4) // three skipped fields plus legacy routing context
+	for _, issue := range bundle.Issues[:3] {
+		require.Equal(t, "EXTERNAL_EVIDENCE_REQUIRES_EXPLICIT_REQUEST_IDS", issue.Code)
+	}
+}
+
+func TestPullExplicitIDsReportNonCancelableStorageAsUnsupported(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:diagnostics-unsupported-bounded-storage?mode=memory&_fk=1")
+	defer client.Close()
+	setupCtx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+	systems := biz.NewSystemService(biz.SystemServiceParams{Ent: client})
+	channels := biz.NewChannelServiceForTest(client)
+	usage := biz.NewUsageLogService(client, systems, channels)
+	storage := biz.NewDataStorageService(biz.DataStorageServiceParams{SystemService: systems, CacheConfig: xcache.Config{}, Client: client})
+	requests := biz.NewRequestService(client, systems, usage, storage, biz.NewLiveStreamRegistry())
+	service := NewService(Params{Ent: client, Requests: requests, Systems: systems, Storage: storage})
+	ds := client.DataStorage.Create().
+		SetName("non-cancelable-gcs").
+		SetDescription("must fail before remote read").
+		SetType(datastorage.TypeGcs).
+		SetStatus(datastorage.StatusActive).
+		SetSettings(&objects.DataStorageSettings{}).
+		SaveX(setupCtx)
+	p := client.Project.Create().SetName("diagnostics-project").SetStatus(project.StatusActive).SaveX(setupCtx)
+	u := client.User.Create().SetEmail("owner@example.com").SetPassword("x").SetStatus(user.StatusActivated).SetIsOwner(true).SaveX(setupCtx)
+	external := objects.Disposition{Intent: "persist", Location: "external", Outcome: "stored", CapturedAt: time.Now().UTC()}
+	row := client.Request.Create().
+		SetProject(p).
+		SetDataStorageID(ds.ID).
+		SetModelID("model").
+		SetRequestBody([]byte(`{}`)).
+		SetStatus(request.StatusCompleted).
+		SetEvidenceDisposition(&objects.EvidenceDisposition{
+			Version:        1,
+			RequestBody:    external,
+			ResponseBody:   external,
+			ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted"},
+		}).
+		SaveX(setupCtx)
+
+	ctx := authz.NewUserContext(context.Background(), u.ID)
+	ctx = contexts.WithUser(ctx, u)
+	ctx = contexts.WithProjectID(ctx, p.ID)
+	bundle, err := service.Pull(ctx, PullRequest{
+		Contract: ContractRequest{Name: ContractName, Major: ContractMajor, MinMinor: ContractMinor, MaxMinor: ContractMinor},
+		Scope:    Scope{ProjectID: p.ID},
+		Selector: Selector{Kind: "requestIds", IDs: json.RawMessage(fmt.Sprintf("[%d]", row.ID))},
+		Include:  Include{Sections: []string{"requests"}},
+	})
+	require.NoError(t, err)
+	record := bundle.Sections.Requests.Data.([]any)[0].(map[string]any)
+	evidence := record["requestBody"].(Evidence)
+	require.Equal(t, "storageUnavailable", evidence.State)
+	require.Equal(t, "cancelable_bounded_read_unsupported", evidence.Reason)
+	require.Contains(t, bundle.Issues, Issue{
+		Code:       "CANCELABLE_BOUNDED_READ_UNSUPPORTED",
+		Section:    "requests",
+		RecordType: "request",
+		RecordID:   fmt.Sprint(row.ID),
+		Retryable:  false,
+		Message:    "requestBody uses a storage backend that cannot honor diagnostics cancellation",
+	})
+}
+
+func TestPullTerminalResponseEvidenceIsPreservedAcrossSelectorsAndStorage(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:diagnostics-terminal-response-evidence?mode=memory&_fk=1")
+	defer client.Close()
+	setupCtx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+	systems := biz.NewSystemService(biz.SystemServiceParams{Ent: client})
+	channels := biz.NewChannelServiceForTest(client)
+	usage := biz.NewUsageLogService(client, systems, channels)
+	storage := biz.NewDataStorageService(biz.DataStorageServiceParams{SystemService: systems, CacheConfig: xcache.Config{}, Client: client})
+	requests := biz.NewRequestService(client, systems, usage, storage, biz.NewLiveStreamRegistry())
+	service := NewService(Params{Ent: client, Requests: requests, Systems: systems, Storage: storage})
+	client.DataStorage.Create().
+		SetName("terminal-evidence-primary").
+		SetDescription("inline terminal response evidence").
+		SetPrimary(true).
+		SetType(datastorage.TypeDatabase).
+		SetStatus(datastorage.StatusActive).
+		SetSettings(&objects.DataStorageSettings{}).
+		SaveX(setupCtx)
+	externalDir := t.TempDir()
+	externalStorage := client.DataStorage.Create().
+		SetName("terminal-evidence-external").
+		SetDescription("external terminal response evidence").
+		SetType(datastorage.TypeFs).
+		SetStatus(datastorage.StatusActive).
+		SetSettings(&objects.DataStorageSettings{Directory: &externalDir}).
+		SaveX(setupCtx)
+	p := client.Project.Create().SetName("diagnostics-project").SetStatus(project.StatusActive).SaveX(setupCtx)
+	u := client.User.Create().SetEmail("owner@example.com").SetPassword("x").SetStatus(user.StatusActivated).SetIsOwner(true).SaveX(setupCtx)
+	now := time.Now().UTC()
+	inlineBody := objects.JSONRawMessage(`{"partial":"inline"}`)
+	inlineChunks := []objects.JSONRawMessage{objects.JSONRawMessage(`{"delta":"inline"}`)}
+	inlineDisposition := objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now}
+	externalDisposition := objects.Disposition{Intent: "persist", Location: "external", Outcome: "stored", CapturedAt: now}
+	omittedDisposition := objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
+
+	inlineRequests := make([]*ent.Request, 0, 2)
+	inlineExecutions := make([]*ent.RequestExecution, 0, 2)
+	for _, terminal := range []struct {
+		request   request.Status
+		execution requestexecution.Status
+	}{
+		{request: request.StatusFailed, execution: requestexecution.StatusFailed},
+		{request: request.StatusCanceled, execution: requestexecution.StatusCanceled},
+	} {
+		row := client.Request.Create().
+			SetProject(p).
+			SetModelID("model").
+			SetRequestBody([]byte(`{}`)).
+			SetStream(true).
+			SetStatus(terminal.request).
+			SetResponseBody(inlineBody).
+			SetResponseChunks(inlineChunks).
+			SetEvidenceDisposition(&objects.EvidenceDisposition{
+				Version:        1,
+				ResponseBody:   inlineDisposition,
+				ResponseChunks: inlineDisposition,
+			}).
+			SetCreatedAt(now).
+			SetUpdatedAt(now).
+			SaveX(setupCtx)
+		exec := client.RequestExecution.Create().
+			SetProjectID(p.ID).
+			SetRequestID(row.ID).
+			SetModelID("model").
+			SetRequestBody([]byte(`{}`)).
+			SetStream(true).
+			SetStatus(terminal.execution).
+			SetResponseBody(inlineBody).
+			SetResponseChunks(inlineChunks).
+			SetEvidenceDisposition(&objects.EvidenceDisposition{
+				Version:        1,
+				ResponseBody:   inlineDisposition,
+				ResponseChunks: inlineDisposition,
+			}).
+			SetCreatedAt(now).
+			SetUpdatedAt(now).
+			SaveX(setupCtx)
+		inlineRequests = append(inlineRequests, row)
+		inlineExecutions = append(inlineExecutions, exec)
+	}
+
+	absentRequest := client.Request.Create().
+		SetProject(p).
+		SetModelID("model").
+		SetRequestBody([]byte(`{}`)).
+		SetStream(true).
+		SetStatus(request.StatusFailed).
+		SetEvidenceDisposition(&objects.EvidenceDisposition{
+			Version:        1,
+			ResponseBody:   omittedDisposition,
+			ResponseChunks: omittedDisposition,
+		}).
+		SetCreatedAt(now).
+		SetUpdatedAt(now).
+		SaveX(setupCtx)
+	absentExecution := client.RequestExecution.Create().
+		SetProjectID(p.ID).
+		SetRequestID(absentRequest.ID).
+		SetModelID("model").
+		SetRequestBody([]byte(`{}`)).
+		SetStream(true).
+		SetStatus(requestexecution.StatusFailed).
+		SetEvidenceDisposition(&objects.EvidenceDisposition{
+			Version:        1,
+			ResponseBody:   omittedDisposition,
+			ResponseChunks: omittedDisposition,
+		}).
+		SetCreatedAt(now).
+		SetUpdatedAt(now).
+		SaveX(setupCtx)
+
+	externalBody := objects.JSONRawMessage(`{"partial":"external"}`)
+	externalChunks := []objects.JSONRawMessage{objects.JSONRawMessage(`{"delta":"external"}`)}
+	externalRequest := client.Request.Create().
+		SetProject(p).
+		SetDataStorageID(externalStorage.ID).
+		SetModelID("model").
+		SetRequestBody([]byte(`{}`)).
+		SetStream(true).
+		SetStatus(request.StatusFailed).
+		SetEvidenceDisposition(&objects.EvidenceDisposition{
+			Version:        1,
+			ResponseBody:   externalDisposition,
+			ResponseChunks: externalDisposition,
+		}).
+		SetCreatedAt(now).
+		SetUpdatedAt(now).
+		SaveX(setupCtx)
+	externalExecution := client.RequestExecution.Create().
+		SetProjectID(p.ID).
+		SetRequestID(externalRequest.ID).
+		SetDataStorageID(externalStorage.ID).
+		SetModelID("model").
+		SetRequestBody([]byte(`{}`)).
+		SetStream(true).
+		SetStatus(requestexecution.StatusFailed).
+		SetEvidenceDisposition(&objects.EvidenceDisposition{
+			Version:        1,
+			ResponseBody:   externalDisposition,
+			ResponseChunks: externalDisposition,
+		}).
+		SetCreatedAt(now).
+		SetUpdatedAt(now).
+		SaveX(setupCtx)
+	externalChunksJSON, err := json.Marshal(externalChunks)
+	require.NoError(t, err)
+	require.NoError(t, storage.SaveData(setupCtx, externalStorage, biz.GenerateResponseBodyKey(p.ID, externalRequest.ID), externalBody))
+	require.NoError(t, storage.SaveData(setupCtx, externalStorage, biz.GenerateResponseChunksKey(p.ID, externalRequest.ID), externalChunksJSON))
+	require.NoError(t, storage.SaveData(setupCtx, externalStorage, biz.GenerateExecutionResponseBodyKey(p.ID, externalRequest.ID, externalExecution.ID), externalBody))
+	require.NoError(t, storage.SaveData(setupCtx, externalStorage, biz.GenerateExecutionResponseChunksKey(p.ID, externalRequest.ID, externalExecution.ID), externalChunksJSON))
+
+	ctx := authz.NewUserContext(context.Background(), u.ID)
+	ctx = contexts.WithUser(ctx, u)
+	ctx = contexts.WithProjectID(ctx, p.ID)
+	pull := func(selector Selector) *PullResponse {
+		t.Helper()
+		bundle, pullErr := service.Pull(ctx, PullRequest{
+			Contract: ContractRequest{Name: ContractName, Major: ContractMajor, MinMinor: ContractMinor, MaxMinor: ContractMinor},
+			Scope:    Scope{ProjectID: p.ID},
+			Selector: selector,
+			Include:  Include{Sections: []string{"requests", "executions"}},
+		})
+		require.NoError(t, pullErr)
+		return bundle
+	}
+	recordByID := func(records []any, id int) map[string]any {
+		t.Helper()
+		for _, raw := range records {
+			record := raw.(map[string]any)
+			if record["id"] == id {
+				return record
+			}
+		}
+		require.FailNow(t, "diagnostics record not found", "id=%d", id)
+		return nil
+	}
+	assertAvailable := func(record map[string]any, body objects.JSONRawMessage, chunks []objects.JSONRawMessage) {
+		t.Helper()
+		bodyEvidence := record["responseBody"].(Evidence)
+		require.Equal(t, "available", bodyEvidence.State)
+		require.JSONEq(t, string(body), string(bodyEvidence.Value.(json.RawMessage)))
+		chunkEvidence := record["responseChunks"].(Evidence)
+		require.Equal(t, "available", chunkEvidence.State)
+		expectedChunks, marshalErr := json.Marshal(chunks)
+		require.NoError(t, marshalErr)
+		require.JSONEq(t, string(expectedChunks), string(chunkEvidence.Value.(json.RawMessage)))
+	}
+
+	inlineIDs := fmt.Sprintf("[%d,%d,%d]", inlineRequests[0].ID, inlineRequests[1].ID, absentRequest.ID)
+	explicitInline := pull(Selector{Kind: "requestIds", IDs: json.RawMessage(inlineIDs)})
+	broadInline := pull(Selector{
+		Kind: "timeRange",
+		From: now.Add(-time.Minute).Format(time.RFC3339Nano),
+		To:   now.Add(time.Minute).Format(time.RFC3339Nano),
+	})
+	for index := range inlineRequests {
+		explicitRequestRecord := recordByID(explicitInline.Sections.Requests.Data.([]any), inlineRequests[index].ID)
+		broadRequestRecord := recordByID(broadInline.Sections.Requests.Data.([]any), inlineRequests[index].ID)
+		assertAvailable(explicitRequestRecord, inlineBody, inlineChunks)
+		assertAvailable(broadRequestRecord, inlineBody, inlineChunks)
+		require.Equal(t, explicitRequestRecord["responseBody"], broadRequestRecord["responseBody"])
+		require.Equal(t, explicitRequestRecord["responseChunks"], broadRequestRecord["responseChunks"])
+
+		explicitExecutionRecord := recordByID(explicitInline.Sections.Executions.Data.([]any), inlineExecutions[index].ID)
+		broadExecutionRecord := recordByID(broadInline.Sections.Executions.Data.([]any), inlineExecutions[index].ID)
+		assertAvailable(explicitExecutionRecord, inlineBody, inlineChunks)
+		assertAvailable(broadExecutionRecord, inlineBody, inlineChunks)
+		require.Equal(t, explicitExecutionRecord["responseBody"], broadExecutionRecord["responseBody"])
+		require.Equal(t, explicitExecutionRecord["responseChunks"], broadExecutionRecord["responseChunks"])
+	}
+	for _, record := range []map[string]any{
+		recordByID(explicitInline.Sections.Requests.Data.([]any), absentRequest.ID),
+		recordByID(explicitInline.Sections.Executions.Data.([]any), absentExecution.ID),
+	} {
+		require.Equal(t, "notPersisted", record["responseBody"].(Evidence).State)
+		require.Equal(t, "notPersisted", record["responseChunks"].(Evidence).State)
+	}
+
+	explicitExternal := pull(Selector{Kind: "requestIds", IDs: json.RawMessage(fmt.Sprintf("[%d]", externalRequest.ID))})
+	assertAvailable(recordByID(explicitExternal.Sections.Requests.Data.([]any), externalRequest.ID), externalBody, externalChunks)
+	assertAvailable(recordByID(explicitExternal.Sections.Executions.Data.([]any), externalExecution.ID), externalBody, externalChunks)
 }
 
 func requireContractDecode[T any](t *testing.T, value any) {

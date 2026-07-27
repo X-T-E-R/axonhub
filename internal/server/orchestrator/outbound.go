@@ -110,6 +110,16 @@ func (ts *OutboundPersistentStream) Close() error {
 	streamErr := ts.stream.Err()
 	ctxErr := ctx.Err()
 
+	if deferredErr, _, executionFailurePersisted := ts.state.deferredStreamFailure(); deferredErr != nil {
+		if executionFailurePersisted {
+			ts.persistTerminalStreamFailureChunks(ctx)
+		} else {
+			ts.persistTerminalStreamFailure(ctx, deferredErr)
+		}
+
+		return ts.stream.Close()
+	}
+
 	// If we received the [DONE] event, treat the stream as successfully completed
 	// even if there's a context cancellation error. This handles the case where
 	// the client disconnects immediately after receiving the last chunk.
@@ -196,13 +206,24 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Con
 		return
 	}
 
+	requestContextCause := context.Cause(ctx)
+	streamErr = terminalErrorCause(streamErr, requestContextCause)
+
 	// Give the terminal status its own persistence budget and store it first. A
 	// blocked external chunk write must not leave the execution processing.
 	statusCtx, cancelStatus := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-	if err := ts.RequestService.UpdateRequestExecutionStatusFromError(statusCtx, ts.requestExec.ID, streamErr); err != nil {
+	if err := ts.RequestService.UpdateRequestExecutionStatusFromError(statusCtx, ts.requestExec.ID, streamErr, requestContextCause); err != nil {
 		log.Warn(statusCtx, "Failed to update request execution status from error", log.Cause(err))
 	}
 	cancelStatus()
+
+	ts.persistTerminalStreamFailureChunks(ctx)
+}
+
+func (ts *OutboundPersistentStream) persistTerminalStreamFailureChunks(ctx context.Context) {
+	if ts.requestExec == nil {
+		return
+	}
 
 	var channel *biz.Channel
 	if ts.state != nil && ts.state.CurrentCandidate != nil {

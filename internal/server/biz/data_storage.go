@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -53,6 +54,56 @@ type DataStorageService struct {
 	objectStoreCache map[int]ObjectStore
 	fsCacheMu        sync.RWMutex
 	latestUpdate     time.Time
+}
+
+// ErrDataTooLarge identifies a bounded storage read that exceeded its caller
+// supplied byte limit.
+var ErrDataTooLarge = errors.New("data exceeds bounded read limit")
+
+// DataTooLargeError records the observed or declared size without requiring
+// callers to parse an error string.
+type DataTooLargeError struct {
+	Size int64
+	Max  int64
+}
+
+func (e *DataTooLargeError) Error() string {
+	return fmt.Sprintf("%v: size %d, max %d", ErrDataTooLarge, e.Size, e.Max)
+}
+
+func (e *DataTooLargeError) Unwrap() error { return ErrDataTooLarge }
+
+// ErrBoundedReadUnsupported identifies backends whose read API cannot honor a
+// request context once a read has blocked.
+var ErrBoundedReadUnsupported = errors.New("backend does not support cancelable bounded reads")
+
+// BoundedReadUnsupportedError names the backend rejected by LoadDataBounded.
+type BoundedReadUnsupportedError struct {
+	Backend datastorage.Type
+}
+
+func (e *BoundedReadUnsupportedError) Error() string {
+	return fmt.Sprintf("%v: %s", ErrBoundedReadUnsupported, e.Backend)
+}
+
+func (e *BoundedReadUnsupportedError) Unwrap() error { return ErrBoundedReadUnsupported }
+
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := r.r.Read(p)
+	if err == nil {
+		if contextErr := r.ctx.Err(); contextErr != nil {
+			return n, contextErr
+		}
+	}
+	return n, err
 }
 
 // DataStorageServiceParams holds the dependencies for DataStorageService.
@@ -694,16 +745,49 @@ func (s *DataStorageService) DeleteData(ctx context.Context, ds *ent.DataStorage
 // For database storage, it expects the data to be passed directly.
 // For file system storage, it reads the data from the file.
 func (s *DataStorageService) LoadData(ctx context.Context, ds *ent.DataStorage, key string) ([]byte, error) {
+	return s.loadData(ctx, ds, key, -1)
+}
+
+// LoadDataBounded loads at most maxBytes. Known oversized objects are rejected
+// before reading; unknown-size streams are read through maxBytes+1 so the
+// oversize decision never requires buffering the full object.
+func (s *DataStorageService) LoadDataBounded(ctx context.Context, ds *ent.DataStorage, key string, maxBytes int64) ([]byte, error) {
+	if maxBytes < 0 {
+		return nil, fmt.Errorf("maxBytes must be non-negative")
+	}
+	return s.loadData(ctx, ds, key, maxBytes)
+}
+
+func (s *DataStorageService) loadData(ctx context.Context, ds *ent.DataStorage, key string, maxBytes int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	switch ds.Type {
 	case datastorage.TypeDatabase:
 		// For database storage, the key is the data itself
+		if maxBytes >= 0 && int64(len(key)) > maxBytes {
+			return nil, &DataTooLargeError{Size: int64(len(key)), Max: maxBytes}
+		}
 		return []byte(key), nil
-	case datastorage.TypeFs, datastorage.TypeS3, datastorage.TypeGcs, datastorage.TypeWebdav:
+	case datastorage.TypeGcs, datastorage.TypeWebdav:
+		if maxBytes >= 0 {
+			return nil, &BoundedReadUnsupportedError{Backend: ds.Type}
+		}
+		fallthrough
+	case datastorage.TypeFs, datastorage.TypeS3:
 		// Object-store backends (S3) read with a single GetObject; a missing key
 		// returns os.ErrNotExist (no ListObjectsV2). Others fall back to afero.
 		if store, ok, err := s.objectStoreFor(ctx, ds); err != nil {
 			return nil, err
 		} else if ok {
+			if maxBytes >= 0 {
+				body, size, openErr := store.OpenObject(ctx, normalizeObjectKey(key))
+				if openErr != nil {
+					return nil, openErr
+				}
+				defer body.Close()
+				return readAllBounded(ctx, body, size, maxBytes)
+			}
 			return store.GetObject(ctx, normalizeObjectKey(key))
 		}
 
@@ -721,6 +805,23 @@ func (s *DataStorageService) LoadData(ctx context.Context, ds *ent.DataStorage, 
 			key = strings.TrimPrefix(key, "/")
 		}
 
+		if maxBytes >= 0 {
+			file, openErr := fs.Open(key)
+			if openErr != nil {
+				return nil, fmt.Errorf("failed to read file: %w", openErr)
+			}
+			defer file.Close()
+			size := int64(-1)
+			if info, statErr := file.Stat(); statErr == nil {
+				size = info.Size()
+			}
+			data, readErr := readAllBounded(ctx, file, size, maxBytes)
+			if readErr != nil {
+				return nil, fmt.Errorf("failed to read file: %w", readErr)
+			}
+			return data, nil
+		}
+
 		data, err := afero.ReadFile(fs, key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %w", err)
@@ -730,6 +831,31 @@ func (s *DataStorageService) LoadData(ctx context.Context, ds *ent.DataStorage, 
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", ds.Type)
 	}
+}
+
+func readAllBounded(ctx context.Context, reader io.Reader, knownSize, maxBytes int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if knownSize >= 0 && knownSize > maxBytes {
+		return nil, &DataTooLargeError{Size: knownSize, Max: maxBytes}
+	}
+	readLimit := maxBytes
+	if maxBytes < math.MaxInt64 {
+		readLimit++
+	}
+	limited := io.LimitReader(contextReader{ctx: ctx, r: reader}, readLimit)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, &DataTooLargeError{Size: int64(len(data)), Max: maxBytes}
+	}
+	return data, nil
 }
 
 // isS3Provided checks if any S3 field is provided in the input (non-empty).
