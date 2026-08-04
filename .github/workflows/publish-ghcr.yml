@@ -36,7 +36,10 @@ jobs:
           REF_NAME="${GITHUB_REF_NAME}"
           REF_TYPE="${GITHUB_REF_TYPE}"
           if [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" == "codex/key-panel-unstable-sync" ]]; then
-            REF_NAME="key-health-latest"
+            # Branch pushes publish an immutable release candidate. Moving
+            # key-health-latest is a separate, explicit promotion after the
+            # candidate digest has passed release verification.
+            REF_NAME="key-health-candidate-${SHORT_SHA}"
           fi
           if [[ "${REF_TYPE}" == "tag" ]]; then
             VERSION="${REF_NAME}"
@@ -54,6 +57,11 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "publish_latest=${PUBLISH_LATEST}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "codex/key-panel-unstable-sync" && "${REF_NAME}" == "key-health-latest" ]]; then
+            echo "branch pushes must not move key-health-latest" >&2
+            exit 1
+          fi
 
   build-single-arch:
     name: Build and push ${{ matrix.arch }} image

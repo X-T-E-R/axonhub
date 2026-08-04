@@ -1,6 +1,14 @@
 package db
 
-import "testing"
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	entsql "entgo.io/ent/dialect/sql"
+	"github.com/stretchr/testify/require"
+)
 
 func TestEnsureSQLiteDSN(t *testing.T) {
 	t.Parallel()
@@ -67,4 +75,45 @@ func TestEnsureSQLiteDSN(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewEntClientUpgradeAddsRequestExecutionCleanupIndex(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.ToSlash(filepath.Join(t.TempDir(), "upgrade-index.db"))
+	cfg := Config{
+		Dialect:              "sqlite3",
+		DSN:                  "file:" + dbPath + "?_fk=0",
+		DisableSQLiteAutoWAL: true,
+	}
+
+	oldClient := NewEntClient(cfg)
+	oldDriver, ok := oldClient.Driver().(*entsql.Driver)
+	require.True(t, ok)
+	_, err := oldDriver.ExecContext(context.Background(), "DROP INDEX request_executions_by_created_at")
+	require.NoError(t, err)
+	require.NoError(t, oldClient.Close())
+
+	upgradedClient := NewEntClient(cfg)
+	t.Cleanup(func() { _ = upgradedClient.Close() })
+	upgradedDriver, ok := upgradedClient.Driver().(*entsql.Driver)
+	require.True(t, ok)
+	rows, err := upgradedDriver.DB().QueryContext(context.Background(), "PRAGMA index_list('request_executions')")
+	require.NoError(t, err)
+	defer rows.Close()
+
+	found := false
+	for rows.Next() {
+		var seq int
+		var name string
+		var unique int
+		var origin string
+		var partial int
+		require.NoError(t, rows.Scan(&seq, &name, &unique, &origin, &partial))
+		if strings.EqualFold(name, "request_executions_by_created_at") {
+			found = true
+		}
+	}
+	require.NoError(t, rows.Err())
+	require.True(t, found, "startup migration must add the cleanup predicate index to an upgraded schema")
 }

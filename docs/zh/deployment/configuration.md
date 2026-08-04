@@ -311,10 +311,50 @@ metrics:
 ```yaml
 gc:
   cron: "0 2 * * *"              # GC 执行的 Cron 表达式
+  vacuum_enabled: true            # 清理后执行普通 VACUUM
+  vacuum_full: false              # 默认绝不周期执行 FULL vacuum
 ```
 
 **环境变量：**
 - `AXONHUB_GC_CRON`
+- `AXONHUB_GC_VACUUM_ENABLED`
+- `AXONHUB_GC_VACUUM_FULL`
+
+请求保留期是在 **系统设置 → 存储策略** 中配置的整条记录策略，而不是载荷截断
+策略。兼容性默认值仍会保存请求体和响应体，并且默认关闭请求/用量日志清理。
+启用请求清理后，只会过期早于指定期限且状态为 `completed`、`failed` 或
+`canceled` 的请求和执行记录。`pending`/`processing`、近期执行、保留的 Trace，
+以及属于保留 Thread 的 Trace 都会受到保护。执行记录及其外部对象先于请求行
+删除；外部存储删除失败时会保留数据库权威行，供后续安全重试。通过
+`content_storage_key` 记录的音频/视频也在清理范围内。
+
+对 PostgreSQL 来说，普通 `VACUUM` 会让 Heap 与 TOAST 的死空间可供后续写入
+复用，并更新统计信息，但通常**不会**把关系文件高水位占用返还给操作系统。
+`VACUUM FULL` 会重写并独占锁定表，而且需要额外临时磁盘空间；它不是周期性
+保留策略。已有文件高水位的首次回收应作为独立的容量运维操作安排。
+
+在大型 PostgreSQL 实例上启用清理或升级之前：
+
+1. 预览选定的保留期限，确认活动记录和保留记录不会进入删除集合。
+2. 为保留数据活集、一次 GC/WAL 峰值、新增的
+   `request_executions_by_created_at` 索引、迁移工作空间以及紧急余量预留空间。
+   Ent 会在启动迁移时创建索引，而 PostgreSQL 的普通建索引可能阻塞写入。
+   对繁忙的大表，可以在启动新版本前使用
+   `CREATE INDEX CONCURRENTLY IF NOT EXISTS` 预先创建同名索引。
+
+   ```sql
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS request_executions_by_created_at
+     ON request_executions (created_at);
+   ```
+3. 保持 `vacuum_full: false`，跨多个清理周期监控关系/TOAST 大小和文件系统
+   余量。即使文件没有缩小，只要大小趋于平台期，就表示回收页正在复用。
+
+可运行 `./scripts/postgres-retention-smoke.sh`，在一次性 PostgreSQL 18 容器中
+复现以上契约。该脚本不接受数据库 DSN。
+
+**回滚：**先关闭请求清理选项，再回滚应用。新增索引向后兼容，可以保留；
+事故期间不要删除。代码回滚不会恢复已经过期的记录或已删除的外部对象，必要
+时应从备份恢复。
 
 ### GitHub Copilot OAuth 配置
 

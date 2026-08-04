@@ -23,6 +23,12 @@ func (RequestExecution) Mixin() []ent.Mixin {
 
 func (RequestExecution) Indexes() []ent.Index {
 	return []ent.Index{
+		// Cleanup scans use created_at as their leading predicate. Keep this
+		// standalone index even though created_at appears in composite indexes
+		// below: those indexes lead with request_id/channel_id and cannot support
+		// a bounded global retention scan efficiently.
+		index.Fields("created_at").
+			StorageKey("request_executions_by_created_at"),
 		// Index for window function: find latest execution per request
 		index.Fields("request_id", "status", "created_at").
 			StorageKey("request_executions_by_request_id_status_created_at"),

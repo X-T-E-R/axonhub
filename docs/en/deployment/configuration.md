@@ -310,10 +310,58 @@ metrics:
 ```yaml
 gc:
   cron: "0 2 * * *"              # Cron expression for GC execution
+  vacuum_enabled: true            # Run ordinary VACUUM after cleanup
+  vacuum_full: false              # Never make FULL vacuum recurring by default
 ```
 
 **Environment Variables:**
 - `AXONHUB_GC_CRON`
+- `AXONHUB_GC_VACUUM_ENABLED`
+- `AXONHUB_GC_VACUUM_FULL`
+
+Request retention is the whole-record policy configured in **System Settings →
+Storage Policy**, not a payload-truncation policy. The compatibility defaults
+continue to store request and response bodies and leave request/usage cleanup
+disabled. Enabling request cleanup expires only terminal (`completed`, `failed`,
+or `canceled`) requests and executions older than the configured horizon.
+Pending/processing rows, recent executions, retained traces, and traces inside a
+retained thread are protected. Execution artifacts are removed before their
+request row; a failed external-storage delete leaves the database row for retry.
+This includes downloaded audio/video referenced by `content_storage_key`.
+
+For PostgreSQL, ordinary `VACUUM` makes heap and TOAST dead space reusable for
+future writes and updates planner statistics, but it normally does **not** return
+the relation high-water allocation to the operating system. `VACUUM FULL`
+rewrites and exclusively locks each table and needs additional temporary disk
+space; it is not the recurring retention design. Treat any initial filesystem
+reclaim as a separately scheduled capacity operation.
+
+Before enabling cleanup or upgrading a large PostgreSQL installation:
+
+1. Preview the chosen retention horizon and confirm that active/retained records
+   are protected.
+2. Reserve headroom for the retained live set, one GC/WAL burst, the new
+   `request_executions_by_created_at` index, migration work space, and an
+   emergency reserve. Ent creates the index during startup migration and normal
+   PostgreSQL index creation can block writes. On a busy large table, operators
+   may pre-create that exact index with `CREATE INDEX CONCURRENTLY IF NOT EXISTS`
+   before starting the new binary.
+
+   ```sql
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS request_executions_by_created_at
+     ON request_executions (created_at);
+   ```
+3. Keep `vacuum_full: false`; monitor relation/TOAST size and free filesystem
+   space across several cleanup cycles. A plateau means reclaimed pages are being
+   reused even if the file does not shrink.
+
+Run `./scripts/postgres-retention-smoke.sh` to reproduce this contract against a
+disposable PostgreSQL 18 container. The harness does not accept a database DSN.
+
+**Rollback:** disable the request cleanup option first, then roll back the
+application. The added index is backward compatible and can remain in place.
+Do not drop it during an incident. Rolling back code does not restore already
+expired records or deleted external objects; restore those from backup if needed.
 
 ### Provider Quota Configuration
 

@@ -7,6 +7,20 @@ import (
 	"entgo.io/ent/dialect"
 )
 
+type primaryRouteKey struct{}
+
+// WithPrimary forces Ent reads onto the primary connection. Use it for
+// read-before-write maintenance paths whose safety predicates must be evaluated
+// against the same authoritative database that receives the mutation.
+func WithPrimary(ctx context.Context) context.Context {
+	return context.WithValue(ctx, primaryRouteKey{}, true)
+}
+
+func usePrimary(ctx context.Context) bool {
+	primary, _ := ctx.Value(primaryRouteKey{}).(bool)
+	return primary
+}
+
 // routerDriver wraps two dialect.Driver instances (master and replica).
 // See: https://entgo.io/docs/faq/#how-to-configure-two-or-more-db-to-separate-read-and-write
 type routerDriver struct {
@@ -20,13 +34,19 @@ func newRouterDriver(master, replica dialect.Driver) *routerDriver {
 
 func (d *routerDriver) Dialect() string { return d.master.Dialect() }
 
+// PrimaryDriver exposes the write/maintenance connection without exposing the
+// router implementation itself. Callers that execute primary-only database
+// maintenance (for example PostgreSQL VACUUM) must not route it through the
+// read replica or silently skip it because the Ent driver is wrapped.
+func (d *routerDriver) PrimaryDriver() dialect.Driver { return d.master }
+
 func (d *routerDriver) Exec(ctx context.Context, query string, args, v any) error {
 	return d.master.Exec(ctx, query, args, v)
 }
 
 func (d *routerDriver) Query(ctx context.Context, query string, args, v any) error {
 	// Non-Ent queries (raw SQL) or mutations with RETURNING: fall back to master.
-	if ent.QueryFromContext(ctx) == nil {
+	if usePrimary(ctx) || ent.QueryFromContext(ctx) == nil {
 		return d.master.Query(ctx, query, args, v)
 	}
 	return d.replica.Query(ctx, query, args, v)

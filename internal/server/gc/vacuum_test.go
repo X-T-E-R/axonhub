@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"entgo.io/ent/dialect"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -43,6 +44,29 @@ func TestWorker_runVacuum_SQLite(t *testing.T) {
 			require.NoError(t, w.runVacuum(context.Background()))
 		})
 	}
+}
+
+func TestWorker_runVacuum_UnwrapsPrimaryFromReadReplicaRouter(t *testing.T) {
+	t.Parallel()
+
+	base := enttest.NewEntClient(t, "sqlite3", "file:vac_primary_router?mode=memory&_fk=1")
+	t.Cleanup(func() { _ = base.Close() })
+
+	router := &primaryTrackingDriver{Driver: base.Driver()}
+	client := ent.NewClient(ent.Driver(router))
+	w := &Worker{Ent: client, Config: Config{VacuumEnabled: true}}
+	require.NoError(t, w.runVacuum(context.Background()))
+	require.True(t, router.primaryRequested, "maintenance must explicitly select the primary driver")
+}
+
+type primaryTrackingDriver struct {
+	dialect.Driver
+	primaryRequested bool
+}
+
+func (d *primaryTrackingDriver) PrimaryDriver() dialect.Driver {
+	d.primaryRequested = true
+	return d.Driver
 }
 
 // TestWorker_runVacuum_Postgres exercises the real pgx code path that previously

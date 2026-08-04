@@ -3,6 +3,8 @@ package gc
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"entgo.io/ent/dialect"
@@ -13,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/ent/schema/schematype"
@@ -21,6 +24,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/biz"
+	serverdb "github.com/looplj/axonhub/internal/server/db"
 	"github.com/looplj/axonhub/internal/server/scheduler"
 )
 
@@ -49,6 +53,10 @@ type Worker struct {
 	DataStorageService *biz.DataStorageService
 	Ent                *ent.Client
 	Config             Config
+
+	// beforeCandidateDelete is a deterministic test barrier. Production workers
+	// leave it nil. Eligibility is always revalidated and locked after this hook.
+	beforeCandidateDelete func(resource string, id int)
 }
 
 type Params struct {
@@ -113,6 +121,9 @@ func (w *Worker) runCleanup(ctx context.Context, manual bool, manualDays map[str
 
 	ctx = ent.NewContext(ctx, w.Ent)
 	ctx = schematype.SkipSoftDelete(ctx)
+	// GC is a read-before-delete workflow. Replica lag must not let a stale
+	// terminal/retention status authorize a delete on the primary.
+	ctx = serverdb.WithPrimary(ctx)
 
 	policy, err := w.SystemService.StoragePolicy(ctx)
 	if err != nil {
@@ -252,9 +263,19 @@ func (w *Worker) cleanupOldRequestExecutions(ctx context.Context, cutoffTime tim
 			).
 			Where(
 				requestexecution.CreatedAtLT(cutoffTime),
-				requestexecution.Not(requestexecution.HasRequestWith(
-					request.HasTraceWith(trace.StatusEQ(trace.StatusRetained)),
-				)),
+				requestexecution.StatusIn(
+					requestexecution.StatusCompleted,
+					requestexecution.StatusFailed,
+					requestexecution.StatusCanceled,
+				),
+				requestexecution.HasRequestWith(
+					request.CreatedAtLT(cutoffTime),
+					request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
+					request.Not(request.HasTraceWith(trace.Or(
+						trace.StatusEQ(trace.StatusRetained),
+						trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+					))),
+				),
 			).
 			Order(ent.Asc(requestexecution.FieldID)).
 			Limit(batchSize).
@@ -267,25 +288,36 @@ func (w *Worker) cleanupOldRequestExecutions(ctx context.Context, cutoffTime tim
 			break
 		}
 
-		ids := make([]int, len(executions))
-
-		for i, exec := range executions {
-			ids[i] = exec.ID
-			w.cleanupExecutionExternalStorage(ctx, exec, cache)
-		}
-
-		if _, err := w.Ent.RequestExecution.Delete().
-			Where(requestexecution.IDIn(ids...)).
-			Exec(ctx); err != nil {
-			return totalDeleted, fmt.Errorf("failed to delete request executions batch: %w", err)
+		var batchErr error
+		batchDeleted := 0
+		for _, exec := range executions {
+			if w.beforeCandidateDelete != nil {
+				w.beforeCandidateDelete("request_execution", exec.ID)
+			}
+			deleted, err := w.deleteExecutionCandidate(ctx, exec.ID, cutoffTime, cache)
+			if err != nil {
+				if batchErr == nil {
+					batchErr = err
+				}
+				continue
+			}
+			if deleted {
+				batchDeleted++
+			}
 		}
 
 		log.Debug(ctx, "Deleted old request executions batch",
-			log.Int("deleted_executions_count", len(ids)),
+			log.Int("deleted_executions_count", batchDeleted),
 			log.Time("cutoff_time", cutoffTime),
 		)
 
-		totalDeleted += len(ids)
+		totalDeleted += batchDeleted
+		if batchErr != nil {
+			return totalDeleted, fmt.Errorf("request execution cleanup stopped with retryable records: %w", batchErr)
+		}
+		if batchDeleted == 0 {
+			break
+		}
 	}
 
 	return totalDeleted, nil
@@ -302,10 +334,17 @@ func (w *Worker) cleanupOldRequestsRecords(ctx context.Context, cutoffTime time.
 				request.FieldID,
 				request.FieldProjectID,
 				request.FieldDataStorageID,
+				request.FieldContentStorageID,
+				request.FieldContentStorageKey,
 			).
 			Where(
 				request.CreatedAtLT(cutoffTime),
-				request.Not(request.HasTraceWith(trace.StatusEQ(trace.StatusRetained))),
+				request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
+				request.Not(request.HasExecutions()),
+				request.Not(request.HasTraceWith(trace.Or(
+					trace.StatusEQ(trace.StatusRetained),
+					trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+				))),
 			).
 			Order(ent.Asc(request.FieldID)).
 			Limit(batchSize).
@@ -318,27 +357,359 @@ func (w *Worker) cleanupOldRequestsRecords(ctx context.Context, cutoffTime time.
 			break
 		}
 
-		ids := make([]int, len(reqs))
-		for i, req := range reqs {
-			ids[i] = req.ID
-			w.cleanupRequestExternalStorage(ctx, req, cache)
+		var batchErr error
+		batchDeleted := 0
+		for _, req := range reqs {
+			if w.beforeCandidateDelete != nil {
+				w.beforeCandidateDelete("request", req.ID)
+			}
+			deleted, err := w.deleteRequestCandidate(ctx, req.ID, cutoffTime, cache)
+			if err != nil {
+				if batchErr == nil {
+					batchErr = err
+				}
+				continue
+			}
+			if deleted {
+				batchDeleted++
+			}
 		}
 
-		if _, err := w.Ent.Request.Delete().
-			Where(request.IDIn(ids...)).
-			Exec(ctx); err != nil {
-			return totalDeleted, fmt.Errorf("failed to delete requests batch: %w", err)
+		totalDeleted += batchDeleted
+		if batchErr != nil {
+			return totalDeleted, fmt.Errorf("request cleanup stopped with retryable records: %w", batchErr)
 		}
-
-		totalDeleted += len(ids)
+		if batchDeleted == 0 {
+			break
+		}
 	}
 
 	return totalDeleted, nil
 }
 
-func (w *Worker) cleanupExecutionExternalStorage(ctx context.Context, exec *ent.RequestExecution, cache map[int]*ent.DataStorage) {
-	if exec == nil || exec.DataStorageID == 0 || w.DataStorageService == nil {
-		return
+// deleteExecutionCandidate serializes the eligibility decision, external
+// deletion, and authoritative row deletion in one database transaction. The
+// conditional claim updates acquire write locks on every mutable owner in the
+// same order used by retention changes (thread -> trace -> request -> execution).
+// This works across PostgreSQL/MySQL row locks and SQLite's database write lock.
+func (w *Worker) deleteExecutionCandidate(ctx context.Context, executionID int, cutoffTime time.Time, cache map[int]*ent.DataStorage) (deleted bool, err error) {
+	tx, err := w.Ent.Tx(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to start request execution cleanup transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	txClient := tx.Client()
+	txCtx := ent.NewTxContext(ctx, tx)
+	txCtx = ent.NewContext(txCtx, txClient)
+
+	exec, err := txClient.RequestExecution.Query().
+		Where(requestexecution.IDEQ(executionID)).
+		Select(
+			requestexecution.FieldID,
+			requestexecution.FieldCreatedAt,
+			requestexecution.FieldUpdatedAt,
+			requestexecution.FieldProjectID,
+			requestexecution.FieldRequestID,
+			requestexecution.FieldDataStorageID,
+			requestexecution.FieldStatus,
+		).
+		Only(txCtx)
+	if ent.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to reload request execution %d for cleanup: %w", executionID, err)
+	}
+
+	lockedRequest, eligible, err := lockRequestCandidate(txCtx, txClient, exec.RequestID, cutoffTime, false)
+	if err != nil || !eligible {
+		return false, err
+	}
+	requestRow := lockedRequest.row
+
+	updated, err := txClient.RequestExecution.Update().
+		Where(
+			requestexecution.IDEQ(exec.ID),
+			requestexecution.RequestIDEQ(requestRow.ID),
+			requestexecution.CreatedAtLT(cutoffTime),
+			requestexecution.StatusIn(
+				requestexecution.StatusCompleted,
+				requestexecution.StatusFailed,
+				requestexecution.StatusCanceled,
+			),
+			requestexecution.UpdatedAtEQ(exec.UpdatedAt),
+		).
+		SetUpdatedAt(gcClaimTimestamp()).
+		Save(txCtx)
+	if err != nil {
+		return false, fmt.Errorf("failed to lock request execution %d for cleanup: %w", exec.ID, err)
+	}
+	if updated != 1 {
+		return false, nil
+	}
+
+	if err := w.cleanupExecutionExternalStorage(txCtx, exec, cache); err != nil {
+		return false, err
+	}
+	if err := txClient.RequestExecution.DeleteOneID(exec.ID).Exec(txCtx); err != nil {
+		return false, fmt.Errorf("failed to delete request execution %d: %w", exec.ID, err)
+	}
+	if err := lockedRequest.restore(txCtx, txClient, true); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit request execution %d cleanup: %w", exec.ID, err)
+	}
+	committed = true
+
+	return true, nil
+}
+
+func (w *Worker) deleteRequestCandidate(ctx context.Context, requestID int, cutoffTime time.Time, cache map[int]*ent.DataStorage) (deleted bool, err error) {
+	tx, err := w.Ent.Tx(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to start request cleanup transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	txClient := tx.Client()
+	txCtx := ent.NewTxContext(ctx, tx)
+	txCtx = ent.NewContext(txCtx, txClient)
+
+	lockedRequest, eligible, err := lockRequestCandidate(txCtx, txClient, requestID, cutoffTime, true)
+	if err != nil || !eligible {
+		return false, err
+	}
+	req := lockedRequest.row
+	if err := w.cleanupRequestExternalStorage(txCtx, req, cache); err != nil {
+		return false, err
+	}
+	if err := txClient.Request.DeleteOneID(req.ID).Exec(txCtx); err != nil {
+		return false, fmt.Errorf("failed to delete request %d: %w", req.ID, err)
+	}
+	if err := lockedRequest.restore(txCtx, txClient, false); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit request %d cleanup: %w", req.ID, err)
+	}
+	committed = true
+
+	return true, nil
+}
+
+type lockedRetentionOwners struct {
+	traceID         int
+	traceUpdatedAt  time.Time
+	threadID        int
+	threadUpdatedAt time.Time
+}
+
+type lockedRequestCleanup struct {
+	row              *ent.Request
+	requestUpdatedAt time.Time
+	owners           lockedRetentionOwners
+}
+
+func gcClaimTimestamp() time.Time {
+	// A changed value is required because MySQL reports changed rather than
+	// matched rows for no-op updates by default. The claim is restored before a
+	// successful commit for owner/request rows that remain.
+	return time.Now().UTC().Add(24 * time.Hour)
+}
+
+func (l *lockedRequestCleanup) restore(ctx context.Context, client *ent.Client, restoreRequest bool) error {
+	if restoreRequest {
+		if _, err := client.Request.UpdateOneID(l.row.ID).SetUpdatedAt(l.requestUpdatedAt).Save(ctx); err != nil {
+			return fmt.Errorf("failed to restore request %d cleanup claim: %w", l.row.ID, err)
+		}
+	}
+	return l.owners.restore(ctx, client, true, true)
+}
+
+func (o lockedRetentionOwners) restore(ctx context.Context, client *ent.Client, restoreTrace, restoreThread bool) error {
+	if restoreTrace && o.traceID != 0 {
+		if _, err := client.Trace.UpdateOneID(o.traceID).SetUpdatedAt(o.traceUpdatedAt).Save(ctx); err != nil {
+			return fmt.Errorf("failed to restore trace %d cleanup claim: %w", o.traceID, err)
+		}
+	}
+	if restoreThread && o.threadID != 0 {
+		if _, err := client.Thread.UpdateOneID(o.threadID).SetUpdatedAt(o.threadUpdatedAt).Save(ctx); err != nil {
+			return fmt.Errorf("failed to restore thread %d cleanup claim: %w", o.threadID, err)
+		}
+	}
+
+	return nil
+}
+
+func lockRequestCandidate(ctx context.Context, client *ent.Client, requestID int, cutoffTime time.Time, requireNoExecutions bool) (*lockedRequestCleanup, bool, error) {
+	req, err := queryRequestCleanupFields(ctx, client, requestID)
+	if ent.IsNotFound(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to reload request %d for cleanup: %w", requestID, err)
+	}
+
+	owners, ownersLocked, err := lockRetentionOwners(ctx, client, req.TraceID)
+	if err != nil || !ownersLocked {
+		return nil, false, err
+	}
+
+	predicates := []predicate.Request{
+		request.IDEQ(req.ID),
+		request.CreatedAtLT(cutoffTime),
+		request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
+		request.Not(request.HasTraceWith(trace.Or(
+			trace.StatusEQ(trace.StatusRetained),
+			trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+		))),
+		request.UpdatedAtEQ(req.UpdatedAt),
+	}
+	if requireNoExecutions {
+		predicates = append(predicates, request.Not(request.HasExecutions()))
+	}
+	updated, err := client.Request.Update().
+		Where(predicates...).
+		SetUpdatedAt(gcClaimTimestamp()).
+		Save(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to lock request %d for cleanup: %w", req.ID, err)
+	}
+	if updated != 1 {
+		return nil, false, nil
+	}
+
+	// Content metadata is mutable. Reload it after the request write lock is
+	// acquired so external cleanup uses the authoritative key/storage pair.
+	locked, err := queryRequestCleanupFields(ctx, client, requestID)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to reload locked request %d: %w", requestID, err)
+	}
+
+	return &lockedRequestCleanup{
+		row:              locked,
+		requestUpdatedAt: req.UpdatedAt,
+		owners:           owners,
+	}, true, nil
+}
+
+func queryRequestCleanupFields(ctx context.Context, client *ent.Client, requestID int) (*ent.Request, error) {
+	selected := client.Request.Query().
+		Where(request.IDEQ(requestID)).
+		Select(
+			request.FieldID,
+			request.FieldCreatedAt,
+			request.FieldUpdatedAt,
+			request.FieldProjectID,
+			request.FieldTraceID,
+			request.FieldDataStorageID,
+			request.FieldStatus,
+			request.FieldContentStorageID,
+			request.FieldContentStorageKey,
+		)
+	if requestCleanupUsesForUpdate(client.Driver().Dialect()) {
+		selected.Modify(func(selector *entsql.Selector) {
+			selector.ForUpdate()
+		})
+	}
+
+	return selected.Only(ctx)
+}
+
+func requestCleanupUsesForUpdate(dialectName string) bool {
+	return dialectName == dialect.Postgres || dialectName == dialect.MySQL
+}
+
+func lockRetentionOwners(ctx context.Context, client *ent.Client, traceID int) (lockedRetentionOwners, bool, error) {
+	var owners lockedRetentionOwners
+	if traceID == 0 {
+		return owners, true, nil
+	}
+
+	traceRow, err := client.Trace.Query().
+		Where(trace.IDEQ(traceID)).
+		Select(trace.FieldID, trace.FieldUpdatedAt, trace.FieldThreadID, trace.FieldStatus).
+		Only(ctx)
+	if ent.IsNotFound(err) {
+		return owners, true, nil
+	}
+	if err != nil {
+		return owners, false, fmt.Errorf("failed to load trace %d for cleanup lock: %w", traceID, err)
+	}
+	if traceRow.Status == trace.StatusRetained {
+		return owners, false, nil
+	}
+	owners.traceID = traceRow.ID
+	owners.traceUpdatedAt = traceRow.UpdatedAt
+
+	if traceRow.ThreadID != 0 {
+		threadRow, err := client.Thread.Query().
+			Where(thread.IDEQ(traceRow.ThreadID)).
+			Select(thread.FieldID, thread.FieldUpdatedAt, thread.FieldStatus).
+			Only(ctx)
+		missingThread := ent.IsNotFound(err)
+		if err != nil && !missingThread {
+			return owners, false, fmt.Errorf("failed to load thread %d for cleanup lock: %w", traceRow.ThreadID, err)
+		}
+		if !missingThread {
+			if threadRow.Status == thread.StatusRetained {
+				return owners, false, nil
+			}
+			owners.threadID = threadRow.ID
+			owners.threadUpdatedAt = threadRow.UpdatedAt
+			updated, err := client.Thread.Update().
+				Where(
+					thread.IDEQ(threadRow.ID),
+					thread.StatusEQ(threadRow.Status),
+					thread.UpdatedAtEQ(threadRow.UpdatedAt),
+				).
+				SetUpdatedAt(gcClaimTimestamp()).
+				Save(ctx)
+			if err != nil {
+				return owners, false, fmt.Errorf("failed to lock thread %d for cleanup: %w", threadRow.ID, err)
+			}
+			if updated != 1 {
+				return owners, false, nil
+			}
+		}
+	}
+
+	updated, err := client.Trace.Update().
+		Where(
+			trace.IDEQ(traceRow.ID),
+			trace.StatusEQ(traceRow.Status),
+			trace.UpdatedAtEQ(traceRow.UpdatedAt),
+		).
+		SetUpdatedAt(gcClaimTimestamp()).
+		Save(ctx)
+	if err != nil {
+		return owners, false, fmt.Errorf("failed to lock trace %d for cleanup: %w", traceRow.ID, err)
+	}
+	if updated != 1 {
+		return owners, false, nil
+	}
+
+	return owners, true, nil
+}
+
+func (w *Worker) cleanupExecutionExternalStorage(ctx context.Context, exec *ent.RequestExecution, cache map[int]*ent.DataStorage) error {
+	if exec == nil || exec.DataStorageID == 0 {
+		return nil
+	}
+	if w.DataStorageService == nil {
+		return fmt.Errorf("execution %d references external storage but data storage service is unavailable", exec.ID)
 	}
 
 	ds, err := w.getDataStorageCached(ctx, exec.DataStorageID, cache)
@@ -348,11 +719,11 @@ func (w *Worker) cleanupExecutionExternalStorage(ctx context.Context, exec *ent.
 			log.Int("execution_id", exec.ID),
 		)
 
-		return
+		return fmt.Errorf("failed to load data storage for execution %d: %w", exec.ID, err)
 	}
 
 	if ds == nil || ds.Primary {
-		return
+		return nil
 	}
 
 	keys := []string{
@@ -370,58 +741,128 @@ func (w *Worker) cleanupExecutionExternalStorage(ctx context.Context, exec *ent.
 
 	for _, key := range keys {
 		if err := w.DataStorageService.DeleteData(ctx, ds, key); err != nil {
-			log.Warn(ctx, "Failed to delete execution external data",
-				log.Cause(err),
-				log.Int("execution_id", exec.ID),
-				log.String("key", key),
-			)
+			return fmt.Errorf("failed to delete execution %d external key %q: %w", exec.ID, key, err)
 		}
 	}
+
+	return nil
 }
 
-func (w *Worker) cleanupRequestExternalStorage(ctx context.Context, req *ent.Request, cache map[int]*ent.DataStorage) {
-	if req == nil || req.DataStorageID == 0 || w.DataStorageService == nil {
-		return
+func (w *Worker) cleanupRequestExternalStorage(ctx context.Context, req *ent.Request, cache map[int]*ent.DataStorage) error {
+	if req == nil {
+		return nil
+	}
+	if w.DataStorageService == nil {
+		hasRecordedContent := req.ContentStorageKey != nil && strings.TrimSpace(*req.ContentStorageKey) != ""
+		if req.DataStorageID != 0 || hasRecordedContent {
+			return fmt.Errorf("request %d references external storage but data storage service is unavailable", req.ID)
+		}
+		return nil
 	}
 
-	ds, err := w.getDataStorageCached(ctx, req.DataStorageID, cache)
-	if err != nil {
-		log.Warn(ctx, "Failed to load data storage for request cleanup",
-			log.Cause(err),
-			log.Int("request_id", req.ID),
-		)
+	var requestDataStorage *ent.DataStorage
+	var directoryKeys []string
+	var contentDataStorage *ent.DataStorage
+	var contentKey string
+	// Validate and resolve all recorded-content metadata before deleting any
+	// ordinary request artifact. Invalid ownership metadata must fail closed
+	// without leaving a partially cleaned request.
+	if req.ContentStorageKey != nil && *req.ContentStorageKey != "" {
+		if req.ContentStorageID == nil || *req.ContentStorageID == 0 {
+			return fmt.Errorf("request %d has content_storage_key without content_storage_id", req.ID)
+		}
 
-		return
+		validatedContentKey, err := recordedContentKeyForRequest(req)
+		if err != nil {
+			return err
+		}
+		contentKey = validatedContentKey
+
+		ds, err := w.getDataStorageCached(ctx, *req.ContentStorageID, cache)
+		if err != nil {
+			return fmt.Errorf("failed to load content storage for request %d: %w", req.ID, err)
+		}
+		if ds == nil || ds.Primary || ds.Type == datastorage.TypeDatabase {
+			return fmt.Errorf("request %d recorded content key references a non-file storage", req.ID)
+		}
+		contentDataStorage = ds
 	}
 
-	if ds == nil || ds.Primary {
-		return
-	}
+	if req.DataStorageID != 0 {
+		ds, err := w.getDataStorageCached(ctx, req.DataStorageID, cache)
+		if err != nil {
+			return fmt.Errorf("failed to load data storage for request %d: %w", req.ID, err)
+		}
 
-	keys := []string{
-		biz.GenerateRequestBodyKey(req.ProjectID, req.ID),
-		biz.GenerateResponseBodyKey(req.ProjectID, req.ID),
-		biz.GenerateResponseChunksKey(req.ProjectID, req.ID),
-	}
+		if ds != nil && !ds.Primary {
+			requestDataStorage = ds
+			keys := []string{
+				biz.GenerateRequestBodyKey(req.ProjectID, req.ID),
+				biz.GenerateResponseBodyKey(req.ProjectID, req.ID),
+				biz.GenerateResponseChunksKey(req.ProjectID, req.ID),
+			}
 
-	// See cleanupExecutionExternalStorage: object stores have no real
-	// directories, so only attempt directory-marker deletes on FS/WebDAV.
-	if hasRealDirectories(ds.Type) {
-		keys = append(keys,
-			biz.GenerateRequestExecutionsDirKey(req.ProjectID, req.ID),
-			biz.GenerateRequestDirKey(req.ProjectID, req.ID),
-		)
-	}
+			// See cleanupExecutionExternalStorage: object stores have no real
+			// directories, so only attempt directory-marker deletes on FS/WebDAV.
+			if hasRealDirectories(ds.Type) {
+				directoryKeys = append(directoryKeys,
+					biz.GenerateRequestExecutionsDirKey(req.ProjectID, req.ID),
+					biz.GenerateRequestDirKey(req.ProjectID, req.ID),
+				)
+			}
 
-	for _, key := range keys {
-		if err := w.DataStorageService.DeleteData(ctx, ds, key); err != nil {
-			log.Warn(ctx, "Failed to delete request external data",
-				log.Cause(err),
-				log.Int("request_id", req.ID),
-				log.String("key", key),
-			)
+			for _, key := range keys {
+				if err := w.DataStorageService.DeleteData(ctx, ds, key); err != nil {
+					return fmt.Errorf("failed to delete request %d external key %q: %w", req.ID, key, err)
+				}
+			}
 		}
 	}
+
+	if contentDataStorage != nil {
+		if err := w.DataStorageService.DeleteData(ctx, contentDataStorage, contentKey); err != nil {
+			return fmt.Errorf("failed to delete request %d recorded content key %q: %w", req.ID, contentKey, err)
+		}
+		if hasRealDirectories(contentDataStorage.Type) {
+			if err := w.DataStorageService.DeleteData(ctx, contentDataStorage, path.Dir(contentKey)); err != nil {
+				return fmt.Errorf("failed to delete request %d recorded content directory %q: %w", req.ID, path.Dir(contentKey), err)
+			}
+		}
+	}
+
+	// Recorded audio/video lives below the request directory. Remove directory
+	// entries only after the recorded content has been deleted, otherwise a
+	// filesystem/WebDAV Remove can fail with "directory not empty" and make the
+	// record permanently ineligible for cleanup.
+	for _, key := range directoryKeys {
+		if err := w.DataStorageService.DeleteData(ctx, requestDataStorage, key); err != nil {
+			return fmt.Errorf("failed to delete request %d external directory %q: %w", req.ID, key, err)
+		}
+	}
+	if contentDataStorage != nil && hasRealDirectories(contentDataStorage.Type) &&
+		(requestDataStorage == nil || contentDataStorage.ID != requestDataStorage.ID) {
+		requestDir := biz.GenerateRequestDirKey(req.ProjectID, req.ID)
+		if err := w.DataStorageService.DeleteData(ctx, contentDataStorage, requestDir); err != nil {
+			return fmt.Errorf("failed to delete request %d recorded content request directory %q: %w", req.ID, requestDir, err)
+		}
+	}
+
+	return nil
+}
+
+func recordedContentKeyForRequest(req *ent.Request) (string, error) {
+	raw := strings.TrimSpace(*req.ContentStorageKey)
+	if strings.Contains(raw, `\`) {
+		return "", fmt.Errorf("request %d has content_storage_key with a noncanonical separator", req.ID)
+	}
+	key := "/" + strings.TrimPrefix(raw, "/")
+	cleaned := path.Clean(key)
+	expectedPrefix := fmt.Sprintf("/%d/requests/%d/", req.ProjectID, req.ID)
+	if cleaned != key || !strings.HasPrefix(cleaned, expectedPrefix) {
+		return "", fmt.Errorf("request %d has content_storage_key outside its owned prefix", req.ID)
+	}
+
+	return cleaned, nil
 }
 
 // hasRealDirectories reports whether the storage backend materializes
@@ -449,6 +890,208 @@ func (w *Worker) getDataStorageCached(ctx context.Context, id int, cache map[int
 	return ds, nil
 }
 
+func (w *Worker) deleteUsageLogCandidate(ctx context.Context, usageLogID int, cutoffTime time.Time) (deleted bool, err error) {
+	tx, err := w.Ent.Tx(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to start usage log cleanup transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	client := tx.Client()
+	txCtx := ent.NewContext(ent.NewTxContext(ctx, tx), client)
+	row, err := client.UsageLog.Query().
+		Where(usagelog.IDEQ(usageLogID)).
+		Select(usagelog.FieldID, usagelog.FieldCreatedAt, usagelog.FieldRequestID).
+		Only(txCtx)
+	if ent.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to reload usage log %d for cleanup: %w", usageLogID, err)
+	}
+	requestRow, err := client.Request.Query().
+		Where(request.IDEQ(row.RequestID)).
+		Select(request.FieldID, request.FieldTraceID).
+		Only(txCtx)
+	if ent.IsNotFound(err) {
+		requestRow = &ent.Request{}
+		err = nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to load request %d for usage log cleanup: %w", row.RequestID, err)
+	}
+	owners, eligible, err := lockRetentionOwners(txCtx, client, requestRow.TraceID)
+	if err != nil || !eligible {
+		return false, err
+	}
+
+	count, err := client.UsageLog.Delete().Where(
+		usagelog.IDEQ(row.ID),
+		usagelog.CreatedAtLT(cutoffTime),
+		usagelog.Not(usagelog.HasRequestWith(
+			request.HasTraceWith(trace.Or(
+				trace.StatusEQ(trace.StatusRetained),
+				trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+			)),
+		)),
+	).Exec(txCtx)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete usage log %d: %w", row.ID, err)
+	}
+	if count != 1 {
+		return false, nil
+	}
+	if err := owners.restore(txCtx, client, true, true); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit usage log %d cleanup: %w", row.ID, err)
+	}
+	committed = true
+
+	return true, nil
+}
+
+func (w *Worker) deleteTraceCandidate(ctx context.Context, traceID int, cutoffTime time.Time) (deleted bool, err error) {
+	tx, err := w.Ent.Tx(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to start trace cleanup transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	client := tx.Client()
+	txCtx := ent.NewContext(ent.NewTxContext(ctx, tx), client)
+	owners, eligible, err := lockRetentionOwners(txCtx, client, traceID)
+	if err != nil || !eligible {
+		return false, err
+	}
+	count, err := client.Trace.Delete().Where(
+		trace.IDEQ(traceID),
+		trace.CreatedAtLT(cutoffTime),
+		trace.StatusNEQ(trace.StatusRetained),
+		trace.Not(trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained))),
+	).Exec(txCtx)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete trace %d: %w", traceID, err)
+	}
+	if count != 1 {
+		return false, nil
+	}
+	if err := owners.restore(txCtx, client, false, true); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit trace %d cleanup: %w", traceID, err)
+	}
+	committed = true
+
+	return true, nil
+}
+
+type traceCleanupClaim struct {
+	id        int
+	updatedAt time.Time
+}
+
+func (w *Worker) deleteThreadCandidate(ctx context.Context, threadID int, cutoffTime time.Time) (deleted bool, err error) {
+	tx, err := w.Ent.Tx(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to start thread cleanup transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	client := tx.Client()
+	txCtx := ent.NewContext(ent.NewTxContext(ctx, tx), client)
+	threadRow, err := client.Thread.Query().
+		Where(thread.IDEQ(threadID)).
+		Select(thread.FieldID, thread.FieldCreatedAt, thread.FieldUpdatedAt, thread.FieldStatus).
+		Only(txCtx)
+	if ent.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to reload thread %d for cleanup: %w", threadID, err)
+	}
+	claimed, err := client.Thread.Update().Where(
+		thread.IDEQ(threadRow.ID),
+		thread.CreatedAtLT(cutoffTime),
+		thread.StatusNEQ(thread.StatusRetained),
+		thread.UpdatedAtEQ(threadRow.UpdatedAt),
+		thread.Not(thread.HasTracesWith(trace.StatusEQ(trace.StatusRetained))),
+	).SetUpdatedAt(gcClaimTimestamp()).Save(txCtx)
+	if err != nil {
+		return false, fmt.Errorf("failed to lock thread %d for cleanup: %w", threadID, err)
+	}
+	if claimed != 1 {
+		return false, nil
+	}
+
+	traceRows, err := client.Trace.Query().
+		Where(trace.ThreadIDEQ(threadRow.ID)).
+		Select(trace.FieldID, trace.FieldUpdatedAt, trace.FieldStatus).
+		All(txCtx)
+	if err != nil {
+		return false, fmt.Errorf("failed to load traces for thread %d cleanup: %w", threadID, err)
+	}
+	traceClaims := make([]traceCleanupClaim, 0, len(traceRows))
+	for _, traceRow := range traceRows {
+		if traceRow.Status == trace.StatusRetained {
+			return false, nil
+		}
+		updated, err := client.Trace.Update().Where(
+			trace.IDEQ(traceRow.ID),
+			trace.StatusEQ(traceRow.Status),
+			trace.UpdatedAtEQ(traceRow.UpdatedAt),
+		).SetUpdatedAt(gcClaimTimestamp()).Save(txCtx)
+		if err != nil {
+			return false, fmt.Errorf("failed to lock trace %d for thread cleanup: %w", traceRow.ID, err)
+		}
+		if updated != 1 {
+			return false, nil
+		}
+		traceClaims = append(traceClaims, traceCleanupClaim{id: traceRow.ID, updatedAt: traceRow.UpdatedAt})
+	}
+
+	count, err := client.Thread.Delete().Where(
+		thread.IDEQ(threadRow.ID),
+		thread.CreatedAtLT(cutoffTime),
+		thread.StatusNEQ(thread.StatusRetained),
+		thread.Not(thread.HasTracesWith(trace.StatusEQ(trace.StatusRetained))),
+	).Exec(txCtx)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete thread %d: %w", threadID, err)
+	}
+	if count != 1 {
+		return false, nil
+	}
+	for _, claim := range traceClaims {
+		if _, err := client.Trace.UpdateOneID(claim.id).SetUpdatedAt(claim.updatedAt).Save(txCtx); err != nil {
+			return false, fmt.Errorf("failed to restore trace %d thread-cleanup claim: %w", claim.id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit thread %d cleanup: %w", threadID, err)
+	}
+	committed = true
+
+	return true, nil
+}
+
 // cleanupUsageLogs deletes usage logs older than the specified number of days.
 func (w *Worker) cleanupUsageLogs(ctx context.Context, cleanupDays int, manual bool) error {
 	if cleanupDays <= 0 {
@@ -458,28 +1101,44 @@ func (w *Worker) cleanupUsageLogs(ctx context.Context, cleanupDays int, manual b
 	cutoffTime := time.Now().AddDate(0, 0, -cleanupDays)
 	batchSize := w.getBatchSize()
 
-	result, err := w.deleteInBatches(ctx, func() (int, error) {
+	result := 0
+	for {
 		ids, err := w.Ent.UsageLog.Query().
 			Where(
 				usagelog.CreatedAtLT(cutoffTime),
 				usagelog.Not(usagelog.HasRequestWith(
-					request.HasTraceWith(trace.StatusEQ(trace.StatusRetained)),
+					request.HasTraceWith(trace.Or(
+						trace.StatusEQ(trace.StatusRetained),
+						trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+					)),
 				)),
 			).
 			Order(ent.Asc(usagelog.FieldID)).
 			Limit(batchSize).
 			IDs(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to query old usage logs: %w", err)
+			return fmt.Errorf("failed to query old usage logs: %w", err)
 		}
 		if len(ids) == 0 {
-			return 0, nil
+			break
 		}
-
-		return w.Ent.UsageLog.Delete().Where(usagelog.IDIn(ids...)).Exec(ctx)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete old usage logs: %w", err)
+		batchDeleted := 0
+		for _, id := range ids {
+			if w.beforeCandidateDelete != nil {
+				w.beforeCandidateDelete("usage_log", id)
+			}
+			deleted, err := w.deleteUsageLogCandidate(ctx, id, cutoffTime)
+			if err != nil {
+				return fmt.Errorf("failed to delete old usage log %d: %w", id, err)
+			}
+			if deleted {
+				batchDeleted++
+			}
+		}
+		result += batchDeleted
+		if batchDeleted == 0 {
+			break
+		}
 	}
 
 	log.Debug(ctx, "Cleaned up usage logs",
@@ -499,26 +1158,40 @@ func (w *Worker) cleanupThreads(ctx context.Context, cleanupDays int, manual boo
 	cutoffTime := time.Now().AddDate(0, 0, -cleanupDays)
 	batchSize := w.getBatchSize()
 
-	result, err := w.deleteInBatches(ctx, func() (int, error) {
+	result := 0
+	for {
 		ids, err := w.Ent.Thread.Query().
 			Where(
 				thread.CreatedAtLT(cutoffTime),
 				thread.StatusNEQ(thread.StatusRetained),
+				thread.Not(thread.HasTracesWith(trace.StatusEQ(trace.StatusRetained))),
 			).
 			Order(ent.Asc(thread.FieldID)).
 			Limit(batchSize).
 			IDs(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to query old threads: %w", err)
+			return fmt.Errorf("failed to query old threads: %w", err)
 		}
 		if len(ids) == 0 {
-			return 0, nil
+			break
 		}
-
-		return w.Ent.Thread.Delete().Where(thread.IDIn(ids...)).Exec(ctx)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete old threads: %w", err)
+		batchDeleted := 0
+		for _, id := range ids {
+			if w.beforeCandidateDelete != nil {
+				w.beforeCandidateDelete("thread", id)
+			}
+			deleted, err := w.deleteThreadCandidate(ctx, id, cutoffTime)
+			if err != nil {
+				return fmt.Errorf("failed to delete old thread %d: %w", id, err)
+			}
+			if deleted {
+				batchDeleted++
+			}
+		}
+		result += batchDeleted
+		if batchDeleted == 0 {
+			break
+		}
 	}
 
 	log.Debug(ctx, "Cleaned up threads",
@@ -538,26 +1211,40 @@ func (w *Worker) cleanupTraces(ctx context.Context, cleanupDays int, manual bool
 	cutoffTime := time.Now().AddDate(0, 0, -cleanupDays)
 	batchSize := w.getBatchSize()
 
-	result, err := w.deleteInBatches(ctx, func() (int, error) {
+	result := 0
+	for {
 		ids, err := w.Ent.Trace.Query().
 			Where(
 				trace.CreatedAtLT(cutoffTime),
 				trace.StatusNEQ(trace.StatusRetained),
+				trace.Not(trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained))),
 			).
 			Order(ent.Asc(trace.FieldID)).
 			Limit(batchSize).
 			IDs(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to query old traces: %w", err)
+			return fmt.Errorf("failed to query old traces: %w", err)
 		}
 		if len(ids) == 0 {
-			return 0, nil
+			break
 		}
-
-		return w.Ent.Trace.Delete().Where(trace.IDIn(ids...)).Exec(ctx)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete old traces: %w", err)
+		batchDeleted := 0
+		for _, id := range ids {
+			if w.beforeCandidateDelete != nil {
+				w.beforeCandidateDelete("trace", id)
+			}
+			deleted, err := w.deleteTraceCandidate(ctx, id, cutoffTime)
+			if err != nil {
+				return fmt.Errorf("failed to delete old trace %d: %w", id, err)
+			}
+			if deleted {
+				batchDeleted++
+			}
+		}
+		result += batchDeleted
+		if batchDeleted == 0 {
+			break
+		}
 	}
 
 	log.Debug(ctx, "Cleaned up traces",
@@ -613,6 +1300,9 @@ func (w *Worker) runVacuum(ctx context.Context) error {
 	dbDriver := w.Ent.Driver()
 	if dbDriver == nil {
 		return fmt.Errorf("failed to get database driver")
+	}
+	if primary, ok := dbDriver.(interface{ PrimaryDriver() dialect.Driver }); ok {
+		dbDriver = primary.PrimaryDriver()
 	}
 
 	sqlDriver, ok := dbDriver.(*entsql.Driver)
@@ -675,6 +1365,7 @@ func (w *Worker) RunCleanupNow(ctx context.Context, input TriggerGcCleanupInput)
 func (w *Worker) PreviewCleanup(ctx context.Context, input TriggerGcCleanupInput) ([]GcCleanupPreviewItem, error) {
 	ctx = ent.NewContext(ctx, w.Ent)
 	ctx = schematype.SkipSoftDelete(ctx)
+	ctx = serverdb.WithPrimary(ctx)
 
 	var items []GcCleanupPreviewItem
 
@@ -682,7 +1373,15 @@ func (w *Worker) PreviewCleanup(ctx context.Context, input TriggerGcCleanupInput
 		cutoff := time.Now().AddDate(0, 0, -input.RequestsCleanupDays)
 		count, err := w.Ent.Request.Query().Where(
 			request.CreatedAtLT(cutoff),
-			request.Not(request.HasTraceWith(trace.StatusEQ(trace.StatusRetained))),
+			request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
+			request.Not(request.HasExecutionsWith(requestexecution.Or(
+				requestexecution.CreatedAtGTE(cutoff),
+				requestexecution.StatusIn(requestexecution.StatusPending, requestexecution.StatusProcessing),
+			))),
+			request.Not(request.HasTraceWith(trace.Or(
+				trace.StatusEQ(trace.StatusRetained),
+				trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+			))),
 		).Count(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to count requests for preview: %w", err)
@@ -700,7 +1399,10 @@ func (w *Worker) PreviewCleanup(ctx context.Context, input TriggerGcCleanupInput
 		count, err := w.Ent.UsageLog.Query().Where(
 			usagelog.CreatedAtLT(cutoff),
 			usagelog.Not(usagelog.HasRequestWith(
-				request.HasTraceWith(trace.StatusEQ(trace.StatusRetained)),
+				request.HasTraceWith(trace.Or(
+					trace.StatusEQ(trace.StatusRetained),
+					trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+				)),
 			)),
 		).Count(ctx)
 		if err != nil {

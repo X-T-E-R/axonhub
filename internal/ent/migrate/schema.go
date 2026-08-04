@@ -699,6 +699,11 @@ var (
 		},
 		Indexes: []*schema.Index{
 			{
+				Name:    "request_executions_by_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{RequestExecutionsColumns[1]},
+			},
+			{
 				Name:    "request_executions_by_request_id_status_created_at",
 				Unique:  false,
 				Columns: []*schema.Column{RequestExecutionsColumns[24], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
