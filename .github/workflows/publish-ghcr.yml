@@ -27,6 +27,9 @@ jobs:
       short_sha: ${{ steps.meta.outputs.short_sha }}
       version: ${{ steps.meta.outputs.version }}
       publish_latest: ${{ steps.meta.outputs.publish_latest }}
+      is_promotion: ${{ steps.meta.outputs.is_promotion }}
+      promotion_sha: ${{ steps.meta.outputs.promotion_sha }}
+      promotion_source_tag: ${{ steps.meta.outputs.promotion_source_tag }}
     steps:
       - name: Resolve metadata
         id: meta
@@ -35,6 +38,26 @@ jobs:
           SHORT_SHA="${GITHUB_SHA::7}"
           REF_NAME="${GITHUB_REF_NAME}"
           REF_TYPE="${GITHUB_REF_TYPE}"
+          IS_PROMOTION="false"
+          PROMOTION_SHA=""
+          PROMOTION_SOURCE_TAG=""
+
+          if [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" == key-health-promote-* ]]; then
+            # The tag points at the commit containing this workflow. Its suffix
+            # names the previously verified candidate, so it intentionally does
+            # not need to equal GITHUB_SHA.
+            if [[ ! "${REF_NAME}" =~ ^key-health-promote-([0-9a-f]{7})$ ]]; then
+              echo "malformed promotion tag: ${REF_NAME}; expected key-health-promote-<7 lowercase hex>" >&2
+              exit 1
+            fi
+            PROMOTION_SHA="${BASH_REMATCH[1]}"
+            IS_PROMOTION="true"
+            PROMOTION_SOURCE_TAG="key-health-candidate-${PROMOTION_SHA}"
+          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" == "key-health-latest" ]]; then
+            echo "key-health-latest is reserved; use key-health-promote-<shortsha>" >&2
+            exit 1
+          fi
+
           if [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" == "codex/key-panel-unstable-sync" ]]; then
             # Branch pushes publish an immutable release candidate. Moving
             # key-health-latest is a separate, explicit promotion after the
@@ -57,6 +80,9 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "publish_latest=${PUBLISH_LATEST}" >> "$GITHUB_OUTPUT"
+          echo "is_promotion=${IS_PROMOTION}" >> "$GITHUB_OUTPUT"
+          echo "promotion_sha=${PROMOTION_SHA}" >> "$GITHUB_OUTPUT"
+          echo "promotion_source_tag=${PROMOTION_SOURCE_TAG}" >> "$GITHUB_OUTPUT"
 
           if [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "codex/key-panel-unstable-sync" && "${REF_NAME}" == "key-health-latest" ]]; then
             echo "branch pushes must not move key-health-latest" >&2
@@ -66,6 +92,7 @@ jobs:
   build-single-arch:
     name: Build and push ${{ matrix.arch }} image
     needs: metadata
+    if: needs.metadata.outputs.is_promotion != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -130,6 +157,7 @@ jobs:
   create-manifests:
     name: Create multi-arch manifests
     needs: [metadata, build-single-arch]
+    if: needs.metadata.outputs.is_promotion != 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -162,3 +190,92 @@ jobs:
               "${IMAGE_NAME}:latest-amd64" \
               "${IMAGE_NAME}:latest-arm64"
           fi
+
+  promote-key-health:
+    name: Promote verified key-health candidate
+    needs: metadata
+    if: needs.metadata.outputs.is_promotion == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify and promote immutable candidate index
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ needs.metadata.outputs.promotion_source_tag }}
+          EXPECTED_SHORT_SHA: ${{ needs.metadata.outputs.promotion_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${SOURCE_TAG}" =~ ^key-health-candidate-([0-9a-f]{7})$ ]]; then
+            echo "invalid candidate source tag: ${SOURCE_TAG}" >&2
+            exit 1
+          fi
+          if [[ "${BASH_REMATCH[1]}" != "${EXPECTED_SHORT_SHA}" ]]; then
+            echo "candidate source ${SOURCE_TAG} does not match promotion ${EXPECTED_SHORT_SHA}" >&2
+            exit 1
+          fi
+
+          SOURCE_REF="${IMAGE_NAME}:${SOURCE_TAG}"
+          docker buildx imagetools inspect --raw "${SOURCE_REF}" > source-index.json
+
+          jq -e '
+            (.mediaType == "application/vnd.oci.image.index.v1+json" or
+             .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json") and
+            any(.manifests[]?; .platform.os == "linux" and .platform.architecture == "amd64") and
+            any(.manifests[]?; .platform.os == "linux" and .platform.architecture == "arm64")
+          ' source-index.json >/dev/null || {
+            echo "source is not a multi-arch index containing linux/amd64 and linux/arm64" >&2
+            exit 1
+          }
+
+          SOURCE_DIGEST="$(docker buildx imagetools inspect "${SOURCE_REF}" --format '{{.Manifest.Digest}}')"
+          if [[ ! "${SOURCE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "candidate source returned an invalid digest: ${SOURCE_DIGEST}" >&2
+            exit 1
+          fi
+          SOURCE_BY_DIGEST="${IMAGE_NAME}@${SOURCE_DIGEST}"
+          docker buildx imagetools inspect --raw "${SOURCE_BY_DIGEST}" > source-by-digest.json
+          cmp --silent source-index.json source-by-digest.json || {
+            echo "candidate tag did not resolve back to the computed immutable digest" >&2
+            exit 1
+          }
+
+          IMMUTABLE_SHA_REF="${IMAGE_NAME}:sha-${EXPECTED_SHORT_SHA}"
+          IMMUTABLE_SHA_DIGEST="$(docker buildx imagetools inspect "${IMMUTABLE_SHA_REF}" --format '{{.Manifest.Digest}}')"
+          if [[ "${IMMUTABLE_SHA_DIGEST}" != "${SOURCE_DIGEST}" ]]; then
+            echo "candidate ${SOURCE_TAG} (${SOURCE_DIGEST}) does not match ${IMMUTABLE_SHA_REF} (${IMMUTABLE_SHA_DIGEST})" >&2
+            exit 1
+          fi
+
+          # A single index source is copied as-is; no platform image is rebuilt.
+          docker buildx imagetools create \
+            -t "${IMAGE_NAME}:key-health-latest" \
+            "${SOURCE_BY_DIGEST}"
+
+          promoted=false
+          for _ in $(seq 1 10); do
+            if docker buildx imagetools inspect --raw "${IMAGE_NAME}:key-health-latest" > promoted-index.json 2>/dev/null; then
+              PROMOTED_DIGEST="$(docker buildx imagetools inspect "${IMAGE_NAME}:key-health-latest" --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+              if [[ "${PROMOTED_DIGEST}" == "${SOURCE_DIGEST}" ]] && cmp --silent source-index.json promoted-index.json; then
+                promoted=true
+                break
+              fi
+            fi
+            sleep 3
+          done
+          if [[ "${promoted}" != "true" ]]; then
+            echo "promoted tag does not match source digest ${SOURCE_DIGEST}" >&2
+            exit 1
+          fi
+
+          echo "Promoted ${SOURCE_BY_DIGEST} to ${IMAGE_NAME}:key-health-latest"
