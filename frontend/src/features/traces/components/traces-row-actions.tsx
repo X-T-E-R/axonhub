@@ -4,6 +4,7 @@ import { Row } from '@tanstack/react-table';
 import { IconArchive, IconPin, IconRotate } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +31,7 @@ interface TracesRowActionsProps {
 
 export function TracesRowActions({ row }: TracesRowActionsProps) {
   const { t } = useTranslation();
+  const { hasScope } = usePermissions();
   const trace = row.original;
   const [open, setOpen] = React.useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = React.useState(false);
@@ -65,6 +67,10 @@ export function TracesRowActions({ row }: TracesRowActionsProps) {
   };
 
   const status = trace.status ?? 'active';
+
+  if (!hasScope('write_requests')) {
+    return null;
+  }
 
   return (
     <>

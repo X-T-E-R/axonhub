@@ -4,6 +4,7 @@ import { Row } from '@tanstack/react-table';
 import { IconArchive, IconPin, IconRotate } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +31,7 @@ interface ThreadsRowActionsProps {
 
 export function ThreadsRowActions({ row }: ThreadsRowActionsProps) {
   const { t } = useTranslation();
+  const { hasScope } = usePermissions();
   const thread = row.original;
   const [open, setOpen] = React.useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = React.useState(false);
@@ -65,6 +67,10 @@ export function ThreadsRowActions({ row }: ThreadsRowActionsProps) {
   };
 
   const status = thread.status ?? 'active';
+
+  if (!hasScope('write_requests')) {
+    return null;
+  }
 
   return (
     <>

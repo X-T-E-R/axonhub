@@ -325,7 +325,7 @@ func convertToolChoiceToLLM(src *ToolChoice) *llm.ToolChoice {
 }
 
 // convertInputToMessages converts Responses API input to llm.Message slice.
-// It handles merging reasoning items with subsequent function_call items into a single assistant message.
+// It handles merging consecutive tool calls that belong to the same assistant turn.
 func convertInputToMessages(input *Input) ([]llm.Message, error) {
 	if input == nil {
 		return nil, nil
@@ -362,6 +362,30 @@ func convertInputToMessages(input *Input) ([]llm.Message, error) {
 			}
 
 			i += consumed
+
+			continue
+		}
+
+		if item.Type == "function_call" || item.Type == "custom_tool_call" {
+			msg := llm.Message{Role: "assistant"}
+
+			for i < len(input.Items) {
+				callItem := &input.Items[i]
+				if callItem.Type != "function_call" && callItem.Type != "custom_tool_call" {
+					break
+				}
+
+				callMsg, err := convertItemToMessage(callItem)
+				if err != nil {
+					return nil, err
+				}
+				if callMsg != nil {
+					msg.ToolCalls = append(msg.ToolCalls, callMsg.ToolCalls...)
+				}
+				i++
+			}
+
+			messages = append(messages, msg)
 
 			continue
 		}
@@ -784,6 +808,28 @@ func convertToolsToLLM(tools []Tool) ([]llm.Tool, error) {
 				ResponseCustomTool: customTool,
 			})
 
+		case "namespace":
+			for _, subTool := range tool.Tools {
+				if subTool.Type != "function" {
+					continue
+				}
+
+				params, err := json.Marshal(subTool.Parameters)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal namespace tool parameters: %w", err)
+				}
+
+				result = append(result, llm.Tool{
+					Type: "function",
+					Function: llm.Function{
+						Name:        namespaceFunctionName(tool.Name, subTool.Name),
+						Description: subTool.Description,
+						Parameters:  params,
+						Strict:      subTool.Strict,
+					},
+				})
+			}
+
 		default:
 			// Skip unsupported tool types
 			continue
@@ -791,6 +837,10 @@ func convertToolsToLLM(tools []Tool) ([]llm.Tool, error) {
 	}
 
 	return result, nil
+}
+
+func namespaceFunctionName(namespaceName, functionName string) string {
+	return namespaceName + "__" + functionName
 }
 
 func getResponseWebSearchCallsFromMetadata(metadata map[string]any) []Item {

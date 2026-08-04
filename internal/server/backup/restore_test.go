@@ -79,6 +79,19 @@ func TestBackupService_Restore(t *testing.T) {
 	require.Equal(t, existingPrice.ReferenceID, restoredPrice.ReferenceID)
 }
 
+func TestBackupService_Restore_AcceptsAllSupportedVersions(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+
+	for _, version := range []string{BackupVersionV1, BackupVersionV2, BackupVersionV3, BackupVersion} {
+		t.Run(version, func(t *testing.T) {
+			data, err := json.Marshal(BackupData{Version: version})
+			require.NoError(t, err)
+			require.NoError(t, service.Restore(ctx, data, RestoreOptions{}))
+		})
+	}
+}
+
 func TestBackupService_Restore_ModelPricesOnly(t *testing.T) {
 	client, service, ctx := setupBackupTest(t)
 	defer client.Close()

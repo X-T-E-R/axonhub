@@ -395,6 +395,19 @@ func TestClaudeCodeTransformer_TransformStream(t *testing.T) {
 					},
 				}),
 			},
+			{
+				Type: "content_block_stop",
+				Data: mustMarshal(map[string]any{
+					"type":  "content_block_stop",
+					"index": 0,
+				}),
+			},
+			{
+				Type: "message_stop",
+				Data: mustMarshal(map[string]any{
+					"type": "message_stop",
+				}),
+			},
 		}
 
 		// Create a mock stream

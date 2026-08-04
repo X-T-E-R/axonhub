@@ -1,10 +1,13 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -13,12 +16,23 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/server/biz"
 )
+
+var errBackupWriter = errors.New("backup writer failed")
+
+type failingBackupWriter struct{}
+
+func (failingBackupWriter) Write([]byte) (int, error) {
+	return 0, errBackupWriter
+}
 
 func setupBackupTest(t *testing.T) (*ent.Client, *BackupService, context.Context) {
 	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=1")
@@ -402,4 +416,79 @@ func TestBackupService_Backup_WithRequestLogs(t *testing.T) {
 	err = json.Unmarshal(data, &backupData)
 	require.NoError(t, err)
 	require.Equal(t, "sk-test-key-1", backupData.UsageRequests[0].APIKeyKey)
+}
+
+func TestBackupService_Backup_PaginationAcrossBatchBoundary(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+
+	const n = backupBatchSize + 1
+	created := make([]*ent.Channel, n)
+	for i := range n {
+		created[i] = createBackupTestChannel(t, client, ctx, fmt.Sprintf("ch-%d", i), channel.TypeOpenai)
+	}
+	for i := range n {
+		createBackupTestModel(t, client, ctx, "openai", fmt.Sprintf("m-%d", i))
+	}
+
+	data, err := service.Backup(ctx, BackupOptions{IncludeChannels: true, IncludeModels: true})
+	require.NoError(t, err)
+
+	var bd BackupData
+	require.NoError(t, json.Unmarshal(data, &bd))
+	require.Len(t, bd.Channels, n)
+	require.Len(t, bd.Models, n)
+
+	for i, ch := range bd.Channels {
+		require.Equal(t, created[i].Name, ch.Name)
+	}
+}
+
+func TestBackupService_BackupToWriter_PropagatesWriterAndContextErrors(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+
+	err := service.doBackupToWriter(ctx, BackupOptions{}, failingBackupWriter{})
+	require.ErrorIs(t, err, errBackupWriter)
+
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	var out bytes.Buffer
+	err = service.doBackupToWriter(canceledCtx, BackupOptions{IncludeProjects: true}, &out)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestBackupService_PerformBackup_DatabaseStorageKeepsBufferedPath(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+
+	cacheConfig := xcache.Config{
+		Mode: xcache.ModeMemory,
+		Memory: xcache.MemoryConfig{
+			Expiration:      time.Minute,
+			CleanupInterval: time.Minute,
+		},
+	}
+	dataStorageService := biz.NewDataStorageService(biz.DataStorageServiceParams{
+		CacheConfig: cacheConfig,
+		Client:      client,
+	})
+	service.dataStorageService = dataStorageService
+
+	ds, err := client.DataStorage.Create().
+		SetName("backup-database-storage").
+		SetDescription("backup test").
+		SetPrimary(false).
+		SetType(datastorage.TypeDatabase).
+		SetSettings(&objects.DataStorageSettings{}).
+		SetStatus(datastorage.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	createBackupTestChannel(t, client, ctx, "database-backup-channel", channel.TypeOpenai)
+	err = service.performBackup(ctx, &biz.AutoBackupSettings{
+		DataStorageID:   ds.ID,
+		IncludeChannels: true,
+	})
+	require.NoError(t, err)
 }

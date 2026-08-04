@@ -1588,10 +1588,11 @@ type ComplexityRoot struct {
 	}
 
 	ProxyConfig struct {
-		Password func(childComplexity int) int
-		Type     func(childComplexity int) int
-		URL      func(childComplexity int) int
-		Username func(childComplexity int) int
+		DisableConnectionReuse func(childComplexity int) int
+		Password               func(childComplexity int) int
+		Type                   func(childComplexity int) int
+		URL                    func(childComplexity int) int
+		Username               func(childComplexity int) int
 	}
 
 	ProxyPreset struct {
@@ -9436,6 +9437,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ProviderQuotaStatus.UpdatedAt(childComplexity), true
 
+	case "ProxyConfig.disableConnectionReuse":
+		if e.complexity.ProxyConfig.DisableConnectionReuse == nil {
+			break
+		}
+
+		return e.complexity.ProxyConfig.DisableConnectionReuse(childComplexity), true
 	case "ProxyConfig.password":
 		if e.complexity.ProxyConfig.Password == nil {
 			break
@@ -31644,6 +31651,8 @@ func (ec *executionContext) fieldContext_ChannelSettings_proxy(_ context.Context
 				return ec.fieldContext_ProxyConfig_username(ctx, field)
 			case "password":
 				return ec.fieldContext_ProxyConfig_password(ctx, field)
+			case "disableConnectionReuse":
+				return ec.fieldContext_ProxyConfig_disableConnectionReuse(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ProxyConfig", field.Name)
 		},
@@ -50931,6 +50940,35 @@ func (ec *executionContext) fieldContext_ProxyConfig_password(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _ProxyConfig_disableConnectionReuse(ctx context.Context, field graphql.CollectedField, obj *httpclient.ProxyConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ProxyConfig_disableConnectionReuse,
+		func(ctx context.Context) (any, error) {
+			return obj.DisableConnectionReuse, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ProxyConfig_disableConnectionReuse(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ProxyConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ProxyPreset_name(ctx context.Context, field graphql.CollectedField, obj *biz.ProxyPreset) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -69477,6 +69515,8 @@ func (ec *executionContext) fieldContext_WebhookTarget_proxy(_ context.Context, 
 				return ec.fieldContext_ProxyConfig_username(ctx, field)
 			case "password":
 				return ec.fieldContext_ProxyConfig_password(ctx, field)
+			case "disableConnectionReuse":
+				return ec.fieldContext_ProxyConfig_disableConnectionReuse(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ProxyConfig", field.Name)
 		},
@@ -88563,7 +88603,7 @@ func (ec *executionContext) unmarshalInputProxyConfigInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"type", "url", "username", "password"}
+	fieldsInOrder := [...]string{"type", "url", "username", "password", "disableConnectionReuse"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -88598,6 +88638,13 @@ func (ec *executionContext) unmarshalInputProxyConfigInput(ctx context.Context, 
 				return it, err
 			}
 			it.Password = data
+		case "disableConnectionReuse":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("disableConnectionReuse"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DisableConnectionReuse = data
 		}
 	}
 
@@ -112893,6 +112940,8 @@ func (ec *executionContext) _ProxyConfig(ctx context.Context, sel ast.SelectionS
 			out.Values[i] = ec._ProxyConfig_username(ctx, field, obj)
 		case "password":
 			out.Values[i] = ec._ProxyConfig_password(ctx, field, obj)
+		case "disableConnectionReuse":
+			out.Values[i] = ec._ProxyConfig_disableConnectionReuse(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

@@ -8,6 +8,7 @@ import { FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { extractNumberID } from '@/lib/utils';
 import { usePaginationSearch } from '@/hooks/use-pagination-search';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTableColumnHeader } from '@/components/data-table-column-header';
@@ -28,12 +29,17 @@ import React from 'react';
 
 function ThreadActionButtons({ thread }: { thread: Thread }) {
   const { t } = useTranslation();
+  const { hasScope } = usePermissions();
   const [showArchiveDialog, setShowArchiveDialog] = React.useState(false);
   const archiveMutation = useArchiveThread();
   const unarchiveMutation = useUnarchiveThread();
   const retainMutation = useRetainThread();
   const unretainMutation = useUnretainThread();
   const status = thread.status ?? 'active';
+
+  if (!hasScope('write_requests')) {
+    return null;
+  }
 
   return (
     <>

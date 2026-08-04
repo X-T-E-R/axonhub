@@ -67,3 +67,28 @@ test('unrelated channel updates preserve execution capture overrides', () => {
   assert.equal(updated.storeExecutionResponseBody, false);
   assert.equal(updated.storeExecutionStreamChunks, null);
 });
+
+test('unrelated channel updates preserve proxy reuse while stripping key-health runtime state', () => {
+  const existing = {
+    proxy: {
+      type: 'url',
+      url: 'http://proxy.example',
+      disableConnectionReuse: true,
+    },
+    keyHealthCheck: {
+      enabled: true,
+      historyLimit: 20,
+      keyMetadata: [{ keyId: 'key_1', status: 'healthy' }],
+      archivedKeys: [{ keyId: 'key_2' }],
+      history: [{ keyId: 'key_1', success: true }],
+    },
+  };
+
+  const updated = merge.mergeChannelSettingsForUpdate(existing, { disableRetries: true });
+
+  assert.deepEqual(updated.proxy, existing.proxy);
+  assert.deepEqual(updated.keyHealthCheck, {
+    enabled: true,
+    historyLimit: 20,
+  });
+});

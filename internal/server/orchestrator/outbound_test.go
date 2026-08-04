@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 
@@ -677,6 +678,7 @@ func TestPersistentOutboundTransformer_HasMoreChannels_DisableRetries(t *testing
 	}
 
 	require.False(t, outbound.HasMoreChannels())
+	require.False(t, outbound.CanRetry(io.EOF), "transport failures must not bypass DisableRetries")
 }
 
 func TestIsCompletedAggregatedOutboundResponse(t *testing.T) {
