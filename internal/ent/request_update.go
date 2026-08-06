@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
@@ -55,6 +56,26 @@ func (_u *RequestUpdate) AppendRequestHeaders(v objects.JSONRawMessage) *Request
 // ClearRequestHeaders clears the value of the "request_headers" field.
 func (_u *RequestUpdate) ClearRequestHeaders() *RequestUpdate {
 	_u.mutation.ClearRequestHeaders()
+	return _u
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (_u *RequestUpdate) SetRequestBodyPayloadID(v int) *RequestUpdate {
+	_u.mutation.SetRequestBodyPayloadID(v)
+	return _u
+}
+
+// SetNillableRequestBodyPayloadID sets the "request_body_payload_id" field if the given value is not nil.
+func (_u *RequestUpdate) SetNillableRequestBodyPayloadID(v *int) *RequestUpdate {
+	if v != nil {
+		_u.SetRequestBodyPayloadID(*v)
+	}
+	return _u
+}
+
+// ClearRequestBodyPayloadID clears the value of the "request_body_payload_id" field.
+func (_u *RequestUpdate) ClearRequestBodyPayloadID() *RequestUpdate {
+	_u.mutation.ClearRequestBodyPayloadID()
 	return _u
 }
 
@@ -342,6 +363,20 @@ func (_u *RequestUpdate) ClearEvidenceDisposition() *RequestUpdate {
 	return _u
 }
 
+// SetManagedObservability sets the "managed_observability" field.
+func (_u *RequestUpdate) SetManagedObservability(v bool) *RequestUpdate {
+	_u.mutation.SetManagedObservability(v)
+	return _u
+}
+
+// SetNillableManagedObservability sets the "managed_observability" field if the given value is not nil.
+func (_u *RequestUpdate) SetNillableManagedObservability(v *bool) *RequestUpdate {
+	if v != nil {
+		_u.SetManagedObservability(*v)
+	}
+	return _u
+}
+
 // AddExecutionIDs adds the "executions" edge to the RequestExecution entity by IDs.
 func (_u *RequestUpdate) AddExecutionIDs(ids ...int) *RequestUpdate {
 	_u.mutation.AddExecutionIDs(ids...)
@@ -355,6 +390,26 @@ func (_u *RequestUpdate) AddExecutions(v ...*RequestExecution) *RequestUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddExecutionIDs(ids...)
+}
+
+// AddObservabilityPayloadIDs adds the "observability_payloads" edge to the ObservabilityPayload entity by IDs.
+func (_u *RequestUpdate) AddObservabilityPayloadIDs(ids ...int) *RequestUpdate {
+	_u.mutation.AddObservabilityPayloadIDs(ids...)
+	return _u
+}
+
+// AddObservabilityPayloads adds the "observability_payloads" edges to the ObservabilityPayload entity.
+func (_u *RequestUpdate) AddObservabilityPayloads(v ...*ObservabilityPayload) *RequestUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddObservabilityPayloadIDs(ids...)
+}
+
+// SetRequestBodyPayload sets the "request_body_payload" edge to the ObservabilityPayload entity.
+func (_u *RequestUpdate) SetRequestBodyPayload(v *ObservabilityPayload) *RequestUpdate {
+	return _u.SetRequestBodyPayloadID(v.ID)
 }
 
 // SetChannel sets the "channel" edge to the Channel entity.
@@ -401,6 +456,33 @@ func (_u *RequestUpdate) RemoveExecutions(v ...*RequestExecution) *RequestUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveExecutionIDs(ids...)
+}
+
+// ClearObservabilityPayloads clears all "observability_payloads" edges to the ObservabilityPayload entity.
+func (_u *RequestUpdate) ClearObservabilityPayloads() *RequestUpdate {
+	_u.mutation.ClearObservabilityPayloads()
+	return _u
+}
+
+// RemoveObservabilityPayloadIDs removes the "observability_payloads" edge to ObservabilityPayload entities by IDs.
+func (_u *RequestUpdate) RemoveObservabilityPayloadIDs(ids ...int) *RequestUpdate {
+	_u.mutation.RemoveObservabilityPayloadIDs(ids...)
+	return _u
+}
+
+// RemoveObservabilityPayloads removes "observability_payloads" edges to ObservabilityPayload entities.
+func (_u *RequestUpdate) RemoveObservabilityPayloads(v ...*ObservabilityPayload) *RequestUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveObservabilityPayloadIDs(ids...)
+}
+
+// ClearRequestBodyPayload clears the "request_body_payload" edge to the ObservabilityPayload entity.
+func (_u *RequestUpdate) ClearRequestBodyPayload() *RequestUpdate {
+	_u.mutation.ClearRequestBodyPayload()
+	return _u
 }
 
 // ClearChannel clears the "channel" edge to the Channel entity.
@@ -622,6 +704,9 @@ func (_u *RequestUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.EvidenceDispositionCleared() {
 		_spec.ClearField(request.FieldEvidenceDisposition, field.TypeJSON)
 	}
+	if value, ok := _u.mutation.ManagedObservability(); ok {
+		_spec.SetField(request.FieldManagedObservability, field.TypeBool, value)
+	}
 	if _u.mutation.ExecutionsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -660,6 +745,80 @@ func (_u *RequestUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(requestexecution.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ObservabilityPayloadsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   request.ObservabilityPayloadsTable,
+			Columns: []string{request.ObservabilityPayloadsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedObservabilityPayloadsIDs(); len(nodes) > 0 && !_u.mutation.ObservabilityPayloadsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   request.ObservabilityPayloadsTable,
+			Columns: []string{request.ObservabilityPayloadsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ObservabilityPayloadsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   request.ObservabilityPayloadsTable,
+			Columns: []string{request.ObservabilityPayloadsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RequestBodyPayloadCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   request.RequestBodyPayloadTable,
+			Columns: []string{request.RequestBodyPayloadColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RequestBodyPayloadIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   request.RequestBodyPayloadTable,
+			Columns: []string{request.RequestBodyPayloadColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -784,6 +943,26 @@ func (_u *RequestUpdateOne) AppendRequestHeaders(v objects.JSONRawMessage) *Requ
 // ClearRequestHeaders clears the value of the "request_headers" field.
 func (_u *RequestUpdateOne) ClearRequestHeaders() *RequestUpdateOne {
 	_u.mutation.ClearRequestHeaders()
+	return _u
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (_u *RequestUpdateOne) SetRequestBodyPayloadID(v int) *RequestUpdateOne {
+	_u.mutation.SetRequestBodyPayloadID(v)
+	return _u
+}
+
+// SetNillableRequestBodyPayloadID sets the "request_body_payload_id" field if the given value is not nil.
+func (_u *RequestUpdateOne) SetNillableRequestBodyPayloadID(v *int) *RequestUpdateOne {
+	if v != nil {
+		_u.SetRequestBodyPayloadID(*v)
+	}
+	return _u
+}
+
+// ClearRequestBodyPayloadID clears the value of the "request_body_payload_id" field.
+func (_u *RequestUpdateOne) ClearRequestBodyPayloadID() *RequestUpdateOne {
+	_u.mutation.ClearRequestBodyPayloadID()
 	return _u
 }
 
@@ -1071,6 +1250,20 @@ func (_u *RequestUpdateOne) ClearEvidenceDisposition() *RequestUpdateOne {
 	return _u
 }
 
+// SetManagedObservability sets the "managed_observability" field.
+func (_u *RequestUpdateOne) SetManagedObservability(v bool) *RequestUpdateOne {
+	_u.mutation.SetManagedObservability(v)
+	return _u
+}
+
+// SetNillableManagedObservability sets the "managed_observability" field if the given value is not nil.
+func (_u *RequestUpdateOne) SetNillableManagedObservability(v *bool) *RequestUpdateOne {
+	if v != nil {
+		_u.SetManagedObservability(*v)
+	}
+	return _u
+}
+
 // AddExecutionIDs adds the "executions" edge to the RequestExecution entity by IDs.
 func (_u *RequestUpdateOne) AddExecutionIDs(ids ...int) *RequestUpdateOne {
 	_u.mutation.AddExecutionIDs(ids...)
@@ -1084,6 +1277,26 @@ func (_u *RequestUpdateOne) AddExecutions(v ...*RequestExecution) *RequestUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.AddExecutionIDs(ids...)
+}
+
+// AddObservabilityPayloadIDs adds the "observability_payloads" edge to the ObservabilityPayload entity by IDs.
+func (_u *RequestUpdateOne) AddObservabilityPayloadIDs(ids ...int) *RequestUpdateOne {
+	_u.mutation.AddObservabilityPayloadIDs(ids...)
+	return _u
+}
+
+// AddObservabilityPayloads adds the "observability_payloads" edges to the ObservabilityPayload entity.
+func (_u *RequestUpdateOne) AddObservabilityPayloads(v ...*ObservabilityPayload) *RequestUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddObservabilityPayloadIDs(ids...)
+}
+
+// SetRequestBodyPayload sets the "request_body_payload" edge to the ObservabilityPayload entity.
+func (_u *RequestUpdateOne) SetRequestBodyPayload(v *ObservabilityPayload) *RequestUpdateOne {
+	return _u.SetRequestBodyPayloadID(v.ID)
 }
 
 // SetChannel sets the "channel" edge to the Channel entity.
@@ -1130,6 +1343,33 @@ func (_u *RequestUpdateOne) RemoveExecutions(v ...*RequestExecution) *RequestUpd
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveExecutionIDs(ids...)
+}
+
+// ClearObservabilityPayloads clears all "observability_payloads" edges to the ObservabilityPayload entity.
+func (_u *RequestUpdateOne) ClearObservabilityPayloads() *RequestUpdateOne {
+	_u.mutation.ClearObservabilityPayloads()
+	return _u
+}
+
+// RemoveObservabilityPayloadIDs removes the "observability_payloads" edge to ObservabilityPayload entities by IDs.
+func (_u *RequestUpdateOne) RemoveObservabilityPayloadIDs(ids ...int) *RequestUpdateOne {
+	_u.mutation.RemoveObservabilityPayloadIDs(ids...)
+	return _u
+}
+
+// RemoveObservabilityPayloads removes "observability_payloads" edges to ObservabilityPayload entities.
+func (_u *RequestUpdateOne) RemoveObservabilityPayloads(v ...*ObservabilityPayload) *RequestUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveObservabilityPayloadIDs(ids...)
+}
+
+// ClearRequestBodyPayload clears the "request_body_payload" edge to the ObservabilityPayload entity.
+func (_u *RequestUpdateOne) ClearRequestBodyPayload() *RequestUpdateOne {
+	_u.mutation.ClearRequestBodyPayload()
+	return _u
 }
 
 // ClearChannel clears the "channel" edge to the Channel entity.
@@ -1381,6 +1621,9 @@ func (_u *RequestUpdateOne) sqlSave(ctx context.Context) (_node *Request, err er
 	if _u.mutation.EvidenceDispositionCleared() {
 		_spec.ClearField(request.FieldEvidenceDisposition, field.TypeJSON)
 	}
+	if value, ok := _u.mutation.ManagedObservability(); ok {
+		_spec.SetField(request.FieldManagedObservability, field.TypeBool, value)
+	}
 	if _u.mutation.ExecutionsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -1419,6 +1662,80 @@ func (_u *RequestUpdateOne) sqlSave(ctx context.Context) (_node *Request, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(requestexecution.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ObservabilityPayloadsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   request.ObservabilityPayloadsTable,
+			Columns: []string{request.ObservabilityPayloadsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedObservabilityPayloadsIDs(); len(nodes) > 0 && !_u.mutation.ObservabilityPayloadsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   request.ObservabilityPayloadsTable,
+			Columns: []string{request.ObservabilityPayloadsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ObservabilityPayloadsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   request.ObservabilityPayloadsTable,
+			Columns: []string{request.ObservabilityPayloadsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RequestBodyPayloadCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   request.RequestBodyPayloadTable,
+			Columns: []string{request.RequestBodyPayloadColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RequestBodyPayloadIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   request.RequestBodyPayloadTable,
+			Columns: []string{request.RequestBodyPayloadColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

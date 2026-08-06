@@ -14,7 +14,9 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/model"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
@@ -391,6 +393,32 @@ func init() {
 	datastorageDescPrimary := datastorageFields[2].Descriptor()
 	// datastorage.DefaultPrimary holds the default value on creation for the primary field.
 	datastorage.DefaultPrimary = datastorageDescPrimary.Default.(bool)
+	managedobservabilitystateFields := schema.ManagedObservabilityState{}.Fields()
+	_ = managedobservabilitystateFields
+	// managedobservabilitystateDescChargedBytes is the schema descriptor for charged_bytes field.
+	managedobservabilitystateDescChargedBytes := managedobservabilitystateFields[1].Descriptor()
+	// managedobservabilitystate.DefaultChargedBytes holds the default value on creation for the charged_bytes field.
+	managedobservabilitystate.DefaultChargedBytes = managedobservabilitystateDescChargedBytes.Default.(int64)
+	// managedobservabilitystate.ChargedBytesValidator is a validator for the "charged_bytes" field. It is called by the builders before save.
+	managedobservabilitystate.ChargedBytesValidator = managedobservabilitystateDescChargedBytes.Validators[0].(func(int64) error)
+	// managedobservabilitystateDescUnderPressure is the schema descriptor for under_pressure field.
+	managedobservabilitystateDescUnderPressure := managedobservabilitystateFields[2].Descriptor()
+	// managedobservabilitystate.DefaultUnderPressure holds the default value on creation for the under_pressure field.
+	managedobservabilitystate.DefaultUnderPressure = managedobservabilitystateDescUnderPressure.Default.(bool)
+	// managedobservabilitystateDescLastError is the schema descriptor for last_error field.
+	managedobservabilitystateDescLastError := managedobservabilitystateFields[3].Descriptor()
+	// managedobservabilitystate.DefaultLastError holds the default value on creation for the last_error field.
+	managedobservabilitystate.DefaultLastError = managedobservabilitystateDescLastError.Default.(string)
+	// managedobservabilitystateDescUpdatedAt is the schema descriptor for updated_at field.
+	managedobservabilitystateDescUpdatedAt := managedobservabilitystateFields[4].Descriptor()
+	// managedobservabilitystate.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	managedobservabilitystate.DefaultUpdatedAt = managedobservabilitystateDescUpdatedAt.Default.(func() time.Time)
+	// managedobservabilitystate.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	managedobservabilitystate.UpdateDefaultUpdatedAt = managedobservabilitystateDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// managedobservabilitystateDescID is the schema descriptor for id field.
+	managedobservabilitystateDescID := managedobservabilitystateFields[0].Descriptor()
+	// managedobservabilitystate.DefaultID holds the default value on creation for the id field.
+	managedobservabilitystate.DefaultID = managedobservabilitystateDescID.Default.(int)
 	modelMixin := schema.Model{}.Mixin()
 	model.Policy = privacy.NewPolicies(schema.Model{})
 	model.Hooks[0] = func(next ent.Mutator) ent.Mutator {
@@ -461,6 +489,33 @@ func init() {
 	oidcidentityDescDeletedAt := oidcidentityMixinFields1[0].Descriptor()
 	// oidcidentity.DefaultDeletedAt holds the default value on creation for the deleted_at field.
 	oidcidentity.DefaultDeletedAt = oidcidentityDescDeletedAt.Default.(int)
+	observabilitypayloadMixin := schema.ObservabilityPayload{}.Mixin()
+	observabilitypayloadMixinFields0 := observabilitypayloadMixin[0].Fields()
+	_ = observabilitypayloadMixinFields0
+	observabilitypayloadFields := schema.ObservabilityPayload{}.Fields()
+	_ = observabilitypayloadFields
+	// observabilitypayloadDescCreatedAt is the schema descriptor for created_at field.
+	observabilitypayloadDescCreatedAt := observabilitypayloadMixinFields0[0].Descriptor()
+	// observabilitypayload.DefaultCreatedAt holds the default value on creation for the created_at field.
+	observabilitypayload.DefaultCreatedAt = observabilitypayloadDescCreatedAt.Default.(func() time.Time)
+	// observabilitypayloadDescUpdatedAt is the schema descriptor for updated_at field.
+	observabilitypayloadDescUpdatedAt := observabilitypayloadMixinFields0[1].Descriptor()
+	// observabilitypayload.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	observabilitypayload.DefaultUpdatedAt = observabilitypayloadDescUpdatedAt.Default.(func() time.Time)
+	// observabilitypayload.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	observabilitypayload.UpdateDefaultUpdatedAt = observabilitypayloadDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// observabilitypayloadDescSha256 is the schema descriptor for sha256 field.
+	observabilitypayloadDescSha256 := observabilitypayloadFields[2].Descriptor()
+	// observabilitypayload.Sha256Validator is a validator for the "sha256" field. It is called by the builders before save.
+	observabilitypayload.Sha256Validator = observabilitypayloadDescSha256.Validators[0].(func(string) error)
+	// observabilitypayloadDescByteLength is the schema descriptor for byte_length field.
+	observabilitypayloadDescByteLength := observabilitypayloadFields[3].Descriptor()
+	// observabilitypayload.ByteLengthValidator is a validator for the "byte_length" field. It is called by the builders before save.
+	observabilitypayload.ByteLengthValidator = observabilitypayloadDescByteLength.Validators[0].(func(int64) error)
+	// observabilitypayloadDescChargedBytes is the schema descriptor for charged_bytes field.
+	observabilitypayloadDescChargedBytes := observabilitypayloadFields[4].Descriptor()
+	// observabilitypayload.ChargedBytesValidator is a validator for the "charged_bytes" field. It is called by the builders before save.
+	observabilitypayload.ChargedBytesValidator = observabilitypayloadDescChargedBytes.Validators[0].(func(int64) error)
 	projectMixin := schema.Project{}.Mixin()
 	project.Policy = privacy.NewPolicies(schema.Project{})
 	project.Hooks[0] = func(next ent.Mutator) ent.Mutator {
@@ -648,21 +703,25 @@ func init() {
 	// request.DefaultFormat holds the default value on creation for the format field.
 	request.DefaultFormat = requestDescFormat.Default.(string)
 	// requestDescExternalID is the schema descriptor for external_id field.
-	requestDescExternalID := requestFields[13].Descriptor()
+	requestDescExternalID := requestFields[14].Descriptor()
 	// request.ExternalIDValidator is a validator for the "external_id" field. It is called by the builders before save.
 	request.ExternalIDValidator = requestDescExternalID.Validators[0].(func(string) error)
 	// requestDescStream is the schema descriptor for stream field.
-	requestDescStream := requestFields[15].Descriptor()
+	requestDescStream := requestFields[16].Descriptor()
 	// request.DefaultStream holds the default value on creation for the stream field.
 	request.DefaultStream = requestDescStream.Default.(bool)
 	// requestDescClientIP is the schema descriptor for client_ip field.
-	requestDescClientIP := requestFields[16].Descriptor()
+	requestDescClientIP := requestFields[17].Descriptor()
 	// request.DefaultClientIP holds the default value on creation for the client_ip field.
 	request.DefaultClientIP = requestDescClientIP.Default.(string)
 	// requestDescContentSaved is the schema descriptor for content_saved field.
-	requestDescContentSaved := requestFields[21].Descriptor()
+	requestDescContentSaved := requestFields[22].Descriptor()
 	// request.DefaultContentSaved holds the default value on creation for the content_saved field.
 	request.DefaultContentSaved = requestDescContentSaved.Default.(bool)
+	// requestDescManagedObservability is the schema descriptor for managed_observability field.
+	requestDescManagedObservability := requestFields[28].Descriptor()
+	// request.DefaultManagedObservability holds the default value on creation for the managed_observability field.
+	request.DefaultManagedObservability = requestDescManagedObservability.Default.(bool)
 	requestexecutionMixin := schema.RequestExecution{}.Mixin()
 	requestexecutionMixinFields0 := requestexecutionMixin[0].Fields()
 	_ = requestexecutionMixinFields0
@@ -691,13 +750,17 @@ func init() {
 	// requestexecution.DefaultFormat holds the default value on creation for the format field.
 	requestexecution.DefaultFormat = requestexecutionDescFormat.Default.(string)
 	// requestexecutionDescStream is the schema descriptor for stream field.
-	requestexecutionDescStream := requestexecutionFields[13].Descriptor()
+	requestexecutionDescStream := requestexecutionFields[14].Descriptor()
 	// requestexecution.DefaultStream holds the default value on creation for the stream field.
 	requestexecution.DefaultStream = requestexecutionDescStream.Default.(bool)
 	// requestexecutionDescPassThroughApplied is the schema descriptor for pass_through_applied field.
-	requestexecutionDescPassThroughApplied := requestexecutionFields[20].Descriptor()
+	requestexecutionDescPassThroughApplied := requestexecutionFields[21].Descriptor()
 	// requestexecution.DefaultPassThroughApplied holds the default value on creation for the pass_through_applied field.
 	requestexecution.DefaultPassThroughApplied = requestexecutionDescPassThroughApplied.Default.(bool)
+	// requestexecutionDescManagedObservability is the schema descriptor for managed_observability field.
+	requestexecutionDescManagedObservability := requestexecutionFields[23].Descriptor()
+	// requestexecution.DefaultManagedObservability holds the default value on creation for the managed_observability field.
+	requestexecution.DefaultManagedObservability = requestexecutionDescManagedObservability.Default.(bool)
 	roleMixin := schema.Role{}.Mixin()
 	role.Policy = privacy.NewPolicies(schema.Role{})
 	role.Hooks[0] = func(next ent.Mutator) ent.Mutator {

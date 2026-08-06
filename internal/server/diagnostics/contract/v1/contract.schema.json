@@ -2047,8 +2047,17 @@
             "store_request_body": {
               "type": "boolean"
             },
+            "store_execution_request_body": {
+              "type": "boolean"
+            },
             "store_response_body": {
               "type": "boolean"
+            },
+            "managed_observability_hard_mib": {
+              "type": "integer"
+            },
+            "managed_observability_low_mib": {
+              "type": "integer"
             }
           },
           "required": [

@@ -27,8 +27,15 @@ type BrandSettings {
 type StoragePolicy {
   storeChunks: Boolean!
   livePreview: Boolean!
+  "Capture canonical inbound request bodies."
   storeRequestBody: Boolean!
+  "Capture provider execution request bodies; exact bytes are automatically shared within a request group."
+  storeExecutionRequestBody: Boolean
   storeResponseBody: Boolean!
+  "Managed observability admission/GC hard limit in MiB; null disables capacity mode."
+  managedObservabilityHardMiB: Int
+  "Cleanup target in MiB; must be lower than the hard limit."
+  managedObservabilityLowMiB: Int
   cleanupOptions: [CleanupOption!]!
 }
 
@@ -48,7 +55,10 @@ input UpdateStoragePolicyInput {
   storeChunks: Boolean
   livePreview: Boolean
   storeRequestBody: Boolean
+  storeExecutionRequestBody: Boolean
   storeResponseBody: Boolean
+  managedObservabilityHardMiB: Int
+  managedObservabilityLowMiB: Int
   cleanupOptions: [CleanupOptionInput!]
 }
 

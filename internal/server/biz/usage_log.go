@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -10,6 +11,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm"
 )
@@ -144,6 +146,32 @@ func (s *UsageLogService) CreateUsageLog(ctx context.Context, params CreateUsage
 	)
 
 	costItems, totalCost, priceReferenceID = s.computeUsageCost(ctx, params.ChannelID, params.ActualModelID, params.Usage)
+
+	// Usage rows are part of the managed primary-database allowlist even when
+	// request-body capture is disabled. Under pressure they are optional
+	// observability evidence: provider forwarding and the request skeleton have
+	// already succeeded, so skip the row rather than turning capacity into an
+	// availability failure.
+	costBytes, _ := json.Marshal(costItems)
+	managed, admitted, admissionErr := s.SystemService.AdmitManagedObservabilityEvidence(
+		ctx, "usage_log", int64(len(costBytes)+512),
+	)
+	if managed {
+		if _, err := client.Request.UpdateOneID(params.RequestID).SetManagedObservability(true).Save(ctx); err != nil && !ent.IsNotFound(err) {
+			s.SystemService.RecordManagedObservabilityFailure(ctx, "usage_group_mark", "failed")
+			metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "write_failed", "usage_log")
+			log.Warn(ctx, "Managed usage-log group marking failed; skipping usage evidence", log.Cause(err))
+			return nil, nil
+		}
+	}
+	if admissionErr != nil {
+		metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "write_failed", "usage_log")
+		return nil, nil
+	}
+	if managed && !admitted {
+		metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "capacity_pressure", "usage_log")
+		return nil, nil
+	}
 
 	mut = mut.
 		SetNillableTotalCost(totalCost).

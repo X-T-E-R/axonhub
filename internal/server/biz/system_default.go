@@ -1,12 +1,17 @@
 package biz
 
-import "github.com/looplj/axonhub/internal/objects"
+import (
+	"github.com/samber/lo"
+
+	"github.com/looplj/axonhub/internal/objects"
+)
 
 var defaultStoragePolicy = StoragePolicy{
-	StoreChunks:       false,
-	LivePreview:       false,
-	StoreRequestBody:  true,
-	StoreResponseBody: true,
+	StoreChunks:               false,
+	LivePreview:               false,
+	StoreRequestBody:          true,
+	StoreExecutionRequestBody: lo.ToPtr(true),
+	StoreResponseBody:         true,
 	CleanupOptions: []CleanupOption{
 		{
 			ResourceType: "requests",

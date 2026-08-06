@@ -31,6 +31,8 @@ type Disposition struct {
 	Intent       string    `json:"intent"`
 	Location     string    `json:"location"`
 	Outcome      string    `json:"outcome"`
+	SHA256       string    `json:"sha256,omitempty"`
+	ByteLength   *int64    `json:"byteLength,omitempty"`
 	StorageID    *int      `json:"storageId"`
 	StorageKey   *string   `json:"storageKey"`
 	CapturedAt   time.Time `json:"capturedAt"`

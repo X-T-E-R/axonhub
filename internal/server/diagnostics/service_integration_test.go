@@ -21,6 +21,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/enttest"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
@@ -121,6 +122,29 @@ func TestPullFidelityOrderingPaginationAndCredentialExclusion(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(contractJSON), string(largeRaw))
 	require.NoError(t, ValidatePullResponseJSON(contractJSON))
+
+	managedRaw := []byte(`{"managed":"request-body"}`)
+	managedHash := sha256.Sum256(managedRaw)
+	managedLength := int64(len(managedRaw))
+	managedRequest := client.Request.Create().SetProject(p).SetAPIKeyID(key.ID).SetModelID("model").
+		SetRequestBody([]byte(`{}`)).SetStatus(request.StatusCompleted).
+		SetEvidenceDisposition(&objects.EvidenceDisposition{Version: 1, RequestBody: objects.Disposition{
+			Intent: "persist", Location: "managed", Outcome: "stored", SHA256: hex.EncodeToString(managedHash[:]), ByteLength: &managedLength,
+		}}).SaveX(setupCtx)
+	managedPayload := client.ObservabilityPayload.Create().SetRequestID(managedRequest.ID).
+		SetKind(observabilitypayload.KindRequestBody).SetSha256(hex.EncodeToString(managedHash[:])).
+		SetByteLength(managedLength).SetChargedBytes(managedLength + 1024).SetData(managedRaw).SaveX(setupCtx)
+	managedRequest = client.Request.UpdateOneID(managedRequest.ID).SetRequestBodyPayloadID(managedPayload.ID).SaveX(setupCtx)
+	managedBundle, err := service.Pull(ctx, PullRequest{
+		Contract: ContractRequest{Name: ContractName, Major: 1, MinMinor: 0, MaxMinor: 0},
+		Scope:    Scope{ProjectID: p.ID}, Selector: Selector{Kind: "requestIds", IDs: json.RawMessage(fmt.Sprintf("[%d]", managedRequest.ID))},
+		Include: Include{Sections: []string{"requests"}},
+	})
+	require.NoError(t, err)
+	managedRecord := managedBundle.Sections.Requests.Data.([]any)[0].(map[string]any)
+	managedEvidence := managedRecord["requestBody"].(Evidence)
+	require.Equal(t, "available", managedEvidence.State)
+	require.JSONEq(t, string(managedRaw), string(managedEvidence.Value.(json.RawMessage)))
 
 	selectedID := client.Request.Query().Order(ent.Asc(request.FieldID)).FirstIDX(setupCtx)
 	metadataOnly := PullRequest{Contract: ContractRequest{Name: ContractName, Major: 1, MinMinor: 0, MaxMinor: 0}, Scope: Scope{ProjectID: p.ID}, Selector: Selector{Kind: "requestIds", IDs: json.RawMessage(fmt.Sprintf("[%d]", selectedID))}, Include: Include{Sections: []string{"apiKeys"}}}

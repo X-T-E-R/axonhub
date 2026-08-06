@@ -350,6 +350,20 @@ var (
 			},
 		},
 	}
+	// ManagedObservabilityStatesColumns holds the columns for the "managed_observability_states" table.
+	ManagedObservabilityStatesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "charged_bytes", Type: field.TypeInt64, Default: 0},
+		{Name: "under_pressure", Type: field.TypeBool, Default: false},
+		{Name: "last_error", Type: field.TypeString, Nullable: true, Default: ""},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// ManagedObservabilityStatesTable holds the schema information for the "managed_observability_states" table.
+	ManagedObservabilityStatesTable = &schema.Table{
+		Name:       "managed_observability_states",
+		Columns:    ManagedObservabilityStatesColumns,
+		PrimaryKey: []*schema.Column{ManagedObservabilityStatesColumns[0]},
+	}
 	// ModelsColumns holds the columns for the "models" table.
 	ModelsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -421,6 +435,44 @@ var (
 				Name:    "oidc_identities_by_user_id",
 				Unique:  false,
 				Columns: []*schema.Column{OidcIdentitiesColumns[9]},
+			},
+		},
+	}
+	// ObservabilityPayloadsColumns holds the columns for the "observability_payloads" table.
+	ObservabilityPayloadsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "kind", Type: field.TypeEnum, Enums: []string{"request_body"}},
+		{Name: "sha256", Type: field.TypeString, Size: 64},
+		{Name: "byte_length", Type: field.TypeInt64},
+		{Name: "charged_bytes", Type: field.TypeInt64},
+		{Name: "data", Type: field.TypeBytes},
+		{Name: "request_id", Type: field.TypeInt},
+	}
+	// ObservabilityPayloadsTable holds the schema information for the "observability_payloads" table.
+	ObservabilityPayloadsTable = &schema.Table{
+		Name:       "observability_payloads",
+		Columns:    ObservabilityPayloadsColumns,
+		PrimaryKey: []*schema.Column{ObservabilityPayloadsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "observability_payloads_requests_request",
+				Columns:    []*schema.Column{ObservabilityPayloadsColumns[8]},
+				RefColumns: []*schema.Column{RequestsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "observability_payloads_by_request_hash_length",
+				Unique:  false,
+				Columns: []*schema.Column{ObservabilityPayloadsColumns[8], ObservabilityPayloadsColumns[3], ObservabilityPayloadsColumns[4], ObservabilityPayloadsColumns[5]},
+			},
+			{
+				Name:    "observability_payloads_by_created_at_id",
+				Unique:  false,
+				Columns: []*schema.Column{ObservabilityPayloadsColumns[1], ObservabilityPayloadsColumns[0]},
 			},
 		},
 	}
@@ -573,10 +625,12 @@ var (
 		{Name: "content_saved_at", Type: field.TypeTime, Nullable: true},
 		{Name: "routing_context", Type: field.TypeJSON, Nullable: true},
 		{Name: "evidence_disposition", Type: field.TypeJSON, Nullable: true},
+		{Name: "managed_observability", Type: field.TypeBool, Default: false},
 		{Name: "api_key_id", Type: field.TypeInt, Nullable: true},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "data_storage_id", Type: field.TypeInt, Nullable: true},
 		{Name: "project_id", Type: field.TypeInt, Default: 1},
+		{Name: "request_body_payload_id", Type: field.TypeInt, Nullable: true},
 		{Name: "trace_id", Type: field.TypeInt, Nullable: true},
 	}
 	// RequestsTable holds the schema information for the "requests" table.
@@ -587,31 +641,37 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "requests_api_keys_requests",
-				Columns:    []*schema.Column{RequestsColumns[25]},
+				Columns:    []*schema.Column{RequestsColumns[26]},
 				RefColumns: []*schema.Column{APIKeysColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_channels_requests",
-				Columns:    []*schema.Column{RequestsColumns[26]},
+				Columns:    []*schema.Column{RequestsColumns[27]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_data_storages_requests",
-				Columns:    []*schema.Column{RequestsColumns[27]},
+				Columns:    []*schema.Column{RequestsColumns[28]},
 				RefColumns: []*schema.Column{DataStoragesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "requests_projects_requests",
-				Columns:    []*schema.Column{RequestsColumns[28]},
+				Columns:    []*schema.Column{RequestsColumns[29]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
+				Symbol:     "requests_observability_payloads_request_body_payload",
+				Columns:    []*schema.Column{RequestsColumns[30]},
+				RefColumns: []*schema.Column{ObservabilityPayloadsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
 				Symbol:     "requests_traces_requests",
-				Columns:    []*schema.Column{RequestsColumns[29]},
+				Columns:    []*schema.Column{RequestsColumns[31]},
 				RefColumns: []*schema.Column{TracesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -620,22 +680,22 @@ var (
 			{
 				Name:    "requests_by_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[25], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[26], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_project_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[28], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[29], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[26], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[27], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_trace_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestsColumns[29], RequestsColumns[1]},
+				Columns: []*schema.Column{RequestsColumns[31], RequestsColumns[1]},
 			},
 			{
 				Name:    "requests_by_created_at",
@@ -668,9 +728,11 @@ var (
 		{Name: "request_url", Type: field.TypeString, Nullable: true},
 		{Name: "pass_through_applied", Type: field.TypeBool, Default: false},
 		{Name: "evidence_disposition", Type: field.TypeJSON, Nullable: true},
+		{Name: "managed_observability", Type: field.TypeBool, Default: false},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "data_storage_id", Type: field.TypeInt, Nullable: true},
 		{Name: "request_id", Type: field.TypeInt},
+		{Name: "request_body_payload_id", Type: field.TypeInt, Nullable: true},
 	}
 	// RequestExecutionsTable holds the schema information for the "request_executions" table.
 	RequestExecutionsTable = &schema.Table{
@@ -680,21 +742,27 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "request_executions_channels_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[22]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[23]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_data_storages_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[23]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[24]},
 				RefColumns: []*schema.Column{DataStoragesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "request_executions_requests_executions",
-				Columns:    []*schema.Column{RequestExecutionsColumns[24]},
+				Columns:    []*schema.Column{RequestExecutionsColumns[25]},
 				RefColumns: []*schema.Column{RequestsColumns[0]},
 				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "request_executions_observability_payloads_request_body_payload",
+				Columns:    []*schema.Column{RequestExecutionsColumns[26]},
+				RefColumns: []*schema.Column{ObservabilityPayloadsColumns[0]},
+				OnDelete:   schema.SetNull,
 			},
 		},
 		Indexes: []*schema.Index{
@@ -706,17 +774,17 @@ var (
 			{
 				Name:    "request_executions_by_request_id_status_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[24], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[25], RequestExecutionsColumns[12], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_request_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[24], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[25], RequestExecutionsColumns[1]},
 			},
 			{
 				Name:    "request_executions_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{RequestExecutionsColumns[22], RequestExecutionsColumns[1]},
+				Columns: []*schema.Column{RequestExecutionsColumns[23], RequestExecutionsColumns[1]},
 			},
 		},
 	}
@@ -1097,8 +1165,10 @@ var (
 		ChannelOverrideTemplatesTable,
 		ChannelProbesTable,
 		DataStoragesTable,
+		ManagedObservabilityStatesTable,
 		ModelsTable,
 		OidcIdentitiesTable,
+		ObservabilityPayloadsTable,
 		ProjectsTable,
 		PromptsTable,
 		PromptProtectionRulesTable,
@@ -1127,15 +1197,18 @@ func init() {
 	ChannelOverrideTemplatesTable.ForeignKeys[0].RefTable = UsersTable
 	ChannelProbesTable.ForeignKeys[0].RefTable = ChannelsTable
 	OidcIdentitiesTable.ForeignKeys[0].RefTable = UsersTable
+	ObservabilityPayloadsTable.ForeignKeys[0].RefTable = RequestsTable
 	ProviderQuotaStatusTable.ForeignKeys[0].RefTable = ChannelsTable
 	RequestsTable.ForeignKeys[0].RefTable = APIKeysTable
 	RequestsTable.ForeignKeys[1].RefTable = ChannelsTable
 	RequestsTable.ForeignKeys[2].RefTable = DataStoragesTable
 	RequestsTable.ForeignKeys[3].RefTable = ProjectsTable
-	RequestsTable.ForeignKeys[4].RefTable = TracesTable
+	RequestsTable.ForeignKeys[4].RefTable = ObservabilityPayloadsTable
+	RequestsTable.ForeignKeys[5].RefTable = TracesTable
 	RequestExecutionsTable.ForeignKeys[0].RefTable = ChannelsTable
 	RequestExecutionsTable.ForeignKeys[1].RefTable = DataStoragesTable
 	RequestExecutionsTable.ForeignKeys[2].RefTable = RequestsTable
+	RequestExecutionsTable.ForeignKeys[3].RefTable = ObservabilityPayloadsTable
 	RolesTable.ForeignKeys[0].RefTable = ProjectsTable
 	ThreadsTable.ForeignKeys[0].RefTable = ProjectsTable
 	TracesTable.ForeignKeys[0].RefTable = ProjectsTable

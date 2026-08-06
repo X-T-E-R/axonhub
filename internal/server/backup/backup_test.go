@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/model"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/objects"
@@ -259,6 +261,30 @@ func TestBackupService_Backup(t *testing.T) {
 
 	require.Equal(t, ch1.Name, backupData.ChannelModelPrices[0].ChannelName)
 	require.Equal(t, "gpt-4", backupData.ChannelModelPrices[0].ModelID)
+}
+
+func TestBackupServiceManagedRequestBodyMaterializesLegacyBackupShape(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+	user, ok := contexts.GetUser(ctx)
+	require.True(t, ok)
+	proj := createBackupTestProject(t, client, ctx, "managed-backup", "")
+	channel := createBackupTestChannel(t, client, ctx, "managed-backup", channel.TypeOpenai)
+	apiKey := createBackupTestAPIKey(t, client, ctx, user, proj, "managed", "managed-key")
+	req, _ := createBackupTestUsage(t, client, ctx, proj, channel, apiKey)
+	body := []byte(`{"model":"gpt-4","managed":true}`)
+	payload := client.ObservabilityPayload.Create().SetRequestID(req.ID).
+		SetKind(observabilitypayload.KindRequestBody).SetSha256(strings.Repeat("a", 64)).
+		SetByteLength(int64(len(body))).SetChargedBytes(int64(len(body) + 1024)).SetData(body).SaveX(ctx)
+	client.Request.UpdateOneID(req.ID).SetRequestBodyPayloadID(payload.ID).SaveX(ctx)
+
+	data, err := service.Backup(ctx, BackupOptions{IncludeRequestLogs: true, IncludeUsageStats: true})
+	require.NoError(t, err)
+	var backup BackupData
+	require.NoError(t, json.Unmarshal(data, &backup))
+	require.Len(t, backup.UsageRequests, 1)
+	require.JSONEq(t, string(body), string(backup.UsageRequests[0].RequestBody))
+	require.NotContains(t, string(data), "request_body_payload_id", "backup v1.3 keeps its legacy portable shape")
 }
 
 func TestBackupService_Backup_ExcludeModelPrices(t *testing.T) {

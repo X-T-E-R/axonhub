@@ -16,6 +16,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -27,21 +28,24 @@ import (
 // RequestQuery is the builder for querying Request entities.
 type RequestQuery struct {
 	config
-	ctx                 *QueryContext
-	order               []request.OrderOption
-	inters              []Interceptor
-	predicates          []predicate.Request
-	withAPIKey          *APIKeyQuery
-	withProject         *ProjectQuery
-	withTrace           *TraceQuery
-	withDataStorage     *DataStorageQuery
-	withExecutions      *RequestExecutionQuery
-	withChannel         *ChannelQuery
-	withUsageLogs       *UsageLogQuery
-	loadTotal           []func(context.Context, []*Request) error
-	modifiers           []func(*sql.Selector)
-	withNamedExecutions map[string]*RequestExecutionQuery
-	withNamedUsageLogs  map[string]*UsageLogQuery
+	ctx                            *QueryContext
+	order                          []request.OrderOption
+	inters                         []Interceptor
+	predicates                     []predicate.Request
+	withAPIKey                     *APIKeyQuery
+	withProject                    *ProjectQuery
+	withTrace                      *TraceQuery
+	withDataStorage                *DataStorageQuery
+	withExecutions                 *RequestExecutionQuery
+	withObservabilityPayloads      *ObservabilityPayloadQuery
+	withRequestBodyPayload         *ObservabilityPayloadQuery
+	withChannel                    *ChannelQuery
+	withUsageLogs                  *UsageLogQuery
+	loadTotal                      []func(context.Context, []*Request) error
+	modifiers                      []func(*sql.Selector)
+	withNamedExecutions            map[string]*RequestExecutionQuery
+	withNamedObservabilityPayloads map[string]*ObservabilityPayloadQuery
+	withNamedUsageLogs             map[string]*UsageLogQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -181,6 +185,50 @@ func (_q *RequestQuery) QueryExecutions() *RequestExecutionQuery {
 			sqlgraph.From(request.Table, request.FieldID, selector),
 			sqlgraph.To(requestexecution.Table, requestexecution.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, request.ExecutionsTable, request.ExecutionsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryObservabilityPayloads chains the current query on the "observability_payloads" edge.
+func (_q *RequestQuery) QueryObservabilityPayloads() *ObservabilityPayloadQuery {
+	query := (&ObservabilityPayloadClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(request.Table, request.FieldID, selector),
+			sqlgraph.To(observabilitypayload.Table, observabilitypayload.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, request.ObservabilityPayloadsTable, request.ObservabilityPayloadsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryRequestBodyPayload chains the current query on the "request_body_payload" edge.
+func (_q *RequestQuery) QueryRequestBodyPayload() *ObservabilityPayloadQuery {
+	query := (&ObservabilityPayloadClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(request.Table, request.FieldID, selector),
+			sqlgraph.To(observabilitypayload.Table, observabilitypayload.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, request.RequestBodyPayloadTable, request.RequestBodyPayloadColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -419,18 +467,20 @@ func (_q *RequestQuery) Clone() *RequestQuery {
 		return nil
 	}
 	return &RequestQuery{
-		config:          _q.config,
-		ctx:             _q.ctx.Clone(),
-		order:           append([]request.OrderOption{}, _q.order...),
-		inters:          append([]Interceptor{}, _q.inters...),
-		predicates:      append([]predicate.Request{}, _q.predicates...),
-		withAPIKey:      _q.withAPIKey.Clone(),
-		withProject:     _q.withProject.Clone(),
-		withTrace:       _q.withTrace.Clone(),
-		withDataStorage: _q.withDataStorage.Clone(),
-		withExecutions:  _q.withExecutions.Clone(),
-		withChannel:     _q.withChannel.Clone(),
-		withUsageLogs:   _q.withUsageLogs.Clone(),
+		config:                    _q.config,
+		ctx:                       _q.ctx.Clone(),
+		order:                     append([]request.OrderOption{}, _q.order...),
+		inters:                    append([]Interceptor{}, _q.inters...),
+		predicates:                append([]predicate.Request{}, _q.predicates...),
+		withAPIKey:                _q.withAPIKey.Clone(),
+		withProject:               _q.withProject.Clone(),
+		withTrace:                 _q.withTrace.Clone(),
+		withDataStorage:           _q.withDataStorage.Clone(),
+		withExecutions:            _q.withExecutions.Clone(),
+		withObservabilityPayloads: _q.withObservabilityPayloads.Clone(),
+		withRequestBodyPayload:    _q.withRequestBodyPayload.Clone(),
+		withChannel:               _q.withChannel.Clone(),
+		withUsageLogs:             _q.withUsageLogs.Clone(),
 		// clone intermediate query.
 		sql:       _q.sql.Clone(),
 		path:      _q.path,
@@ -490,6 +540,28 @@ func (_q *RequestQuery) WithExecutions(opts ...func(*RequestExecutionQuery)) *Re
 		opt(query)
 	}
 	_q.withExecutions = query
+	return _q
+}
+
+// WithObservabilityPayloads tells the query-builder to eager-load the nodes that are connected to
+// the "observability_payloads" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *RequestQuery) WithObservabilityPayloads(opts ...func(*ObservabilityPayloadQuery)) *RequestQuery {
+	query := (&ObservabilityPayloadClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withObservabilityPayloads = query
+	return _q
+}
+
+// WithRequestBodyPayload tells the query-builder to eager-load the nodes that are connected to
+// the "request_body_payload" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *RequestQuery) WithRequestBodyPayload(opts ...func(*ObservabilityPayloadQuery)) *RequestQuery {
+	query := (&ObservabilityPayloadClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withRequestBodyPayload = query
 	return _q
 }
 
@@ -599,12 +671,14 @@ func (_q *RequestQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Requ
 	var (
 		nodes       = []*Request{}
 		_spec       = _q.querySpec()
-		loadedTypes = [7]bool{
+		loadedTypes = [9]bool{
 			_q.withAPIKey != nil,
 			_q.withProject != nil,
 			_q.withTrace != nil,
 			_q.withDataStorage != nil,
 			_q.withExecutions != nil,
+			_q.withObservabilityPayloads != nil,
+			_q.withRequestBodyPayload != nil,
 			_q.withChannel != nil,
 			_q.withUsageLogs != nil,
 		}
@@ -661,6 +735,21 @@ func (_q *RequestQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Requ
 			return nil, err
 		}
 	}
+	if query := _q.withObservabilityPayloads; query != nil {
+		if err := _q.loadObservabilityPayloads(ctx, query, nodes,
+			func(n *Request) { n.Edges.ObservabilityPayloads = []*ObservabilityPayload{} },
+			func(n *Request, e *ObservabilityPayload) {
+				n.Edges.ObservabilityPayloads = append(n.Edges.ObservabilityPayloads, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withRequestBodyPayload; query != nil {
+		if err := _q.loadRequestBodyPayload(ctx, query, nodes, nil,
+			func(n *Request, e *ObservabilityPayload) { n.Edges.RequestBodyPayload = e }); err != nil {
+			return nil, err
+		}
+	}
 	if query := _q.withChannel; query != nil {
 		if err := _q.loadChannel(ctx, query, nodes, nil,
 			func(n *Request, e *Channel) { n.Edges.Channel = e }); err != nil {
@@ -678,6 +767,13 @@ func (_q *RequestQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Requ
 		if err := _q.loadExecutions(ctx, query, nodes,
 			func(n *Request) { n.appendNamedExecutions(name) },
 			func(n *Request, e *RequestExecution) { n.appendNamedExecutions(name, e) }); err != nil {
+			return nil, err
+		}
+	}
+	for name, query := range _q.withNamedObservabilityPayloads {
+		if err := _q.loadObservabilityPayloads(ctx, query, nodes,
+			func(n *Request) { n.appendNamedObservabilityPayloads(name) },
+			func(n *Request, e *ObservabilityPayload) { n.appendNamedObservabilityPayloads(name, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -842,6 +938,68 @@ func (_q *RequestQuery) loadExecutions(ctx context.Context, query *RequestExecut
 	}
 	return nil
 }
+func (_q *RequestQuery) loadObservabilityPayloads(ctx context.Context, query *ObservabilityPayloadQuery, nodes []*Request, init func(*Request), assign func(*Request, *ObservabilityPayload)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Request)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(observabilitypayload.FieldRequestID)
+	}
+	query.Where(predicate.ObservabilityPayload(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(request.ObservabilityPayloadsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.RequestID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "request_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *RequestQuery) loadRequestBodyPayload(ctx context.Context, query *ObservabilityPayloadQuery, nodes []*Request, init func(*Request), assign func(*Request, *ObservabilityPayload)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*Request)
+	for i := range nodes {
+		if nodes[i].RequestBodyPayloadID == nil {
+			continue
+		}
+		fk := *nodes[i].RequestBodyPayloadID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(observabilitypayload.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "request_body_payload_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *RequestQuery) loadChannel(ctx context.Context, query *ChannelQuery, nodes []*Request, init func(*Request), assign func(*Request, *Channel)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Request)
@@ -942,6 +1100,9 @@ func (_q *RequestQuery) querySpec() *sqlgraph.QuerySpec {
 		if _q.withDataStorage != nil {
 			_spec.Node.AddColumnOnce(request.FieldDataStorageID)
 		}
+		if _q.withRequestBodyPayload != nil {
+			_spec.Node.AddColumnOnce(request.FieldRequestBodyPayloadID)
+		}
 		if _q.withChannel != nil {
 			_spec.Node.AddColumnOnce(request.FieldChannelID)
 		}
@@ -1021,6 +1182,20 @@ func (_q *RequestQuery) WithNamedExecutions(name string, opts ...func(*RequestEx
 		_q.withNamedExecutions = make(map[string]*RequestExecutionQuery)
 	}
 	_q.withNamedExecutions[name] = query
+	return _q
+}
+
+// WithNamedObservabilityPayloads tells the query-builder to eager-load the nodes that are connected to the "observability_payloads"
+// edge with the given name. The optional arguments are used to configure the query builder of the edge.
+func (_q *RequestQuery) WithNamedObservabilityPayloads(name string, opts ...func(*ObservabilityPayloadQuery)) *RequestQuery {
+	query := (&ObservabilityPayloadClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	if _q.withNamedObservabilityPayloads == nil {
+		_q.withNamedObservabilityPayloads = make(map[string]*ObservabilityPayloadQuery)
+	}
+	_q.withNamedObservabilityPayloads[name] = query
 	return _q
 }
 

@@ -3,6 +3,7 @@ package schema
 import (
 	"entgo.io/contrib/entgql"
 	"entgo.io/ent"
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
@@ -61,6 +62,11 @@ func (RequestExecution) Fields() []ent.Field {
 		field.JSON("request_body", objects.JSONRawMessage{}).Immutable().Annotations(
 			entgql.Directives(forceResolver()),
 		),
+		field.Int("request_body_payload_id").
+			Optional().
+			Nillable().
+			Annotations(entgql.Skip(entgql.SkipAll)).
+			Comment("managed content-addressed request-body payload reference"),
 		// The final response from the provider.
 		// e.g: the provider response with Claude format, and the user expects the response with OpenAI format, the response_body is the Claude response format.
 		field.JSON("response_body", objects.JSONRawMessage{}).Optional().Annotations(
@@ -105,6 +111,10 @@ func (RequestExecution) Fields() []ent.Field {
 			Default(false).
 			Comment("Whether pass-through was active for this execution attempt"),
 		field.JSON("evidence_disposition", &objects.EvidenceDisposition{}).Optional().Annotations(entgql.Skip(entgql.SkipAll)),
+		field.Bool("managed_observability").
+			Default(false).
+			Annotations(entgql.Skip(entgql.SkipAll)).
+			Comment("whether this execution uses managed observability storage"),
 	}
 }
 
@@ -129,6 +139,10 @@ func (RequestExecution) Edges() []ent.Edge {
 			Field("data_storage_id").
 			Immutable().
 			Unique(),
+		edge.To("request_body_payload", ObservabilityPayload.Type).
+			Field("request_body_payload_id").
+			Unique().
+			Annotations(entgql.Skip(entgql.SkipAll), entsql.OnDelete(entsql.SetNull)),
 	}
 }
 

@@ -37,6 +37,8 @@ const (
 	FieldFormat = "format"
 	// FieldRequestBody holds the string denoting the request_body field in the database.
 	FieldRequestBody = "request_body"
+	// FieldRequestBodyPayloadID holds the string denoting the request_body_payload_id field in the database.
+	FieldRequestBodyPayloadID = "request_body_payload_id"
 	// FieldResponseBody holds the string denoting the response_body field in the database.
 	FieldResponseBody = "response_body"
 	// FieldResponseChunks holds the string denoting the response_chunks field in the database.
@@ -65,12 +67,16 @@ const (
 	FieldPassThroughApplied = "pass_through_applied"
 	// FieldEvidenceDisposition holds the string denoting the evidence_disposition field in the database.
 	FieldEvidenceDisposition = "evidence_disposition"
+	// FieldManagedObservability holds the string denoting the managed_observability field in the database.
+	FieldManagedObservability = "managed_observability"
 	// EdgeRequest holds the string denoting the request edge name in mutations.
 	EdgeRequest = "request"
 	// EdgeChannel holds the string denoting the channel edge name in mutations.
 	EdgeChannel = "channel"
 	// EdgeDataStorage holds the string denoting the data_storage edge name in mutations.
 	EdgeDataStorage = "data_storage"
+	// EdgeRequestBodyPayload holds the string denoting the request_body_payload edge name in mutations.
+	EdgeRequestBodyPayload = "request_body_payload"
 	// Table holds the table name of the requestexecution in the database.
 	Table = "request_executions"
 	// RequestTable is the table that holds the request relation/edge.
@@ -94,6 +100,13 @@ const (
 	DataStorageInverseTable = "data_storages"
 	// DataStorageColumn is the table column denoting the data_storage relation/edge.
 	DataStorageColumn = "data_storage_id"
+	// RequestBodyPayloadTable is the table that holds the request_body_payload relation/edge.
+	RequestBodyPayloadTable = "request_executions"
+	// RequestBodyPayloadInverseTable is the table name for the ObservabilityPayload entity.
+	// It exists in this package in order to avoid circular dependency with the "observabilitypayload" package.
+	RequestBodyPayloadInverseTable = "observability_payloads"
+	// RequestBodyPayloadColumn is the table column denoting the request_body_payload relation/edge.
+	RequestBodyPayloadColumn = "request_body_payload_id"
 )
 
 // Columns holds all SQL columns for requestexecution fields.
@@ -109,6 +122,7 @@ var Columns = []string{
 	FieldModelID,
 	FieldFormat,
 	FieldRequestBody,
+	FieldRequestBodyPayloadID,
 	FieldResponseBody,
 	FieldResponseChunks,
 	FieldErrorMessage,
@@ -123,6 +137,7 @@ var Columns = []string{
 	FieldRequestURL,
 	FieldPassThroughApplied,
 	FieldEvidenceDisposition,
+	FieldManagedObservability,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -152,6 +167,8 @@ var (
 	DefaultStream bool
 	// DefaultPassThroughApplied holds the default value on creation for the "pass_through_applied" field.
 	DefaultPassThroughApplied bool
+	// DefaultManagedObservability holds the default value on creation for the "managed_observability" field.
+	DefaultManagedObservability bool
 )
 
 // Status defines the type for the "status" enum field.
@@ -233,6 +250,11 @@ func ByFormat(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFormat, opts...).ToFunc()
 }
 
+// ByRequestBodyPayloadID orders the results by the request_body_payload_id field.
+func ByRequestBodyPayloadID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRequestBodyPayloadID, opts...).ToFunc()
+}
+
 // ByErrorMessage orders the results by the error_message field.
 func ByErrorMessage(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldErrorMessage, opts...).ToFunc()
@@ -283,6 +305,11 @@ func ByPassThroughApplied(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPassThroughApplied, opts...).ToFunc()
 }
 
+// ByManagedObservability orders the results by the managed_observability field.
+func ByManagedObservability(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldManagedObservability, opts...).ToFunc()
+}
+
 // ByRequestField orders the results by request field.
 func ByRequestField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -301,6 +328,13 @@ func ByChannelField(field string, opts ...sql.OrderTermOption) OrderOption {
 func ByDataStorageField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newDataStorageStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByRequestBodyPayloadField orders the results by request_body_payload field.
+func ByRequestBodyPayloadField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRequestBodyPayloadStep(), sql.OrderByField(field, opts...))
 	}
 }
 func newRequestStep() *sqlgraph.Step {
@@ -322,6 +356,13 @@ func newDataStorageStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(DataStorageInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, DataStorageTable, DataStorageColumn),
+	)
+}
+func newRequestBodyPayloadStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RequestBodyPayloadInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, RequestBodyPayloadTable, RequestBodyPayloadColumn),
 	)
 }
 

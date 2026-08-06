@@ -42,7 +42,11 @@ export function StoragePolicySettings() {
     storeChunks: storagePolicy?.storeChunks ?? false,
     livePreview: storagePolicy?.livePreview ?? false,
     storeRequestBody: storagePolicy?.storeRequestBody ?? true,
+    storeExecutionRequestBody: storagePolicy?.storeExecutionRequestBody ?? storagePolicy?.storeRequestBody ?? true,
     storeResponseBody: storagePolicy?.storeResponseBody ?? true,
+    managedCapacityEnabled: storagePolicy?.managedObservabilityHardMiB != null,
+    managedObservabilityHardMiB: storagePolicy?.managedObservabilityHardMiB ?? 10240,
+    managedObservabilityLowMiB: storagePolicy?.managedObservabilityLowMiB ?? 8192,
     cleanupOptions: storagePolicy?.cleanupOptions ?? [],
   });
 
@@ -60,7 +64,11 @@ export function StoragePolicySettings() {
         storeChunks: storagePolicy.storeChunks,
         livePreview: storagePolicy.livePreview,
         storeRequestBody: storagePolicy.storeRequestBody,
+        storeExecutionRequestBody: storagePolicy.storeExecutionRequestBody ?? storagePolicy.storeRequestBody,
         storeResponseBody: storagePolicy.storeResponseBody,
+        managedCapacityEnabled: storagePolicy.managedObservabilityHardMiB != null,
+        managedObservabilityHardMiB: storagePolicy.managedObservabilityHardMiB ?? 10240,
+        managedObservabilityLowMiB: storagePolicy.managedObservabilityLowMiB ?? 8192,
         cleanupOptions: storagePolicy.cleanupOptions,
       });
     }
@@ -134,7 +142,14 @@ export function StoragePolicySettings() {
         storeChunks: storagePolicyState.storeChunks,
         livePreview: storagePolicyState.livePreview,
         storeRequestBody: storagePolicyState.storeRequestBody,
+        storeExecutionRequestBody: storagePolicyState.storeExecutionRequestBody,
         storeResponseBody: storagePolicyState.storeResponseBody,
+        managedObservabilityHardMiB: storagePolicyState.managedCapacityEnabled
+          ? storagePolicyState.managedObservabilityHardMiB
+          : null,
+        managedObservabilityLowMiB: storagePolicyState.managedCapacityEnabled
+          ? storagePolicyState.managedObservabilityLowMiB
+          : null,
         cleanupOptions: storagePolicyState.cleanupOptions.map((option) => ({
           resourceType: option.resourceType,
           enabled: option.enabled,
@@ -163,7 +178,11 @@ export function StoragePolicySettings() {
     (storagePolicy.storeChunks !== storagePolicyState.storeChunks ||
       storagePolicy.livePreview !== storagePolicyState.livePreview ||
       storagePolicy.storeRequestBody !== storagePolicyState.storeRequestBody ||
+      (storagePolicy.storeExecutionRequestBody ?? storagePolicy.storeRequestBody) !== storagePolicyState.storeExecutionRequestBody ||
       storagePolicy.storeResponseBody !== storagePolicyState.storeResponseBody ||
+      (storagePolicy.managedObservabilityHardMiB != null) !== storagePolicyState.managedCapacityEnabled ||
+      (storagePolicy.managedObservabilityHardMiB ?? 10240) !== storagePolicyState.managedObservabilityHardMiB ||
+      (storagePolicy.managedObservabilityLowMiB ?? 8192) !== storagePolicyState.managedObservabilityLowMiB ||
       JSON.stringify(storagePolicy.cleanupOptions) !== JSON.stringify(storagePolicyState.cleanupOptions));
 
   if (isLoadingStoragePolicy) {
@@ -324,6 +343,28 @@ export function StoragePolicySettings() {
 
           <div className='flex items-center justify-between'>
             <div className='space-y-0.5'>
+              <Label htmlFor='storage-policy-store-execution-request-body'>
+                {t('system.storage.policy.storeExecutionRequestBody.label')}
+              </Label>
+              <div className='text-muted-foreground text-sm'>
+                {t('system.storage.policy.storeExecutionRequestBody.description')}
+              </div>
+            </div>
+            <Switch
+              id='storage-policy-store-execution-request-body'
+              checked={storagePolicyState.storeExecutionRequestBody}
+              onCheckedChange={(checked) =>
+                setStoragePolicyState({
+                  ...storagePolicyState,
+                  storeExecutionRequestBody: checked,
+                })
+              }
+              disabled={isLoading}
+            />
+          </div>
+
+          <div className='flex items-center justify-between'>
+            <div className='space-y-0.5'>
               <Label htmlFor='storage-policy-store-request-body'>{t('system.storage.policy.storeRequestBody.label')}</Label>
               <div className='text-muted-foreground text-sm'>{t('system.storage.policy.storeRequestBody.description')}</div>
             </div>
@@ -359,6 +400,48 @@ export function StoragePolicySettings() {
           </div>
 
           <div className='space-y-4'>
+            <div className='rounded-lg border p-4 space-y-4'>
+              <div className='flex items-center justify-between'>
+                <div className='space-y-0.5'>
+                  <Label htmlFor='storage-policy-managed-capacity'>{t('system.storage.policy.managedCapacity.label')}</Label>
+                  <div className='text-muted-foreground text-sm'>{t('system.storage.policy.managedCapacity.description')}</div>
+                </div>
+                <Switch
+                  id='storage-policy-managed-capacity'
+                  checked={storagePolicyState.managedCapacityEnabled}
+                  onCheckedChange={(checked) => setStoragePolicyState({ ...storagePolicyState, managedCapacityEnabled: checked })}
+                  disabled={isLoading}
+                />
+              </div>
+              {storagePolicyState.managedCapacityEnabled && (
+                <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+                  <div className='space-y-2'>
+                    <Label htmlFor='storage-policy-managed-hard'>{t('system.storage.policy.managedCapacity.hardMiB')}</Label>
+                    <Input
+                      id='storage-policy-managed-hard'
+                      type='number'
+                      min='2'
+                      value={storagePolicyState.managedObservabilityHardMiB}
+                      onChange={(e) => setStoragePolicyState({ ...storagePolicyState, managedObservabilityHardMiB: Math.max(2, Number(e.target.value) || 2) })}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='storage-policy-managed-low'>{t('system.storage.policy.managedCapacity.lowMiB')}</Label>
+                    <Input
+                      id='storage-policy-managed-low'
+                      type='number'
+                      min='1'
+                      max={Math.max(1, storagePolicyState.managedObservabilityHardMiB - 1)}
+                      value={storagePolicyState.managedObservabilityLowMiB}
+                      onChange={(e) => setStoragePolicyState({ ...storagePolicyState, managedObservabilityLowMiB: Math.max(1, Number(e.target.value) || 1) })}
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className='space-y-2'>
               <div className='text-lg font-medium'>{t('system.storage.policy.cleanupOptions')}</div>
               <div className='text-muted-foreground text-sm'>{t('system.storage.policy.cleanupDescription')}</div>
@@ -398,7 +481,17 @@ export function StoragePolicySettings() {
           </div>
 
           <div className='flex justify-end'>
-            <Button onClick={handleSave} disabled={isLoading || updateStoragePolicy.isPending || !hasChanges} size='sm'>
+            <Button
+              onClick={handleSave}
+              disabled={
+                isLoading ||
+                updateStoragePolicy.isPending ||
+                !hasChanges ||
+                (storagePolicyState.managedCapacityEnabled &&
+                  storagePolicyState.managedObservabilityLowMiB >= storagePolicyState.managedObservabilityHardMiB)
+              }
+              size='sm'
+            >
               {isLoading || updateStoragePolicy.isPending ? (
                 <>
                   <Loader2 className='mr-2 h-4 w-4 animate-spin' />

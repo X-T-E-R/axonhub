@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"entgo.io/ent/dialect"
@@ -53,6 +54,7 @@ type Worker struct {
 	DataStorageService *biz.DataStorageService
 	Ent                *ent.Client
 	Config             Config
+	capacityMu         sync.Mutex
 
 	// beforeCandidateDelete is a deterministic test barrier. Production workers
 	// leave it nil. Eligibility is always revalidated and locked after this hook.
@@ -80,12 +82,20 @@ func NewWorker(params Params) *Worker {
 }
 
 func (w *Worker) RegisterScheduledTasks(ctx context.Context, s *scheduler.Scheduler) error {
-	return s.Register(ctx, scheduler.TaskSpec{
+	if err := s.Register(ctx, scheduler.TaskSpec{
 		Name:        "gc",
 		Description: "Garbage collection — cleanup old requests, traces, usage logs, and channel probes",
 		CronExpr:    w.Config.CRON,
 		Timezone:    "UTC",
-	}, w.runAutomaticCleanup)
+	}, w.runAutomaticCleanup); err != nil {
+		return err
+	}
+	return s.Register(ctx, scheduler.TaskSpec{
+		Name:        "managed-observability-capacity-gc",
+		Description: "Non-waiting capacity reconciliation for managed observability payloads",
+		FixRate:     time.Minute,
+		Timezone:    "UTC",
+	}, w.runAutomaticCapacityCleanup)
 }
 
 // deleteInBatches deletes records in batches to avoid memory issues.
@@ -116,7 +126,7 @@ func (w *Worker) getBatchSize() int {
 
 // runCleanup executes the cleanup process based on storage policy.
 // When manual is true and manualDays is provided, those days override the policy values.
-func (w *Worker) runCleanup(ctx context.Context, manual bool, manualDays map[string]int) {
+func (w *Worker) runCleanupOwned(ctx context.Context, manual bool, manualDays map[string]int) {
 	log.Info(ctx, "Starting cleanup process", log.Bool("manual", manual))
 
 	ctx = ent.NewContext(ctx, w.Ent)
@@ -205,6 +215,12 @@ func (w *Worker) runCleanup(ctx context.Context, manual bool, manualDays map[str
 	} else {
 		log.Info(ctx, "Successfully cleaned up channel probes",
 			log.Int("cleanup_days", 3))
+	}
+
+	if err := w.cleanupManagedCapacity(ctx, policy); err != nil {
+		w.recordManagedObservabilityFailure(ctx, "capacity_cleanup", "failed")
+		log.Error(ctx, "Managed observability capacity cleanup failed; traffic remains available",
+			log.String("signal", "managed_observability_cleanup_failed"), log.Cause(err))
 	}
 
 	if w.Config.VacuumEnabled {
@@ -457,8 +473,15 @@ func (w *Worker) deleteExecutionCandidate(ctx context.Context, executionID int, 
 	if err := w.cleanupExecutionExternalStorage(txCtx, exec, cache); err != nil {
 		return false, err
 	}
+	payloadCandidates, err := managedPayloadCleanupCandidates(txCtx, txClient, exec.RequestID)
+	if err != nil {
+		return false, fmt.Errorf("failed to list managed payloads for request execution %d: %w", exec.ID, err)
+	}
 	if err := txClient.RequestExecution.DeleteOneID(exec.ID).Exec(txCtx); err != nil {
 		return false, fmt.Errorf("failed to delete request execution %d: %w", exec.ID, err)
+	}
+	if err := cleanupUnreferencedManagedPayloads(txCtx, txClient, payloadCandidates); err != nil {
+		return false, fmt.Errorf("failed to cleanup managed payloads after request execution %d: %w", exec.ID, err)
 	}
 	if err := lockedRequest.restore(txCtx, txClient, true); err != nil {
 		return false, err
@@ -495,8 +518,15 @@ func (w *Worker) deleteRequestCandidate(ctx context.Context, requestID int, cuto
 	if err := w.cleanupRequestExternalStorage(txCtx, req, cache); err != nil {
 		return false, err
 	}
+	payloadCandidates, err := managedPayloadCleanupCandidates(txCtx, txClient, req.ID)
+	if err != nil {
+		return false, fmt.Errorf("failed to list managed payloads for request %d: %w", req.ID, err)
+	}
 	if err := txClient.Request.DeleteOneID(req.ID).Exec(txCtx); err != nil {
 		return false, fmt.Errorf("failed to delete request %d: %w", req.ID, err)
+	}
+	if err := cleanupDeletedRequestManagedPayloads(txCtx, txClient, payloadCandidates); err != nil {
+		return false, fmt.Errorf("failed to cleanup managed payloads after request %d: %w", req.ID, err)
 	}
 	if err := lockedRequest.restore(txCtx, txClient, false); err != nil {
 		return false, err

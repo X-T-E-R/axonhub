@@ -21,6 +21,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/internal/pkg/xjson"
@@ -76,6 +77,9 @@ func (s *RequestService) shouldStoreExecutionRequestBody(ctx context.Context, ch
 	storeRequestBody := true
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeRequestBody = policy.StoreRequestBody
+		if policy.StoreExecutionRequestBody != nil {
+			storeRequestBody = *policy.StoreExecutionRequestBody
+		}
 	} else {
 		log.Warn(ctx, "Failed to get storage policy, defaulting to store request body", log.Cause(err))
 	}
@@ -206,8 +210,10 @@ func (s *RequestService) CreateRequest(
 
 	// Decide whether to store the original request body
 	storeRequestBody := true
+	capacityManaged := false
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeRequestBody = policy.StoreRequestBody
+		_, _, capacityManaged = capacityBytes(policy)
 	} else {
 		log.Warn(ctx, "Failed to get storage policy, defaulting to store request body", log.Cause(err))
 	}
@@ -245,6 +251,17 @@ func (s *RequestService) CreateRequest(
 	if err != nil {
 		log.Warn(ctx, "Failed to get default data storage, request will be created without data storage", log.Cause(err))
 	}
+	// Managed payloads are used for primary-database request bodies. Existing
+	// non-primary external-storage keys retain their compatibility path.
+	useExternalStorage := storeRequestBody && s.shouldUseExternalStorage(ctx, dataStorage)
+	useManagedStorage := storeRequestBody && !useExternalStorage
+	managedGroup := useManagedStorage || capacityManaged
+	if capacityManaged && len(requestHeadersBytes) > 2 {
+		_, admitted, _ := s.admitManagedDatabaseEvidence(ctx, "request_headers", int64(len(requestHeadersBytes)))
+		if !admitted {
+			requestHeadersBytes = []byte("{}")
+		}
+	}
 
 	client := s.entFromContext(ctx)
 	mut := client.Request.Create().
@@ -254,7 +271,8 @@ func (s *RequestService) CreateRequest(
 		SetSource(contexts.GetSourceOrDefault(ctx, request.SourceAPI)).
 		SetStatus(request.StatusProcessing).
 		SetStream(isStream).
-		SetRequestHeaders(requestHeadersBytes)
+		SetRequestHeaders(requestHeadersBytes).
+		SetManagedObservability(managedGroup)
 
 	now := time.Now().UTC()
 	disposition := &objects.EvidenceDisposition{Version: 1,
@@ -275,8 +293,6 @@ func (s *RequestService) CreateRequest(
 		mut = mut.SetReasoningEffort(llmRequest.ReasoningEffort)
 	}
 
-	// Determine if we should store in database or external storage
-	useExternalStorage := storeRequestBody && s.shouldUseExternalStorage(ctx, dataStorage)
 	if useExternalStorage {
 		disposition.RequestBody.Location = "external"
 		if dataStorage != nil {
@@ -285,7 +301,7 @@ func (s *RequestService) CreateRequest(
 		mut = mut.SetEvidenceDisposition(disposition)
 	}
 
-	if useExternalStorage {
+	if useExternalStorage || useManagedStorage {
 		// Set empty JSON for database, actual data will be in external storage
 		mut = mut.SetRequestBody([]byte("{}"))
 	} else {
@@ -351,6 +367,50 @@ func (s *RequestService) CreateRequest(
 			// Continue anyway, don't fail the request creation
 		} else {
 			disposition.RequestBody.Outcome = "stored"
+		}
+		_, _ = client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		req.EvidenceDisposition = disposition
+	} else if useManagedStorage {
+		disposition.RequestBody.Location = "managed"
+		setManagedBodyMetadata(&disposition.RequestBody, requestBodyBytes)
+		managed, managedErr := s.persistManagedRequestBody(ctx, req.ID, requestBodyBytes)
+		switch {
+		case managedErr != nil:
+			metrics.RecordManagedObservabilityAdmissionSkipped(ctx, "write_failed")
+			s.SystemService.RecordManagedObservabilityFailure(ctx, "request_body_lock_or_write", "failed")
+			log.Warn(ctx, "Managed request-body persistence failed; forwarding with diagnostic skeleton",
+				log.Int("request_id", req.ID), log.Cause(managedErr))
+			failureClass := "managed_write_failed"
+			disposition.RequestBody.Location = "none"
+			disposition.RequestBody.Outcome = "writeFailed"
+			disposition.RequestBody.FailureClass = &failureClass
+		case managed.skipped:
+			metrics.RecordManagedObservabilityAdmissionSkipped(ctx, "capacity_pressure")
+			log.Warn(ctx, "Managed request-body admission skipped under capacity pressure",
+				log.Int("request_id", req.ID), log.String("signal", "managed_observability_capacity_pressure"))
+			failureClass := "capacity_pressure"
+			disposition.RequestBody.Location = "none"
+			disposition.RequestBody.Outcome = "omitted"
+			disposition.RequestBody.FailureClass = &failureClass
+		default:
+			_, managedErr = client.Request.UpdateOneID(req.ID).
+				SetRequestBodyPayloadID(managed.payload.ID).
+				SetEvidenceDisposition(disposition).
+				Save(ctx)
+			if managedErr == nil {
+				req.RequestBodyPayloadID = &managed.payload.ID
+				req.EvidenceDisposition = disposition
+				return req, nil
+			}
+			failureClass := "managed_reference_write_failed"
+			disposition.RequestBody.Location = "none"
+			disposition.RequestBody.Outcome = "writeFailed"
+			disposition.RequestBody.FailureClass = &failureClass
+			log.Warn(ctx, "Managed request-body reference failed; forwarding with diagnostic skeleton",
+				log.Int("request_id", req.ID), log.Cause(managedErr))
+			if !managed.reused {
+				s.discardUnreferencedManagedPayload(ctx, managed.payload.ID)
+			}
 		}
 		_, _ = client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Save(ctx)
 		req.EvidenceDisposition = disposition
@@ -437,9 +497,18 @@ func (s *RequestService) CreateRequestExecution(
 
 	// Determine if we should store in database or external storage
 	useExternalStorage := storeRequestBody && s.shouldUseExternalStorage(ctx, dataStorage)
+	useManagedStorage := storeRequestBody && !useExternalStorage
+	capacityManaged := s.SystemService.ManagedObservabilityCapacityEnabled(ctx)
+	managedGroup := useManagedStorage || capacityManaged
+	if capacityManaged && len(requestHeadersBytes) > 2 {
+		_, admitted, _ := s.admitManagedDatabaseEvidence(ctx, "execution_request_headers", int64(len(requestHeadersBytes)))
+		if !admitted {
+			requestHeadersBytes = []byte("{}")
+		}
+	}
 
 	var requestBodyForDB objects.JSONRawMessage
-	if useExternalStorage {
+	if useExternalStorage || useManagedStorage {
 		// Set empty JSON for database, actual data will be in external storage
 		requestBodyForDB = []byte("{}")
 	} else {
@@ -457,7 +526,8 @@ func (s *RequestService) CreateRequestExecution(
 		SetStatus(requestexecution.StatusProcessing).
 		SetStream(request.Stream).
 		SetRequestHeaders(requestHeadersBytes).
-		SetPassThroughApplied(passThroughApplied)
+		SetPassThroughApplied(passThroughApplied).
+		SetManagedObservability(managedGroup)
 	now := time.Now().UTC()
 	disposition := &objects.EvidenceDisposition{Version: 1,
 		RequestBody:    objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now},
@@ -522,6 +592,61 @@ func (s *RequestService) CreateRequestExecution(
 		}
 		_, _ = client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Save(ctx)
 		execution.EvidenceDisposition = disposition
+	} else if useManagedStorage {
+		disposition.RequestBody.Location = "managed"
+		setManagedBodyMetadata(&disposition.RequestBody, requestBodyBytes)
+		managed, managedErr := s.persistManagedRequestBody(ctx, request.ID, requestBodyBytes)
+		switch {
+		case managedErr != nil:
+			metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "write_failed", "execution_request_body")
+			s.SystemService.RecordManagedObservabilityFailure(ctx, "execution_request_body_lock_or_write", "failed")
+			log.Warn(ctx, "Managed execution request-body persistence failed; forwarding with diagnostic skeleton",
+				log.Int("request_id", request.ID), log.Int("execution_id", execution.ID), log.Cause(managedErr))
+			failureClass := "managed_write_failed"
+			disposition.RequestBody.Location = "none"
+			disposition.RequestBody.Outcome = "writeFailed"
+			disposition.RequestBody.FailureClass = &failureClass
+		case managed.skipped:
+			metrics.RecordManagedObservabilityAdmissionSkipped(ctx, "capacity_pressure")
+			log.Warn(ctx, "Managed execution request-body admission skipped under capacity pressure",
+				log.Int("request_id", request.ID), log.Int("execution_id", execution.ID),
+				log.String("signal", "managed_observability_capacity_pressure"))
+			failureClass := "capacity_pressure"
+			disposition.RequestBody.Location = "none"
+			disposition.RequestBody.Outcome = "omitted"
+			disposition.RequestBody.FailureClass = &failureClass
+		default:
+			_, managedErr = client.RequestExecution.UpdateOneID(execution.ID).
+				SetRequestBodyPayloadID(managed.payload.ID).
+				SetEvidenceDisposition(disposition).
+				Save(ctx)
+			if managedErr == nil {
+				execution.RequestBodyPayloadID = &managed.payload.ID
+				execution.EvidenceDisposition = disposition
+				break
+			}
+			failureClass := "managed_reference_write_failed"
+			disposition.RequestBody.Location = "none"
+			disposition.RequestBody.Outcome = "writeFailed"
+			disposition.RequestBody.FailureClass = &failureClass
+			log.Warn(ctx, "Managed execution request-body reference failed; forwarding with diagnostic skeleton",
+				log.Int("request_id", request.ID), log.Int("execution_id", execution.ID), log.Cause(managedErr))
+			if !managed.reused {
+				s.discardUnreferencedManagedPayload(ctx, managed.payload.ID)
+			}
+		}
+		if execution.RequestBodyPayloadID == nil {
+			_, _ = client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Save(ctx)
+			execution.EvidenceDisposition = disposition
+		}
+	}
+	if managedGroup && !request.ManagedObservability {
+		if _, err := client.Request.UpdateOneID(request.ID).SetManagedObservability(true).Save(ctx); err != nil {
+			log.Warn(ctx, "Failed to mark request group as managed observability",
+				log.Int("request_id", request.ID), log.Cause(err))
+		} else {
+			request.ManagedObservability = true
+		}
 	}
 
 	if selectedKeyMasked != "" {
@@ -571,6 +696,38 @@ func cloneEvidenceDisposition(current *objects.EvidenceDisposition) *objects.Evi
 		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 	}
+}
+
+func managedEvidenceSkippedDisposition(component string, writeFailed bool) objects.Disposition {
+	failureClass := "capacity_pressure:" + component
+	outcome := "omitted"
+	if writeFailed {
+		failureClass = "managed_admission_failed:" + component
+		outcome = "writeFailed"
+	}
+	return objects.Disposition{
+		Intent:       "persist",
+		Location:     "none",
+		Outcome:      outcome,
+		FailureClass: &failureClass,
+		CapturedAt:   time.Now().UTC(),
+	}
+}
+
+func (s *RequestService) admitManagedDatabaseEvidence(ctx context.Context, component string, byteLength int64) (managed, admitted, writeFailed bool) {
+	managed, admitted, err := s.SystemService.AdmitManagedObservabilityEvidence(ctx, component, byteLength)
+	if err != nil {
+		metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "write_failed", component)
+		log.Warn(ctx, "Managed observability evidence admission failed; forwarding with skeleton only",
+			log.String("component", component), log.Cause(err))
+		return managed, false, true
+	}
+	if managed && !admitted {
+		metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "capacity_pressure", component)
+		log.Warn(ctx, "Managed observability evidence skipped under capacity pressure",
+			log.String("component", component), log.String("signal", "managed_observability_capacity_pressure"))
+	}
+	return managed, admitted, false
 }
 
 // LatencyMetrics holds latency metrics for a request.
@@ -660,9 +817,16 @@ func (s *RequestService) UpdateRequestCompleted(
 				// Continue anyway
 			}
 		} else {
-			// Store in database
-			upd = upd.SetResponseBody(responseBodyBytes)
-			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "request_response_body", int64(len(responseBodyBytes)))
+			if managed {
+				upd = upd.SetManagedObservability(true)
+			}
+			if admitted {
+				upd = upd.SetResponseBody(responseBodyBytes)
+				disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			} else {
+				disposition.ResponseBody = managedEvidenceSkippedDisposition("request_response_body", writeFailed)
+			}
 		}
 	} else {
 		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
@@ -762,8 +926,16 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 				disposition.ResponseBody.FailureClass = &failureClass
 			}
 		} else {
-			upd = upd.SetResponseBody(responseBodyBytes)
-			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "request_response_body", int64(len(responseBodyBytes)))
+			if managed {
+				upd = upd.SetManagedObservability(true)
+			}
+			if admitted {
+				upd = upd.SetResponseBody(responseBodyBytes)
+				disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			} else {
+				disposition.ResponseBody = managedEvidenceSkippedDisposition("request_response_body", writeFailed)
+			}
 		}
 	} else {
 		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
@@ -882,9 +1054,16 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
 				// Continue anyway
 			}
 		} else {
-			// Store in database
-			upd = upd.SetResponseBody(responseBodyBytes)
-			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "request_response_body", int64(len(responseBodyBytes)))
+			if managed {
+				upd = upd.SetManagedObservability(true)
+			}
+			if admitted {
+				upd = upd.SetResponseBody(responseBodyBytes)
+				disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			} else {
+				disposition.ResponseBody = managedEvidenceSkippedDisposition("request_response_body", writeFailed)
+			}
 		}
 	} else {
 		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
@@ -955,6 +1134,7 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 		SetStatus(requestexecution.StatusCompleted).
 		SetExternalID(externalId)
 	disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+	managedEvidence := false
 
 	// Set latency metrics if provided
 	if metrics != nil {
@@ -991,9 +1171,17 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 				disposition.ResponseBody.FailureClass = &failureClass
 			}
 		} else {
-			// Store in database
-			upd = upd.SetResponseBody(responseBodyBytes)
-			disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "execution_response_body", int64(len(responseBodyBytes)))
+			if managed {
+				managedEvidence = true
+				upd = upd.SetManagedObservability(true)
+			}
+			if admitted {
+				upd = upd.SetResponseBody(responseBodyBytes)
+				disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+			} else {
+				disposition.ResponseBody = managedEvidenceSkippedDisposition("execution_response_body", writeFailed)
+			}
 		}
 	} else {
 		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
@@ -1008,6 +1196,12 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 
 		log.Error(ctx, "Failed to update request execution status to completed", log.Cause(err))
 		return err
+	}
+	if managedEvidence {
+		if _, markErr := client.Request.UpdateOneID(execution.RequestID).SetManagedObservability(true).Save(ctx); markErr != nil {
+			s.SystemService.RecordManagedObservabilityFailure(ctx, "execution_response_group_mark", "failed")
+			log.Warn(ctx, "Failed to mark managed execution response request group", log.Cause(markErr))
+		}
 	}
 
 	return nil
@@ -1335,13 +1529,27 @@ func (s *RequestService) SaveRequestExecutionChunksForChannel(
 			return fmt.Errorf("failed to save execution chunk disposition: %w", err)
 		}
 	} else {
-		// Store in database
 		disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
-		disposition.ResponseChunks = evidenceDisposition("persist", "database", "stored", nil, nil)
-		_, err = client.RequestExecution.UpdateOneID(executionID).
-			SetResponseChunks(chunkBytes).
-			SetEvidenceDisposition(disposition).
-			Save(ctx)
+		encoded, marshalErr := json.Marshal(chunkBytes)
+		if marshalErr != nil {
+			return fmt.Errorf("failed to size response chunks: %w", marshalErr)
+		}
+		managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "execution_response_chunks", int64(len(encoded)))
+		upd := client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition)
+		if managed {
+			upd = upd.SetManagedObservability(true)
+			if !execution.ManagedObservability {
+				_, _ = client.Request.UpdateOneID(execution.RequestID).SetManagedObservability(true).Save(ctx)
+			}
+		}
+		if admitted {
+			disposition.ResponseChunks = evidenceDisposition("persist", "database", "stored", nil, nil)
+			upd = upd.SetResponseChunks(chunkBytes).SetEvidenceDisposition(disposition)
+		} else {
+			disposition.ResponseChunks = managedEvidenceSkippedDisposition("execution_response_chunks", writeFailed)
+			upd = upd.SetEvidenceDisposition(disposition)
+		}
+		_, err = upd.Save(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to save response chunks: %w", err)
 		}
@@ -1440,13 +1648,24 @@ func (s *RequestService) SaveRequestChunks(
 			return fmt.Errorf("failed to save request chunk disposition: %w", err)
 		}
 	} else {
-		// Store in database
 		disposition := cloneEvidenceDisposition(req.EvidenceDisposition)
-		disposition.ResponseChunks = evidenceDisposition("persist", "database", "stored", nil, nil)
-		_, err = client.Request.UpdateOneID(requestID).
-			SetResponseChunks(chunkBytes).
-			SetEvidenceDisposition(disposition).
-			Save(ctx)
+		encoded, marshalErr := json.Marshal(chunkBytes)
+		if marshalErr != nil {
+			return fmt.Errorf("failed to size response chunks: %w", marshalErr)
+		}
+		managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "request_response_chunks", int64(len(encoded)))
+		upd := client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition)
+		if managed {
+			upd = upd.SetManagedObservability(true)
+		}
+		if admitted {
+			disposition.ResponseChunks = evidenceDisposition("persist", "database", "stored", nil, nil)
+			upd = upd.SetResponseChunks(chunkBytes).SetEvidenceDisposition(disposition)
+		} else {
+			disposition.ResponseChunks = managedEvidenceSkippedDisposition("request_response_chunks", writeFailed)
+			upd = upd.SetEvidenceDisposition(disposition)
+		}
+		_, err = upd.Save(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to save response chunks: %w", err)
 		}
@@ -1672,6 +1891,15 @@ func (s *RequestService) loadRequestBody(ctx context.Context, req *ent.Request, 
 	if req == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
+	if data, handled, err := s.loadManagedRequestBody(ctx, req.RequestBodyPayloadID, req.ID, maxBytes); handled {
+		if err != nil {
+			return nil, err
+		}
+		if data == nil {
+			return xjson.EmptyJSONRawMessage, nil
+		}
+		return data, nil
+	}
 
 	dataStorage, err := s.getDataStorage(ctx, req.DataStorageID)
 	if err != nil {
@@ -1861,6 +2089,15 @@ func (s *RequestService) LoadRequestExecutionRequestBodyBounded(ctx context.Cont
 func (s *RequestService) loadRequestExecutionRequestBody(ctx context.Context, exec *ent.RequestExecution, maxBytes int64) (objects.JSONRawMessage, error) {
 	if exec == nil {
 		return nil, fmt.Errorf("request execution is nil")
+	}
+	if data, handled, err := s.loadManagedRequestBody(ctx, exec.RequestBodyPayloadID, exec.RequestID, maxBytes); handled {
+		if err != nil {
+			return nil, err
+		}
+		if data == nil {
+			return xjson.EmptyJSONRawMessage, nil
+		}
+		return data, nil
 	}
 
 	dataStorage, err := s.getDataStorage(ctx, exec.DataStorageID)

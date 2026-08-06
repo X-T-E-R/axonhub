@@ -1284,8 +1284,20 @@ type ConfigurationDataStoragePolicy struct {
 	// LivePreview corresponds to the JSON schema field "live_preview".
 	LivePreview bool `json:"live_preview"`
 
+	// ManagedObservabilityHardMib corresponds to the JSON schema field
+	// "managed_observability_hard_mib".
+	ManagedObservabilityHardMib *int `json:"managed_observability_hard_mib,omitempty"`
+
+	// ManagedObservabilityLowMib corresponds to the JSON schema field
+	// "managed_observability_low_mib".
+	ManagedObservabilityLowMib *int `json:"managed_observability_low_mib,omitempty"`
+
 	// StoreChunks corresponds to the JSON schema field "store_chunks".
 	StoreChunks bool `json:"store_chunks"`
+
+	// StoreExecutionRequestBody corresponds to the JSON schema field
+	// "store_execution_request_body".
+	StoreExecutionRequestBody *bool `json:"store_execution_request_body,omitempty"`
 
 	// StoreRequestBody corresponds to the JSON schema field "store_request_body".
 	StoreRequestBody bool `json:"store_request_body"`

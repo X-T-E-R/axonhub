@@ -368,8 +368,23 @@ models:
     model:
       - github.com/looplj/axonhub/internal/server/biz.CleanupOption
   UpdateStoragePolicyInput:
-    model:
-      - github.com/looplj/axonhub/internal/server/biz.StoragePolicy
+    fields:
+      storeChunks:
+        omittable: true
+      livePreview:
+        omittable: true
+      storeRequestBody:
+        omittable: true
+      storeExecutionRequestBody:
+        omittable: true
+      storeResponseBody:
+        omittable: true
+      managedObservabilityHardMiB:
+        omittable: true
+      managedObservabilityLowMiB:
+        omittable: true
+      cleanupOptions:
+        omittable: true
   CleanupOptionInput:
     model:
       - github.com/looplj/axonhub/internal/server/biz.CleanupOption

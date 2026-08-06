@@ -17,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
+	"github.com/looplj/axonhub/internal/objects"
 )
 
 const backupBatchSize = 500
@@ -259,7 +260,18 @@ func (svc *BackupService) streamUsageRequests(ctx context.Context, o *objWriter,
 			return rows, nextID, nil
 		},
 		func(req *ent.Request) ([]byte, bool, error) {
-			b, err := json.Marshal(backupUsageRequest(req, opts.IncludeAPIKeys))
+			requestForBackup := *req
+			if req.RequestBodyPayloadID != nil {
+				payload, err := svc.db.ObservabilityPayload.Get(ctx, *req.RequestBodyPayloadID)
+				if err != nil {
+					return nil, false, fmt.Errorf("load managed request payload %d for backup: %w", *req.RequestBodyPayloadID, err)
+				}
+				if payload.RequestID != req.ID {
+					return nil, false, fmt.Errorf("managed request payload %d belongs to request %d, not %d", payload.ID, payload.RequestID, req.ID)
+				}
+				requestForBackup.RequestBody = objects.JSONRawMessage(payload.Data)
+			}
+			b, err := json.Marshal(backupUsageRequest(&requestForBackup, opts.IncludeAPIKeys))
 			return b, true, err
 		},
 	)

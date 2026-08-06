@@ -3,6 +3,7 @@ package schema
 import (
 	"entgo.io/contrib/entgql"
 	"entgo.io/ent"
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
@@ -75,6 +76,11 @@ func (Request) Fields() []ent.Field {
 			Annotations(
 				entgql.Directives(forceResolver()),
 			),
+		field.Int("request_body_payload_id").
+			Optional().
+			Nillable().
+			Annotations(entgql.Skip(entgql.SkipAll)).
+			Comment("managed content-addressed request-body payload reference"),
 		// The final response to the user.
 		// e.g: the provider response with Claude format, but the user expects the response with OpenAI format, the response_body is the OpenAI response format.
 		field.JSON("response_body", objects.JSONRawMessage{}).Optional().Annotations(
@@ -130,6 +136,10 @@ func (Request) Fields() []ent.Field {
 			Comment("when the content file was saved"),
 		field.JSON("routing_context", &objects.RoutingContext{}).Optional().Immutable().Annotations(entgql.Skip(entgql.SkipAll)),
 		field.JSON("evidence_disposition", &objects.EvidenceDisposition{}).Optional().Annotations(entgql.Skip(entgql.SkipAll)),
+		field.Bool("managed_observability").
+			Default(false).
+			Annotations(entgql.Skip(entgql.SkipAll)).
+			Comment("whether this request group was written by managed observability storage"),
 	}
 }
 
@@ -157,6 +167,13 @@ func (Request) Edges() []ent.Edge {
 				entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput),
 				entgql.RelayConnection(),
 			),
+		edge.From("observability_payloads", ObservabilityPayload.Type).
+			Ref("request").
+			Annotations(entgql.Skip(entgql.SkipAll)),
+		edge.To("request_body_payload", ObservabilityPayload.Type).
+			Field("request_body_payload_id").
+			Unique().
+			Annotations(entgql.Skip(entgql.SkipAll), entsql.OnDelete(entsql.SetNull)),
 		edge.From("channel", Channel.Type).
 			Ref("requests").
 			Field("channel_id").

@@ -2,19 +2,26 @@ package biz
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	entchannel "github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/enttest"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
+	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/chunkbuffer"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
@@ -60,6 +67,114 @@ func setupRequestExecutionStorageTest(t *testing.T) (*RequestService, *ent.Clien
 	require.NoError(t, err)
 
 	return NewRequestService(client, systemService, usageLogService, dataStorageService, NewLiveStreamRegistry()), client, ctx, proj
+}
+
+func TestManagedRequestBodyBoundRejectsStoredLengthBeforeSelectingData(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+
+	bodySize := int64(24 << 20)
+	req := client.Request.Create().
+		SetProjectID(proj.ID).
+		SetModelID("bounded-managed-body").
+		SetRequestBody([]byte(`{}`)).
+		SetStatus(request.StatusCompleted).
+		SetManagedObservability(true).
+		SaveX(ctx)
+	payload := client.ObservabilityPayload.Create().
+		SetRequestID(req.ID).
+		SetKind(observabilitypayload.KindRequestBody).
+		SetSha256(strings.Repeat("d", 64)).
+		SetByteLength(bodySize).
+		SetChargedBytes(bodySize).
+		SetData(make([]byte, bodySize)).
+		SaveX(ctx)
+	req = client.Request.UpdateOneID(req.ID).SetRequestBodyPayloadID(payload.ID).SaveX(ctx)
+
+	var statements []string
+	debugClient := ent.NewClient(
+		ent.Driver(client.Driver()),
+		ent.Debug(),
+		ent.Log(func(values ...any) { statements = append(statements, fmt.Sprint(values...)) }),
+	)
+	debugService := NewRequestService(debugClient, svc.SystemService, svc.UsageLogService, svc.DataStorageService, svc.LiveStreamRegistry)
+	_, err := debugService.LoadRequestBodyBounded(ent.NewContext(ctx, debugClient), req, 2<<20)
+	require.ErrorIs(t, err, ErrDataTooLarge)
+	require.Len(t, statements, 1, "stored byte_length must reject before issuing a data query")
+	require.NotContains(t, statements[0], `"data"`, "metadata query must not select the payload blob")
+}
+
+func TestManagedCapacityPressureSkipsVariableEvidenceWhenRequestBodiesDisabled(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+	require.NoError(t, svc.SystemService.SetStoragePolicy(ctx, &StoragePolicy{
+		StoreChunks:                 true,
+		StoreRequestBody:            false,
+		StoreExecutionRequestBody:   lo.ToPtr(false),
+		StoreResponseBody:           true,
+		ManagedObservabilityHardMiB: lo.ToPtr(2),
+		ManagedObservabilityLowMiB:  lo.ToPtr(1),
+	}))
+
+	requestCtx := contexts.WithProjectID(ctx, proj.ID)
+	req, err := svc.CreateRequest(requestCtx,
+		&llm.Request{Model: "gpt-4o"},
+		&httpclient.Request{JSONBody: []byte(`{"secret":"not persisted"}`)},
+		llm.APIFormatOpenAIChatCompletion,
+	)
+	require.NoError(t, err)
+	require.True(t, req.ManagedObservability)
+	require.Nil(t, req.RequestBodyPayloadID)
+
+	channel := createStorageTestChannel(t, ctx, client, &objects.ChannelSettings{
+		StoreExecutionRequestBody:  lo.ToPtr(false),
+		StoreExecutionResponseBody: lo.ToPtr(true),
+		StoreExecutionStreamChunks: lo.ToPtr(true),
+	})
+	execution, err := svc.CreateRequestExecution(ctx, channel, "gpt-4o", req,
+		httpclient.Request{JSONBody: []byte(`{"execution":"not persisted"}`)}, llm.APIFormatOpenAIChatCompletion, false)
+	require.NoError(t, err)
+	require.True(t, execution.ManagedObservability)
+	require.Nil(t, execution.RequestBodyPayloadID)
+
+	require.NoError(t, svc.UpdateRequestExecutionCompletedForChannel(ctx, execution.ID, "external-exec",
+		map[string]any{"response": strings.Repeat("x", 256<<10)}, nil, channel))
+	require.NoError(t, svc.SaveRequestExecutionChunksForChannel(ctx, execution.ID, []*httpclient.StreamEvent{{
+		Type: "data", Data: []byte(`{"chunk":"not persisted"}`),
+	}}, channel))
+	require.NoError(t, svc.UpdateRequestCompleted(ctx, req.ID, "external-request",
+		map[string]any{"response": strings.Repeat("y", 256<<10)}, nil))
+
+	usage, err := svc.UsageLogService.CreateUsageLog(ctx, CreateUsageLogParams{
+		RequestID: req.ID, ProjectID: req.ProjectID, ChannelID: channel.ID,
+		ActualModelID: "gpt-4o", Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 20, TotalTokens: 30},
+		Source: usagelog.SourceAPI, Format: string(llm.APIFormatOpenAIChatCompletion),
+	})
+	require.NoError(t, err)
+	require.Nil(t, usage)
+
+	updatedReq := client.Request.GetX(ctx, req.ID)
+	updatedExecution := client.RequestExecution.GetX(ctx, execution.ID)
+	require.Equal(t, request.StatusCompleted, updatedReq.Status)
+	require.Empty(t, updatedReq.ResponseBody)
+	require.Contains(t, *updatedReq.EvidenceDisposition.ResponseBody.FailureClass, "capacity_pressure")
+	require.Equal(t, requestexecution.StatusCompleted, updatedExecution.Status)
+	require.Empty(t, updatedExecution.ResponseBody)
+	require.Empty(t, updatedExecution.ResponseChunks)
+	require.Contains(t, *updatedExecution.EvidenceDisposition.ResponseBody.FailureClass, "capacity_pressure")
+	require.Contains(t, *updatedExecution.EvidenceDisposition.ResponseChunks.FailureClass, "capacity_pressure")
+	require.Zero(t, client.UsageLog.Query().CountX(ctx))
+	require.True(t, client.ManagedObservabilityState.GetX(ctx, 1).UnderPressure)
+}
+
+func TestManagedObservabilityFailureIsVisibleWithoutFailingStatus(t *testing.T) {
+	svc, client, ctx, _ := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+	svc.SystemService.RecordManagedObservabilityFailure(ctx, "gc_owner_lock", "failed")
+	status, err := svc.SystemService.ManagedObservabilityStatus(ctx)
+	require.NoError(t, err)
+	require.True(t, status.UnderPressure)
+	require.Equal(t, "gc_owner_lock:failed", status.LastError)
 }
 
 func createStorageTestChannel(t *testing.T, ctx context.Context, client *ent.Client, settings *objects.ChannelSettings) *Channel {
@@ -159,8 +274,117 @@ func TestRequestService_CreateRequestExecutionCanEnableRequestBodyStoragePerChan
 		Body: []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`),
 	}, llm.APIFormatOpenAIChatCompletion, false)
 	require.NoError(t, err)
-	require.Contains(t, string(execution.RequestBody), `"content":"hi"`)
+	loaded, err := svc.LoadRequestExecutionRequestBody(ctx, execution)
+	require.NoError(t, err)
+	require.Contains(t, string(loaded), `"content":"hi"`)
 	require.Equal(t, "persist", execution.EvidenceDisposition.RequestBody.Intent)
+}
+
+func TestRequestServiceExecutionGlobalSwitchSplitsParentSemantics(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+	channel := createStorageTestChannel(t, ctx, client, nil)
+	req := createStorageTestRequest(t, ctx, client, proj, false)
+	body := []byte(`{"model":"gpt-4o","split":true}`)
+
+	require.NoError(t, svc.SystemService.SetStoragePolicy(ctx, &StoragePolicy{
+		StoreRequestBody: true, StoreExecutionRequestBody: lo.ToPtr(false), StoreResponseBody: true,
+	}))
+	omitted, err := svc.CreateRequestExecution(ctx, channel, "gpt-4o", req, httpclient.Request{JSONBody: body}, llm.APIFormatOpenAIChatCompletion, false)
+	require.NoError(t, err)
+	require.Nil(t, omitted.RequestBodyPayloadID)
+	require.Equal(t, "omit", omitted.EvidenceDisposition.RequestBody.Intent)
+
+	require.NoError(t, svc.SystemService.SetStoragePolicy(ctx, &StoragePolicy{
+		StoreRequestBody: false, StoreExecutionRequestBody: lo.ToPtr(true), StoreResponseBody: true,
+	}))
+	stored, err := svc.CreateRequestExecution(ctx, channel, "gpt-4o", req, httpclient.Request{JSONBody: body}, llm.APIFormatOpenAIChatCompletion, false)
+	require.NoError(t, err)
+	require.NotNil(t, stored.RequestBodyPayloadID)
+	loaded, err := svc.LoadRequestExecutionRequestBody(ctx, stored)
+	require.NoError(t, err)
+	require.Equal(t, body, []byte(loaded))
+}
+
+func managedStorageTestBody(t *testing.T, rawBytes int) []byte {
+	t.Helper()
+	raw := make([]byte, rawBytes)
+	_, err := rand.Read(raw)
+	require.NoError(t, err)
+	return []byte(`{"model":"gpt-4o","blob":"` + base64.RawStdEncoding.EncodeToString(raw) + `"}`)
+}
+
+func TestRequestServiceManagedRequestBodyExactDedupAndVariants(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+	ctx = contexts.WithProjectID(ctx, proj.ID)
+	channel := createStorageTestChannel(t, ctx, client, nil)
+	body := managedStorageTestBody(t, 768*1024)
+
+	req, err := svc.CreateRequest(ctx, &llm.Request{Model: "gpt-4o"}, &httpclient.Request{JSONBody: body}, llm.APIFormatOpenAIChatCompletion)
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(req.RequestBody))
+	require.NotNil(t, req.RequestBodyPayloadID)
+
+	execution, err := svc.CreateRequestExecution(ctx, channel, "gpt-4o", req, httpclient.Request{JSONBody: body}, llm.APIFormatOpenAIChatCompletion, true)
+	require.NoError(t, err)
+	require.NotNil(t, execution.RequestBodyPayloadID)
+	require.Equal(t, *req.RequestBodyPayloadID, *execution.RequestBodyPayloadID)
+	require.Equal(t, 1, client.ObservabilityPayload.Query().Where(observabilitypayload.RequestIDEQ(req.ID)).CountX(ctx))
+
+	loadedParent, err := svc.LoadRequestBody(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, body, []byte(loadedParent))
+	loadedExecution, err := svc.LoadRequestExecutionRequestBody(ctx, execution)
+	require.NoError(t, err)
+	require.Equal(t, body, []byte(loadedExecution))
+
+	variant := append([]byte(nil), body...)
+	variant[len(variant)-3] ^= 1
+	second, err := svc.CreateRequestExecution(ctx, channel, "gpt-4o", req, httpclient.Request{JSONBody: variant}, llm.APIFormatOpenAIChatCompletion, false)
+	require.NoError(t, err)
+	require.NotNil(t, second.RequestBodyPayloadID)
+	require.NotEqual(t, *execution.RequestBodyPayloadID, *second.RequestBodyPayloadID)
+	require.Equal(t, 2, client.ObservabilityPayload.Query().Where(observabilitypayload.RequestIDEQ(req.ID)).CountX(ctx))
+	loadedVariant, err := svc.LoadRequestExecutionRequestBody(ctx, second)
+	require.NoError(t, err)
+	require.Equal(t, variant, []byte(loadedVariant))
+	retry, err := svc.CreateRequestExecution(ctx, channel, "gpt-4o", req, httpclient.Request{JSONBody: variant}, llm.APIFormatOpenAIChatCompletion, true)
+	require.NoError(t, err)
+	require.Equal(t, *second.RequestBodyPayloadID, *retry.RequestBodyPayloadID, "retry/failover reuses the exact final variant")
+	require.Equal(t, 2, client.ObservabilityPayload.Query().Where(observabilitypayload.RequestIDEQ(req.ID)).CountX(ctx))
+}
+
+func TestRequestServiceManagedCapacityPressureKeepsSkeleton(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+	ctx = contexts.WithProjectID(ctx, proj.ID)
+	require.Error(t, svc.SystemService.SetStoragePolicy(ctx, &StoragePolicy{
+		StoreRequestBody:            true,
+		StoreExecutionRequestBody:   lo.ToPtr(true),
+		StoreResponseBody:           true,
+		ManagedObservabilityHardMiB: lo.ToPtr(1),
+		ManagedObservabilityLowMiB:  lo.ToPtr(1),
+	}))
+	require.NoError(t, svc.SystemService.SetStoragePolicy(ctx, &StoragePolicy{
+		StoreRequestBody:            true,
+		StoreExecutionRequestBody:   lo.ToPtr(true),
+		StoreResponseBody:           true,
+		ManagedObservabilityHardMiB: lo.ToPtr(2),
+		ManagedObservabilityLowMiB:  lo.ToPtr(1),
+	}))
+	body := managedStorageTestBody(t, 2*1024*1024)
+	req, err := svc.CreateRequest(ctx, &llm.Request{Model: "gpt-4o"}, &httpclient.Request{JSONBody: body}, llm.APIFormatOpenAIChatCompletion)
+	require.NoError(t, err)
+	require.Nil(t, req.RequestBodyPayloadID)
+	require.JSONEq(t, `{}`, string(req.RequestBody))
+	require.Equal(t, "capacity_pressure", *req.EvidenceDisposition.RequestBody.FailureClass)
+	require.Equal(t, "omitted", req.EvidenceDisposition.RequestBody.Outcome)
+	require.NotEmpty(t, req.EvidenceDisposition.RequestBody.SHA256)
+	require.Equal(t, int64(len(body)), *req.EvidenceDisposition.RequestBody.ByteLength)
+	require.Zero(t, client.ObservabilityPayload.Query().CountX(ctx))
+	state := client.ManagedObservabilityState.GetX(ctx, 1)
+	require.True(t, state.UnderPressure)
 }
 
 func TestRequestService_UpdateRequestExecutionCompletedLoadsChannelResponseBodyOverride(t *testing.T) {

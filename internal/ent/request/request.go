@@ -42,6 +42,8 @@ const (
 	FieldRequestHeaders = "request_headers"
 	// FieldRequestBody holds the string denoting the request_body field in the database.
 	FieldRequestBody = "request_body"
+	// FieldRequestBodyPayloadID holds the string denoting the request_body_payload_id field in the database.
+	FieldRequestBodyPayloadID = "request_body_payload_id"
 	// FieldResponseBody holds the string denoting the response_body field in the database.
 	FieldResponseBody = "response_body"
 	// FieldResponseChunks holds the string denoting the response_chunks field in the database.
@@ -76,6 +78,8 @@ const (
 	FieldRoutingContext = "routing_context"
 	// FieldEvidenceDisposition holds the string denoting the evidence_disposition field in the database.
 	FieldEvidenceDisposition = "evidence_disposition"
+	// FieldManagedObservability holds the string denoting the managed_observability field in the database.
+	FieldManagedObservability = "managed_observability"
 	// EdgeAPIKey holds the string denoting the api_key edge name in mutations.
 	EdgeAPIKey = "api_key"
 	// EdgeProject holds the string denoting the project edge name in mutations.
@@ -86,6 +90,10 @@ const (
 	EdgeDataStorage = "data_storage"
 	// EdgeExecutions holds the string denoting the executions edge name in mutations.
 	EdgeExecutions = "executions"
+	// EdgeObservabilityPayloads holds the string denoting the observability_payloads edge name in mutations.
+	EdgeObservabilityPayloads = "observability_payloads"
+	// EdgeRequestBodyPayload holds the string denoting the request_body_payload edge name in mutations.
+	EdgeRequestBodyPayload = "request_body_payload"
 	// EdgeChannel holds the string denoting the channel edge name in mutations.
 	EdgeChannel = "channel"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
@@ -127,6 +135,20 @@ const (
 	ExecutionsInverseTable = "request_executions"
 	// ExecutionsColumn is the table column denoting the executions relation/edge.
 	ExecutionsColumn = "request_id"
+	// ObservabilityPayloadsTable is the table that holds the observability_payloads relation/edge.
+	ObservabilityPayloadsTable = "observability_payloads"
+	// ObservabilityPayloadsInverseTable is the table name for the ObservabilityPayload entity.
+	// It exists in this package in order to avoid circular dependency with the "observabilitypayload" package.
+	ObservabilityPayloadsInverseTable = "observability_payloads"
+	// ObservabilityPayloadsColumn is the table column denoting the observability_payloads relation/edge.
+	ObservabilityPayloadsColumn = "request_id"
+	// RequestBodyPayloadTable is the table that holds the request_body_payload relation/edge.
+	RequestBodyPayloadTable = "requests"
+	// RequestBodyPayloadInverseTable is the table name for the ObservabilityPayload entity.
+	// It exists in this package in order to avoid circular dependency with the "observabilitypayload" package.
+	RequestBodyPayloadInverseTable = "observability_payloads"
+	// RequestBodyPayloadColumn is the table column denoting the request_body_payload relation/edge.
+	RequestBodyPayloadColumn = "request_body_payload_id"
 	// ChannelTable is the table that holds the channel relation/edge.
 	ChannelTable = "requests"
 	// ChannelInverseTable is the table name for the Channel entity.
@@ -158,6 +180,7 @@ var Columns = []string{
 	FieldFormat,
 	FieldRequestHeaders,
 	FieldRequestBody,
+	FieldRequestBodyPayloadID,
 	FieldResponseBody,
 	FieldResponseChunks,
 	FieldChannelID,
@@ -175,6 +198,7 @@ var Columns = []string{
 	FieldContentSavedAt,
 	FieldRoutingContext,
 	FieldEvidenceDisposition,
+	FieldManagedObservability,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -213,6 +237,8 @@ var (
 	DefaultClientIP string
 	// DefaultContentSaved holds the default value on creation for the "content_saved" field.
 	DefaultContentSaved bool
+	// DefaultManagedObservability holds the default value on creation for the "managed_observability" field.
+	DefaultManagedObservability bool
 )
 
 // Source defines the type for the "source" enum field.
@@ -326,6 +352,11 @@ func ByFormat(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFormat, opts...).ToFunc()
 }
 
+// ByRequestBodyPayloadID orders the results by the request_body_payload_id field.
+func ByRequestBodyPayloadID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRequestBodyPayloadID, opts...).ToFunc()
+}
+
 // ByChannelID orders the results by the channel_id field.
 func ByChannelID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldChannelID, opts...).ToFunc()
@@ -391,6 +422,11 @@ func ByContentSavedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldContentSavedAt, opts...).ToFunc()
 }
 
+// ByManagedObservability orders the results by the managed_observability field.
+func ByManagedObservability(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldManagedObservability, opts...).ToFunc()
+}
+
 // ByAPIKeyField orders the results by api_key field.
 func ByAPIKeyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -430,6 +466,27 @@ func ByExecutionsCount(opts ...sql.OrderTermOption) OrderOption {
 func ByExecutions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newExecutionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByObservabilityPayloadsCount orders the results by observability_payloads count.
+func ByObservabilityPayloadsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newObservabilityPayloadsStep(), opts...)
+	}
+}
+
+// ByObservabilityPayloads orders the results by observability_payloads terms.
+func ByObservabilityPayloads(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newObservabilityPayloadsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByRequestBodyPayloadField orders the results by request_body_payload field.
+func ByRequestBodyPayloadField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRequestBodyPayloadStep(), sql.OrderByField(field, opts...))
 	}
 }
 
@@ -486,6 +543,20 @@ func newExecutionsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ExecutionsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, ExecutionsTable, ExecutionsColumn),
+	)
+}
+func newObservabilityPayloadsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ObservabilityPayloadsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, true, ObservabilityPayloadsTable, ObservabilityPayloadsColumn),
+	)
+}
+func newRequestBodyPayloadStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RequestBodyPayloadInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, RequestBodyPayloadTable, RequestBodyPayloadColumn),
 	)
 }
 func newChannelStep() *sqlgraph.Step {

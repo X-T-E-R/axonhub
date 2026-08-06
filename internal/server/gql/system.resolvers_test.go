@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/99designs/gqlgen/graphql"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/authz"
@@ -28,6 +30,71 @@ func setupTestSystemMutationResolver(t *testing.T) (*mutationResolver, context.C
 
 	resolver := &mutationResolver{&Resolver{systemService: systemService}}
 	return resolver, ctx, client
+}
+
+func TestMutationResolver_UpdateStoragePolicy_PreservesOmittedFieldsAndAppliesFalse(t *testing.T) {
+	resolver, ctx, client := setupTestSystemMutationResolver(t)
+	defer client.Close()
+
+	original := &biz.StoragePolicy{
+		StoreChunks:                 true,
+		LivePreview:                 true,
+		StoreRequestBody:            true,
+		StoreExecutionRequestBody:   lo.ToPtr(true),
+		StoreResponseBody:           true,
+		ManagedObservabilityHardMiB: lo.ToPtr(10),
+		ManagedObservabilityLowMiB:  lo.ToPtr(8),
+		CleanupOptions: []biz.CleanupOption{{
+			ResourceType: "requests", Enabled: true, CleanupDays: 30,
+		}},
+	}
+	require.NoError(t, resolver.systemService.SetStoragePolicy(ctx, original))
+
+	ok, err := resolver.UpdateStoragePolicy(ctx, UpdateStoragePolicyInput{
+		StoreRequestBody: graphql.OmittableOf(lo.ToPtr(false)),
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	updated, err := resolver.systemService.StoragePolicy(ctx)
+	require.NoError(t, err)
+	require.False(t, updated.StoreRequestBody)
+	require.True(t, updated.StoreChunks)
+	require.True(t, updated.LivePreview)
+	require.True(t, updated.StoreResponseBody)
+	require.NotNil(t, updated.StoreExecutionRequestBody)
+	require.True(t, *updated.StoreExecutionRequestBody)
+	require.Equal(t, 10, *updated.ManagedObservabilityHardMiB)
+	require.Equal(t, 8, *updated.ManagedObservabilityLowMiB)
+	require.Equal(t, original.CleanupOptions, updated.CleanupOptions)
+}
+
+func TestMutationResolver_UpdateStoragePolicy_ExplicitNullClearsNullableFields(t *testing.T) {
+	resolver, ctx, client := setupTestSystemMutationResolver(t)
+	defer client.Close()
+
+	require.NoError(t, resolver.systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{
+		StoreRequestBody:            true,
+		StoreExecutionRequestBody:   lo.ToPtr(false),
+		StoreResponseBody:           true,
+		ManagedObservabilityHardMiB: lo.ToPtr(10),
+		ManagedObservabilityLowMiB:  lo.ToPtr(8),
+	}))
+
+	ok, err := resolver.UpdateStoragePolicy(ctx, UpdateStoragePolicyInput{
+		StoreExecutionRequestBody:   graphql.OmittableOf[*bool](nil),
+		ManagedObservabilityHardMiB: graphql.OmittableOf[*int](nil),
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	updated, err := resolver.systemService.StoragePolicy(ctx)
+	require.NoError(t, err)
+	require.Nil(t, updated.StoreExecutionRequestBody)
+	require.Nil(t, updated.ManagedObservabilityHardMiB)
+	require.Nil(t, updated.ManagedObservabilityLowMiB)
+	require.True(t, updated.StoreRequestBody)
+	require.True(t, updated.StoreResponseBody)
 }
 
 func TestMutationResolver_UpdateSystemChannelSettings_MergesAutoSyncWithoutOverwritingProbe(t *testing.T) {

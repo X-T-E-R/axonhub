@@ -42,11 +42,12 @@ type SystemStatusResponse struct {
 
 // HealthResponse 健康检查响应.
 type HealthResponse struct {
-	Status    string     `json:"status"`
-	Timestamp time.Time  `json:"timestamp"`
-	Version   string     `json:"version"`
-	Build     build.Info `json:"build"`
-	Uptime    string     `json:"uptime"`
+	Status               string                          `json:"status"`
+	Timestamp            time.Time                       `json:"timestamp"`
+	Version              string                          `json:"version"`
+	Build                build.Info                      `json:"build"`
+	Uptime               string                          `json:"uptime"`
+	ManagedObservability *biz.ManagedObservabilityStatus `json:"managedObservability,omitempty"`
 }
 
 // InitializeSystemRequest 系统初始化请求.
@@ -90,13 +91,21 @@ func (h *SystemHandlers) GetSystemStatus(c *gin.Context) {
 // Health returns the application health status and build information.
 func (h *SystemHandlers) Health(c *gin.Context) {
 	buildInfo := build.GetBuildInfo()
+	managedStatus, err := h.SystemService.ManagedObservabilityStatus(c.Request.Context())
+	if err != nil {
+		// Managed observability is deliberately fail-open. Keep liveness/readiness
+		// healthy and expose the query failure through structured logs.
+		log.Warn(c.Request.Context(), "Managed observability health status unavailable",
+			log.String("signal", "managed_observability_health_unknown"), log.Cause(err))
+	}
 
 	c.JSON(http.StatusOK, HealthResponse{
-		Status:    "healthy",
-		Timestamp: time.Now(),
-		Version:   build.Version,
-		Build:     buildInfo,
-		Uptime:    buildInfo.Uptime,
+		Status:               "healthy",
+		Timestamp:            time.Now(),
+		Version:              build.Version,
+		Build:                buildInfo,
+		Uptime:               buildInfo.Uptime,
+		ManagedObservability: managedStatus,
 	})
 }
 

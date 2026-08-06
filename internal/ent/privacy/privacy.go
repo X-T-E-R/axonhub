@@ -327,6 +327,30 @@ func (f DataStorageMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mut
 	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.DataStorageMutation", m)
 }
 
+// The ManagedObservabilityStateQueryRuleFunc type is an adapter to allow the use of ordinary
+// functions as a query rule.
+type ManagedObservabilityStateQueryRuleFunc func(context.Context, *ent.ManagedObservabilityStateQuery) error
+
+// EvalQuery return f(ctx, q).
+func (f ManagedObservabilityStateQueryRuleFunc) EvalQuery(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ManagedObservabilityStateQuery); ok {
+		return f(ctx, q)
+	}
+	return Denyf("ent/privacy: unexpected query type %T, expect *ent.ManagedObservabilityStateQuery", q)
+}
+
+// The ManagedObservabilityStateMutationRuleFunc type is an adapter to allow the use of ordinary
+// functions as a mutation rule.
+type ManagedObservabilityStateMutationRuleFunc func(context.Context, *ent.ManagedObservabilityStateMutation) error
+
+// EvalMutation calls f(ctx, m).
+func (f ManagedObservabilityStateMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation) error {
+	if m, ok := m.(*ent.ManagedObservabilityStateMutation); ok {
+		return f(ctx, m)
+	}
+	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.ManagedObservabilityStateMutation", m)
+}
+
 // The ModelQueryRuleFunc type is an adapter to allow the use of ordinary
 // functions as a query rule.
 type ModelQueryRuleFunc func(context.Context, *ent.ModelQuery) error
@@ -373,6 +397,30 @@ func (f OIDCIdentityMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mu
 		return f(ctx, m)
 	}
 	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.OIDCIdentityMutation", m)
+}
+
+// The ObservabilityPayloadQueryRuleFunc type is an adapter to allow the use of ordinary
+// functions as a query rule.
+type ObservabilityPayloadQueryRuleFunc func(context.Context, *ent.ObservabilityPayloadQuery) error
+
+// EvalQuery return f(ctx, q).
+func (f ObservabilityPayloadQueryRuleFunc) EvalQuery(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ObservabilityPayloadQuery); ok {
+		return f(ctx, q)
+	}
+	return Denyf("ent/privacy: unexpected query type %T, expect *ent.ObservabilityPayloadQuery", q)
+}
+
+// The ObservabilityPayloadMutationRuleFunc type is an adapter to allow the use of ordinary
+// functions as a mutation rule.
+type ObservabilityPayloadMutationRuleFunc func(context.Context, *ent.ObservabilityPayloadMutation) error
+
+// EvalMutation calls f(ctx, m).
+func (f ObservabilityPayloadMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation) error {
+	if m, ok := m.(*ent.ObservabilityPayloadMutation); ok {
+		return f(ctx, m)
+	}
+	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.ObservabilityPayloadMutation", m)
 }
 
 // The ProjectQueryRuleFunc type is an adapter to allow the use of ordinary
@@ -764,9 +812,13 @@ func queryFilter(q ent.Query) (Filter, error) {
 		return q.Filter(), nil
 	case *ent.DataStorageQuery:
 		return q.Filter(), nil
+	case *ent.ManagedObservabilityStateQuery:
+		return q.Filter(), nil
 	case *ent.ModelQuery:
 		return q.Filter(), nil
 	case *ent.OIDCIdentityQuery:
+		return q.Filter(), nil
+	case *ent.ObservabilityPayloadQuery:
 		return q.Filter(), nil
 	case *ent.ProjectQuery:
 		return q.Filter(), nil
@@ -821,9 +873,13 @@ func mutationFilter(m ent.Mutation) (Filter, error) {
 		return m.Filter(), nil
 	case *ent.DataStorageMutation:
 		return m.Filter(), nil
+	case *ent.ManagedObservabilityStateMutation:
+		return m.Filter(), nil
 	case *ent.ModelMutation:
 		return m.Filter(), nil
 	case *ent.OIDCIdentityMutation:
+		return m.Filter(), nil
+	case *ent.ObservabilityPayloadMutation:
 		return m.Filter(), nil
 	case *ent.ProjectMutation:
 		return m.Filter(), nil

@@ -13,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/trace"
@@ -48,6 +49,8 @@ type Request struct {
 	RequestHeaders objects.JSONRawMessage `json:"request_headers,omitempty"`
 	// RequestBody holds the value of the "request_body" field.
 	RequestBody objects.JSONRawMessage `json:"request_body,omitempty"`
+	// managed content-addressed request-body payload reference
+	RequestBodyPayloadID *int `json:"request_body_payload_id,omitempty"`
 	// ResponseBody holds the value of the "response_body" field.
 	ResponseBody objects.JSONRawMessage `json:"response_body,omitempty"`
 	// ResponseChunks holds the value of the "response_chunks" field.
@@ -82,6 +85,8 @@ type Request struct {
 	RoutingContext *objects.RoutingContext `json:"routing_context,omitempty"`
 	// EvidenceDisposition holds the value of the "evidence_disposition" field.
 	EvidenceDisposition *objects.EvidenceDisposition `json:"evidence_disposition,omitempty"`
+	// whether this request group was written by managed observability storage
+	ManagedObservability bool `json:"managed_observability,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the RequestQuery when eager-loading is set.
 	Edges        RequestEdges `json:"edges"`
@@ -100,18 +105,23 @@ type RequestEdges struct {
 	DataStorage *DataStorage `json:"data_storage,omitempty"`
 	// Executions holds the value of the executions edge.
 	Executions []*RequestExecution `json:"executions,omitempty"`
+	// ObservabilityPayloads holds the value of the observability_payloads edge.
+	ObservabilityPayloads []*ObservabilityPayload `json:"observability_payloads,omitempty"`
+	// RequestBodyPayload holds the value of the request_body_payload edge.
+	RequestBodyPayload *ObservabilityPayload `json:"request_body_payload,omitempty"`
 	// Channel holds the value of the channel edge.
 	Channel *Channel `json:"channel,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [7]bool
+	loadedTypes [9]bool
 	// totalCount holds the count of the edges above.
 	totalCount [7]map[string]int
 
-	namedExecutions map[string][]*RequestExecution
-	namedUsageLogs  map[string][]*UsageLog
+	namedExecutions            map[string][]*RequestExecution
+	namedObservabilityPayloads map[string][]*ObservabilityPayload
+	namedUsageLogs             map[string][]*UsageLog
 }
 
 // APIKeyOrErr returns the APIKey value or an error if the edge
@@ -167,12 +177,32 @@ func (e RequestEdges) ExecutionsOrErr() ([]*RequestExecution, error) {
 	return nil, &NotLoadedError{edge: "executions"}
 }
 
+// ObservabilityPayloadsOrErr returns the ObservabilityPayloads value or an error if the edge
+// was not loaded in eager-loading.
+func (e RequestEdges) ObservabilityPayloadsOrErr() ([]*ObservabilityPayload, error) {
+	if e.loadedTypes[5] {
+		return e.ObservabilityPayloads, nil
+	}
+	return nil, &NotLoadedError{edge: "observability_payloads"}
+}
+
+// RequestBodyPayloadOrErr returns the RequestBodyPayload value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e RequestEdges) RequestBodyPayloadOrErr() (*ObservabilityPayload, error) {
+	if e.RequestBodyPayload != nil {
+		return e.RequestBodyPayload, nil
+	} else if e.loadedTypes[6] {
+		return nil, &NotFoundError{label: observabilitypayload.Label}
+	}
+	return nil, &NotLoadedError{edge: "request_body_payload"}
+}
+
 // ChannelOrErr returns the Channel value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e RequestEdges) ChannelOrErr() (*Channel, error) {
 	if e.Channel != nil {
 		return e.Channel, nil
-	} else if e.loadedTypes[5] {
+	} else if e.loadedTypes[7] {
 		return nil, &NotFoundError{label: channel.Label}
 	}
 	return nil, &NotLoadedError{edge: "channel"}
@@ -181,7 +211,7 @@ func (e RequestEdges) ChannelOrErr() (*Channel, error) {
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e RequestEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[8] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
@@ -194,9 +224,9 @@ func (*Request) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case request.FieldRequestHeaders, request.FieldRequestBody, request.FieldResponseBody, request.FieldResponseChunks, request.FieldRoutingContext, request.FieldEvidenceDisposition:
 			values[i] = new([]byte)
-		case request.FieldStream, request.FieldContentSaved:
+		case request.FieldStream, request.FieldContentSaved, request.FieldManagedObservability:
 			values[i] = new(sql.NullBool)
-		case request.FieldID, request.FieldAPIKeyID, request.FieldProjectID, request.FieldTraceID, request.FieldDataStorageID, request.FieldChannelID, request.FieldMetricsLatencyMs, request.FieldMetricsFirstTokenLatencyMs, request.FieldMetricsReasoningDurationMs, request.FieldContentStorageID:
+		case request.FieldID, request.FieldAPIKeyID, request.FieldProjectID, request.FieldTraceID, request.FieldDataStorageID, request.FieldRequestBodyPayloadID, request.FieldChannelID, request.FieldMetricsLatencyMs, request.FieldMetricsFirstTokenLatencyMs, request.FieldMetricsReasoningDurationMs, request.FieldContentStorageID:
 			values[i] = new(sql.NullInt64)
 		case request.FieldSource, request.FieldModelID, request.FieldReasoningEffort, request.FieldFormat, request.FieldExternalID, request.FieldStatus, request.FieldClientIP, request.FieldSelectedChannelAPIKeyMasked, request.FieldContentStorageKey:
 			values[i] = new(sql.NullString)
@@ -298,6 +328,13 @@ func (_m *Request) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.RequestBody); err != nil {
 					return fmt.Errorf("unmarshal field request_body: %w", err)
 				}
+			}
+		case request.FieldRequestBodyPayloadID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field request_body_payload_id", values[i])
+			} else if value.Valid {
+				_m.RequestBodyPayloadID = new(int)
+				*_m.RequestBodyPayloadID = int(value.Int64)
 			}
 		case request.FieldResponseBody:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -416,6 +453,12 @@ func (_m *Request) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field evidence_disposition: %w", err)
 				}
 			}
+		case request.FieldManagedObservability:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field managed_observability", values[i])
+			} else if value.Valid {
+				_m.ManagedObservability = value.Bool
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -452,6 +495,16 @@ func (_m *Request) QueryDataStorage() *DataStorageQuery {
 // QueryExecutions queries the "executions" edge of the Request entity.
 func (_m *Request) QueryExecutions() *RequestExecutionQuery {
 	return NewRequestClient(_m.config).QueryExecutions(_m)
+}
+
+// QueryObservabilityPayloads queries the "observability_payloads" edge of the Request entity.
+func (_m *Request) QueryObservabilityPayloads() *ObservabilityPayloadQuery {
+	return NewRequestClient(_m.config).QueryObservabilityPayloads(_m)
+}
+
+// QueryRequestBodyPayload queries the "request_body_payload" edge of the Request entity.
+func (_m *Request) QueryRequestBodyPayload() *ObservabilityPayloadQuery {
+	return NewRequestClient(_m.config).QueryRequestBodyPayload(_m)
 }
 
 // QueryChannel queries the "channel" edge of the Request entity.
@@ -523,6 +576,11 @@ func (_m *Request) String() string {
 	builder.WriteString("request_body=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RequestBody))
 	builder.WriteString(", ")
+	if v := _m.RequestBodyPayloadID; v != nil {
+		builder.WriteString("request_body_payload_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
 	builder.WriteString("response_body=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ResponseBody))
 	builder.WriteString(", ")
@@ -587,6 +645,9 @@ func (_m *Request) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("evidence_disposition=")
 	builder.WriteString(fmt.Sprintf("%v", _m.EvidenceDisposition))
+	builder.WriteString(", ")
+	builder.WriteString("managed_observability=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ManagedObservability))
 	builder.WriteByte(')')
 	return builder.String()
 }
@@ -612,6 +673,30 @@ func (_m *Request) appendNamedExecutions(name string, edges ...*RequestExecution
 		_m.Edges.namedExecutions[name] = []*RequestExecution{}
 	} else {
 		_m.Edges.namedExecutions[name] = append(_m.Edges.namedExecutions[name], edges...)
+	}
+}
+
+// NamedObservabilityPayloads returns the ObservabilityPayloads named value or an error if the edge was not
+// loaded in eager-loading with this name.
+func (_m *Request) NamedObservabilityPayloads(name string) ([]*ObservabilityPayload, error) {
+	if _m.Edges.namedObservabilityPayloads == nil {
+		return nil, &NotLoadedError{edge: name}
+	}
+	nodes, ok := _m.Edges.namedObservabilityPayloads[name]
+	if !ok {
+		return nil, &NotLoadedError{edge: name}
+	}
+	return nodes, nil
+}
+
+func (_m *Request) appendNamedObservabilityPayloads(name string, edges ...*ObservabilityPayload) {
+	if _m.Edges.namedObservabilityPayloads == nil {
+		_m.Edges.namedObservabilityPayloads = make(map[string][]*ObservabilityPayload)
+	}
+	if len(edges) == 0 {
+		_m.Edges.namedObservabilityPayloads[name] = []*ObservabilityPayload{}
+	} else {
+		_m.Edges.namedObservabilityPayloads[name] = append(_m.Edges.namedObservabilityPayloads[name], edges...)
 	}
 }
 

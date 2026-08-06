@@ -24,7 +24,9 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/model"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
@@ -65,10 +67,14 @@ type Client struct {
 	ChannelProbe *ChannelProbeClient
 	// DataStorage is the client for interacting with the DataStorage builders.
 	DataStorage *DataStorageClient
+	// ManagedObservabilityState is the client for interacting with the ManagedObservabilityState builders.
+	ManagedObservabilityState *ManagedObservabilityStateClient
 	// Model is the client for interacting with the Model builders.
 	Model *ModelClient
 	// OIDCIdentity is the client for interacting with the OIDCIdentity builders.
 	OIDCIdentity *OIDCIdentityClient
+	// ObservabilityPayload is the client for interacting with the ObservabilityPayload builders.
+	ObservabilityPayload *ObservabilityPayloadClient
 	// Project is the client for interacting with the Project builders.
 	Project *ProjectClient
 	// Prompt is the client for interacting with the Prompt builders.
@@ -119,8 +125,10 @@ func (c *Client) init() {
 	c.ChannelOverrideTemplate = NewChannelOverrideTemplateClient(c.config)
 	c.ChannelProbe = NewChannelProbeClient(c.config)
 	c.DataStorage = NewDataStorageClient(c.config)
+	c.ManagedObservabilityState = NewManagedObservabilityStateClient(c.config)
 	c.Model = NewModelClient(c.config)
 	c.OIDCIdentity = NewOIDCIdentityClient(c.config)
+	c.ObservabilityPayload = NewObservabilityPayloadClient(c.config)
 	c.Project = NewProjectClient(c.config)
 	c.Prompt = NewPromptClient(c.config)
 	c.PromptProtectionRule = NewPromptProtectionRuleClient(c.config)
@@ -236,8 +244,10 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ChannelOverrideTemplate:   NewChannelOverrideTemplateClient(cfg),
 		ChannelProbe:              NewChannelProbeClient(cfg),
 		DataStorage:               NewDataStorageClient(cfg),
+		ManagedObservabilityState: NewManagedObservabilityStateClient(cfg),
 		Model:                     NewModelClient(cfg),
 		OIDCIdentity:              NewOIDCIdentityClient(cfg),
+		ObservabilityPayload:      NewObservabilityPayloadClient(cfg),
 		Project:                   NewProjectClient(cfg),
 		Prompt:                    NewPromptClient(cfg),
 		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
@@ -280,8 +290,10 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ChannelOverrideTemplate:   NewChannelOverrideTemplateClient(cfg),
 		ChannelProbe:              NewChannelProbeClient(cfg),
 		DataStorage:               NewDataStorageClient(cfg),
+		ManagedObservabilityState: NewManagedObservabilityStateClient(cfg),
 		Model:                     NewModelClient(cfg),
 		OIDCIdentity:              NewOIDCIdentityClient(cfg),
+		ObservabilityPayload:      NewObservabilityPayloadClient(cfg),
 		Project:                   NewProjectClient(cfg),
 		Prompt:                    NewPromptClient(cfg),
 		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
@@ -327,7 +339,8 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
-		c.ChannelProbe, c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
+		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
+		c.OIDCIdentity, c.ObservabilityPayload, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -342,7 +355,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
-		c.ChannelProbe, c.DataStorage, c.Model, c.OIDCIdentity, c.Project, c.Prompt,
+		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
+		c.OIDCIdentity, c.ObservabilityPayload, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -372,10 +386,14 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ChannelProbe.mutate(ctx, m)
 	case *DataStorageMutation:
 		return c.DataStorage.mutate(ctx, m)
+	case *ManagedObservabilityStateMutation:
+		return c.ManagedObservabilityState.mutate(ctx, m)
 	case *ModelMutation:
 		return c.Model.mutate(ctx, m)
 	case *OIDCIdentityMutation:
 		return c.OIDCIdentity.mutate(ctx, m)
+	case *ObservabilityPayloadMutation:
+		return c.ObservabilityPayload.mutate(ctx, m)
 	case *ProjectMutation:
 		return c.Project.mutate(ctx, m)
 	case *PromptMutation:
@@ -1924,6 +1942,139 @@ func (c *DataStorageClient) mutate(ctx context.Context, m *DataStorageMutation) 
 	}
 }
 
+// ManagedObservabilityStateClient is a client for the ManagedObservabilityState schema.
+type ManagedObservabilityStateClient struct {
+	config
+}
+
+// NewManagedObservabilityStateClient returns a client for the ManagedObservabilityState from the given config.
+func NewManagedObservabilityStateClient(c config) *ManagedObservabilityStateClient {
+	return &ManagedObservabilityStateClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `managedobservabilitystate.Hooks(f(g(h())))`.
+func (c *ManagedObservabilityStateClient) Use(hooks ...Hook) {
+	c.hooks.ManagedObservabilityState = append(c.hooks.ManagedObservabilityState, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `managedobservabilitystate.Intercept(f(g(h())))`.
+func (c *ManagedObservabilityStateClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ManagedObservabilityState = append(c.inters.ManagedObservabilityState, interceptors...)
+}
+
+// Create returns a builder for creating a ManagedObservabilityState entity.
+func (c *ManagedObservabilityStateClient) Create() *ManagedObservabilityStateCreate {
+	mutation := newManagedObservabilityStateMutation(c.config, OpCreate)
+	return &ManagedObservabilityStateCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ManagedObservabilityState entities.
+func (c *ManagedObservabilityStateClient) CreateBulk(builders ...*ManagedObservabilityStateCreate) *ManagedObservabilityStateCreateBulk {
+	return &ManagedObservabilityStateCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ManagedObservabilityStateClient) MapCreateBulk(slice any, setFunc func(*ManagedObservabilityStateCreate, int)) *ManagedObservabilityStateCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ManagedObservabilityStateCreateBulk{err: fmt.Errorf("calling to ManagedObservabilityStateClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ManagedObservabilityStateCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ManagedObservabilityStateCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ManagedObservabilityState.
+func (c *ManagedObservabilityStateClient) Update() *ManagedObservabilityStateUpdate {
+	mutation := newManagedObservabilityStateMutation(c.config, OpUpdate)
+	return &ManagedObservabilityStateUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ManagedObservabilityStateClient) UpdateOne(_m *ManagedObservabilityState) *ManagedObservabilityStateUpdateOne {
+	mutation := newManagedObservabilityStateMutation(c.config, OpUpdateOne, withManagedObservabilityState(_m))
+	return &ManagedObservabilityStateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ManagedObservabilityStateClient) UpdateOneID(id int) *ManagedObservabilityStateUpdateOne {
+	mutation := newManagedObservabilityStateMutation(c.config, OpUpdateOne, withManagedObservabilityStateID(id))
+	return &ManagedObservabilityStateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ManagedObservabilityState.
+func (c *ManagedObservabilityStateClient) Delete() *ManagedObservabilityStateDelete {
+	mutation := newManagedObservabilityStateMutation(c.config, OpDelete)
+	return &ManagedObservabilityStateDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ManagedObservabilityStateClient) DeleteOne(_m *ManagedObservabilityState) *ManagedObservabilityStateDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ManagedObservabilityStateClient) DeleteOneID(id int) *ManagedObservabilityStateDeleteOne {
+	builder := c.Delete().Where(managedobservabilitystate.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ManagedObservabilityStateDeleteOne{builder}
+}
+
+// Query returns a query builder for ManagedObservabilityState.
+func (c *ManagedObservabilityStateClient) Query() *ManagedObservabilityStateQuery {
+	return &ManagedObservabilityStateQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeManagedObservabilityState},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ManagedObservabilityState entity by its id.
+func (c *ManagedObservabilityStateClient) Get(ctx context.Context, id int) (*ManagedObservabilityState, error) {
+	return c.Query().Where(managedobservabilitystate.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ManagedObservabilityStateClient) GetX(ctx context.Context, id int) *ManagedObservabilityState {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *ManagedObservabilityStateClient) Hooks() []Hook {
+	return c.hooks.ManagedObservabilityState
+}
+
+// Interceptors returns the client interceptors.
+func (c *ManagedObservabilityStateClient) Interceptors() []Interceptor {
+	return c.inters.ManagedObservabilityState
+}
+
+func (c *ManagedObservabilityStateClient) mutate(ctx context.Context, m *ManagedObservabilityStateMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ManagedObservabilityStateCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ManagedObservabilityStateUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ManagedObservabilityStateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ManagedObservabilityStateDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ManagedObservabilityState mutation op: %q", m.Op())
+	}
+}
+
 // ModelClient is a client for the Model schema.
 type ModelClient struct {
 	config
@@ -2207,6 +2358,187 @@ func (c *OIDCIdentityClient) mutate(ctx context.Context, m *OIDCIdentityMutation
 		return (&OIDCIdentityDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown OIDCIdentity mutation op: %q", m.Op())
+	}
+}
+
+// ObservabilityPayloadClient is a client for the ObservabilityPayload schema.
+type ObservabilityPayloadClient struct {
+	config
+}
+
+// NewObservabilityPayloadClient returns a client for the ObservabilityPayload from the given config.
+func NewObservabilityPayloadClient(c config) *ObservabilityPayloadClient {
+	return &ObservabilityPayloadClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `observabilitypayload.Hooks(f(g(h())))`.
+func (c *ObservabilityPayloadClient) Use(hooks ...Hook) {
+	c.hooks.ObservabilityPayload = append(c.hooks.ObservabilityPayload, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `observabilitypayload.Intercept(f(g(h())))`.
+func (c *ObservabilityPayloadClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ObservabilityPayload = append(c.inters.ObservabilityPayload, interceptors...)
+}
+
+// Create returns a builder for creating a ObservabilityPayload entity.
+func (c *ObservabilityPayloadClient) Create() *ObservabilityPayloadCreate {
+	mutation := newObservabilityPayloadMutation(c.config, OpCreate)
+	return &ObservabilityPayloadCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ObservabilityPayload entities.
+func (c *ObservabilityPayloadClient) CreateBulk(builders ...*ObservabilityPayloadCreate) *ObservabilityPayloadCreateBulk {
+	return &ObservabilityPayloadCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ObservabilityPayloadClient) MapCreateBulk(slice any, setFunc func(*ObservabilityPayloadCreate, int)) *ObservabilityPayloadCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ObservabilityPayloadCreateBulk{err: fmt.Errorf("calling to ObservabilityPayloadClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ObservabilityPayloadCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ObservabilityPayloadCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ObservabilityPayload.
+func (c *ObservabilityPayloadClient) Update() *ObservabilityPayloadUpdate {
+	mutation := newObservabilityPayloadMutation(c.config, OpUpdate)
+	return &ObservabilityPayloadUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ObservabilityPayloadClient) UpdateOne(_m *ObservabilityPayload) *ObservabilityPayloadUpdateOne {
+	mutation := newObservabilityPayloadMutation(c.config, OpUpdateOne, withObservabilityPayload(_m))
+	return &ObservabilityPayloadUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ObservabilityPayloadClient) UpdateOneID(id int) *ObservabilityPayloadUpdateOne {
+	mutation := newObservabilityPayloadMutation(c.config, OpUpdateOne, withObservabilityPayloadID(id))
+	return &ObservabilityPayloadUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ObservabilityPayload.
+func (c *ObservabilityPayloadClient) Delete() *ObservabilityPayloadDelete {
+	mutation := newObservabilityPayloadMutation(c.config, OpDelete)
+	return &ObservabilityPayloadDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ObservabilityPayloadClient) DeleteOne(_m *ObservabilityPayload) *ObservabilityPayloadDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ObservabilityPayloadClient) DeleteOneID(id int) *ObservabilityPayloadDeleteOne {
+	builder := c.Delete().Where(observabilitypayload.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ObservabilityPayloadDeleteOne{builder}
+}
+
+// Query returns a query builder for ObservabilityPayload.
+func (c *ObservabilityPayloadClient) Query() *ObservabilityPayloadQuery {
+	return &ObservabilityPayloadQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeObservabilityPayload},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ObservabilityPayload entity by its id.
+func (c *ObservabilityPayloadClient) Get(ctx context.Context, id int) (*ObservabilityPayload, error) {
+	return c.Query().Where(observabilitypayload.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ObservabilityPayloadClient) GetX(ctx context.Context, id int) *ObservabilityPayload {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryRequest queries the request edge of a ObservabilityPayload.
+func (c *ObservabilityPayloadClient) QueryRequest(_m *ObservabilityPayload) *RequestQuery {
+	query := (&RequestClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(observabilitypayload.Table, observabilitypayload.FieldID, id),
+			sqlgraph.To(request.Table, request.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, observabilitypayload.RequestTable, observabilitypayload.RequestColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRequestBodyRequests queries the request_body_requests edge of a ObservabilityPayload.
+func (c *ObservabilityPayloadClient) QueryRequestBodyRequests(_m *ObservabilityPayload) *RequestQuery {
+	query := (&RequestClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(observabilitypayload.Table, observabilitypayload.FieldID, id),
+			sqlgraph.To(request.Table, request.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, observabilitypayload.RequestBodyRequestsTable, observabilitypayload.RequestBodyRequestsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRequestBodyExecutions queries the request_body_executions edge of a ObservabilityPayload.
+func (c *ObservabilityPayloadClient) QueryRequestBodyExecutions(_m *ObservabilityPayload) *RequestExecutionQuery {
+	query := (&RequestExecutionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(observabilitypayload.Table, observabilitypayload.FieldID, id),
+			sqlgraph.To(requestexecution.Table, requestexecution.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, observabilitypayload.RequestBodyExecutionsTable, observabilitypayload.RequestBodyExecutionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ObservabilityPayloadClient) Hooks() []Hook {
+	return c.hooks.ObservabilityPayload
+}
+
+// Interceptors returns the client interceptors.
+func (c *ObservabilityPayloadClient) Interceptors() []Interceptor {
+	return c.inters.ObservabilityPayload
+}
+
+func (c *ObservabilityPayloadClient) mutate(ctx context.Context, m *ObservabilityPayloadMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ObservabilityPayloadCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ObservabilityPayloadUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ObservabilityPayloadUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ObservabilityPayloadDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ObservabilityPayload mutation op: %q", m.Op())
 	}
 }
 
@@ -3130,6 +3462,38 @@ func (c *RequestClient) QueryExecutions(_m *Request) *RequestExecutionQuery {
 	return query
 }
 
+// QueryObservabilityPayloads queries the observability_payloads edge of a Request.
+func (c *RequestClient) QueryObservabilityPayloads(_m *Request) *ObservabilityPayloadQuery {
+	query := (&ObservabilityPayloadClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(request.Table, request.FieldID, id),
+			sqlgraph.To(observabilitypayload.Table, observabilitypayload.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, request.ObservabilityPayloadsTable, request.ObservabilityPayloadsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRequestBodyPayload queries the request_body_payload edge of a Request.
+func (c *RequestClient) QueryRequestBodyPayload(_m *Request) *ObservabilityPayloadQuery {
+	query := (&ObservabilityPayloadClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(request.Table, request.FieldID, id),
+			sqlgraph.To(observabilitypayload.Table, observabilitypayload.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, request.RequestBodyPayloadTable, request.RequestBodyPayloadColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryChannel queries the channel edge of a Request.
 func (c *RequestClient) QueryChannel(_m *Request) *ChannelQuery {
 	query := (&ChannelClient{config: c.config}).Query()
@@ -3337,6 +3701,22 @@ func (c *RequestExecutionClient) QueryDataStorage(_m *RequestExecution) *DataSto
 			sqlgraph.From(requestexecution.Table, requestexecution.FieldID, id),
 			sqlgraph.To(datastorage.Table, datastorage.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, requestexecution.DataStorageTable, requestexecution.DataStorageColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRequestBodyPayload queries the request_body_payload edge of a RequestExecution.
+func (c *RequestExecutionClient) QueryRequestBodyPayload(_m *RequestExecution) *ObservabilityPayloadQuery {
+	query := (&ObservabilityPayloadClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(requestexecution.Table, requestexecution.FieldID, id),
+			sqlgraph.To(observabilitypayload.Table, observabilitypayload.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, requestexecution.RequestBodyPayloadTable, requestexecution.RequestBodyPayloadColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -4800,15 +5180,17 @@ type (
 	hooks struct {
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
-		ChannelProbe, DataStorage, Model, OIDCIdentity, Project, Prompt,
-		PromptProtectionRule, ProviderQuotaStatus, Request, RequestExecution, Role,
-		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Hook
+		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
+		ObservabilityPayload, Project, Prompt, PromptProtectionRule,
+		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
+		UsageLog, User, UserProject, UserRole []ent.Hook
 	}
 	inters struct {
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
-		ChannelProbe, DataStorage, Model, OIDCIdentity, Project, Prompt,
-		PromptProtectionRule, ProviderQuotaStatus, Request, RequestExecution, Role,
-		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Interceptor
+		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
+		ObservabilityPayload, Project, Prompt, PromptProtectionRule,
+		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
+		UsageLog, User, UserProject, UserRole []ent.Interceptor
 	}
 )

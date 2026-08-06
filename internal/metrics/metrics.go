@@ -26,6 +26,11 @@ type _Metrics struct {
 	ChatTokenCount      metric.Int64Counter
 	ChatSuccessCount    metric.Int64Counter
 	ChatFailureCount    metric.Int64Counter
+
+	ManagedObservabilityAdmissionSkipped metric.Int64Counter
+	ManagedObservabilityEvicted          metric.Int64Counter
+	ManagedObservabilityFailures         metric.Int64Counter
+	ManagedObservabilityChargedBytes     metric.Int64Gauge
 }
 
 var Metrics *_Metrics
@@ -137,7 +142,80 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 
 	Metrics.ChatFailureCount = chatFailureCount
 
+	managedAdmissionSkipped, err := meter.Int64Counter(
+		"managed_observability_admission_skipped_total",
+		metric.WithDescription("Managed observability payload admissions skipped while degraded"),
+		metric.WithUnit("payloads"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create managed_observability_admission_skipped_total: %w", err)
+	}
+	Metrics.ManagedObservabilityAdmissionSkipped = managedAdmissionSkipped
+	managedEvicted, err := meter.Int64Counter(
+		"managed_observability_evicted_total",
+		metric.WithDescription("Managed observability payloads evicted by capacity cleanup"),
+		metric.WithUnit("payloads"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create managed_observability_evicted_total: %w", err)
+	}
+	Metrics.ManagedObservabilityEvicted = managedEvicted
+	managedFailures, err := meter.Int64Counter(
+		"managed_observability_failures_total",
+		metric.WithDescription("Managed observability owner, lock, admission, or cleanup failures"),
+		metric.WithUnit("failures"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create managed_observability_failures_total: %w", err)
+	}
+	Metrics.ManagedObservabilityFailures = managedFailures
+	managedChargedBytes, err := meter.Int64Gauge(
+		"managed_observability_charged_bytes",
+		metric.WithDescription("Latest conservative live-byte charge for managed observability payloads"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create managed_observability_charged_bytes: %w", err)
+	}
+	Metrics.ManagedObservabilityChargedBytes = managedChargedBytes
+
 	return nil
+}
+
+func RecordManagedObservabilityAdmissionSkipped(ctx context.Context, reason string) {
+	RecordManagedObservabilityAdmissionSkippedComponent(ctx, reason, "request_body")
+}
+
+func RecordManagedObservabilityAdmissionSkippedComponent(ctx context.Context, reason, component string) {
+	if Metrics == nil || Metrics.ManagedObservabilityAdmissionSkipped == nil {
+		return
+	}
+	Metrics.ManagedObservabilityAdmissionSkipped.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reason", reason),
+		attribute.String("component", component),
+	))
+}
+
+func RecordManagedObservabilityFailure(ctx context.Context, component, reason string) {
+	if Metrics == nil || Metrics.ManagedObservabilityFailures == nil {
+		return
+	}
+	Metrics.ManagedObservabilityFailures.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("component", component),
+		attribute.String("reason", reason),
+	))
+}
+
+func RecordManagedObservabilityCapacity(ctx context.Context, chargedBytes int64, evicted int) {
+	if Metrics == nil {
+		return
+	}
+	if Metrics.ManagedObservabilityChargedBytes != nil {
+		Metrics.ManagedObservabilityChargedBytes.Record(ctx, chargedBytes)
+	}
+	if evicted > 0 && Metrics.ManagedObservabilityEvicted != nil {
+		Metrics.ManagedObservabilityEvicted.Add(ctx, int64(evicted))
+	}
 }
 
 // RecordHTTPRequest records HTTP request metrics.

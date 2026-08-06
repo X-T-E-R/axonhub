@@ -17,7 +17,9 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/model"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
@@ -335,6 +337,33 @@ func (f TraverseDataStorage) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.DataStorageQuery", q)
 }
 
+// The ManagedObservabilityStateFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ManagedObservabilityStateFunc func(context.Context, *ent.ManagedObservabilityStateQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ManagedObservabilityStateFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ManagedObservabilityStateQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ManagedObservabilityStateQuery", q)
+}
+
+// The TraverseManagedObservabilityState type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseManagedObservabilityState func(context.Context, *ent.ManagedObservabilityStateQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseManagedObservabilityState) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseManagedObservabilityState) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ManagedObservabilityStateQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ManagedObservabilityStateQuery", q)
+}
+
 // The ModelFunc type is an adapter to allow the use of ordinary function as a Querier.
 type ModelFunc func(context.Context, *ent.ModelQuery) (ent.Value, error)
 
@@ -387,6 +416,33 @@ func (f TraverseOIDCIdentity) Traverse(ctx context.Context, q ent.Query) error {
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.OIDCIdentityQuery", q)
+}
+
+// The ObservabilityPayloadFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ObservabilityPayloadFunc func(context.Context, *ent.ObservabilityPayloadQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ObservabilityPayloadFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ObservabilityPayloadQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ObservabilityPayloadQuery", q)
+}
+
+// The TraverseObservabilityPayload type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseObservabilityPayload func(context.Context, *ent.ObservabilityPayloadQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseObservabilityPayload) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseObservabilityPayload) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ObservabilityPayloadQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ObservabilityPayloadQuery", q)
 }
 
 // The ProjectFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -788,10 +844,14 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.ChannelProbeQuery, predicate.ChannelProbe, channelprobe.OrderOption]{typ: ent.TypeChannelProbe, tq: q}, nil
 	case *ent.DataStorageQuery:
 		return &query[*ent.DataStorageQuery, predicate.DataStorage, datastorage.OrderOption]{typ: ent.TypeDataStorage, tq: q}, nil
+	case *ent.ManagedObservabilityStateQuery:
+		return &query[*ent.ManagedObservabilityStateQuery, predicate.ManagedObservabilityState, managedobservabilitystate.OrderOption]{typ: ent.TypeManagedObservabilityState, tq: q}, nil
 	case *ent.ModelQuery:
 		return &query[*ent.ModelQuery, predicate.Model, model.OrderOption]{typ: ent.TypeModel, tq: q}, nil
 	case *ent.OIDCIdentityQuery:
 		return &query[*ent.OIDCIdentityQuery, predicate.OIDCIdentity, oidcidentity.OrderOption]{typ: ent.TypeOIDCIdentity, tq: q}, nil
+	case *ent.ObservabilityPayloadQuery:
+		return &query[*ent.ObservabilityPayloadQuery, predicate.ObservabilityPayload, observabilitypayload.OrderOption]{typ: ent.TypeObservabilityPayload, tq: q}, nil
 	case *ent.ProjectQuery:
 		return &query[*ent.ProjectQuery, predicate.Project, project.OrderOption]{typ: ent.TypeProject, tq: q}, nil
 	case *ent.PromptQuery:

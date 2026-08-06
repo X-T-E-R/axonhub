@@ -47,8 +47,61 @@ func (r *mutationResolver) UpdateBrandSettings(ctx context.Context, input Update
 }
 
 // UpdateStoragePolicy is the resolver for the updateStoragePolicy field.
-func (r *mutationResolver) UpdateStoragePolicy(ctx context.Context, input biz.StoragePolicy) (bool, error) {
-	err := r.systemService.SetStoragePolicy(ctx, &input)
+func (r *mutationResolver) UpdateStoragePolicy(ctx context.Context, input UpdateStoragePolicyInput) (bool, error) {
+	policy, err := r.systemService.StoragePolicy(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to load storage policy for patch: %w", err)
+	}
+
+	// Nullable GraphQL input fields use Omittable so an omitted field preserves
+	// the stored value. This is required for old clients that only know a subset
+	// of the policy and for explicit false/null updates on newer fields.
+	if value, ok := input.StoreChunks.ValueOK(); ok && value != nil {
+		policy.StoreChunks = *value
+	}
+	if value, ok := input.LivePreview.ValueOK(); ok && value != nil {
+		policy.LivePreview = *value
+	}
+	if value, ok := input.StoreRequestBody.ValueOK(); ok && value != nil {
+		policy.StoreRequestBody = *value
+	}
+	if value, ok := input.StoreExecutionRequestBody.ValueOK(); ok {
+		policy.StoreExecutionRequestBody = value
+	}
+	if value, ok := input.StoreResponseBody.ValueOK(); ok && value != nil {
+		policy.StoreResponseBody = *value
+	}
+
+	hard, hardSet := input.ManagedObservabilityHardMiB.ValueOK()
+	low, lowSet := input.ManagedObservabilityLowMiB.ValueOK()
+	if hardSet || lowSet {
+		clearing := (hardSet && hard == nil) || (lowSet && low == nil)
+		setting := (hardSet && hard != nil) || (lowSet && low != nil)
+		if clearing && setting {
+			return false, fmt.Errorf("failed to update storage policy: managed observability capacity must be cleared as a pair")
+		}
+		if clearing {
+			policy.ManagedObservabilityHardMiB = nil
+			policy.ManagedObservabilityLowMiB = nil
+		} else {
+			if hardSet {
+				policy.ManagedObservabilityHardMiB = hard
+			}
+			if lowSet {
+				policy.ManagedObservabilityLowMiB = low
+			}
+		}
+	}
+	if values, ok := input.CleanupOptions.ValueOK(); ok {
+		policy.CleanupOptions = make([]biz.CleanupOption, 0, len(values))
+		for _, value := range values {
+			if value != nil {
+				policy.CleanupOptions = append(policy.CleanupOptions, *value)
+			}
+		}
+	}
+
+	err = r.systemService.SetStoragePolicy(ctx, policy)
 	if err != nil {
 		return false, fmt.Errorf("failed to update storage policy: %w", err)
 	}

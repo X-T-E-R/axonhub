@@ -100,6 +100,11 @@ func Format(v string) predicate.RequestExecution {
 	return predicate.RequestExecution(sql.FieldEQ(FieldFormat, v))
 }
 
+// RequestBodyPayloadID applies equality check predicate on the "request_body_payload_id" field. It's identical to RequestBodyPayloadIDEQ.
+func RequestBodyPayloadID(v int) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldEQ(FieldRequestBodyPayloadID, v))
+}
+
 // ErrorMessage applies equality check predicate on the "error_message" field. It's identical to ErrorMessageEQ.
 func ErrorMessage(v string) predicate.RequestExecution {
 	return predicate.RequestExecution(sql.FieldEQ(FieldErrorMessage, v))
@@ -143,6 +148,11 @@ func RequestURL(v string) predicate.RequestExecution {
 // PassThroughApplied applies equality check predicate on the "pass_through_applied" field. It's identical to PassThroughAppliedEQ.
 func PassThroughApplied(v bool) predicate.RequestExecution {
 	return predicate.RequestExecution(sql.FieldEQ(FieldPassThroughApplied, v))
+}
+
+// ManagedObservability applies equality check predicate on the "managed_observability" field. It's identical to ManagedObservabilityEQ.
+func ManagedObservability(v bool) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldEQ(FieldManagedObservability, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
@@ -548,6 +558,36 @@ func FormatEqualFold(v string) predicate.RequestExecution {
 // FormatContainsFold applies the ContainsFold predicate on the "format" field.
 func FormatContainsFold(v string) predicate.RequestExecution {
 	return predicate.RequestExecution(sql.FieldContainsFold(FieldFormat, v))
+}
+
+// RequestBodyPayloadIDEQ applies the EQ predicate on the "request_body_payload_id" field.
+func RequestBodyPayloadIDEQ(v int) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldEQ(FieldRequestBodyPayloadID, v))
+}
+
+// RequestBodyPayloadIDNEQ applies the NEQ predicate on the "request_body_payload_id" field.
+func RequestBodyPayloadIDNEQ(v int) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldNEQ(FieldRequestBodyPayloadID, v))
+}
+
+// RequestBodyPayloadIDIn applies the In predicate on the "request_body_payload_id" field.
+func RequestBodyPayloadIDIn(vs ...int) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldIn(FieldRequestBodyPayloadID, vs...))
+}
+
+// RequestBodyPayloadIDNotIn applies the NotIn predicate on the "request_body_payload_id" field.
+func RequestBodyPayloadIDNotIn(vs ...int) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldNotIn(FieldRequestBodyPayloadID, vs...))
+}
+
+// RequestBodyPayloadIDIsNil applies the IsNil predicate on the "request_body_payload_id" field.
+func RequestBodyPayloadIDIsNil() predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldIsNull(FieldRequestBodyPayloadID))
+}
+
+// RequestBodyPayloadIDNotNil applies the NotNil predicate on the "request_body_payload_id" field.
+func RequestBodyPayloadIDNotNil() predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldNotNull(FieldRequestBodyPayloadID))
 }
 
 // ResponseBodyIsNil applies the IsNil predicate on the "response_body" field.
@@ -1055,6 +1095,16 @@ func EvidenceDispositionNotNil() predicate.RequestExecution {
 	return predicate.RequestExecution(sql.FieldNotNull(FieldEvidenceDisposition))
 }
 
+// ManagedObservabilityEQ applies the EQ predicate on the "managed_observability" field.
+func ManagedObservabilityEQ(v bool) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldEQ(FieldManagedObservability, v))
+}
+
+// ManagedObservabilityNEQ applies the NEQ predicate on the "managed_observability" field.
+func ManagedObservabilityNEQ(v bool) predicate.RequestExecution {
+	return predicate.RequestExecution(sql.FieldNEQ(FieldManagedObservability, v))
+}
+
 // HasRequest applies the HasEdge predicate on the "request" edge.
 func HasRequest() predicate.RequestExecution {
 	return predicate.RequestExecution(func(s *sql.Selector) {
@@ -1116,6 +1166,29 @@ func HasDataStorage() predicate.RequestExecution {
 func HasDataStorageWith(preds ...predicate.DataStorage) predicate.RequestExecution {
 	return predicate.RequestExecution(func(s *sql.Selector) {
 		step := newDataStorageStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasRequestBodyPayload applies the HasEdge predicate on the "request_body_payload" edge.
+func HasRequestBodyPayload() predicate.RequestExecution {
+	return predicate.RequestExecution(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, RequestBodyPayloadTable, RequestBodyPayloadColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasRequestBodyPayloadWith applies the HasEdge predicate on the "request_body_payload" edge with a given conditions (other predicates).
+func HasRequestBodyPayloadWith(preds ...predicate.ObservabilityPayload) predicate.RequestExecution {
+	return predicate.RequestExecution(func(s *sql.Selector) {
+		step := newRequestBodyPayloadStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

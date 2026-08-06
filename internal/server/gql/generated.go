@@ -1342,7 +1342,7 @@ type ComplexityRoot struct {
 		UpdateRetryPolicy                    func(childComplexity int, input biz.RetryPolicy) int
 		UpdateRole                           func(childComplexity int, id objects.GUID, input ent.UpdateRoleInput) int
 		UpdateSecuritySettings               func(childComplexity int, input UpdateSecuritySettingsInput) int
-		UpdateStoragePolicy                  func(childComplexity int, input biz.StoragePolicy) int
+		UpdateStoragePolicy                  func(childComplexity int, input UpdateStoragePolicyInput) int
 		UpdateSystemChannelSettings          func(childComplexity int, input biz.SystemChannelSettings) int
 		UpdateSystemGeneralSettings          func(childComplexity int, input biz.SystemGeneralSettings) int
 		UpdateSystemModelSettings            func(childComplexity int, input biz.SystemModelSettings) int
@@ -1972,11 +1972,14 @@ type ComplexityRoot struct {
 	}
 
 	StoragePolicy struct {
-		CleanupOptions    func(childComplexity int) int
-		LivePreview       func(childComplexity int) int
-		StoreChunks       func(childComplexity int) int
-		StoreRequestBody  func(childComplexity int) int
-		StoreResponseBody func(childComplexity int) int
+		CleanupOptions              func(childComplexity int) int
+		LivePreview                 func(childComplexity int) int
+		ManagedObservabilityHardMiB func(childComplexity int) int
+		ManagedObservabilityLowMiB  func(childComplexity int) int
+		StoreChunks                 func(childComplexity int) int
+		StoreExecutionRequestBody   func(childComplexity int) int
+		StoreRequestBody            func(childComplexity int) int
+		StoreResponseBody           func(childComplexity int) int
 	}
 
 	SyncChannelModelsPayload struct {
@@ -2546,7 +2549,7 @@ type MutationResolver interface {
 	UpdateMyPassword(ctx context.Context, input UpdateMyPasswordInput) (bool, error)
 	UnlinkOIDCIdentity(ctx context.Context, id objects.GUID) (bool, error)
 	UpdateBrandSettings(ctx context.Context, input UpdateBrandSettingsInput) (bool, error)
-	UpdateStoragePolicy(ctx context.Context, input biz.StoragePolicy) (bool, error)
+	UpdateStoragePolicy(ctx context.Context, input UpdateStoragePolicyInput) (bool, error)
 	UpdateRetryPolicy(ctx context.Context, input biz.RetryPolicy) (bool, error)
 	UpdateWebhookNotifierConfig(ctx context.Context, input biz.WebhookNotifierConfig) (bool, error)
 	UpdateSystemModelSettings(ctx context.Context, input biz.SystemModelSettings) (bool, error)
@@ -8437,7 +8440,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.UpdateStoragePolicy(childComplexity, args["input"].(biz.StoragePolicy)), true
+		return e.complexity.Mutation.UpdateStoragePolicy(childComplexity, args["input"].(UpdateStoragePolicyInput)), true
 	case "Mutation.updateSystemChannelSettings":
 		if e.complexity.Mutation.UpdateSystemChannelSettings == nil {
 			break
@@ -11333,12 +11336,30 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StoragePolicy.LivePreview(childComplexity), true
+	case "StoragePolicy.managedObservabilityHardMiB":
+		if e.complexity.StoragePolicy.ManagedObservabilityHardMiB == nil {
+			break
+		}
+
+		return e.complexity.StoragePolicy.ManagedObservabilityHardMiB(childComplexity), true
+	case "StoragePolicy.managedObservabilityLowMiB":
+		if e.complexity.StoragePolicy.ManagedObservabilityLowMiB == nil {
+			break
+		}
+
+		return e.complexity.StoragePolicy.ManagedObservabilityLowMiB(childComplexity), true
 	case "StoragePolicy.storeChunks":
 		if e.complexity.StoragePolicy.StoreChunks == nil {
 			break
 		}
 
 		return e.complexity.StoragePolicy.StoreChunks(childComplexity), true
+	case "StoragePolicy.storeExecutionRequestBody":
+		if e.complexity.StoragePolicy.StoreExecutionRequestBody == nil {
+			break
+		}
+
+		return e.complexity.StoragePolicy.StoreExecutionRequestBody(childComplexity), true
 	case "StoragePolicy.storeRequestBody":
 		if e.complexity.StoragePolicy.StoreRequestBody == nil {
 			break
@@ -15071,7 +15092,7 @@ func (ec *executionContext) field_Mutation_updateSecuritySettings_args(ctx conte
 func (ec *executionContext) field_Mutation_updateStoragePolicy_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNUpdateStoragePolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐStoragePolicy)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNUpdateStoragePolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐUpdateStoragePolicyInput)
 	if err != nil {
 		return nil, err
 	}
@@ -43922,7 +43943,7 @@ func (ec *executionContext) _Mutation_updateStoragePolicy(ctx context.Context, f
 		ec.fieldContext_Mutation_updateStoragePolicy,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Mutation().UpdateStoragePolicy(ctx, fc.Args["input"].(biz.StoragePolicy))
+			return ec.resolvers.Mutation().UpdateStoragePolicy(ctx, fc.Args["input"].(UpdateStoragePolicyInput))
 		},
 		nil,
 		ec.marshalNBoolean2bool,
@@ -53764,8 +53785,14 @@ func (ec *executionContext) fieldContext_Query_storagePolicy(_ context.Context, 
 				return ec.fieldContext_StoragePolicy_livePreview(ctx, field)
 			case "storeRequestBody":
 				return ec.fieldContext_StoragePolicy_storeRequestBody(ctx, field)
+			case "storeExecutionRequestBody":
+				return ec.fieldContext_StoragePolicy_storeExecutionRequestBody(ctx, field)
 			case "storeResponseBody":
 				return ec.fieldContext_StoragePolicy_storeResponseBody(ctx, field)
+			case "managedObservabilityHardMiB":
+				return ec.fieldContext_StoragePolicy_managedObservabilityHardMiB(ctx, field)
+			case "managedObservabilityLowMiB":
+				return ec.fieldContext_StoragePolicy_managedObservabilityLowMiB(ctx, field)
 			case "cleanupOptions":
 				return ec.fieldContext_StoragePolicy_cleanupOptions(ctx, field)
 			}
@@ -61001,6 +61028,35 @@ func (ec *executionContext) fieldContext_StoragePolicy_storeRequestBody(_ contex
 	return fc, nil
 }
 
+func (ec *executionContext) _StoragePolicy_storeExecutionRequestBody(ctx context.Context, field graphql.CollectedField, obj *biz.StoragePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StoragePolicy_storeExecutionRequestBody,
+		func(ctx context.Context) (any, error) {
+			return obj.StoreExecutionRequestBody, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StoragePolicy_storeExecutionRequestBody(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StoragePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StoragePolicy_storeResponseBody(ctx context.Context, field graphql.CollectedField, obj *biz.StoragePolicy) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -61025,6 +61081,64 @@ func (ec *executionContext) fieldContext_StoragePolicy_storeResponseBody(_ conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StoragePolicy_managedObservabilityHardMiB(ctx context.Context, field graphql.CollectedField, obj *biz.StoragePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StoragePolicy_managedObservabilityHardMiB,
+		func(ctx context.Context) (any, error) {
+			return obj.ManagedObservabilityHardMiB, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StoragePolicy_managedObservabilityHardMiB(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StoragePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StoragePolicy_managedObservabilityLowMiB(ctx context.Context, field graphql.CollectedField, obj *biz.StoragePolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StoragePolicy_managedObservabilityLowMiB,
+		func(ctx context.Context) (any, error) {
+			return obj.ManagedObservabilityLowMiB, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StoragePolicy_managedObservabilityLowMiB(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StoragePolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -96370,14 +96484,14 @@ func (ec *executionContext) unmarshalInputUpdateSecuritySettingsInput(ctx contex
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputUpdateStoragePolicyInput(ctx context.Context, obj any) (biz.StoragePolicy, error) {
-	var it biz.StoragePolicy
+func (ec *executionContext) unmarshalInputUpdateStoragePolicyInput(ctx context.Context, obj any) (UpdateStoragePolicyInput, error) {
+	var it UpdateStoragePolicyInput
 	asMap := map[string]any{}
 	for k, v := range obj.(map[string]any) {
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"storeChunks", "livePreview", "storeRequestBody", "storeResponseBody", "cleanupOptions"}
+	fieldsInOrder := [...]string{"storeChunks", "livePreview", "storeRequestBody", "storeExecutionRequestBody", "storeResponseBody", "managedObservabilityHardMiB", "managedObservabilityLowMiB", "cleanupOptions"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -96386,39 +96500,60 @@ func (ec *executionContext) unmarshalInputUpdateStoragePolicyInput(ctx context.C
 		switch k {
 		case "storeChunks":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storeChunks"))
-			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.StoreChunks = data
+			it.StoreChunks = graphql.OmittableOf(data)
 		case "livePreview":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("livePreview"))
-			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.LivePreview = data
+			it.LivePreview = graphql.OmittableOf(data)
 		case "storeRequestBody":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storeRequestBody"))
-			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.StoreRequestBody = data
+			it.StoreRequestBody = graphql.OmittableOf(data)
+		case "storeExecutionRequestBody":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storeExecutionRequestBody"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StoreExecutionRequestBody = graphql.OmittableOf(data)
 		case "storeResponseBody":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("storeResponseBody"))
-			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.StoreResponseBody = data
+			it.StoreResponseBody = graphql.OmittableOf(data)
+		case "managedObservabilityHardMiB":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("managedObservabilityHardMiB"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ManagedObservabilityHardMiB = graphql.OmittableOf(data)
+		case "managedObservabilityLowMiB":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("managedObservabilityLowMiB"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ManagedObservabilityLowMiB = graphql.OmittableOf(data)
 		case "cleanupOptions":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cleanupOptions"))
-			data, err := ec.unmarshalOCleanupOptionInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOptionᚄ(ctx, v)
+			data, err := ec.unmarshalOCleanupOptionInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOptionᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.CleanupOptions = data
+			it.CleanupOptions = graphql.OmittableOf(data)
 		}
 	}
 
@@ -117858,11 +117993,17 @@ func (ec *executionContext) _StoragePolicy(ctx context.Context, sel ast.Selectio
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "storeExecutionRequestBody":
+			out.Values[i] = ec._StoragePolicy_storeExecutionRequestBody(ctx, field, obj)
 		case "storeResponseBody":
 			out.Values[i] = ec._StoragePolicy_storeResponseBody(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "managedObservabilityHardMiB":
+			out.Values[i] = ec._StoragePolicy_managedObservabilityHardMiB(ctx, field, obj)
+		case "managedObservabilityLowMiB":
+			out.Values[i] = ec._StoragePolicy_managedObservabilityLowMiB(ctx, field, obj)
 		case "cleanupOptions":
 			out.Values[i] = ec._StoragePolicy_cleanupOptions(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -124360,9 +124501,9 @@ func (ec *executionContext) marshalNCleanupOption2ᚕgithubᚗcomᚋloopljᚋaxo
 	return ret
 }
 
-func (ec *executionContext) unmarshalNCleanupOptionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOption(ctx context.Context, v any) (biz.CleanupOption, error) {
+func (ec *executionContext) unmarshalNCleanupOptionInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOption(ctx context.Context, v any) (*biz.CleanupOption, error) {
 	res, err := ec.unmarshalInputCleanupOptionInput(ctx, v)
-	return res, graphql.ErrorOnPath(ctx, err)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNClearCacheInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐClearCacheInput(ctx context.Context, v any) (ClearCacheInput, error) {
@@ -128574,7 +128715,7 @@ func (ec *executionContext) unmarshalNUpdateSecuritySettingsInput2githubᚗcom�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNUpdateStoragePolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐStoragePolicy(ctx context.Context, v any) (biz.StoragePolicy, error) {
+func (ec *executionContext) unmarshalNUpdateStoragePolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐUpdateStoragePolicyInput(ctx context.Context, v any) (UpdateStoragePolicyInput, error) {
 	res, err := ec.unmarshalInputUpdateStoragePolicyInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -131833,17 +131974,17 @@ func (ec *executionContext) unmarshalOChannelWhereInput2ᚖgithubᚗcomᚋlooplj
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalOCleanupOptionInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOptionᚄ(ctx context.Context, v any) ([]biz.CleanupOption, error) {
+func (ec *executionContext) unmarshalOCleanupOptionInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOptionᚄ(ctx context.Context, v any) ([]*biz.CleanupOption, error) {
 	if v == nil {
 		return nil, nil
 	}
 	var vSlice []any
 	vSlice = graphql.CoerceList(v)
 	var err error
-	res := make([]biz.CleanupOption, len(vSlice))
+	res := make([]*biz.CleanupOption, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNCleanupOptionInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOption(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNCleanupOptionInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐCleanupOption(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}

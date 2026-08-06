@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
@@ -610,6 +611,17 @@ type UpdateQuotaEnforcementSettingsInput struct {
 type UpdateSecuritySettingsInput struct {
 	BlockedIPs              []string `json:"blockedIPs,omitempty"`
 	ShowRequestLogIPBanIcon *bool    `json:"showRequestLogIPBanIcon,omitempty"`
+}
+
+type UpdateStoragePolicyInput struct {
+	StoreChunks                 graphql.Omittable[*bool]                `json:"storeChunks,omitempty"`
+	LivePreview                 graphql.Omittable[*bool]                `json:"livePreview,omitempty"`
+	StoreRequestBody            graphql.Omittable[*bool]                `json:"storeRequestBody,omitempty"`
+	StoreExecutionRequestBody   graphql.Omittable[*bool]                `json:"storeExecutionRequestBody,omitempty"`
+	StoreResponseBody           graphql.Omittable[*bool]                `json:"storeResponseBody,omitempty"`
+	ManagedObservabilityHardMiB graphql.Omittable[*int]                 `json:"managedObservabilityHardMiB,omitempty"`
+	ManagedObservabilityLowMiB  graphql.Omittable[*int]                 `json:"managedObservabilityLowMiB,omitempty"`
+	CleanupOptions              graphql.Omittable[[]*biz.CleanupOption] `json:"cleanupOptions,omitempty"`
 }
 
 type UpdateUserAgentPassThroughSettingsInput struct {

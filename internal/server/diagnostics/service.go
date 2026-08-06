@@ -98,6 +98,7 @@ var requestMetadataFields = []string{
 	request.FieldMetricsLatencyMs, request.FieldMetricsFirstTokenLatencyMs, request.FieldMetricsReasoningDurationMs,
 	request.FieldSelectedChannelAPIKeyMasked, request.FieldContentSaved, request.FieldContentStorageID,
 	request.FieldContentStorageKey, request.FieldContentSavedAt, request.FieldRoutingContext, request.FieldEvidenceDisposition,
+	request.FieldRequestBodyPayloadID,
 }
 
 var requestExecutionMetadataFields = []string{
@@ -109,6 +110,7 @@ var requestExecutionMetadataFields = []string{
 	requestexecution.FieldMetricsFirstTokenLatencyMs, requestexecution.FieldMetricsReasoningDurationMs,
 	requestexecution.FieldSelectedChannelAPIKeyMasked, requestexecution.FieldRequestURL,
 	requestexecution.FieldPassThroughApplied, requestexecution.FieldEvidenceDisposition,
+	requestexecution.FieldRequestBodyPayloadID,
 }
 
 func (s *Service) Pull(ctx context.Context, req PullRequest) (*PullResponse, error) {
@@ -519,6 +521,20 @@ func (s *Service) healthSection(ctx context.Context) Section {
 		return Section{Status: "partial", Data: data, Issues: []Issue{issue}}
 	}
 	data["databaseStatus"] = "available"
+	managed := map[string]any{
+		"status":        "available",
+		"chargedBytes":  int64(0),
+		"underPressure": false,
+	}
+	state, stateErr := s.ent.ManagedObservabilityState.Get(ctx, 1)
+	if stateErr == nil {
+		managed["chargedBytes"] = state.ChargedBytes
+		managed["underPressure"] = state.UnderPressure
+		managed["lastError"] = state.LastError
+	} else if !ent.IsNotFound(stateErr) {
+		managed["status"] = "unknown"
+	}
+	data["managedObservability"] = managed
 	return Section{Status: "available", Data: data, Issues: []Issue{}}
 }
 
@@ -754,7 +770,7 @@ func (s *Service) hydrateRequestEvidence(ctx context.Context, row *ent.Request) 
 		}
 	}
 	q := s.ent.Request.Query().Where(request.IDEQ(row.ID))
-	q.Select(request.FieldRequestHeaders, request.FieldRequestBody, request.FieldResponseBody, request.FieldResponseChunks)
+	q.Select(request.FieldRequestHeaders, request.FieldRequestBody, request.FieldResponseBody, request.FieldResponseChunks, request.FieldRequestBodyPayloadID)
 	evidence, err := q.Only(ctx)
 	if err != nil {
 		return queryError(ctx, err)
@@ -763,6 +779,7 @@ func (s *Service) hydrateRequestEvidence(ctx context.Context, row *ent.Request) 
 	row.RequestBody = evidence.RequestBody
 	row.ResponseBody = evidence.ResponseBody
 	row.ResponseChunks = evidence.ResponseChunks
+	row.RequestBodyPayloadID = evidence.RequestBodyPayloadID
 	return nil
 }
 
@@ -796,7 +813,7 @@ func (s *Service) hydrateExecutionEvidence(ctx context.Context, row *ent.Request
 		}
 	}
 	q := s.ent.RequestExecution.Query().Where(requestexecution.IDEQ(row.ID))
-	q.Select(requestexecution.FieldRequestHeaders, requestexecution.FieldRequestBody, requestexecution.FieldResponseBody, requestexecution.FieldResponseChunks)
+	q.Select(requestexecution.FieldRequestHeaders, requestexecution.FieldRequestBody, requestexecution.FieldResponseBody, requestexecution.FieldResponseChunks, requestexecution.FieldRequestBodyPayloadID)
 	evidence, err := q.Only(ctx)
 	if err != nil {
 		return queryError(ctx, err)
@@ -805,6 +822,7 @@ func (s *Service) hydrateExecutionEvidence(ctx context.Context, row *ent.Request
 	row.RequestBody = evidence.RequestBody
 	row.ResponseBody = evidence.ResponseBody
 	row.ResponseChunks = evidence.ResponseChunks
+	row.RequestBodyPayloadID = evidence.RequestBodyPayloadID
 	return nil
 }
 

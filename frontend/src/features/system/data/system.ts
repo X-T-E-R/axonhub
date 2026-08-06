@@ -68,7 +68,10 @@ const STORAGE_POLICY_QUERY = `
       storeChunks
       livePreview
       storeRequestBody
+      storeExecutionRequestBody
       storeResponseBody
+      managedObservabilityHardMiB
+      managedObservabilityLowMiB
       cleanupOptions {
         resourceType
         enabled
@@ -316,7 +319,10 @@ export interface StoragePolicy {
   storeChunks: boolean;
   livePreview: boolean;
   storeRequestBody: boolean;
+  storeExecutionRequestBody?: boolean | null;
   storeResponseBody: boolean;
+  managedObservabilityHardMiB?: number | null;
+  managedObservabilityLowMiB?: number | null;
   cleanupOptions: CleanupOption[];
 }
 
@@ -336,7 +342,10 @@ export interface UpdateStoragePolicyInput {
   storeChunks?: boolean;
   livePreview?: boolean;
   storeRequestBody?: boolean;
+  storeExecutionRequestBody?: boolean;
   storeResponseBody?: boolean;
+  managedObservabilityHardMiB?: number | null;
+  managedObservabilityLowMiB?: number | null;
   cleanupOptions?: CleanupOptionInput[];
 }
 

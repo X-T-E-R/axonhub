@@ -19,6 +19,7 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/system"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
@@ -326,11 +327,14 @@ type autoBackupSettingsJSON struct {
 
 // StoragePolicy represents the storage policy configuration.
 type StoragePolicy struct {
-	StoreChunks       bool            `json:"store_chunks"`
-	LivePreview       bool            `json:"live_preview"`
-	StoreRequestBody  bool            `json:"store_request_body"`
-	StoreResponseBody bool            `json:"store_response_body"`
-	CleanupOptions    []CleanupOption `json:"cleanup_options"`
+	StoreChunks                 bool            `json:"store_chunks"`
+	LivePreview                 bool            `json:"live_preview"`
+	StoreRequestBody            bool            `json:"store_request_body"`
+	StoreExecutionRequestBody   *bool           `json:"store_execution_request_body,omitempty"`
+	StoreResponseBody           bool            `json:"store_response_body"`
+	ManagedObservabilityHardMiB *int            `json:"managed_observability_hard_mib,omitempty"`
+	ManagedObservabilityLowMiB  *int            `json:"managed_observability_low_mib,omitempty"`
+	CleanupOptions              []CleanupOption `json:"cleanup_options"`
 }
 
 // CleanupOption represents cleanup configuration for a specific resource type.
@@ -1077,6 +1081,11 @@ func (s *SystemService) StoragePolicy(ctx context.Context) (*StoragePolicy, erro
 	if !strings.Contains(value, "\"store_request_body\"") {
 		policy.StoreRequestBody = true
 	}
+	// A missing execution-specific global switch preserves the historical
+	// behavior where store_request_body controlled both levels.
+	if !strings.Contains(value, "\"store_execution_request_body\"") {
+		policy.StoreExecutionRequestBody = nil
+	}
 
 	if !strings.Contains(value, "\"store_response_body\"") {
 		policy.StoreResponseBody = true
@@ -1102,6 +1111,25 @@ func (s *SystemService) StoragePolicyOrDefault(ctx context.Context) *StoragePoli
 
 // SetStoragePolicy sets the storage policy configuration.
 func (s *SystemService) SetStoragePolicy(ctx context.Context, policy *StoragePolicy) error {
+	previous, _ := s.StoragePolicy(ctx)
+	if (policy.ManagedObservabilityHardMiB == nil) != (policy.ManagedObservabilityLowMiB == nil) {
+		return fmt.Errorf("managed observability hard and low MiB must be configured together")
+	}
+	capacityChanged := previous == nil ||
+		(previous.ManagedObservabilityHardMiB == nil) != (policy.ManagedObservabilityHardMiB == nil) ||
+		(previous.ManagedObservabilityLowMiB == nil) != (policy.ManagedObservabilityLowMiB == nil)
+	if !capacityChanged && policy.ManagedObservabilityHardMiB != nil {
+		capacityChanged = *previous.ManagedObservabilityHardMiB != *policy.ManagedObservabilityHardMiB ||
+			*previous.ManagedObservabilityLowMiB != *policy.ManagedObservabilityLowMiB
+	}
+	if policy.ManagedObservabilityHardMiB != nil && capacityChanged {
+		if *policy.ManagedObservabilityLowMiB <= 0 || *policy.ManagedObservabilityHardMiB <= 0 {
+			return fmt.Errorf("managed observability hard and low MiB must be positive")
+		}
+		if *policy.ManagedObservabilityLowMiB >= *policy.ManagedObservabilityHardMiB {
+			return fmt.Errorf("managed observability low MiB must be less than hard MiB")
+		}
+	}
 	for _, opt := range policy.CleanupOptions {
 		if opt.CleanupDays <= 0 {
 			return fmt.Errorf("cleanup_days for %q must be positive; set enabled=false to keep data forever", opt.ResourceType)
@@ -1113,7 +1141,24 @@ func (s *SystemService) SetStoragePolicy(ctx context.Context, policy *StoragePol
 		return fmt.Errorf("failed to marshal storage policy: %w", err)
 	}
 
-	return s.setSystemValue(ctx, SystemKeyStoragePolicy, string(jsonBytes))
+	if err := s.setSystemValue(ctx, SystemKeyStoragePolicy, string(jsonBytes)); err != nil {
+		return err
+	}
+	client := s.entFromContext(ctx)
+	if policy.ManagedObservabilityHardMiB != nil {
+		if err := client.ManagedObservabilityState.Create().SetID(1).SetUnderPressure(true).
+			SetLastError("capacity_reconciliation_pending").
+			OnConflictColumns(managedobservabilitystate.FieldID).
+			Update(func(update *ent.ManagedObservabilityStateUpsert) {
+				update.SetUnderPressure(true)
+				update.SetLastError("capacity_reconciliation_pending")
+			}).Exec(ctx); err != nil {
+			log.Warn(ctx, "failed to mark managed observability reconciliation pending", log.Cause(err))
+		}
+	} else if _, err := client.ManagedObservabilityState.UpdateOneID(1).SetUnderPressure(false).ClearLastError().Save(ctx); err != nil && !ent.IsNotFound(err) {
+		log.Warn(ctx, "failed to clear managed observability pressure after capacity disable", log.Cause(err))
+	}
+	return nil
 }
 
 // RetryPolicy retrieves the retry policy configuration.

@@ -117,6 +117,18 @@ func (f DataStorageFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DataStorageMutation", m)
 }
 
+// The ManagedObservabilityStateFunc type is an adapter to allow the use of ordinary
+// function as ManagedObservabilityState mutator.
+type ManagedObservabilityStateFunc func(context.Context, *ent.ManagedObservabilityStateMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ManagedObservabilityStateFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ManagedObservabilityStateMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ManagedObservabilityStateMutation", m)
+}
+
 // The ModelFunc type is an adapter to allow the use of ordinary
 // function as Model mutator.
 type ModelFunc func(context.Context, *ent.ModelMutation) (ent.Value, error)
@@ -139,6 +151,18 @@ func (f OIDCIdentityFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OIDCIdentityMutation", m)
+}
+
+// The ObservabilityPayloadFunc type is an adapter to allow the use of ordinary
+// function as ObservabilityPayload mutator.
+type ObservabilityPayloadFunc func(context.Context, *ent.ObservabilityPayloadMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ObservabilityPayloadFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ObservabilityPayloadMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ObservabilityPayloadMutation", m)
 }
 
 // The ProjectFunc type is an adapter to allow the use of ordinary

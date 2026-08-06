@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/objects"
@@ -139,6 +140,20 @@ func (_c *RequestExecutionCreate) SetNillableFormat(v *string) *RequestExecution
 // SetRequestBody sets the "request_body" field.
 func (_c *RequestExecutionCreate) SetRequestBody(v objects.JSONRawMessage) *RequestExecutionCreate {
 	_c.mutation.SetRequestBody(v)
+	return _c
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (_c *RequestExecutionCreate) SetRequestBodyPayloadID(v int) *RequestExecutionCreate {
+	_c.mutation.SetRequestBodyPayloadID(v)
+	return _c
+}
+
+// SetNillableRequestBodyPayloadID sets the "request_body_payload_id" field if the given value is not nil.
+func (_c *RequestExecutionCreate) SetNillableRequestBodyPayloadID(v *int) *RequestExecutionCreate {
+	if v != nil {
+		_c.SetRequestBodyPayloadID(*v)
+	}
 	return _c
 }
 
@@ -298,6 +313,20 @@ func (_c *RequestExecutionCreate) SetEvidenceDisposition(v *objects.EvidenceDisp
 	return _c
 }
 
+// SetManagedObservability sets the "managed_observability" field.
+func (_c *RequestExecutionCreate) SetManagedObservability(v bool) *RequestExecutionCreate {
+	_c.mutation.SetManagedObservability(v)
+	return _c
+}
+
+// SetNillableManagedObservability sets the "managed_observability" field if the given value is not nil.
+func (_c *RequestExecutionCreate) SetNillableManagedObservability(v *bool) *RequestExecutionCreate {
+	if v != nil {
+		_c.SetManagedObservability(*v)
+	}
+	return _c
+}
+
 // SetRequest sets the "request" edge to the Request entity.
 func (_c *RequestExecutionCreate) SetRequest(v *Request) *RequestExecutionCreate {
 	return _c.SetRequestID(v.ID)
@@ -311,6 +340,11 @@ func (_c *RequestExecutionCreate) SetChannel(v *Channel) *RequestExecutionCreate
 // SetDataStorage sets the "data_storage" edge to the DataStorage entity.
 func (_c *RequestExecutionCreate) SetDataStorage(v *DataStorage) *RequestExecutionCreate {
 	return _c.SetDataStorageID(v.ID)
+}
+
+// SetRequestBodyPayload sets the "request_body_payload" edge to the ObservabilityPayload entity.
+func (_c *RequestExecutionCreate) SetRequestBodyPayload(v *ObservabilityPayload) *RequestExecutionCreate {
+	return _c.SetRequestBodyPayloadID(v.ID)
 }
 
 // Mutation returns the RequestExecutionMutation object of the builder.
@@ -372,6 +406,10 @@ func (_c *RequestExecutionCreate) defaults() {
 		v := requestexecution.DefaultPassThroughApplied
 		_c.mutation.SetPassThroughApplied(v)
 	}
+	if _, ok := _c.mutation.ManagedObservability(); !ok {
+		v := requestexecution.DefaultManagedObservability
+		_c.mutation.SetManagedObservability(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -409,6 +447,9 @@ func (_c *RequestExecutionCreate) check() error {
 	}
 	if _, ok := _c.mutation.PassThroughApplied(); !ok {
 		return &ValidationError{Name: "pass_through_applied", err: errors.New(`ent: missing required field "RequestExecution.pass_through_applied"`)}
+	}
+	if _, ok := _c.mutation.ManagedObservability(); !ok {
+		return &ValidationError{Name: "managed_observability", err: errors.New(`ent: missing required field "RequestExecution.managed_observability"`)}
 	}
 	if len(_c.mutation.RequestIDs()) == 0 {
 		return &ValidationError{Name: "request", err: errors.New(`ent: missing required edge "RequestExecution.request"`)}
@@ -524,6 +565,10 @@ func (_c *RequestExecutionCreate) createSpec() (*RequestExecution, *sqlgraph.Cre
 		_spec.SetField(requestexecution.FieldEvidenceDisposition, field.TypeJSON, value)
 		_node.EvidenceDisposition = value
 	}
+	if value, ok := _c.mutation.ManagedObservability(); ok {
+		_spec.SetField(requestexecution.FieldManagedObservability, field.TypeBool, value)
+		_node.ManagedObservability = value
+	}
 	if nodes := _c.mutation.RequestIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -573,6 +618,23 @@ func (_c *RequestExecutionCreate) createSpec() (*RequestExecution, *sqlgraph.Cre
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.DataStorageID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.RequestBodyPayloadIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   requestexecution.RequestBodyPayloadTable,
+			Columns: []string{requestexecution.RequestBodyPayloadColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(observabilitypayload.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.RequestBodyPayloadID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -654,6 +716,24 @@ func (u *RequestExecutionUpsert) UpdateExternalID() *RequestExecutionUpsert {
 // ClearExternalID clears the value of the "external_id" field.
 func (u *RequestExecutionUpsert) ClearExternalID() *RequestExecutionUpsert {
 	u.SetNull(requestexecution.FieldExternalID)
+	return u
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (u *RequestExecutionUpsert) SetRequestBodyPayloadID(v int) *RequestExecutionUpsert {
+	u.Set(requestexecution.FieldRequestBodyPayloadID, v)
+	return u
+}
+
+// UpdateRequestBodyPayloadID sets the "request_body_payload_id" field to the value that was provided on create.
+func (u *RequestExecutionUpsert) UpdateRequestBodyPayloadID() *RequestExecutionUpsert {
+	u.SetExcluded(requestexecution.FieldRequestBodyPayloadID)
+	return u
+}
+
+// ClearRequestBodyPayloadID clears the value of the "request_body_payload_id" field.
+func (u *RequestExecutionUpsert) ClearRequestBodyPayloadID() *RequestExecutionUpsert {
+	u.SetNull(requestexecution.FieldRequestBodyPayloadID)
 	return u
 }
 
@@ -903,6 +983,18 @@ func (u *RequestExecutionUpsert) ClearEvidenceDisposition() *RequestExecutionUps
 	return u
 }
 
+// SetManagedObservability sets the "managed_observability" field.
+func (u *RequestExecutionUpsert) SetManagedObservability(v bool) *RequestExecutionUpsert {
+	u.Set(requestexecution.FieldManagedObservability, v)
+	return u
+}
+
+// UpdateManagedObservability sets the "managed_observability" field to the value that was provided on create.
+func (u *RequestExecutionUpsert) UpdateManagedObservability() *RequestExecutionUpsert {
+	u.SetExcluded(requestexecution.FieldManagedObservability)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -1004,6 +1096,27 @@ func (u *RequestExecutionUpsertOne) UpdateExternalID() *RequestExecutionUpsertOn
 func (u *RequestExecutionUpsertOne) ClearExternalID() *RequestExecutionUpsertOne {
 	return u.Update(func(s *RequestExecutionUpsert) {
 		s.ClearExternalID()
+	})
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (u *RequestExecutionUpsertOne) SetRequestBodyPayloadID(v int) *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetRequestBodyPayloadID(v)
+	})
+}
+
+// UpdateRequestBodyPayloadID sets the "request_body_payload_id" field to the value that was provided on create.
+func (u *RequestExecutionUpsertOne) UpdateRequestBodyPayloadID() *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateRequestBodyPayloadID()
+	})
+}
+
+// ClearRequestBodyPayloadID clears the value of the "request_body_payload_id" field.
+func (u *RequestExecutionUpsertOne) ClearRequestBodyPayloadID() *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.ClearRequestBodyPayloadID()
 	})
 }
 
@@ -1294,6 +1407,20 @@ func (u *RequestExecutionUpsertOne) ClearEvidenceDisposition() *RequestExecution
 	})
 }
 
+// SetManagedObservability sets the "managed_observability" field.
+func (u *RequestExecutionUpsertOne) SetManagedObservability(v bool) *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetManagedObservability(v)
+	})
+}
+
+// UpdateManagedObservability sets the "managed_observability" field to the value that was provided on create.
+func (u *RequestExecutionUpsertOne) UpdateManagedObservability() *RequestExecutionUpsertOne {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateManagedObservability()
+	})
+}
+
 // Exec executes the query.
 func (u *RequestExecutionUpsertOne) Exec(ctx context.Context) error {
 	if len(u.create.conflict) == 0 {
@@ -1561,6 +1688,27 @@ func (u *RequestExecutionUpsertBulk) UpdateExternalID() *RequestExecutionUpsertB
 func (u *RequestExecutionUpsertBulk) ClearExternalID() *RequestExecutionUpsertBulk {
 	return u.Update(func(s *RequestExecutionUpsert) {
 		s.ClearExternalID()
+	})
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (u *RequestExecutionUpsertBulk) SetRequestBodyPayloadID(v int) *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetRequestBodyPayloadID(v)
+	})
+}
+
+// UpdateRequestBodyPayloadID sets the "request_body_payload_id" field to the value that was provided on create.
+func (u *RequestExecutionUpsertBulk) UpdateRequestBodyPayloadID() *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateRequestBodyPayloadID()
+	})
+}
+
+// ClearRequestBodyPayloadID clears the value of the "request_body_payload_id" field.
+func (u *RequestExecutionUpsertBulk) ClearRequestBodyPayloadID() *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.ClearRequestBodyPayloadID()
 	})
 }
 
@@ -1848,6 +1996,20 @@ func (u *RequestExecutionUpsertBulk) UpdateEvidenceDisposition() *RequestExecuti
 func (u *RequestExecutionUpsertBulk) ClearEvidenceDisposition() *RequestExecutionUpsertBulk {
 	return u.Update(func(s *RequestExecutionUpsert) {
 		s.ClearEvidenceDisposition()
+	})
+}
+
+// SetManagedObservability sets the "managed_observability" field.
+func (u *RequestExecutionUpsertBulk) SetManagedObservability(v bool) *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.SetManagedObservability(v)
+	})
+}
+
+// UpdateManagedObservability sets the "managed_observability" field to the value that was provided on create.
+func (u *RequestExecutionUpsertBulk) UpdateManagedObservability() *RequestExecutionUpsertBulk {
+	return u.Update(func(s *RequestExecutionUpsert) {
+		s.UpdateManagedObservability()
 	})
 }
 

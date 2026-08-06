@@ -20,7 +20,9 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/model"
+	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
@@ -58,8 +60,10 @@ const (
 	TypeChannelOverrideTemplate   = "ChannelOverrideTemplate"
 	TypeChannelProbe              = "ChannelProbe"
 	TypeDataStorage               = "DataStorage"
+	TypeManagedObservabilityState = "ManagedObservabilityState"
 	TypeModel                     = "Model"
 	TypeOIDCIdentity              = "OIDCIdentity"
+	TypeObservabilityPayload      = "ObservabilityPayload"
 	TypeProject                   = "Project"
 	TypePrompt                    = "Prompt"
 	TypePromptProtectionRule      = "PromptProtectionRule"
@@ -10895,6 +10899,558 @@ func (m *DataStorageMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown DataStorage edge %s", name)
 }
 
+// ManagedObservabilityStateMutation represents an operation that mutates the ManagedObservabilityState nodes in the graph.
+type ManagedObservabilityStateMutation struct {
+	config
+	op               Op
+	typ              string
+	id               *int
+	charged_bytes    *int64
+	addcharged_bytes *int64
+	under_pressure   *bool
+	last_error       *string
+	updated_at       *time.Time
+	clearedFields    map[string]struct{}
+	done             bool
+	oldValue         func(context.Context) (*ManagedObservabilityState, error)
+	predicates       []predicate.ManagedObservabilityState
+}
+
+var _ ent.Mutation = (*ManagedObservabilityStateMutation)(nil)
+
+// managedobservabilitystateOption allows management of the mutation configuration using functional options.
+type managedobservabilitystateOption func(*ManagedObservabilityStateMutation)
+
+// newManagedObservabilityStateMutation creates new mutation for the ManagedObservabilityState entity.
+func newManagedObservabilityStateMutation(c config, op Op, opts ...managedobservabilitystateOption) *ManagedObservabilityStateMutation {
+	m := &ManagedObservabilityStateMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeManagedObservabilityState,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withManagedObservabilityStateID sets the ID field of the mutation.
+func withManagedObservabilityStateID(id int) managedobservabilitystateOption {
+	return func(m *ManagedObservabilityStateMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ManagedObservabilityState
+		)
+		m.oldValue = func(ctx context.Context) (*ManagedObservabilityState, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ManagedObservabilityState.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withManagedObservabilityState sets the old ManagedObservabilityState of the mutation.
+func withManagedObservabilityState(node *ManagedObservabilityState) managedobservabilitystateOption {
+	return func(m *ManagedObservabilityStateMutation) {
+		m.oldValue = func(context.Context) (*ManagedObservabilityState, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ManagedObservabilityStateMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ManagedObservabilityStateMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of ManagedObservabilityState entities.
+func (m *ManagedObservabilityStateMutation) SetID(id int) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ManagedObservabilityStateMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ManagedObservabilityStateMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ManagedObservabilityState.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetChargedBytes sets the "charged_bytes" field.
+func (m *ManagedObservabilityStateMutation) SetChargedBytes(i int64) {
+	m.charged_bytes = &i
+	m.addcharged_bytes = nil
+}
+
+// ChargedBytes returns the value of the "charged_bytes" field in the mutation.
+func (m *ManagedObservabilityStateMutation) ChargedBytes() (r int64, exists bool) {
+	v := m.charged_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChargedBytes returns the old "charged_bytes" field's value of the ManagedObservabilityState entity.
+// If the ManagedObservabilityState object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ManagedObservabilityStateMutation) OldChargedBytes(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChargedBytes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChargedBytes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChargedBytes: %w", err)
+	}
+	return oldValue.ChargedBytes, nil
+}
+
+// AddChargedBytes adds i to the "charged_bytes" field.
+func (m *ManagedObservabilityStateMutation) AddChargedBytes(i int64) {
+	if m.addcharged_bytes != nil {
+		*m.addcharged_bytes += i
+	} else {
+		m.addcharged_bytes = &i
+	}
+}
+
+// AddedChargedBytes returns the value that was added to the "charged_bytes" field in this mutation.
+func (m *ManagedObservabilityStateMutation) AddedChargedBytes() (r int64, exists bool) {
+	v := m.addcharged_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetChargedBytes resets all changes to the "charged_bytes" field.
+func (m *ManagedObservabilityStateMutation) ResetChargedBytes() {
+	m.charged_bytes = nil
+	m.addcharged_bytes = nil
+}
+
+// SetUnderPressure sets the "under_pressure" field.
+func (m *ManagedObservabilityStateMutation) SetUnderPressure(b bool) {
+	m.under_pressure = &b
+}
+
+// UnderPressure returns the value of the "under_pressure" field in the mutation.
+func (m *ManagedObservabilityStateMutation) UnderPressure() (r bool, exists bool) {
+	v := m.under_pressure
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUnderPressure returns the old "under_pressure" field's value of the ManagedObservabilityState entity.
+// If the ManagedObservabilityState object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ManagedObservabilityStateMutation) OldUnderPressure(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUnderPressure is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUnderPressure requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUnderPressure: %w", err)
+	}
+	return oldValue.UnderPressure, nil
+}
+
+// ResetUnderPressure resets all changes to the "under_pressure" field.
+func (m *ManagedObservabilityStateMutation) ResetUnderPressure() {
+	m.under_pressure = nil
+}
+
+// SetLastError sets the "last_error" field.
+func (m *ManagedObservabilityStateMutation) SetLastError(s string) {
+	m.last_error = &s
+}
+
+// LastError returns the value of the "last_error" field in the mutation.
+func (m *ManagedObservabilityStateMutation) LastError() (r string, exists bool) {
+	v := m.last_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastError returns the old "last_error" field's value of the ManagedObservabilityState entity.
+// If the ManagedObservabilityState object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ManagedObservabilityStateMutation) OldLastError(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastError: %w", err)
+	}
+	return oldValue.LastError, nil
+}
+
+// ClearLastError clears the value of the "last_error" field.
+func (m *ManagedObservabilityStateMutation) ClearLastError() {
+	m.last_error = nil
+	m.clearedFields[managedobservabilitystate.FieldLastError] = struct{}{}
+}
+
+// LastErrorCleared returns if the "last_error" field was cleared in this mutation.
+func (m *ManagedObservabilityStateMutation) LastErrorCleared() bool {
+	_, ok := m.clearedFields[managedobservabilitystate.FieldLastError]
+	return ok
+}
+
+// ResetLastError resets all changes to the "last_error" field.
+func (m *ManagedObservabilityStateMutation) ResetLastError() {
+	m.last_error = nil
+	delete(m.clearedFields, managedobservabilitystate.FieldLastError)
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ManagedObservabilityStateMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ManagedObservabilityStateMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ManagedObservabilityState entity.
+// If the ManagedObservabilityState object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ManagedObservabilityStateMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ManagedObservabilityStateMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// Where appends a list predicates to the ManagedObservabilityStateMutation builder.
+func (m *ManagedObservabilityStateMutation) Where(ps ...predicate.ManagedObservabilityState) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ManagedObservabilityStateMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ManagedObservabilityStateMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ManagedObservabilityState, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ManagedObservabilityStateMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ManagedObservabilityStateMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ManagedObservabilityState).
+func (m *ManagedObservabilityStateMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ManagedObservabilityStateMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.charged_bytes != nil {
+		fields = append(fields, managedobservabilitystate.FieldChargedBytes)
+	}
+	if m.under_pressure != nil {
+		fields = append(fields, managedobservabilitystate.FieldUnderPressure)
+	}
+	if m.last_error != nil {
+		fields = append(fields, managedobservabilitystate.FieldLastError)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, managedobservabilitystate.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ManagedObservabilityStateMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case managedobservabilitystate.FieldChargedBytes:
+		return m.ChargedBytes()
+	case managedobservabilitystate.FieldUnderPressure:
+		return m.UnderPressure()
+	case managedobservabilitystate.FieldLastError:
+		return m.LastError()
+	case managedobservabilitystate.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ManagedObservabilityStateMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case managedobservabilitystate.FieldChargedBytes:
+		return m.OldChargedBytes(ctx)
+	case managedobservabilitystate.FieldUnderPressure:
+		return m.OldUnderPressure(ctx)
+	case managedobservabilitystate.FieldLastError:
+		return m.OldLastError(ctx)
+	case managedobservabilitystate.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown ManagedObservabilityState field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ManagedObservabilityStateMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case managedobservabilitystate.FieldChargedBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChargedBytes(v)
+		return nil
+	case managedobservabilitystate.FieldUnderPressure:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUnderPressure(v)
+		return nil
+	case managedobservabilitystate.FieldLastError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastError(v)
+		return nil
+	case managedobservabilitystate.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ManagedObservabilityState field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ManagedObservabilityStateMutation) AddedFields() []string {
+	var fields []string
+	if m.addcharged_bytes != nil {
+		fields = append(fields, managedobservabilitystate.FieldChargedBytes)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ManagedObservabilityStateMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case managedobservabilitystate.FieldChargedBytes:
+		return m.AddedChargedBytes()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ManagedObservabilityStateMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case managedobservabilitystate.FieldChargedBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChargedBytes(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ManagedObservabilityState numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ManagedObservabilityStateMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(managedobservabilitystate.FieldLastError) {
+		fields = append(fields, managedobservabilitystate.FieldLastError)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ManagedObservabilityStateMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ManagedObservabilityStateMutation) ClearField(name string) error {
+	switch name {
+	case managedobservabilitystate.FieldLastError:
+		m.ClearLastError()
+		return nil
+	}
+	return fmt.Errorf("unknown ManagedObservabilityState nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ManagedObservabilityStateMutation) ResetField(name string) error {
+	switch name {
+	case managedobservabilitystate.FieldChargedBytes:
+		m.ResetChargedBytes()
+		return nil
+	case managedobservabilitystate.FieldUnderPressure:
+		m.ResetUnderPressure()
+		return nil
+	case managedobservabilitystate.FieldLastError:
+		m.ResetLastError()
+		return nil
+	case managedobservabilitystate.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ManagedObservabilityState field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ManagedObservabilityStateMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ManagedObservabilityStateMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ManagedObservabilityStateMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ManagedObservabilityStateMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ManagedObservabilityStateMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ManagedObservabilityStateMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ManagedObservabilityStateMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ManagedObservabilityState unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ManagedObservabilityStateMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ManagedObservabilityState edge %s", name)
+}
+
 // ModelMutation represents an operation that mutates the Model nodes in the graph.
 type ModelMutation struct {
 	config
@@ -12833,6 +13389,1001 @@ func (m *OIDCIdentityMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown OIDCIdentity edge %s", name)
+}
+
+// ObservabilityPayloadMutation represents an operation that mutates the ObservabilityPayload nodes in the graph.
+type ObservabilityPayloadMutation struct {
+	config
+	op                             Op
+	typ                            string
+	id                             *int
+	created_at                     *time.Time
+	updated_at                     *time.Time
+	kind                           *observabilitypayload.Kind
+	sha256                         *string
+	byte_length                    *int64
+	addbyte_length                 *int64
+	charged_bytes                  *int64
+	addcharged_bytes               *int64
+	data                           *[]byte
+	clearedFields                  map[string]struct{}
+	request                        *int
+	clearedrequest                 bool
+	request_body_requests          map[int]struct{}
+	removedrequest_body_requests   map[int]struct{}
+	clearedrequest_body_requests   bool
+	request_body_executions        map[int]struct{}
+	removedrequest_body_executions map[int]struct{}
+	clearedrequest_body_executions bool
+	done                           bool
+	oldValue                       func(context.Context) (*ObservabilityPayload, error)
+	predicates                     []predicate.ObservabilityPayload
+}
+
+var _ ent.Mutation = (*ObservabilityPayloadMutation)(nil)
+
+// observabilitypayloadOption allows management of the mutation configuration using functional options.
+type observabilitypayloadOption func(*ObservabilityPayloadMutation)
+
+// newObservabilityPayloadMutation creates new mutation for the ObservabilityPayload entity.
+func newObservabilityPayloadMutation(c config, op Op, opts ...observabilitypayloadOption) *ObservabilityPayloadMutation {
+	m := &ObservabilityPayloadMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeObservabilityPayload,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withObservabilityPayloadID sets the ID field of the mutation.
+func withObservabilityPayloadID(id int) observabilitypayloadOption {
+	return func(m *ObservabilityPayloadMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ObservabilityPayload
+		)
+		m.oldValue = func(ctx context.Context) (*ObservabilityPayload, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ObservabilityPayload.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withObservabilityPayload sets the old ObservabilityPayload of the mutation.
+func withObservabilityPayload(node *ObservabilityPayload) observabilitypayloadOption {
+	return func(m *ObservabilityPayloadMutation) {
+		m.oldValue = func(context.Context) (*ObservabilityPayload, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ObservabilityPayloadMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ObservabilityPayloadMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ObservabilityPayloadMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ObservabilityPayloadMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ObservabilityPayload.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ObservabilityPayloadMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ObservabilityPayloadMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ObservabilityPayloadMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ObservabilityPayloadMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ObservabilityPayloadMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ObservabilityPayloadMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetRequestID sets the "request_id" field.
+func (m *ObservabilityPayloadMutation) SetRequestID(i int) {
+	m.request = &i
+}
+
+// RequestID returns the value of the "request_id" field in the mutation.
+func (m *ObservabilityPayloadMutation) RequestID() (r int, exists bool) {
+	v := m.request
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestID returns the old "request_id" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldRequestID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestID: %w", err)
+	}
+	return oldValue.RequestID, nil
+}
+
+// ResetRequestID resets all changes to the "request_id" field.
+func (m *ObservabilityPayloadMutation) ResetRequestID() {
+	m.request = nil
+}
+
+// SetKind sets the "kind" field.
+func (m *ObservabilityPayloadMutation) SetKind(o observabilitypayload.Kind) {
+	m.kind = &o
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *ObservabilityPayloadMutation) Kind() (r observabilitypayload.Kind, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldKind(ctx context.Context) (v observabilitypayload.Kind, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *ObservabilityPayloadMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetSha256 sets the "sha256" field.
+func (m *ObservabilityPayloadMutation) SetSha256(s string) {
+	m.sha256 = &s
+}
+
+// Sha256 returns the value of the "sha256" field in the mutation.
+func (m *ObservabilityPayloadMutation) Sha256() (r string, exists bool) {
+	v := m.sha256
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSha256 returns the old "sha256" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldSha256(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSha256 is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSha256 requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSha256: %w", err)
+	}
+	return oldValue.Sha256, nil
+}
+
+// ResetSha256 resets all changes to the "sha256" field.
+func (m *ObservabilityPayloadMutation) ResetSha256() {
+	m.sha256 = nil
+}
+
+// SetByteLength sets the "byte_length" field.
+func (m *ObservabilityPayloadMutation) SetByteLength(i int64) {
+	m.byte_length = &i
+	m.addbyte_length = nil
+}
+
+// ByteLength returns the value of the "byte_length" field in the mutation.
+func (m *ObservabilityPayloadMutation) ByteLength() (r int64, exists bool) {
+	v := m.byte_length
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldByteLength returns the old "byte_length" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldByteLength(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldByteLength is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldByteLength requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldByteLength: %w", err)
+	}
+	return oldValue.ByteLength, nil
+}
+
+// AddByteLength adds i to the "byte_length" field.
+func (m *ObservabilityPayloadMutation) AddByteLength(i int64) {
+	if m.addbyte_length != nil {
+		*m.addbyte_length += i
+	} else {
+		m.addbyte_length = &i
+	}
+}
+
+// AddedByteLength returns the value that was added to the "byte_length" field in this mutation.
+func (m *ObservabilityPayloadMutation) AddedByteLength() (r int64, exists bool) {
+	v := m.addbyte_length
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetByteLength resets all changes to the "byte_length" field.
+func (m *ObservabilityPayloadMutation) ResetByteLength() {
+	m.byte_length = nil
+	m.addbyte_length = nil
+}
+
+// SetChargedBytes sets the "charged_bytes" field.
+func (m *ObservabilityPayloadMutation) SetChargedBytes(i int64) {
+	m.charged_bytes = &i
+	m.addcharged_bytes = nil
+}
+
+// ChargedBytes returns the value of the "charged_bytes" field in the mutation.
+func (m *ObservabilityPayloadMutation) ChargedBytes() (r int64, exists bool) {
+	v := m.charged_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChargedBytes returns the old "charged_bytes" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldChargedBytes(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChargedBytes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChargedBytes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChargedBytes: %w", err)
+	}
+	return oldValue.ChargedBytes, nil
+}
+
+// AddChargedBytes adds i to the "charged_bytes" field.
+func (m *ObservabilityPayloadMutation) AddChargedBytes(i int64) {
+	if m.addcharged_bytes != nil {
+		*m.addcharged_bytes += i
+	} else {
+		m.addcharged_bytes = &i
+	}
+}
+
+// AddedChargedBytes returns the value that was added to the "charged_bytes" field in this mutation.
+func (m *ObservabilityPayloadMutation) AddedChargedBytes() (r int64, exists bool) {
+	v := m.addcharged_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetChargedBytes resets all changes to the "charged_bytes" field.
+func (m *ObservabilityPayloadMutation) ResetChargedBytes() {
+	m.charged_bytes = nil
+	m.addcharged_bytes = nil
+}
+
+// SetData sets the "data" field.
+func (m *ObservabilityPayloadMutation) SetData(b []byte) {
+	m.data = &b
+}
+
+// Data returns the value of the "data" field in the mutation.
+func (m *ObservabilityPayloadMutation) Data() (r []byte, exists bool) {
+	v := m.data
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldData returns the old "data" field's value of the ObservabilityPayload entity.
+// If the ObservabilityPayload object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ObservabilityPayloadMutation) OldData(ctx context.Context) (v []byte, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldData is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldData requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldData: %w", err)
+	}
+	return oldValue.Data, nil
+}
+
+// ResetData resets all changes to the "data" field.
+func (m *ObservabilityPayloadMutation) ResetData() {
+	m.data = nil
+}
+
+// ClearRequest clears the "request" edge to the Request entity.
+func (m *ObservabilityPayloadMutation) ClearRequest() {
+	m.clearedrequest = true
+	m.clearedFields[observabilitypayload.FieldRequestID] = struct{}{}
+}
+
+// RequestCleared reports if the "request" edge to the Request entity was cleared.
+func (m *ObservabilityPayloadMutation) RequestCleared() bool {
+	return m.clearedrequest
+}
+
+// RequestIDs returns the "request" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// RequestID instead. It exists only for internal usage by the builders.
+func (m *ObservabilityPayloadMutation) RequestIDs() (ids []int) {
+	if id := m.request; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetRequest resets all changes to the "request" edge.
+func (m *ObservabilityPayloadMutation) ResetRequest() {
+	m.request = nil
+	m.clearedrequest = false
+}
+
+// AddRequestBodyRequestIDs adds the "request_body_requests" edge to the Request entity by ids.
+func (m *ObservabilityPayloadMutation) AddRequestBodyRequestIDs(ids ...int) {
+	if m.request_body_requests == nil {
+		m.request_body_requests = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.request_body_requests[ids[i]] = struct{}{}
+	}
+}
+
+// ClearRequestBodyRequests clears the "request_body_requests" edge to the Request entity.
+func (m *ObservabilityPayloadMutation) ClearRequestBodyRequests() {
+	m.clearedrequest_body_requests = true
+}
+
+// RequestBodyRequestsCleared reports if the "request_body_requests" edge to the Request entity was cleared.
+func (m *ObservabilityPayloadMutation) RequestBodyRequestsCleared() bool {
+	return m.clearedrequest_body_requests
+}
+
+// RemoveRequestBodyRequestIDs removes the "request_body_requests" edge to the Request entity by IDs.
+func (m *ObservabilityPayloadMutation) RemoveRequestBodyRequestIDs(ids ...int) {
+	if m.removedrequest_body_requests == nil {
+		m.removedrequest_body_requests = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.request_body_requests, ids[i])
+		m.removedrequest_body_requests[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedRequestBodyRequests returns the removed IDs of the "request_body_requests" edge to the Request entity.
+func (m *ObservabilityPayloadMutation) RemovedRequestBodyRequestsIDs() (ids []int) {
+	for id := range m.removedrequest_body_requests {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// RequestBodyRequestsIDs returns the "request_body_requests" edge IDs in the mutation.
+func (m *ObservabilityPayloadMutation) RequestBodyRequestsIDs() (ids []int) {
+	for id := range m.request_body_requests {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetRequestBodyRequests resets all changes to the "request_body_requests" edge.
+func (m *ObservabilityPayloadMutation) ResetRequestBodyRequests() {
+	m.request_body_requests = nil
+	m.clearedrequest_body_requests = false
+	m.removedrequest_body_requests = nil
+}
+
+// AddRequestBodyExecutionIDs adds the "request_body_executions" edge to the RequestExecution entity by ids.
+func (m *ObservabilityPayloadMutation) AddRequestBodyExecutionIDs(ids ...int) {
+	if m.request_body_executions == nil {
+		m.request_body_executions = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.request_body_executions[ids[i]] = struct{}{}
+	}
+}
+
+// ClearRequestBodyExecutions clears the "request_body_executions" edge to the RequestExecution entity.
+func (m *ObservabilityPayloadMutation) ClearRequestBodyExecutions() {
+	m.clearedrequest_body_executions = true
+}
+
+// RequestBodyExecutionsCleared reports if the "request_body_executions" edge to the RequestExecution entity was cleared.
+func (m *ObservabilityPayloadMutation) RequestBodyExecutionsCleared() bool {
+	return m.clearedrequest_body_executions
+}
+
+// RemoveRequestBodyExecutionIDs removes the "request_body_executions" edge to the RequestExecution entity by IDs.
+func (m *ObservabilityPayloadMutation) RemoveRequestBodyExecutionIDs(ids ...int) {
+	if m.removedrequest_body_executions == nil {
+		m.removedrequest_body_executions = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.request_body_executions, ids[i])
+		m.removedrequest_body_executions[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedRequestBodyExecutions returns the removed IDs of the "request_body_executions" edge to the RequestExecution entity.
+func (m *ObservabilityPayloadMutation) RemovedRequestBodyExecutionsIDs() (ids []int) {
+	for id := range m.removedrequest_body_executions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// RequestBodyExecutionsIDs returns the "request_body_executions" edge IDs in the mutation.
+func (m *ObservabilityPayloadMutation) RequestBodyExecutionsIDs() (ids []int) {
+	for id := range m.request_body_executions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetRequestBodyExecutions resets all changes to the "request_body_executions" edge.
+func (m *ObservabilityPayloadMutation) ResetRequestBodyExecutions() {
+	m.request_body_executions = nil
+	m.clearedrequest_body_executions = false
+	m.removedrequest_body_executions = nil
+}
+
+// Where appends a list predicates to the ObservabilityPayloadMutation builder.
+func (m *ObservabilityPayloadMutation) Where(ps ...predicate.ObservabilityPayload) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ObservabilityPayloadMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ObservabilityPayloadMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ObservabilityPayload, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ObservabilityPayloadMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ObservabilityPayloadMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ObservabilityPayload).
+func (m *ObservabilityPayloadMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ObservabilityPayloadMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.created_at != nil {
+		fields = append(fields, observabilitypayload.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, observabilitypayload.FieldUpdatedAt)
+	}
+	if m.request != nil {
+		fields = append(fields, observabilitypayload.FieldRequestID)
+	}
+	if m.kind != nil {
+		fields = append(fields, observabilitypayload.FieldKind)
+	}
+	if m.sha256 != nil {
+		fields = append(fields, observabilitypayload.FieldSha256)
+	}
+	if m.byte_length != nil {
+		fields = append(fields, observabilitypayload.FieldByteLength)
+	}
+	if m.charged_bytes != nil {
+		fields = append(fields, observabilitypayload.FieldChargedBytes)
+	}
+	if m.data != nil {
+		fields = append(fields, observabilitypayload.FieldData)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ObservabilityPayloadMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case observabilitypayload.FieldCreatedAt:
+		return m.CreatedAt()
+	case observabilitypayload.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case observabilitypayload.FieldRequestID:
+		return m.RequestID()
+	case observabilitypayload.FieldKind:
+		return m.Kind()
+	case observabilitypayload.FieldSha256:
+		return m.Sha256()
+	case observabilitypayload.FieldByteLength:
+		return m.ByteLength()
+	case observabilitypayload.FieldChargedBytes:
+		return m.ChargedBytes()
+	case observabilitypayload.FieldData:
+		return m.Data()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ObservabilityPayloadMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case observabilitypayload.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case observabilitypayload.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case observabilitypayload.FieldRequestID:
+		return m.OldRequestID(ctx)
+	case observabilitypayload.FieldKind:
+		return m.OldKind(ctx)
+	case observabilitypayload.FieldSha256:
+		return m.OldSha256(ctx)
+	case observabilitypayload.FieldByteLength:
+		return m.OldByteLength(ctx)
+	case observabilitypayload.FieldChargedBytes:
+		return m.OldChargedBytes(ctx)
+	case observabilitypayload.FieldData:
+		return m.OldData(ctx)
+	}
+	return nil, fmt.Errorf("unknown ObservabilityPayload field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ObservabilityPayloadMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case observabilitypayload.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case observabilitypayload.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case observabilitypayload.FieldRequestID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestID(v)
+		return nil
+	case observabilitypayload.FieldKind:
+		v, ok := value.(observabilitypayload.Kind)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case observabilitypayload.FieldSha256:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSha256(v)
+		return nil
+	case observabilitypayload.FieldByteLength:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetByteLength(v)
+		return nil
+	case observabilitypayload.FieldChargedBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChargedBytes(v)
+		return nil
+	case observabilitypayload.FieldData:
+		v, ok := value.([]byte)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetData(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ObservabilityPayload field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ObservabilityPayloadMutation) AddedFields() []string {
+	var fields []string
+	if m.addbyte_length != nil {
+		fields = append(fields, observabilitypayload.FieldByteLength)
+	}
+	if m.addcharged_bytes != nil {
+		fields = append(fields, observabilitypayload.FieldChargedBytes)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ObservabilityPayloadMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case observabilitypayload.FieldByteLength:
+		return m.AddedByteLength()
+	case observabilitypayload.FieldChargedBytes:
+		return m.AddedChargedBytes()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ObservabilityPayloadMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case observabilitypayload.FieldByteLength:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddByteLength(v)
+		return nil
+	case observabilitypayload.FieldChargedBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChargedBytes(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ObservabilityPayload numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ObservabilityPayloadMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ObservabilityPayloadMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ObservabilityPayloadMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ObservabilityPayload nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ObservabilityPayloadMutation) ResetField(name string) error {
+	switch name {
+	case observabilitypayload.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case observabilitypayload.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case observabilitypayload.FieldRequestID:
+		m.ResetRequestID()
+		return nil
+	case observabilitypayload.FieldKind:
+		m.ResetKind()
+		return nil
+	case observabilitypayload.FieldSha256:
+		m.ResetSha256()
+		return nil
+	case observabilitypayload.FieldByteLength:
+		m.ResetByteLength()
+		return nil
+	case observabilitypayload.FieldChargedBytes:
+		m.ResetChargedBytes()
+		return nil
+	case observabilitypayload.FieldData:
+		m.ResetData()
+		return nil
+	}
+	return fmt.Errorf("unknown ObservabilityPayload field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ObservabilityPayloadMutation) AddedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.request != nil {
+		edges = append(edges, observabilitypayload.EdgeRequest)
+	}
+	if m.request_body_requests != nil {
+		edges = append(edges, observabilitypayload.EdgeRequestBodyRequests)
+	}
+	if m.request_body_executions != nil {
+		edges = append(edges, observabilitypayload.EdgeRequestBodyExecutions)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ObservabilityPayloadMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case observabilitypayload.EdgeRequest:
+		if id := m.request; id != nil {
+			return []ent.Value{*id}
+		}
+	case observabilitypayload.EdgeRequestBodyRequests:
+		ids := make([]ent.Value, 0, len(m.request_body_requests))
+		for id := range m.request_body_requests {
+			ids = append(ids, id)
+		}
+		return ids
+	case observabilitypayload.EdgeRequestBodyExecutions:
+		ids := make([]ent.Value, 0, len(m.request_body_executions))
+		for id := range m.request_body_executions {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ObservabilityPayloadMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.removedrequest_body_requests != nil {
+		edges = append(edges, observabilitypayload.EdgeRequestBodyRequests)
+	}
+	if m.removedrequest_body_executions != nil {
+		edges = append(edges, observabilitypayload.EdgeRequestBodyExecutions)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ObservabilityPayloadMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case observabilitypayload.EdgeRequestBodyRequests:
+		ids := make([]ent.Value, 0, len(m.removedrequest_body_requests))
+		for id := range m.removedrequest_body_requests {
+			ids = append(ids, id)
+		}
+		return ids
+	case observabilitypayload.EdgeRequestBodyExecutions:
+		ids := make([]ent.Value, 0, len(m.removedrequest_body_executions))
+		for id := range m.removedrequest_body_executions {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ObservabilityPayloadMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.clearedrequest {
+		edges = append(edges, observabilitypayload.EdgeRequest)
+	}
+	if m.clearedrequest_body_requests {
+		edges = append(edges, observabilitypayload.EdgeRequestBodyRequests)
+	}
+	if m.clearedrequest_body_executions {
+		edges = append(edges, observabilitypayload.EdgeRequestBodyExecutions)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ObservabilityPayloadMutation) EdgeCleared(name string) bool {
+	switch name {
+	case observabilitypayload.EdgeRequest:
+		return m.clearedrequest
+	case observabilitypayload.EdgeRequestBodyRequests:
+		return m.clearedrequest_body_requests
+	case observabilitypayload.EdgeRequestBodyExecutions:
+		return m.clearedrequest_body_executions
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ObservabilityPayloadMutation) ClearEdge(name string) error {
+	switch name {
+	case observabilitypayload.EdgeRequest:
+		m.ClearRequest()
+		return nil
+	}
+	return fmt.Errorf("unknown ObservabilityPayload unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ObservabilityPayloadMutation) ResetEdge(name string) error {
+	switch name {
+	case observabilitypayload.EdgeRequest:
+		m.ResetRequest()
+		return nil
+	case observabilitypayload.EdgeRequestBodyRequests:
+		m.ResetRequestBodyRequests()
+		return nil
+	case observabilitypayload.EdgeRequestBodyExecutions:
+		m.ResetRequestBodyExecutions()
+		return nil
+	}
+	return fmt.Errorf("unknown ObservabilityPayload edge %s", name)
 }
 
 // ProjectMutation represents an operation that mutates the Project nodes in the graph.
@@ -17146,6 +18697,7 @@ type RequestMutation struct {
 	content_saved_at                  *time.Time
 	routing_context                   **objects.RoutingContext
 	evidence_disposition              **objects.EvidenceDisposition
+	managed_observability             *bool
 	clearedFields                     map[string]struct{}
 	api_key                           *int
 	clearedapi_key                    bool
@@ -17158,6 +18710,11 @@ type RequestMutation struct {
 	executions                        map[int]struct{}
 	removedexecutions                 map[int]struct{}
 	clearedexecutions                 bool
+	observability_payloads            map[int]struct{}
+	removedobservability_payloads     map[int]struct{}
+	clearedobservability_payloads     bool
+	request_body_payload              *int
+	clearedrequest_body_payload       bool
 	channel                           *int
 	clearedchannel                    bool
 	usage_logs                        map[int]struct{}
@@ -17792,6 +19349,55 @@ func (m *RequestMutation) AppendedRequestBody() (objects.JSONRawMessage, bool) {
 func (m *RequestMutation) ResetRequestBody() {
 	m.request_body = nil
 	m.appendrequest_body = nil
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (m *RequestMutation) SetRequestBodyPayloadID(i int) {
+	m.request_body_payload = &i
+}
+
+// RequestBodyPayloadID returns the value of the "request_body_payload_id" field in the mutation.
+func (m *RequestMutation) RequestBodyPayloadID() (r int, exists bool) {
+	v := m.request_body_payload
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestBodyPayloadID returns the old "request_body_payload_id" field's value of the Request entity.
+// If the Request object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestMutation) OldRequestBodyPayloadID(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestBodyPayloadID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestBodyPayloadID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestBodyPayloadID: %w", err)
+	}
+	return oldValue.RequestBodyPayloadID, nil
+}
+
+// ClearRequestBodyPayloadID clears the value of the "request_body_payload_id" field.
+func (m *RequestMutation) ClearRequestBodyPayloadID() {
+	m.request_body_payload = nil
+	m.clearedFields[request.FieldRequestBodyPayloadID] = struct{}{}
+}
+
+// RequestBodyPayloadIDCleared returns if the "request_body_payload_id" field was cleared in this mutation.
+func (m *RequestMutation) RequestBodyPayloadIDCleared() bool {
+	_, ok := m.clearedFields[request.FieldRequestBodyPayloadID]
+	return ok
+}
+
+// ResetRequestBodyPayloadID resets all changes to the "request_body_payload_id" field.
+func (m *RequestMutation) ResetRequestBodyPayloadID() {
+	m.request_body_payload = nil
+	delete(m.clearedFields, request.FieldRequestBodyPayloadID)
 }
 
 // SetResponseBody sets the "response_body" field.
@@ -18691,6 +20297,42 @@ func (m *RequestMutation) ResetEvidenceDisposition() {
 	delete(m.clearedFields, request.FieldEvidenceDisposition)
 }
 
+// SetManagedObservability sets the "managed_observability" field.
+func (m *RequestMutation) SetManagedObservability(b bool) {
+	m.managed_observability = &b
+}
+
+// ManagedObservability returns the value of the "managed_observability" field in the mutation.
+func (m *RequestMutation) ManagedObservability() (r bool, exists bool) {
+	v := m.managed_observability
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldManagedObservability returns the old "managed_observability" field's value of the Request entity.
+// If the Request object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestMutation) OldManagedObservability(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldManagedObservability is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldManagedObservability requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldManagedObservability: %w", err)
+	}
+	return oldValue.ManagedObservability, nil
+}
+
+// ResetManagedObservability resets all changes to the "managed_observability" field.
+func (m *RequestMutation) ResetManagedObservability() {
+	m.managed_observability = nil
+}
+
 // ClearAPIKey clears the "api_key" edge to the APIKey entity.
 func (m *RequestMutation) ClearAPIKey() {
 	m.clearedapi_key = true
@@ -18853,6 +20495,87 @@ func (m *RequestMutation) ResetExecutions() {
 	m.removedexecutions = nil
 }
 
+// AddObservabilityPayloadIDs adds the "observability_payloads" edge to the ObservabilityPayload entity by ids.
+func (m *RequestMutation) AddObservabilityPayloadIDs(ids ...int) {
+	if m.observability_payloads == nil {
+		m.observability_payloads = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.observability_payloads[ids[i]] = struct{}{}
+	}
+}
+
+// ClearObservabilityPayloads clears the "observability_payloads" edge to the ObservabilityPayload entity.
+func (m *RequestMutation) ClearObservabilityPayloads() {
+	m.clearedobservability_payloads = true
+}
+
+// ObservabilityPayloadsCleared reports if the "observability_payloads" edge to the ObservabilityPayload entity was cleared.
+func (m *RequestMutation) ObservabilityPayloadsCleared() bool {
+	return m.clearedobservability_payloads
+}
+
+// RemoveObservabilityPayloadIDs removes the "observability_payloads" edge to the ObservabilityPayload entity by IDs.
+func (m *RequestMutation) RemoveObservabilityPayloadIDs(ids ...int) {
+	if m.removedobservability_payloads == nil {
+		m.removedobservability_payloads = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.observability_payloads, ids[i])
+		m.removedobservability_payloads[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedObservabilityPayloads returns the removed IDs of the "observability_payloads" edge to the ObservabilityPayload entity.
+func (m *RequestMutation) RemovedObservabilityPayloadsIDs() (ids []int) {
+	for id := range m.removedobservability_payloads {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ObservabilityPayloadsIDs returns the "observability_payloads" edge IDs in the mutation.
+func (m *RequestMutation) ObservabilityPayloadsIDs() (ids []int) {
+	for id := range m.observability_payloads {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetObservabilityPayloads resets all changes to the "observability_payloads" edge.
+func (m *RequestMutation) ResetObservabilityPayloads() {
+	m.observability_payloads = nil
+	m.clearedobservability_payloads = false
+	m.removedobservability_payloads = nil
+}
+
+// ClearRequestBodyPayload clears the "request_body_payload" edge to the ObservabilityPayload entity.
+func (m *RequestMutation) ClearRequestBodyPayload() {
+	m.clearedrequest_body_payload = true
+	m.clearedFields[request.FieldRequestBodyPayloadID] = struct{}{}
+}
+
+// RequestBodyPayloadCleared reports if the "request_body_payload" edge to the ObservabilityPayload entity was cleared.
+func (m *RequestMutation) RequestBodyPayloadCleared() bool {
+	return m.RequestBodyPayloadIDCleared() || m.clearedrequest_body_payload
+}
+
+// RequestBodyPayloadIDs returns the "request_body_payload" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// RequestBodyPayloadID instead. It exists only for internal usage by the builders.
+func (m *RequestMutation) RequestBodyPayloadIDs() (ids []int) {
+	if id := m.request_body_payload; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetRequestBodyPayload resets all changes to the "request_body_payload" edge.
+func (m *RequestMutation) ResetRequestBodyPayload() {
+	m.request_body_payload = nil
+	m.clearedrequest_body_payload = false
+}
+
 // ClearChannel clears the "channel" edge to the Channel entity.
 func (m *RequestMutation) ClearChannel() {
 	m.clearedchannel = true
@@ -18968,7 +20691,7 @@ func (m *RequestMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RequestMutation) Fields() []string {
-	fields := make([]string, 0, 29)
+	fields := make([]string, 0, 31)
 	if m.created_at != nil {
 		fields = append(fields, request.FieldCreatedAt)
 	}
@@ -19004,6 +20727,9 @@ func (m *RequestMutation) Fields() []string {
 	}
 	if m.request_body != nil {
 		fields = append(fields, request.FieldRequestBody)
+	}
+	if m.request_body_payload != nil {
+		fields = append(fields, request.FieldRequestBodyPayloadID)
 	}
 	if m.response_body != nil {
 		fields = append(fields, request.FieldResponseBody)
@@ -19056,6 +20782,9 @@ func (m *RequestMutation) Fields() []string {
 	if m.evidence_disposition != nil {
 		fields = append(fields, request.FieldEvidenceDisposition)
 	}
+	if m.managed_observability != nil {
+		fields = append(fields, request.FieldManagedObservability)
+	}
 	return fields
 }
 
@@ -19088,6 +20817,8 @@ func (m *RequestMutation) Field(name string) (ent.Value, bool) {
 		return m.RequestHeaders()
 	case request.FieldRequestBody:
 		return m.RequestBody()
+	case request.FieldRequestBodyPayloadID:
+		return m.RequestBodyPayloadID()
 	case request.FieldResponseBody:
 		return m.ResponseBody()
 	case request.FieldResponseChunks:
@@ -19122,6 +20853,8 @@ func (m *RequestMutation) Field(name string) (ent.Value, bool) {
 		return m.RoutingContext()
 	case request.FieldEvidenceDisposition:
 		return m.EvidenceDisposition()
+	case request.FieldManagedObservability:
+		return m.ManagedObservability()
 	}
 	return nil, false
 }
@@ -19155,6 +20888,8 @@ func (m *RequestMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldRequestHeaders(ctx)
 	case request.FieldRequestBody:
 		return m.OldRequestBody(ctx)
+	case request.FieldRequestBodyPayloadID:
+		return m.OldRequestBodyPayloadID(ctx)
 	case request.FieldResponseBody:
 		return m.OldResponseBody(ctx)
 	case request.FieldResponseChunks:
@@ -19189,6 +20924,8 @@ func (m *RequestMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldRoutingContext(ctx)
 	case request.FieldEvidenceDisposition:
 		return m.OldEvidenceDisposition(ctx)
+	case request.FieldManagedObservability:
+		return m.OldManagedObservability(ctx)
 	}
 	return nil, fmt.Errorf("unknown Request field %s", name)
 }
@@ -19281,6 +21018,13 @@ func (m *RequestMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRequestBody(v)
+		return nil
+	case request.FieldRequestBodyPayloadID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestBodyPayloadID(v)
 		return nil
 	case request.FieldResponseBody:
 		v, ok := value.(objects.JSONRawMessage)
@@ -19401,6 +21145,13 @@ func (m *RequestMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetEvidenceDisposition(v)
 		return nil
+	case request.FieldManagedObservability:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetManagedObservability(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Request field %s", name)
 }
@@ -19497,6 +21248,9 @@ func (m *RequestMutation) ClearedFields() []string {
 	if m.FieldCleared(request.FieldRequestHeaders) {
 		fields = append(fields, request.FieldRequestHeaders)
 	}
+	if m.FieldCleared(request.FieldRequestBodyPayloadID) {
+		fields = append(fields, request.FieldRequestBodyPayloadID)
+	}
 	if m.FieldCleared(request.FieldResponseBody) {
 		fields = append(fields, request.FieldResponseBody)
 	}
@@ -19564,6 +21318,9 @@ func (m *RequestMutation) ClearField(name string) error {
 		return nil
 	case request.FieldRequestHeaders:
 		m.ClearRequestHeaders()
+		return nil
+	case request.FieldRequestBodyPayloadID:
+		m.ClearRequestBodyPayloadID()
 		return nil
 	case request.FieldResponseBody:
 		m.ClearResponseBody()
@@ -19648,6 +21405,9 @@ func (m *RequestMutation) ResetField(name string) error {
 	case request.FieldRequestBody:
 		m.ResetRequestBody()
 		return nil
+	case request.FieldRequestBodyPayloadID:
+		m.ResetRequestBodyPayloadID()
+		return nil
 	case request.FieldResponseBody:
 		m.ResetResponseBody()
 		return nil
@@ -19699,13 +21459,16 @@ func (m *RequestMutation) ResetField(name string) error {
 	case request.FieldEvidenceDisposition:
 		m.ResetEvidenceDisposition()
 		return nil
+	case request.FieldManagedObservability:
+		m.ResetManagedObservability()
+		return nil
 	}
 	return fmt.Errorf("unknown Request field %s", name)
 }
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *RequestMutation) AddedEdges() []string {
-	edges := make([]string, 0, 7)
+	edges := make([]string, 0, 9)
 	if m.api_key != nil {
 		edges = append(edges, request.EdgeAPIKey)
 	}
@@ -19720,6 +21483,12 @@ func (m *RequestMutation) AddedEdges() []string {
 	}
 	if m.executions != nil {
 		edges = append(edges, request.EdgeExecutions)
+	}
+	if m.observability_payloads != nil {
+		edges = append(edges, request.EdgeObservabilityPayloads)
+	}
+	if m.request_body_payload != nil {
+		edges = append(edges, request.EdgeRequestBodyPayload)
 	}
 	if m.channel != nil {
 		edges = append(edges, request.EdgeChannel)
@@ -19756,6 +21525,16 @@ func (m *RequestMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case request.EdgeObservabilityPayloads:
+		ids := make([]ent.Value, 0, len(m.observability_payloads))
+		for id := range m.observability_payloads {
+			ids = append(ids, id)
+		}
+		return ids
+	case request.EdgeRequestBodyPayload:
+		if id := m.request_body_payload; id != nil {
+			return []ent.Value{*id}
+		}
 	case request.EdgeChannel:
 		if id := m.channel; id != nil {
 			return []ent.Value{*id}
@@ -19772,9 +21551,12 @@ func (m *RequestMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *RequestMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 7)
+	edges := make([]string, 0, 9)
 	if m.removedexecutions != nil {
 		edges = append(edges, request.EdgeExecutions)
+	}
+	if m.removedobservability_payloads != nil {
+		edges = append(edges, request.EdgeObservabilityPayloads)
 	}
 	if m.removedusage_logs != nil {
 		edges = append(edges, request.EdgeUsageLogs)
@@ -19792,6 +21574,12 @@ func (m *RequestMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case request.EdgeObservabilityPayloads:
+		ids := make([]ent.Value, 0, len(m.removedobservability_payloads))
+		for id := range m.removedobservability_payloads {
+			ids = append(ids, id)
+		}
+		return ids
 	case request.EdgeUsageLogs:
 		ids := make([]ent.Value, 0, len(m.removedusage_logs))
 		for id := range m.removedusage_logs {
@@ -19804,7 +21592,7 @@ func (m *RequestMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *RequestMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 7)
+	edges := make([]string, 0, 9)
 	if m.clearedapi_key {
 		edges = append(edges, request.EdgeAPIKey)
 	}
@@ -19819,6 +21607,12 @@ func (m *RequestMutation) ClearedEdges() []string {
 	}
 	if m.clearedexecutions {
 		edges = append(edges, request.EdgeExecutions)
+	}
+	if m.clearedobservability_payloads {
+		edges = append(edges, request.EdgeObservabilityPayloads)
+	}
+	if m.clearedrequest_body_payload {
+		edges = append(edges, request.EdgeRequestBodyPayload)
 	}
 	if m.clearedchannel {
 		edges = append(edges, request.EdgeChannel)
@@ -19843,6 +21637,10 @@ func (m *RequestMutation) EdgeCleared(name string) bool {
 		return m.cleareddata_storage
 	case request.EdgeExecutions:
 		return m.clearedexecutions
+	case request.EdgeObservabilityPayloads:
+		return m.clearedobservability_payloads
+	case request.EdgeRequestBodyPayload:
+		return m.clearedrequest_body_payload
 	case request.EdgeChannel:
 		return m.clearedchannel
 	case request.EdgeUsageLogs:
@@ -19866,6 +21664,9 @@ func (m *RequestMutation) ClearEdge(name string) error {
 		return nil
 	case request.EdgeDataStorage:
 		m.ClearDataStorage()
+		return nil
+	case request.EdgeRequestBodyPayload:
+		m.ClearRequestBodyPayload()
 		return nil
 	case request.EdgeChannel:
 		m.ClearChannel()
@@ -19892,6 +21693,12 @@ func (m *RequestMutation) ResetEdge(name string) error {
 		return nil
 	case request.EdgeExecutions:
 		m.ResetExecutions()
+		return nil
+	case request.EdgeObservabilityPayloads:
+		m.ResetObservabilityPayloads()
+		return nil
+	case request.EdgeRequestBodyPayload:
+		m.ResetRequestBodyPayload()
 		return nil
 	case request.EdgeChannel:
 		m.ResetChannel()
@@ -19939,6 +21746,7 @@ type RequestExecutionMutation struct {
 	request_url                       *string
 	pass_through_applied              *bool
 	evidence_disposition              **objects.EvidenceDisposition
+	managed_observability             *bool
 	clearedFields                     map[string]struct{}
 	request                           *int
 	clearedrequest                    bool
@@ -19946,6 +21754,8 @@ type RequestExecutionMutation struct {
 	clearedchannel                    bool
 	data_storage                      *int
 	cleareddata_storage               bool
+	request_body_payload              *int
+	clearedrequest_body_payload       bool
 	done                              bool
 	oldValue                          func(context.Context) (*RequestExecution, error)
 	predicates                        []predicate.RequestExecution
@@ -20481,6 +22291,55 @@ func (m *RequestExecutionMutation) AppendedRequestBody() (objects.JSONRawMessage
 func (m *RequestExecutionMutation) ResetRequestBody() {
 	m.request_body = nil
 	m.appendrequest_body = nil
+}
+
+// SetRequestBodyPayloadID sets the "request_body_payload_id" field.
+func (m *RequestExecutionMutation) SetRequestBodyPayloadID(i int) {
+	m.request_body_payload = &i
+}
+
+// RequestBodyPayloadID returns the value of the "request_body_payload_id" field in the mutation.
+func (m *RequestExecutionMutation) RequestBodyPayloadID() (r int, exists bool) {
+	v := m.request_body_payload
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestBodyPayloadID returns the old "request_body_payload_id" field's value of the RequestExecution entity.
+// If the RequestExecution object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestExecutionMutation) OldRequestBodyPayloadID(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestBodyPayloadID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestBodyPayloadID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestBodyPayloadID: %w", err)
+	}
+	return oldValue.RequestBodyPayloadID, nil
+}
+
+// ClearRequestBodyPayloadID clears the value of the "request_body_payload_id" field.
+func (m *RequestExecutionMutation) ClearRequestBodyPayloadID() {
+	m.request_body_payload = nil
+	m.clearedFields[requestexecution.FieldRequestBodyPayloadID] = struct{}{}
+}
+
+// RequestBodyPayloadIDCleared returns if the "request_body_payload_id" field was cleared in this mutation.
+func (m *RequestExecutionMutation) RequestBodyPayloadIDCleared() bool {
+	_, ok := m.clearedFields[requestexecution.FieldRequestBodyPayloadID]
+	return ok
+}
+
+// ResetRequestBodyPayloadID resets all changes to the "request_body_payload_id" field.
+func (m *RequestExecutionMutation) ResetRequestBodyPayloadID() {
+	m.request_body_payload = nil
+	delete(m.clearedFields, requestexecution.FieldRequestBodyPayloadID)
 }
 
 // SetResponseBody sets the "response_body" field.
@@ -21262,6 +23121,42 @@ func (m *RequestExecutionMutation) ResetEvidenceDisposition() {
 	delete(m.clearedFields, requestexecution.FieldEvidenceDisposition)
 }
 
+// SetManagedObservability sets the "managed_observability" field.
+func (m *RequestExecutionMutation) SetManagedObservability(b bool) {
+	m.managed_observability = &b
+}
+
+// ManagedObservability returns the value of the "managed_observability" field in the mutation.
+func (m *RequestExecutionMutation) ManagedObservability() (r bool, exists bool) {
+	v := m.managed_observability
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldManagedObservability returns the old "managed_observability" field's value of the RequestExecution entity.
+// If the RequestExecution object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RequestExecutionMutation) OldManagedObservability(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldManagedObservability is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldManagedObservability requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldManagedObservability: %w", err)
+	}
+	return oldValue.ManagedObservability, nil
+}
+
+// ResetManagedObservability resets all changes to the "managed_observability" field.
+func (m *RequestExecutionMutation) ResetManagedObservability() {
+	m.managed_observability = nil
+}
+
 // ClearRequest clears the "request" edge to the Request entity.
 func (m *RequestExecutionMutation) ClearRequest() {
 	m.clearedrequest = true
@@ -21343,6 +23238,33 @@ func (m *RequestExecutionMutation) ResetDataStorage() {
 	m.cleareddata_storage = false
 }
 
+// ClearRequestBodyPayload clears the "request_body_payload" edge to the ObservabilityPayload entity.
+func (m *RequestExecutionMutation) ClearRequestBodyPayload() {
+	m.clearedrequest_body_payload = true
+	m.clearedFields[requestexecution.FieldRequestBodyPayloadID] = struct{}{}
+}
+
+// RequestBodyPayloadCleared reports if the "request_body_payload" edge to the ObservabilityPayload entity was cleared.
+func (m *RequestExecutionMutation) RequestBodyPayloadCleared() bool {
+	return m.RequestBodyPayloadIDCleared() || m.clearedrequest_body_payload
+}
+
+// RequestBodyPayloadIDs returns the "request_body_payload" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// RequestBodyPayloadID instead. It exists only for internal usage by the builders.
+func (m *RequestExecutionMutation) RequestBodyPayloadIDs() (ids []int) {
+	if id := m.request_body_payload; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetRequestBodyPayload resets all changes to the "request_body_payload" edge.
+func (m *RequestExecutionMutation) ResetRequestBodyPayload() {
+	m.request_body_payload = nil
+	m.clearedrequest_body_payload = false
+}
+
 // Where appends a list predicates to the RequestExecutionMutation builder.
 func (m *RequestExecutionMutation) Where(ps ...predicate.RequestExecution) {
 	m.predicates = append(m.predicates, ps...)
@@ -21377,7 +23299,7 @@ func (m *RequestExecutionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RequestExecutionMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 26)
 	if m.created_at != nil {
 		fields = append(fields, requestexecution.FieldCreatedAt)
 	}
@@ -21407,6 +23329,9 @@ func (m *RequestExecutionMutation) Fields() []string {
 	}
 	if m.request_body != nil {
 		fields = append(fields, requestexecution.FieldRequestBody)
+	}
+	if m.request_body_payload != nil {
+		fields = append(fields, requestexecution.FieldRequestBodyPayloadID)
 	}
 	if m.response_body != nil {
 		fields = append(fields, requestexecution.FieldResponseBody)
@@ -21450,6 +23375,9 @@ func (m *RequestExecutionMutation) Fields() []string {
 	if m.evidence_disposition != nil {
 		fields = append(fields, requestexecution.FieldEvidenceDisposition)
 	}
+	if m.managed_observability != nil {
+		fields = append(fields, requestexecution.FieldManagedObservability)
+	}
 	return fields
 }
 
@@ -21478,6 +23406,8 @@ func (m *RequestExecutionMutation) Field(name string) (ent.Value, bool) {
 		return m.Format()
 	case requestexecution.FieldRequestBody:
 		return m.RequestBody()
+	case requestexecution.FieldRequestBodyPayloadID:
+		return m.RequestBodyPayloadID()
 	case requestexecution.FieldResponseBody:
 		return m.ResponseBody()
 	case requestexecution.FieldResponseChunks:
@@ -21506,6 +23436,8 @@ func (m *RequestExecutionMutation) Field(name string) (ent.Value, bool) {
 		return m.PassThroughApplied()
 	case requestexecution.FieldEvidenceDisposition:
 		return m.EvidenceDisposition()
+	case requestexecution.FieldManagedObservability:
+		return m.ManagedObservability()
 	}
 	return nil, false
 }
@@ -21535,6 +23467,8 @@ func (m *RequestExecutionMutation) OldField(ctx context.Context, name string) (e
 		return m.OldFormat(ctx)
 	case requestexecution.FieldRequestBody:
 		return m.OldRequestBody(ctx)
+	case requestexecution.FieldRequestBodyPayloadID:
+		return m.OldRequestBodyPayloadID(ctx)
 	case requestexecution.FieldResponseBody:
 		return m.OldResponseBody(ctx)
 	case requestexecution.FieldResponseChunks:
@@ -21563,6 +23497,8 @@ func (m *RequestExecutionMutation) OldField(ctx context.Context, name string) (e
 		return m.OldPassThroughApplied(ctx)
 	case requestexecution.FieldEvidenceDisposition:
 		return m.OldEvidenceDisposition(ctx)
+	case requestexecution.FieldManagedObservability:
+		return m.OldManagedObservability(ctx)
 	}
 	return nil, fmt.Errorf("unknown RequestExecution field %s", name)
 }
@@ -21641,6 +23577,13 @@ func (m *RequestExecutionMutation) SetField(name string, value ent.Value) error 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRequestBody(v)
+		return nil
+	case requestexecution.FieldRequestBodyPayloadID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestBodyPayloadID(v)
 		return nil
 	case requestexecution.FieldResponseBody:
 		v, ok := value.(objects.JSONRawMessage)
@@ -21739,6 +23682,13 @@ func (m *RequestExecutionMutation) SetField(name string, value ent.Value) error 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetEvidenceDisposition(v)
+		return nil
+	case requestexecution.FieldManagedObservability:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetManagedObservability(v)
 		return nil
 	}
 	return fmt.Errorf("unknown RequestExecution field %s", name)
@@ -21842,6 +23792,9 @@ func (m *RequestExecutionMutation) ClearedFields() []string {
 	if m.FieldCleared(requestexecution.FieldExternalID) {
 		fields = append(fields, requestexecution.FieldExternalID)
 	}
+	if m.FieldCleared(requestexecution.FieldRequestBodyPayloadID) {
+		fields = append(fields, requestexecution.FieldRequestBodyPayloadID)
+	}
 	if m.FieldCleared(requestexecution.FieldResponseBody) {
 		fields = append(fields, requestexecution.FieldResponseBody)
 	}
@@ -21897,6 +23850,9 @@ func (m *RequestExecutionMutation) ClearField(name string) error {
 		return nil
 	case requestexecution.FieldExternalID:
 		m.ClearExternalID()
+		return nil
+	case requestexecution.FieldRequestBodyPayloadID:
+		m.ClearRequestBodyPayloadID()
 		return nil
 	case requestexecution.FieldResponseBody:
 		m.ClearResponseBody()
@@ -21969,6 +23925,9 @@ func (m *RequestExecutionMutation) ResetField(name string) error {
 	case requestexecution.FieldRequestBody:
 		m.ResetRequestBody()
 		return nil
+	case requestexecution.FieldRequestBodyPayloadID:
+		m.ResetRequestBodyPayloadID()
+		return nil
 	case requestexecution.FieldResponseBody:
 		m.ResetResponseBody()
 		return nil
@@ -22011,13 +23970,16 @@ func (m *RequestExecutionMutation) ResetField(name string) error {
 	case requestexecution.FieldEvidenceDisposition:
 		m.ResetEvidenceDisposition()
 		return nil
+	case requestexecution.FieldManagedObservability:
+		m.ResetManagedObservability()
+		return nil
 	}
 	return fmt.Errorf("unknown RequestExecution field %s", name)
 }
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *RequestExecutionMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.request != nil {
 		edges = append(edges, requestexecution.EdgeRequest)
 	}
@@ -22026,6 +23988,9 @@ func (m *RequestExecutionMutation) AddedEdges() []string {
 	}
 	if m.data_storage != nil {
 		edges = append(edges, requestexecution.EdgeDataStorage)
+	}
+	if m.request_body_payload != nil {
+		edges = append(edges, requestexecution.EdgeRequestBodyPayload)
 	}
 	return edges
 }
@@ -22046,13 +24011,17 @@ func (m *RequestExecutionMutation) AddedIDs(name string) []ent.Value {
 		if id := m.data_storage; id != nil {
 			return []ent.Value{*id}
 		}
+	case requestexecution.EdgeRequestBodyPayload:
+		if id := m.request_body_payload; id != nil {
+			return []ent.Value{*id}
+		}
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *RequestExecutionMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	return edges
 }
 
@@ -22064,7 +24033,7 @@ func (m *RequestExecutionMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *RequestExecutionMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.clearedrequest {
 		edges = append(edges, requestexecution.EdgeRequest)
 	}
@@ -22073,6 +24042,9 @@ func (m *RequestExecutionMutation) ClearedEdges() []string {
 	}
 	if m.cleareddata_storage {
 		edges = append(edges, requestexecution.EdgeDataStorage)
+	}
+	if m.clearedrequest_body_payload {
+		edges = append(edges, requestexecution.EdgeRequestBodyPayload)
 	}
 	return edges
 }
@@ -22087,6 +24059,8 @@ func (m *RequestExecutionMutation) EdgeCleared(name string) bool {
 		return m.clearedchannel
 	case requestexecution.EdgeDataStorage:
 		return m.cleareddata_storage
+	case requestexecution.EdgeRequestBodyPayload:
+		return m.clearedrequest_body_payload
 	}
 	return false
 }
@@ -22104,6 +24078,9 @@ func (m *RequestExecutionMutation) ClearEdge(name string) error {
 	case requestexecution.EdgeDataStorage:
 		m.ClearDataStorage()
 		return nil
+	case requestexecution.EdgeRequestBodyPayload:
+		m.ClearRequestBodyPayload()
+		return nil
 	}
 	return fmt.Errorf("unknown RequestExecution unique edge %s", name)
 }
@@ -22120,6 +24097,9 @@ func (m *RequestExecutionMutation) ResetEdge(name string) error {
 		return nil
 	case requestexecution.EdgeDataStorage:
 		m.ResetDataStorage()
+		return nil
+	case requestexecution.EdgeRequestBodyPayload:
+		m.ResetRequestBodyPayload()
 		return nil
 	}
 	return fmt.Errorf("unknown RequestExecution edge %s", name)
