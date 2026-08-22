@@ -440,14 +440,14 @@ jobs:
             [[ -n "${EXISTING_SHA_AMD64_DIGEST}" ]] || amd64_tags+=(--tag "${SHA_AMD64_REF}")
             [[ -n "${EXISTING_RELEASE_AMD64_DIGEST}" ]] || amd64_tags+=(--tag "${RELEASE_AMD64_REF}")
             if (( ${#amd64_tags[@]} > 0 )); then
-              docker buildx imagetools create "${amd64_tags[@]}" "${AMD64_REF}"
+              docker buildx imagetools create --prefer-index=false "${amd64_tags[@]}" "${AMD64_REF}"
             fi
 
             arm64_tags=()
             [[ -n "${EXISTING_SHA_ARM64_DIGEST}" ]] || arm64_tags+=(--tag "${SHA_ARM64_REF}")
             [[ -n "${EXISTING_RELEASE_ARM64_DIGEST}" ]] || arm64_tags+=(--tag "${RELEASE_ARM64_REF}")
             if (( ${#arm64_tags[@]} > 0 )); then
-              docker buildx imagetools create "${arm64_tags[@]}" "${ARM64_REF}"
+              docker buildx imagetools create --prefer-index=false "${arm64_tags[@]}" "${ARM64_REF}"
             fi
 
             index_tags=()
