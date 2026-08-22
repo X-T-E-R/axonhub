@@ -4,6 +4,7 @@ mutation CreateAPIKey($name: String!) {
     key
     name
     scopes
+    allowedIps
   }
 }
 
@@ -15,6 +16,7 @@ mutation UpdateAPIKeyProfiles($id: ID, $name: String, $input: UpdateAPIKeyProfil
     key
     name
     scopes
+    allowedIps
     profiles {
       activeProfile
       profiles {
@@ -42,6 +44,7 @@ mutation LoadApiKeyProfileTemplate($input: LoadApiKeyProfileTemplateInput!) {
     key
     name
     scopes
+    allowedIps
     profiles {
       activeProfile
       profiles {
@@ -70,6 +73,7 @@ query GetAPIKey($id: ID, $key: String, $name: String) {
     key
     name
     scopes
+    allowedIps
     profiles {
       activeProfile
       profiles {

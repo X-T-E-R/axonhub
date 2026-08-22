@@ -24,6 +24,7 @@ var SupportedAPIFormats = map[string]struct{}{
 	llm.APIFormatOpenAISpeech.String():          {},
 	llm.APIFormatOpenAITranscription.String():   {},
 	llm.APIFormatOpenAITranslation.String():     {},
+	llm.APIFormatOpenAIModeration.String():      {},
 	llm.APIFormatAnthropicMessage.String():      {},
 	llm.APIFormatGeminiContents.String():        {},
 	llm.APIFormatGeminiEmbedding.String():       {},
@@ -85,6 +86,7 @@ var openAICompatibleDefaultEndpoints = []objects.ChannelEndpoint{
 	{APIFormat: llm.APIFormatOpenAIImageEdit.String()},
 	{APIFormat: llm.APIFormatOpenAIImageVariation.String()},
 	{APIFormat: llm.APIFormatOpenAIVideo.String()},
+	{APIFormat: llm.APIFormatOpenAIModeration.String()},
 }
 
 // openAIFullDefaultEndpoints includes the audio endpoints on top of the compatible set.
@@ -110,6 +112,7 @@ var axonhubDefaultEndpoints = []objects.ChannelEndpoint{
 	{APIFormat: llm.APIFormatOpenAIImageGeneration.String()},
 	{APIFormat: llm.APIFormatOpenAIImageEdit.String()},
 	{APIFormat: llm.APIFormatOpenAIVideo.String()},
+	{APIFormat: llm.APIFormatOpenAIModeration.String()},
 	{APIFormat: llm.APIFormatAnthropicMessage.String()},
 	{APIFormat: llm.APIFormatJinaRerank.String()},
 	{APIFormat: llm.APIFormatJinaEmbedding.String()},

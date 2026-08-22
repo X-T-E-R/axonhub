@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -376,6 +377,14 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, input ent.CreateAPIKey
 			}
 		}
 
+		if input.AllowedIps != nil {
+			allowedIPs, err := normalizeAllowedIPs(input.AllowedIps)
+			if err != nil {
+				return err
+			}
+			create.SetAllowedIps(allowedIPs)
+		}
+
 		created, err := create.Save(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create API key: %w", err)
@@ -463,6 +472,26 @@ func (s *APIKeyService) UpdateAPIKey(ctx context.Context, id int, input ent.Upda
 			if input.ClearScopes {
 				update.ClearScopes()
 			}
+		}
+
+		if input.ClearAllowedIps {
+			update.ClearAllowedIps()
+		}
+
+		if input.AllowedIps != nil {
+			allowedIPs, err := normalizeAllowedIPs(input.AllowedIps)
+			if err != nil {
+				return err
+			}
+			update.SetAllowedIps(allowedIPs)
+		}
+
+		if input.AppendAllowedIps != nil {
+			appendAllowedIPs, err := normalizeAllowedIPs(input.AppendAllowedIps)
+			if err != nil {
+				return err
+			}
+			update.AppendAllowedIps(appendAllowedIPs)
 		}
 
 		updated, err := update.Save(ctx)
@@ -672,6 +701,45 @@ func validateProfileQuota(profiles []objects.APIKeyProfile) error {
 	return nil
 }
 
+func validateAllowedIPs(ips []string) error {
+	_, err := normalizeAllowedIPs(ips)
+	return err
+}
+
+func normalizeAllowedIPs(ips []string) ([]string, error) {
+	result := make([]string, 0, len(ips))
+	seen := make(map[string]struct{}, len(ips))
+	for _, value := range ips {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, errors.New("allowed IP entry cannot be empty")
+		}
+
+		var normalized string
+		if strings.Contains(value, "/") {
+			prefix, err := netip.ParsePrefix(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CIDR %q: %w", value, err)
+			}
+			normalized = prefix.Masked().String()
+		} else {
+			addr, err := netip.ParseAddr(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid IP %q: %w", value, err)
+			}
+			normalized = addr.String()
+		}
+
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+
+	return result, nil
+}
+
 type apiKeyCtxKey struct{}
 
 func buildAPIKeyCacheKey(key string) string {
@@ -773,9 +841,22 @@ func (s *APIKeyService) invalidateAPIKeyCaches(ctx context.Context, keys ...stri
 	}
 
 	cacheKeys := buildAPIKeyCacheKeys(keys)
+	// Apply invalidation synchronously in this process. The notifier propagates
+	// the same event to other instances, but its watcher is asynchronous and
+	// must not leave a just-mutated key stale for an immediate local request.
+	for _, cacheKey := range cacheKeys {
+		s.APIKeyCache.Invalidate(cacheKey)
+	}
+
 	if err := s.apiKeyNotifier.Notify(ctx, live.NewInvalidateKeysEvent(cacheKeys...)); err != nil {
 		log.Warn(ctx, "api key cache watcher notify failed", log.Cause(err))
 	}
+}
+
+// InvalidateAPIKeyCaches refreshes API-key authentication state after a
+// successful out-of-band mutation such as a transactional backup restore.
+func (s *APIKeyService) InvalidateAPIKeyCaches(ctx context.Context, keys ...string) {
+	s.invalidateAPIKeyCaches(ctx, keys...)
 }
 
 func (s *APIKeyService) bulkUpdateAPIKeyStatus(ctx context.Context, ids []int, status apikey.Status, action string) error {

@@ -109,7 +109,22 @@ export function parseResponse(body?: any, chunks?: any[] | null): ParsedResponse
       fullContent = body.choices[0].text;
     }
 
-    // 1.6 Handle direct content if it's just a string or has a content field
+    // 1.6 Handle OpenAI Moderations results. Keep the complete stored body
+    // available in the JSON tab while giving the response preview a readable
+    // representation instead of rendering an empty card.
+    if (!fullContent && Array.isArray(body.results)) {
+      fullContent = JSON.stringify(
+        {
+          ...(body.id ? { id: body.id } : {}),
+          ...(body.model ? { model: body.model } : {}),
+          results: body.results,
+        },
+        null,
+        2,
+      );
+    }
+
+    // 1.7 Handle direct content if it's just a string or has a content field
     if (!fullContent && typeof body.content === 'string') {
       fullContent = body.content;
     }

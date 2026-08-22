@@ -31,6 +31,13 @@ func New(config Config) *Server {
 	}
 
 	engine := gin.New()
+
+	// Set max multipart memory for file uploads (e.g., backup restore).
+	// Default 32 MB may be insufficient for large backup files.
+	if config.MaxMultipartMemory > 0 {
+		engine.MaxMultipartMemory = int64(config.MaxMultipartMemory)
+	}
+
 	engine.Use(middleware.Recovery())
 
 	return &Server{
@@ -99,6 +106,12 @@ func Run(opts ...fx.Option) {
 			video_storage.Module,
 			api.Module,
 			fx.Provide(fx.Annotate(func(cfg Config) string { return cfg.PublicURL }, fx.ResultTags(`name:"public_url"`))),
+			fx.Provide(func(cfg Config) api.SSEKeepAliveConfig {
+				return api.SSEKeepAliveConfig{
+					Enabled:  cfg.SSEKeepAlive.Enabled,
+					Interval: cfg.SSEKeepAlive.Interval,
+				}
+			}),
 			fx.Invoke(func(cfg log.Config) {
 				log.SetGlobalConfig(cfg)
 				tracing.SetupLogger(log.GetGlobalLogger())

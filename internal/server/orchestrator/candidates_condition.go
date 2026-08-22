@@ -31,7 +31,7 @@ func filterResolvedCandidatesForRequest(
 		candidates := aggregateChannelModelCandidates(resolvedCandidates)
 		populateAPIFormat(candidates, req)
 
-		return candidates
+		return candidatesWithAPIFormat(candidates)
 	}
 
 	promptTokens := estimatePromptTokens(req)
@@ -65,7 +65,13 @@ func filterResolvedCandidatesForRequest(
 
 	populateAPIFormat(candidates, req)
 
-	return candidates
+	return candidatesWithAPIFormat(candidates)
+}
+
+func candidatesWithAPIFormat(candidates []*ChannelModelsCandidate) []*ChannelModelsCandidate {
+	return lo.Filter(candidates, func(candidate *ChannelModelsCandidate, _ int) bool {
+		return candidate != nil && candidate.Channel != nil && candidate.APIFormat != ""
+	})
 }
 
 func populateAPIFormat(candidates []*ChannelModelsCandidate, req *llm.Request) {

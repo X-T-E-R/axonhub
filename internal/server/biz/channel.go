@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -548,6 +549,10 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 			return nil, err
 		}
 
+		if err := ValidateSSEKeepAliveSettings(settings.SSEKeepAlive); err != nil {
+			return nil, fmt.Errorf("invalid SSE keep-alive settings: %w", err)
+		}
+
 		if err := ValidateChannelKeySettings(settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
 		}
@@ -692,6 +697,18 @@ func NormalizeRetryableErrorPatterns(settings *objects.ChannelSettings) error {
 	return nil
 }
 
+// ValidateSSEKeepAliveSettings validates channel overrides while allowing each
+// field to inherit independently from the server-wide policy.
+func ValidateSSEKeepAliveSettings(settings *objects.ChannelSSEKeepAlive) error {
+	if settings == nil || settings.IntervalSeconds == nil {
+		return nil
+	}
+	if *settings.IntervalSeconds <= 0 {
+		return errors.New("intervalSeconds must be greater than zero")
+	}
+	return nil
+}
+
 // UpdateChannel updates an existing channel with the provided input.
 func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent.UpdateChannelInput) (*ent.Channel, error) {
 	log.Debug(ctx, "UpdateChannel", log.Int("id", id), log.Any("input", input))
@@ -756,6 +773,10 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 
 		if err := NormalizeRetryableErrorPatterns(settings); err != nil {
 			return nil, err
+		}
+
+		if err := ValidateSSEKeepAliveSettings(settings.SSEKeepAlive); err != nil {
+			return nil, fmt.Errorf("invalid SSE keep-alive settings: %w", err)
 		}
 
 		if err := ValidateChannelKeySettings(settings); err != nil {

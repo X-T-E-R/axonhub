@@ -52,6 +52,19 @@ const quotaQuery = `query($id: ID, $key: String) {
   }
 }`
 
+// apiKeyQuery fetches a key's core surface over the wire, including
+// allowedIps — the field whose schema exposure this suite regresses.
+const apiKeyQuery = `query($id: ID, $name: String) {
+  apiKey(id: $id, name: $name) {
+    id
+    key
+    name
+    scopes
+    allowedIps
+    profiles { activeProfile }
+  }
+}`
+
 // gqlResponse mirrors the wire JSON of an apiKeyQuotaUsages response.
 type gqlResponse struct {
 	Data struct {
@@ -67,6 +80,22 @@ type gqlResponse struct {
 				TotalCost    json.RawMessage `json:"totalCost"`
 			} `json:"usage"`
 		} `json:"apiKeyQuotaUsages"`
+	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+// apiKeyResponse mirrors the wire JSON of an apiKey query.
+type apiKeyResponse struct {
+	Data struct {
+		APIKey struct {
+			ID         string   `json:"id"`
+			Key        string   `json:"key"`
+			Name       string   `json:"name"`
+			Scopes     []string `json:"scopes"`
+			AllowedIps []string `json:"allowedIps"`
+		} `json:"apiKey"`
 	} `json:"data"`
 	Errors []struct {
 		Message string `json:"message"`
@@ -130,6 +159,12 @@ func setupE2E(t *testing.T) e2eEnv {
 	target := mustKey("target", proj.ID, apikey.TypeUser, nil, quotaProfile)
 	foreign := mustKey("foreign", otherProj.ID, apikey.TypeUser, nil, quotaProfile)
 
+	// Give the target key an IP allowlist so its AllowedIps field is non-empty
+	// and queryable on the wire.
+	client.APIKey.UpdateOneID(target.ID).
+		SetAllowedIps([]string{"203.0.113.0/24", "198.51.100.7"}).
+		SaveX(ctx)
+
 	// Two usage rows for the target key → requestCount=2, totalTokens=300, totalCost=2.
 	for i := range 2 {
 		req := client.Request.Create().
@@ -187,7 +222,12 @@ func setupE2E(t *testing.T) e2eEnv {
 
 func gqlPost(t *testing.T, url, bearer string, vars map[string]any) (int, []byte) {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{"query": quotaQuery, "variables": vars})
+	return gqlPostQuery(t, url, bearer, quotaQuery, vars)
+}
+
+func gqlPostQuery(t *testing.T, url, bearer, query string, vars map[string]any) (int, []byte) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"query": query, "variables": vars})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPost, url+"/openapi/v1/graphql", bytes.NewReader(payload))
 	require.NoError(t, err)
@@ -288,6 +328,36 @@ func TestE2E_APIKeyQuotaUsages_FullStack(t *testing.T) {
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
+}
+
+// Regression: allowedIps is exposed by the real /openapi/v1/graphql schema and
+// projected from the ent AllowedIps column, queryable through the production
+// transport (permission check + privacy gate included).
+func TestE2E_APIKey_AllowedIps(t *testing.T) {
+	env := setupE2E(t)
+
+	t.Run("seeded allowlist is returned", func(t *testing.T) {
+		guid := fmt.Sprintf("gid://axonhub/APIKey/%d", env.targetID)
+		code, body := gqlPostQuery(t, env.server.URL, env.saKey, apiKeyQuery, map[string]any{"id": guid})
+		t.Logf("HTTP %d body: %s", code, body)
+		require.Equal(t, http.StatusOK, code)
+
+		var r apiKeyResponse
+		require.NoError(t, json.Unmarshal(body, &r))
+		require.Empty(t, r.Errors)
+		require.Equal(t, "target", r.Data.APIKey.Name)
+		require.Equal(t, []string{"203.0.113.0/24", "198.51.100.7"}, r.Data.APIKey.AllowedIps)
+	})
+
+	t.Run("resolved by name with allowlist intact", func(t *testing.T) {
+		code, body := gqlPostQuery(t, env.server.URL, env.saKey, apiKeyQuery, map[string]any{"name": "target"})
+		require.Equal(t, http.StatusOK, code)
+
+		var r apiKeyResponse
+		require.NoError(t, json.Unmarshal(body, &r))
+		require.Empty(t, r.Errors)
+		require.Equal(t, []string{"203.0.113.0/24", "198.51.100.7"}, r.Data.APIKey.AllowedIps)
 	})
 }
 

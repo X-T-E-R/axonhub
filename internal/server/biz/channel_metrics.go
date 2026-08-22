@@ -96,11 +96,13 @@ type channelMetricsResult struct {
 // loadAllChannelMetricsFromExecutions loads metrics for all channels using a single GROUP BY query.
 // Uses raw SQL via Modify to get request count and last failure time in one query.
 func (svc *ChannelService) loadAllChannelMetricsFromExecutions(ctx context.Context, client *ent.Client, since time.Time) (map[int]*channelMetricsResult, error) {
-	// Single query to get request count and last failure time for all channels
+	// Aggregate result columns lose their declared type in SQLite and are returned
+	// as TEXT, while PostgreSQL/pgx commonly returns time.Time. databaseTime is a
+	// sql.Scanner-compatible value that accepts both driver shapes and NULL.
 	type queryResult struct {
-		ChannelID     int       `json:"channel_id"`
-		RequestCount  int64     `json:"request_count"`
-		LastFailureAt time.Time `json:"last_failure_at"`
+		ChannelID     int          `json:"channel_id"`
+		RequestCount  int64        `json:"request_count"`
+		LastFailureAt databaseTime `json:"last_failure_at"`
 	}
 
 	var results []queryResult
@@ -133,14 +135,70 @@ func (svc *ChannelService) loadAllChannelMetricsFromExecutions(ctx context.Conte
 			ChannelID:    r.ChannelID,
 			RequestCount: r.RequestCount,
 		}
-		if !r.LastFailureAt.IsZero() {
-			m.LastFailureAt = &r.LastFailureAt
+		if r.LastFailureAt.Valid {
+			failureAt := r.LastFailureAt.Time
+			m.LastFailureAt = &failureAt
 		}
 
 		metricsMap[r.ChannelID] = m
 	}
 
 	return metricsMap, nil
+}
+
+// dbTimeFormats covers the time formats written by historical SQLite drivers:
+//   - time.Time.String() format (current modernc driver default, e.g. "2026-08-10 13:22:10.251164681 +0000 UTC")
+//   - the legacy fixed 9-digit fraction format (e.g. "2026-04-18 07:41:37.000000000 +0000 UTC",
+//     matched by the same layout's .999999999)
+//   - RFC3339 / RFC3339Nano as a fallback
+var dbTimeFormats = []string{
+	"2006-01-02 15:04:05.999999999 -0700 MST",
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02 15:04:05",
+}
+
+type databaseTime struct {
+	Time  time.Time
+	Valid bool
+}
+
+// Scan accepts the timestamp shapes returned by the supported SQL drivers:
+// PostgreSQL/pgx time.Time values and SQLite text/byte aggregates.
+func (t *databaseTime) Scan(value any) error {
+	*t = databaseTime{}
+
+	switch value := value.(type) {
+	case nil:
+		return nil
+	case time.Time:
+		t.Time = value
+		t.Valid = true
+		return nil
+	case string:
+		parsed, err := parseDBTime(value)
+		if err != nil {
+			return err
+		}
+		t.Time = parsed
+		t.Valid = true
+		return nil
+	case []byte:
+		return t.Scan(string(value))
+	default:
+		return fmt.Errorf("unsupported database time type %T", value)
+	}
+}
+
+// parseDBTime parses a time stored as text in SQLite into time.Time.
+func parseDBTime(value string) (time.Time, error) {
+	for _, format := range dbTimeFormats {
+		if t, err := time.Parse(format, value); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unrecognized time format: %q", value)
 }
 
 // populateChannelMetrics populates channelMetrics from the aggregated result.

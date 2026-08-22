@@ -113,3 +113,23 @@ func isBlockedAddr(clientAddr netip.Addr, blockedIPs []string) bool {
 
 	return false
 }
+
+// isAllowedRemoteIP reports whether the direct TCP peer (Gin Context.RemoteIP)
+// matches any entry in the per-key allowlist. Only the peer address is checked:
+// forwarding headers (X-Forwarded-For / X-Real-IP) are ignored for per-key
+// allowlists because they can be spoofed by the client. An empty allowlist is
+// never expected here (callers gate on len > 0); an unparseable peer denies.
+func isAllowedRemoteIP(c *gin.Context, allowedIPs []string) bool {
+	peer := c.RemoteIP()
+	if peer == "" {
+		return false
+	}
+
+	peerAddr, err := netip.ParseAddr(peer)
+	if err != nil {
+		log.Warn(context.Background(), "failed to parse remote client IP", log.String("client_ip", peer), log.Cause(err))
+		return false
+	}
+
+	return isBlockedAddr(peerAddr, allowedIPs)
+}

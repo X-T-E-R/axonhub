@@ -139,6 +139,12 @@ models:
   ChannelSettingsInput:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelSettings
+  ChannelSSEKeepAlive:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelSSEKeepAlive
+  ChannelSSEKeepAliveInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelSSEKeepAlive
   RetryableErrorPattern:
     model:
       - github.com/looplj/axonhub/internal/objects.RetryableErrorPattern

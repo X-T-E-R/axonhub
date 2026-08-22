@@ -316,6 +316,7 @@
   "channels.dialogs.fields.apiFormat.formats.openai/image_generation": "OpenAI (图像生成)",
   "channels.dialogs.fields.apiFormat.formats.openai/image_edit": "OpenAI (图像编辑)",
   "channels.dialogs.fields.apiFormat.formats.openai/embeddings": "OpenAI (Embeddings)",
+  "channels.dialogs.fields.apiFormat.formats.openai/moderations": "OpenAI (内容审核)",
   "channels.dialogs.fields.apiFormat.formats.openai/video": "OpenAI (Video)",
   "channels.dialogs.fields.apiFormat.formats.gemini/embeddings": "Gemini (Embeddings)",
   "channels.dialogs.fields.apiFormat.formats.jina/rerank": "Jina (Rerank)",

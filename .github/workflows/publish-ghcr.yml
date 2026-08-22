@@ -7,6 +7,7 @@ on:
       - unstable
       - codex/key-panel-unstable-sync
       - codex/fix-stream-finalization-gc
+      - codex/integrate-local-useful
     tags:
       - 'v*'
       - 'key-health-*'
@@ -51,7 +52,30 @@ jobs:
           PROMOTION_SHA=""
           PROMOTION_SOURCE_TAG=""
 
-          if [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" == key-health-promote-* ]]; then
+          is_immutable_candidate_branch() {
+            case "$1" in
+              codex/fix-stream-finalization-gc|codex/integrate-local-useful)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          # Manual runs use a workflow-owned, run-scoped namespace. Never feed
+          # the selected ref text into an OCI tag: it may contain slashes, and
+          # selecting an authorized branch manually must not grant immutable
+          # candidate or promotion authority.
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ ! "${GITHUB_RUN_ID}" =~ ^[0-9]+$ || ! "${GITHUB_RUN_ATTEMPT}" =~ ^[0-9]+$ ]]; then
+              echo "workflow dispatch is missing a valid run identity" >&2
+              exit 1
+            fi
+            REF_TYPE="manual"
+            REF_NAME="manual-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            PUBLICATION_SHA="manual-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}"
+          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" == key-health-promote-* ]]; then
             # The tag points at the commit containing this workflow. Its suffix
             # names the previously verified candidate, so it intentionally does
             # not need to equal GITHUB_SHA.
@@ -62,15 +86,15 @@ jobs:
             PROMOTION_SHA="${BASH_REMATCH[1]}"
             IS_PROMOTION="true"
             PROMOTION_SOURCE_TAG="key-health-candidate-${PROMOTION_SHA}"
-          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" == "key-health-latest" ]]; then
+          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME,,}" == "key-health-latest" ]]; then
             echo "key-health-latest is reserved; use key-health-promote-<shortsha>" >&2
             exit 1
-          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME,,}" =~ ^key-health-candidate-[0-9a-f]{40} ]]; then
-            echo "full-SHA candidate tags are workflow-owned; publish from codex/fix-stream-finalization-gc" >&2
+          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME,,}" =~ ^(key-health-candidate|sha)-[0-9a-f]{40}(-(amd64|arm64))?$ ]]; then
+            echo "full-SHA candidate tags are workflow-owned; push an authorized candidate branch" >&2
             exit 1
           fi
 
-          if [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" == "codex/fix-stream-finalization-gc" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${REF_TYPE}" == "branch" ]] && is_immutable_candidate_branch "${REF_NAME}"; then
             # This candidate uses the full commit identity for every permanent
             # tag. It is intentionally outside the seven-character legacy
             # key-health promotion route.
@@ -82,6 +106,12 @@ jobs:
             # key-health-latest is a separate, explicit promotion after the
             # candidate digest has passed release verification.
             REF_NAME="key-health-candidate-${SHORT_SHA}"
+          elif [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" != "unstable" ]]; then
+            echo "unauthorized branch publication ref: ${REF_NAME}" >&2
+            exit 1
+          elif [[ "${REF_TYPE}" == "tag" && ! "${REF_NAME}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "tag is not a valid OCI tag: ${REF_NAME}" >&2
+            exit 1
           fi
           if [[ "${REF_TYPE}" == "tag" ]]; then
             VERSION="${REF_NAME}"
@@ -183,7 +213,7 @@ jobs:
           sbom: false
 
       - name: Smoke immutable amd64 candidate
-        if: matrix.arch == 'amd64' && github.ref_type == 'branch' && github.ref_name == 'codex/fix-stream-finalization-gc'
+        if: matrix.arch == 'amd64' && needs.metadata.outputs.immutable_candidate == 'true'
         shell: bash
         run: |
           set -euo pipefail

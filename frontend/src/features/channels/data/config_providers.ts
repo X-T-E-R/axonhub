@@ -55,6 +55,7 @@ const AXONHUB_PROVIDER_API_FORMATS: ApiFormat[] = [
   'openai/image_generation',
   'openai/image_edit',
   'openai/embeddings',
+  'openai/moderations',
   'openai/video',
   'anthropic/messages',
   'gemini/contents',

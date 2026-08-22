@@ -23,10 +23,11 @@ import (
 
 // CreateAPIKeyInput represents a mutation input for creating apikeys.
 type CreateAPIKeyInput struct {
-	Name      string
-	Type      *apikey.Type
-	Scopes    []string
-	ProjectID int
+	Name       string
+	Type       *apikey.Type
+	Scopes     []string
+	AllowedIps []string
+	ProjectID  int
 }
 
 // Mutate applies the CreateAPIKeyInput on the APIKeyMutation builder.
@@ -37,6 +38,9 @@ func (i *CreateAPIKeyInput) Mutate(m *APIKeyMutation) {
 	}
 	if v := i.Scopes; v != nil {
 		m.SetScopes(v)
+	}
+	if v := i.AllowedIps; v != nil {
+		m.SetAllowedIps(v)
 	}
 	m.SetProjectID(i.ProjectID)
 }
@@ -49,10 +53,13 @@ func (c *APIKeyCreate) SetInput(i CreateAPIKeyInput) *APIKeyCreate {
 
 // UpdateAPIKeyInput represents a mutation input for updating apikeys.
 type UpdateAPIKeyInput struct {
-	Name         *string
-	ClearScopes  bool
-	Scopes       []string
-	AppendScopes []string
+	Name             *string
+	ClearScopes      bool
+	Scopes           []string
+	AppendScopes     []string
+	ClearAllowedIps  bool
+	AllowedIps       []string
+	AppendAllowedIps []string
 }
 
 // Mutate applies the UpdateAPIKeyInput on the APIKeyMutation builder.
@@ -67,7 +74,16 @@ func (i *UpdateAPIKeyInput) Mutate(m *APIKeyMutation) {
 		m.SetScopes(v)
 	}
 	if i.AppendScopes != nil {
-		m.AppendScopes(i.Scopes)
+		m.AppendScopes(i.AppendScopes)
+	}
+	if i.ClearAllowedIps {
+		m.ClearAllowedIps()
+	}
+	if v := i.AllowedIps; v != nil {
+		m.SetAllowedIps(v)
+	}
+	if i.AppendAllowedIps != nil {
+		m.AppendAllowedIps(i.AppendAllowedIps)
 	}
 }
 
@@ -257,7 +273,7 @@ func (i *UpdateChannelInput) Mutate(m *ChannelMutation) {
 		m.SetSupportedModels(v)
 	}
 	if i.AppendSupportedModels != nil {
-		m.AppendSupportedModels(i.SupportedModels)
+		m.AppendSupportedModels(i.AppendSupportedModels)
 	}
 	if i.ClearManualModels {
 		m.ClearManualModels()
@@ -266,7 +282,7 @@ func (i *UpdateChannelInput) Mutate(m *ChannelMutation) {
 		m.SetManualModels(v)
 	}
 	if i.AppendManualModels != nil {
-		m.AppendManualModels(i.ManualModels)
+		m.AppendManualModels(i.AppendManualModels)
 	}
 	if v := i.AutoSyncSupportedModels; v != nil {
 		m.SetAutoSyncSupportedModels(*v)
@@ -284,7 +300,7 @@ func (i *UpdateChannelInput) Mutate(m *ChannelMutation) {
 		m.SetTags(v)
 	}
 	if i.AppendTags != nil {
-		m.AppendTags(i.Tags)
+		m.AppendTags(i.AppendTags)
 	}
 	if v := i.DefaultTestModel; v != nil {
 		m.SetDefaultTestModel(*v)
@@ -323,7 +339,7 @@ func (i *UpdateChannelInput) Mutate(m *ChannelMutation) {
 		m.SetEndpoints(v)
 	}
 	if i.AppendEndpoints != nil {
-		m.AppendEndpoints(i.Endpoints)
+		m.AppendEndpoints(i.AppendEndpoints)
 	}
 }
 
@@ -398,7 +414,7 @@ func (i *UpdateChannelOverrideTemplateInput) Mutate(m *ChannelOverrideTemplateMu
 		m.SetHeaderOverrideOperations(v)
 	}
 	if i.AppendHeaderOverrideOperations != nil {
-		m.AppendHeaderOverrideOperations(i.HeaderOverrideOperations)
+		m.AppendHeaderOverrideOperations(i.AppendHeaderOverrideOperations)
 	}
 	if i.ClearBodyOverrideOperations {
 		m.ClearBodyOverrideOperations()
@@ -407,7 +423,7 @@ func (i *UpdateChannelOverrideTemplateInput) Mutate(m *ChannelOverrideTemplateMu
 		m.SetBodyOverrideOperations(v)
 	}
 	if i.AppendBodyOverrideOperations != nil {
-		m.AppendBodyOverrideOperations(i.BodyOverrideOperations)
+		m.AppendBodyOverrideOperations(i.AppendBodyOverrideOperations)
 	}
 }
 
@@ -1053,7 +1069,7 @@ func (i *UpdateRequestInput) Mutate(m *RequestMutation) {
 		m.SetRequestHeaders(v)
 	}
 	if i.AppendRequestHeaders != nil {
-		m.AppendRequestHeaders(i.RequestHeaders)
+		m.AppendRequestHeaders(i.AppendRequestHeaders)
 	}
 	if i.ClearResponseBody {
 		m.ClearResponseBody()
@@ -1062,7 +1078,7 @@ func (i *UpdateRequestInput) Mutate(m *RequestMutation) {
 		m.SetResponseBody(v)
 	}
 	if i.AppendResponseBody != nil {
-		m.AppendResponseBody(i.ResponseBody)
+		m.AppendResponseBody(i.AppendResponseBody)
 	}
 	if i.ClearResponseChunks {
 		m.ClearResponseChunks()
@@ -1071,7 +1087,7 @@ func (i *UpdateRequestInput) Mutate(m *RequestMutation) {
 		m.SetResponseChunks(v)
 	}
 	if i.AppendResponseChunks != nil {
-		m.AppendResponseChunks(i.ResponseChunks)
+		m.AppendResponseChunks(i.AppendResponseChunks)
 	}
 	if i.ClearExternalID {
 		m.ClearExternalID()
@@ -1198,7 +1214,7 @@ func (i *UpdateRoleInput) Mutate(m *RoleMutation) {
 		m.SetScopes(v)
 	}
 	if i.AppendScopes != nil {
-		m.AppendScopes(i.Scopes)
+		m.AppendScopes(i.AppendScopes)
 	}
 	if i.ClearUsers {
 		m.ClearUsers()
@@ -1585,7 +1601,7 @@ func (i *UpdateUsageLogInput) Mutate(m *UsageLogMutation) {
 		m.SetCostItems(v)
 	}
 	if i.AppendCostItems != nil {
-		m.AppendCostItems(i.CostItems)
+		m.AppendCostItems(i.AppendCostItems)
 	}
 	if i.ClearCostPriceReferenceID {
 		m.ClearCostPriceReferenceID()
@@ -1719,7 +1735,7 @@ func (i *UpdateUserInput) Mutate(m *UserMutation) {
 		m.SetScopes(v)
 	}
 	if i.AppendScopes != nil {
-		m.AppendScopes(i.Scopes)
+		m.AppendScopes(i.AppendScopes)
 	}
 	if i.ClearProjects {
 		m.ClearProjects()

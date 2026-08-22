@@ -1,0 +1,115 @@
+package orchestrator
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/llm"
+	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/streams"
+)
+
+type recordingStreamLivenessObserver struct {
+	attempts      []StreamLivenessAttempt
+	rawEvents     int
+	transformable int
+	upstreamErr   error
+}
+
+type countingEventStream struct {
+	streams.Stream[*httpclient.StreamEvent]
+	closeCount int
+}
+
+func (s *countingEventStream) Close() error {
+	s.closeCount++
+	return s.Stream.Close()
+}
+
+func (o *recordingStreamLivenessObserver) OnUpstreamResponseHeaders(attempt StreamLivenessAttempt) {
+	o.attempts = append(o.attempts, attempt)
+}
+
+func (o *recordingStreamLivenessObserver) OnRawSSE() { o.rawEvents++ }
+func (o *recordingStreamLivenessObserver) OnTransformableEvent() {
+	o.transformable++
+}
+func (o *recordingStreamLivenessObserver) OnUpstreamError(err error) { o.upstreamErr = err }
+
+func TestStreamLivenessMiddleware_ReportsTransportMilestonesWithoutChangingEvents(t *testing.T) {
+	enabled := true
+	wantsStream := true
+	intervalSeconds := 20
+	settings := &objects.ChannelSSEKeepAlive{
+		Enabled:         &enabled,
+		IntervalSeconds: &intervalSeconds,
+	}
+	state := &PersistenceState{
+		OriginalRequestStream: &wantsStream,
+		CurrentCandidate: &ChannelModelsCandidate{
+			Channel: &biz.Channel{Channel: &ent.Channel{
+				ID:       7,
+				Name:     "DeepSeek Pro",
+				Settings: &objects.ChannelSettings{SSEKeepAlive: settings},
+			}},
+		},
+	}
+	observer := &recordingStreamLivenessObserver{}
+	middleware := &streamLivenessMiddleware{
+		state:    state,
+		observer: observer,
+	}
+
+	rawEvent := &httpclient.StreamEvent{Type: "ping", Data: []byte(`{"type":"ping"}`)}
+	rawSource := &countingEventStream{Stream: streams.SliceStream([]*httpclient.StreamEvent{rawEvent})}
+	raw, err := middleware.OnOutboundRawStream(context.Background(), rawSource)
+	require.NoError(t, err)
+	require.True(t, raw.Next())
+	require.Same(t, rawEvent, raw.Current())
+	require.NoError(t, raw.Close())
+	require.NoError(t, raw.Close())
+
+	llmEvent := &llm.Response{Object: "chat.completion.chunk"}
+	transformed, err := middleware.OnOutboundLlmStream(context.Background(), streams.SliceStream([]*llm.Response{llmEvent}))
+	require.NoError(t, err)
+	require.True(t, transformed.Next())
+	require.Same(t, llmEvent, transformed.Current())
+
+	upstreamErr := errors.New("upstream unavailable")
+	middleware.OnOutboundRawError(context.Background(), upstreamErr)
+
+	require.Len(t, observer.attempts, 1)
+	require.Equal(t, 7, observer.attempts[0].ChannelID)
+	require.Equal(t, "DeepSeek Pro", observer.attempts[0].ChannelName)
+	require.Same(t, settings, observer.attempts[0].KeepAlive)
+	require.Equal(t, 1, observer.rawEvents)
+	require.Equal(t, 1, observer.transformable)
+	require.ErrorIs(t, observer.upstreamErr, upstreamErr)
+	require.Equal(t, 1, rawSource.closeCount)
+}
+
+func TestStreamLivenessMiddleware_DoesNotReportProviderOnlyAutoAggregateStream(t *testing.T) {
+	wantsStream := false
+	observer := &recordingStreamLivenessObserver{}
+	middleware := &streamLivenessMiddleware{
+		state: &PersistenceState{
+			OriginalRequestStream: &wantsStream,
+		},
+		observer: observer,
+	}
+	source := streams.SliceStream([]*httpclient.StreamEvent{{Data: []byte(`{"provider":"chunk"}`)}})
+
+	got, err := middleware.OnOutboundRawStream(context.Background(), source)
+	require.NoError(t, err)
+	require.Same(t, source, got)
+	require.Empty(t, observer.attempts)
+
+	middleware.OnOutboundRawError(context.Background(), errors.New("provider stream failed"))
+	require.NoError(t, observer.upstreamErr)
+}

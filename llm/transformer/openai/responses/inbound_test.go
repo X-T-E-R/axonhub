@@ -409,6 +409,30 @@ func TestInboundTransformer_TransformRequest(t *testing.T) {
 			},
 		},
 		{
+			name: "request with type-only image generation tool choice",
+			httpReq: &httpclient.Request{Body: []byte(`{
+				"model":"gpt-4o",
+				"input":"Generate an image",
+				"tool_choice":{"type":"image_generation"}
+			}`)},
+			expectError: false,
+			validate: func(t *testing.T, result *llm.Request) {
+				require.NotNil(t, result.ToolChoice)
+				require.NotNil(t, result.ToolChoice.NamedToolChoice)
+				require.Equal(t, "image_generation", result.ToolChoice.NamedToolChoice.Type)
+				require.Empty(t, result.ToolChoice.NamedToolChoice.Function.Name)
+			},
+		},
+		{
+			name: "function tool choice without name is rejected",
+			httpReq: &httpclient.Request{Body: []byte(`{
+				"model":"gpt-4o",
+				"input":"Call a function",
+				"tool_choice":{"type":"function"}
+			}`)},
+			expectError: true,
+		},
+		{
 			name: "request with metadata",
 			httpReq: &httpclient.Request{
 				Body: []byte(`{
@@ -1411,6 +1435,19 @@ func TestConvertToolChoiceToLLM(t *testing.T) {
 				require.NotNil(t, result.NamedToolChoice)
 				require.Equal(t, "function", result.NamedToolChoice.Type)
 				require.Equal(t, "get_weather", result.NamedToolChoice.Function.Name)
+			},
+		},
+		{
+			name: "specific non-function tool without name",
+			input: &ToolChoice{
+				Type: lo.ToPtr("image_generation"),
+			},
+			validate: func(t *testing.T, result *llm.ToolChoice) {
+				require.NotNil(t, result)
+				require.Nil(t, result.ToolChoice)
+				require.NotNil(t, result.NamedToolChoice)
+				require.Equal(t, "image_generation", result.NamedToolChoice.Type)
+				require.Empty(t, result.NamedToolChoice.Function.Name)
 			},
 		},
 	}

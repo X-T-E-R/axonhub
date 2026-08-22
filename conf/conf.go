@@ -153,6 +153,9 @@ func unmarshal(v *viper.Viper) (Config, error) {
 	config.DisableSSLVerify = config.APIServer.DisableSSLVerify
 	config.AllowNoAuth = config.APIServer.API.Auth.AllowNoAuth
 	config.APIKeyPrefix = config.APIServer.API.Auth.KeyPrefix
+	if config.APIServer.SSEKeepAlive.Interval <= 0 {
+		return Config{}, errors.New("server.sse_keep_alive.interval must be greater than zero")
+	}
 
 	return config, nil
 }
@@ -221,6 +224,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.base_path", "")
 	v.SetDefault("server.request_timeout", "30s")
 	v.SetDefault("server.llm_request_timeout", "600s")
+	v.SetDefault("server.sse_keep_alive.enabled", false)
+	v.SetDefault("server.sse_keep_alive.interval", "15s")
 	v.SetDefault("server.trace.thread_header", "AH-Thread-Id")
 	v.SetDefault("server.trace.trace_header", "AH-Trace-Id")
 	v.SetDefault("server.trace.extra_trace_headers", []string{})
@@ -236,6 +241,10 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("server.debug", false)
 	v.SetDefault("server.disable_ssl_verify", false)
+
+	// Max multipart memory for file uploads (backup restore, etc.)
+	// Default: 32M (matching Gin's default). Supports K/M/G suffixes, e.g. "512M", "1G".
+	v.SetDefault("server.max_multipart_memory", "32M")
 
 	// CORS defaults
 	v.SetDefault("server.cors.enabled", false)

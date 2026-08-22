@@ -5,6 +5,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 
 	"github.com/looplj/axonhub/llm/httpclient"
 )
@@ -27,12 +29,14 @@ func NewNDJSONDecoder(ctx context.Context, rc io.ReadCloser) httpclient.StreamDe
 
 // ndjsonDecoder implements StreamDecoder for NDJSON format.
 type ndjsonDecoder struct {
-	ctx     context.Context
-	reader  *bufio.Reader
-	body    io.ReadCloser
-	current *httpclient.StreamEvent
-	err     error
-	closed  bool
+	ctx       context.Context
+	reader    *bufio.Reader
+	body      io.ReadCloser
+	current   *httpclient.StreamEvent
+	err       error
+	closed    atomic.Bool
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Ensure ndjsonDecoder implements StreamDecoder.
@@ -40,7 +44,7 @@ var _ httpclient.StreamDecoder = (*ndjsonDecoder)(nil)
 
 // Next advances to the next JSON object in the stream.
 func (d *ndjsonDecoder) Next() bool {
-	if d.err != nil || d.closed {
+	if d.err != nil || d.closed.Load() {
 		return false
 	}
 
@@ -106,14 +110,16 @@ func (d *ndjsonDecoder) Err() error {
 
 // Close closes the stream.
 func (d *ndjsonDecoder) Close() error {
-	if d.closed {
-		return nil
-	}
+	d.closeOnce.Do(func() {
+		d.closed.Store(true)
+		if d.body != nil {
+			d.closeErr = d.body.Close()
+		}
+	})
+	return d.closeErr
+}
 
-	d.closed = true
-	if d.body != nil {
-		return d.body.Close()
-	}
-
-	return nil
+// Interrupt safely unblocks an in-flight Next by closing only the raw body.
+func (d *ndjsonDecoder) Interrupt() error {
+	return d.Close()
 }

@@ -117,6 +117,9 @@ func (s *DefaultSelector) selectChannelCadidates(ctx context.Context, req *llm.R
 
 		endpoints := ch.ResolveEndpoints()
 		apiFormat := SelectAPIFormat(endpoints, req)
+		if apiFormat == "" {
+			continue
+		}
 
 		candidates = append(candidates, &ChannelModelsCandidate{
 			Channel:   ch,
@@ -778,6 +781,9 @@ func (s *SpecifiedChannelSelector) Select(ctx context.Context, req *llm.Request)
 
 	endpoints := channel.ResolveEndpoints()
 	apiFormat := SelectAPIFormat(endpoints, req)
+	if apiFormat == "" {
+		return nil, fmt.Errorf("channel %s has no endpoint for request type %s", channel.Name, req.RequestType)
+	}
 
 	candidate := &ChannelModelsCandidate{
 		Channel:   channel,

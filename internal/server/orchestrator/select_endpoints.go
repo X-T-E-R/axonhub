@@ -31,6 +31,11 @@ var embeddingCapableAPIFormats = map[string]struct{}{
 	"gemini/embeddings": {},
 }
 
+// moderationCapableAPIFormats lists API formats for moderation requests.
+var moderationCapableAPIFormats = map[string]struct{}{
+	"openai/moderations": {},
+}
+
 // imageCapableAPIFormats lists API formats for image requests.
 var imageCapableAPIFormats = map[string]struct{}{
 	"openai/image_generation": {},
@@ -88,6 +93,8 @@ func SelectAPIFormat(endpoints []objects.ChannelEndpoint, req *llm.Request) stri
 		allowed = completionCapableAPIFormats
 	case llm.RequestTypeEmbedding:
 		allowed = embeddingCapableAPIFormats
+	case llm.RequestTypeModeration:
+		allowed = moderationCapableAPIFormats
 	case llm.RequestTypeImage:
 		allowed = imageCapableAPIFormats
 	case llm.RequestTypeRerank:
@@ -115,6 +122,13 @@ func SelectAPIFormat(endpoints []objects.ChannelEndpoint, req *llm.Request) stri
 			if _, ok := allowed[ep.APIFormat]; ok {
 				return ep.APIFormat
 			}
+		}
+
+		// A moderation request cannot be transformed through an arbitrary chat,
+		// embedding, or Anthropic endpoint. An empty result lets candidate
+		// selection skip channels that do not explicitly expose moderation.
+		if requestType == llm.RequestTypeModeration {
+			return ""
 		}
 	}
 

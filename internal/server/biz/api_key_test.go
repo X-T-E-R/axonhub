@@ -1366,3 +1366,131 @@ func TestAPIKeyService_RotateAPIKey(t *testing.T) {
 		require.Contains(t, err.Error(), "failed to get API key")
 	})
 }
+
+func TestValidateAllowedIPs(t *testing.T) {
+	tests := []struct {
+		name    string
+		ips     []string
+		wantErr bool
+	}{
+		{
+			name:    "empty list valid",
+			ips:     []string{},
+			wantErr: false,
+		},
+		{
+			name:    "valid ipv4",
+			ips:     []string{"192.168.1.1"},
+			wantErr: false,
+		},
+		{
+			name:    "valid ipv4 cidr",
+			ips:     []string{"192.168.1.0/24"},
+			wantErr: false,
+		},
+		{
+			name:    "valid ipv6",
+			ips:     []string{"2001:db8::1"},
+			wantErr: false,
+		},
+		{
+			name:    "valid ipv6 cidr",
+			ips:     []string{"2001:db8::/32"},
+			wantErr: false,
+		},
+		{
+			name:    "valid mixed entries",
+			ips:     []string{"10.0.0.0/8", "192.168.1.1", "2001:db8::/32"},
+			wantErr: false,
+		},
+		{
+			name:    "blank entry rejected",
+			ips:     []string{" "},
+			wantErr: true,
+		},
+		{
+			name:    "invalid ip address",
+			ips:     []string{"not-an-ip"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid cidr prefix",
+			ips:     []string{"192.168.1.0/33"},
+			wantErr: true,
+		},
+		{
+			name:    "valid and invalid mixed",
+			ips:     []string{"192.168.1.0/24", "bad-ip"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAllowedIPs(tt.ips)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestAPIKeyService_AllowedIPsCreateUpdateAppendClearAndCache(t *testing.T) {
+	svc, client := setupTestAPIKeyService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer svc.Stop()
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	owner := client.User.Create().
+		SetEmail("allowed-ips-owner@example.com").
+		SetPassword("password").
+		SetStatus(user.StatusActivated).
+		SaveX(ctx)
+	project := client.Project.Create().
+		SetName(uuid.NewString()).
+		SetStatus(project.StatusActive).
+		SaveX(ctx)
+	client.UserProject.Create().SetUserID(owner.ID).SetProjectID(project.ID).SetIsOwner(true).SaveX(ctx)
+	userCtx := contexts.WithUser(ctx, owner)
+
+	created, err := svc.CreateAPIKey(userCtx, ent.CreateAPIKeyInput{
+		Name:       "Restricted",
+		ProjectID:  project.ID,
+		AllowedIps: []string{" 203.0.113.7 ", "2001:0db8::1", "203.0.113.7"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"203.0.113.7", "2001:db8::1"}, created.AllowedIps)
+
+	// Prime the authentication cache, then verify every mutation invalidates it.
+	cached, err := svc.GetAPIKey(userCtx, created.Key)
+	require.NoError(t, err)
+	require.Equal(t, created.AllowedIps, cached.AllowedIps)
+
+	_, err = svc.UpdateAPIKey(userCtx, created.ID, ent.UpdateAPIKeyInput{
+		AllowedIps: []string{"198.51.100.9"},
+	})
+	require.NoError(t, err)
+	cached, err = svc.GetAPIKey(userCtx, created.Key)
+	require.NoError(t, err)
+	require.Equal(t, []string{"198.51.100.9"}, cached.AllowedIps)
+
+	_, err = svc.UpdateAPIKey(userCtx, created.ID, ent.UpdateAPIKeyInput{
+		AppendAllowedIps: []string{"198.51.100.0/24"},
+	})
+	require.NoError(t, err)
+	cached, err = svc.GetAPIKey(userCtx, created.Key)
+	require.NoError(t, err)
+	require.Equal(t, []string{"198.51.100.9", "198.51.100.0/24"}, cached.AllowedIps)
+
+	_, err = svc.UpdateAPIKey(userCtx, created.ID, ent.UpdateAPIKeyInput{ClearAllowedIps: true})
+	require.NoError(t, err)
+	cached, err = svc.GetAPIKey(userCtx, created.Key)
+	require.NoError(t, err)
+	require.Empty(t, cached.AllowedIps)
+
+	_, err = svc.UpdateAPIKey(userCtx, created.ID, ent.UpdateAPIKeyInput{AllowedIps: []string{}})
+	require.NoError(t, err)
+	require.Empty(t, client.APIKey.GetX(userCtx, created.ID).AllowedIps)
+}

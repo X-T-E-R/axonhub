@@ -217,6 +217,10 @@ type ChannelSettings struct {
 	// stream chunks written to request_execution rows. nil inherits the global policy.
 	StoreExecutionStreamChunks *bool `json:"storeExecutionStreamChunks,omitempty"`
 
+	// SSEKeepAlive overrides the server-wide downstream SSE keep-alive policy for
+	// this channel. Nil fields inherit their corresponding global values.
+	SSEKeepAlive *ChannelSSEKeepAlive `json:"sseKeepAlive,omitempty"`
+
 	// RateLimit configures the upstream rate limit for the channel.
 	// When configured, the load balancer will skip channels that have exceeded their rate limits.
 	RateLimit *ChannelRateLimit `json:"rateLimit,omitempty"`
@@ -249,6 +253,14 @@ type ChannelSettings struct {
 
 	// FailurePolicy configures request-time and health-check failure reactions.
 	FailurePolicy *ChannelFailurePolicy `json:"failurePolicy,omitempty"`
+}
+
+// ChannelSSEKeepAlive is a channel-level override for downstream SSE liveness.
+// IntervalSeconds uses seconds so the JSON/GraphQL settings contract remains
+// independent from Go's time.Duration nanosecond representation.
+type ChannelSSEKeepAlive struct {
+	Enabled         *bool `json:"enabled,omitempty"`
+	IntervalSeconds *int  `json:"intervalSeconds,omitempty"`
 }
 
 type RetryableErrorPattern struct {

@@ -169,6 +169,24 @@ type ChatCompletionResult struct {
 }
 
 func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, request *httpclient.Request) (ChatCompletionResult, error) {
+	return processor.process(ctx, request, nil)
+}
+
+// ProcessWithStreamLivenessObserver processes a request while reporting
+// transport-only stream milestones needed by the downstream SSE lifecycle.
+func (processor *ChatCompletionOrchestrator) ProcessWithStreamLivenessObserver(
+	ctx context.Context,
+	request *httpclient.Request,
+	observer StreamLivenessObserver,
+) (ChatCompletionResult, error) {
+	return processor.process(ctx, request, observer)
+}
+
+func (processor *ChatCompletionOrchestrator) process(
+	ctx context.Context,
+	request *httpclient.Request,
+	streamLivenessObserver StreamLivenessObserver,
+) (ChatCompletionResult, error) {
 	// The context is system bypassed to allow the orchestrator to access the system settings.
 	ctx = authz.WithSystemBypass(ctx, "process-chat-completion")
 	ctx = contexts.EnsureContainer(ctx)
@@ -303,6 +321,11 @@ func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, reques
 		captureRawProviderResponse(outbound, processor.SystemService),
 		captureRawProviderStream(outbound, processor.SystemService),
 	)
+	// Registered last so the reverse-order outbound stream chain reports
+	// provider response headers before any middleware can pre-read the stream.
+	if streamLivenessObserver != nil {
+		middlewares = append(middlewares, newStreamLivenessMiddleware(state, streamLivenessObserver))
+	}
 
 	pipelineOpts = append(pipelineOpts, pipeline.WithMiddlewares(middlewares...))
 

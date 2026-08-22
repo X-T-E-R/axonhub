@@ -2,9 +2,11 @@ package biz
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -656,6 +658,8 @@ func requestToSegment(ctx context.Context, req *ent.Request) (*Segment, error) {
 			requestSpans = append(requestSpans, extractSpansFromCompactRequestBody(req.RequestBody, fmt.Sprintf("request-%d", req.ID))...)
 		} else if isImageFormat(apiFormat) {
 			requestSpans = append(requestSpans, extractSpansFromImageRequestBody(req.RequestBody, fmt.Sprintf("request-%d", req.ID))...)
+		} else if isModerationFormat(apiFormat) {
+			requestSpans = append(requestSpans, extractSpansFromModerationRequestBody(req.RequestBody, fmt.Sprintf("request-%d", req.ID))...)
 		} else {
 			httpReq := &httpclient.Request{
 				Body: req.RequestBody,
@@ -683,7 +687,9 @@ func requestToSegment(ctx context.Context, req *ent.Request) (*Segment, error) {
 	}
 
 	if len(req.ResponseBody) > 0 {
-		if llm.APIFormat(req.Format) == llm.APIFormatOpenAIResponseCompact {
+		apiFormat := llm.APIFormat(req.Format)
+
+		if apiFormat == llm.APIFormatOpenAIResponseCompact {
 			var (
 				usage *llm.Usage
 				err   error
@@ -696,8 +702,10 @@ func requestToSegment(ctx context.Context, req *ent.Request) (*Segment, error) {
 			}
 
 			segment.Metadata = extractMetadataFromUsage(usage)
+		} else if isModerationFormat(apiFormat) {
+			responseSpans = append(responseSpans, extractSpansFromModerationResponseBody(req.ResponseBody, fmt.Sprintf("response-%d", req.ID))...)
 		} else {
-			outbound, err := getOutboundTransformer(llm.APIFormat(req.Format))
+			outbound, err := getOutboundTransformer(apiFormat)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get outbound transformer: %w", err)
 			}
@@ -739,6 +747,197 @@ func isImageFormat(format llm.APIFormat) bool {
 	default:
 		return false
 	}
+}
+
+func isModerationFormat(format llm.APIFormat) bool {
+	return format == llm.APIFormatOpenAIModeration
+}
+
+// extractSpansFromModerationRequestBody extracts display spans from a /v1/moderations request body.
+// Moderations are not message-based, so they bypass getInboundTransformer.
+func extractSpansFromModerationRequestBody(body []byte, idPrefix string) []Span {
+	var parsed struct {
+		Model string          `json:"model"`
+		Input json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil
+	}
+
+	summary := moderationInputSummary(parsed.Input)
+	if summary == "" {
+		return nil
+	}
+
+	if parsed.Model != "" {
+		summary = parsed.Model + ": " + summary
+	}
+
+	now := time.Now()
+
+	return []Span{{
+		ID:        fmt.Sprintf("%s-moderation-input", idPrefix),
+		Type:      "user_query",
+		StartTime: now,
+		EndTime:   now,
+		Value: &SpanValue{
+			UserQuery: &SpanUserQuery{Text: summary},
+		},
+	}}
+}
+
+// extractSpansFromModerationResponseBody extracts display spans from a /v1/moderations response body.
+func extractSpansFromModerationResponseBody(body []byte, idPrefix string) []Span {
+	var parsed struct {
+		Model   string `json:"model"`
+		Results []struct {
+			Flagged          bool                `json:"flagged"`
+			Categories       map[string]bool     `json:"categories"`
+			Scores           map[string]float64  `json:"category_scores"`
+			AppliedInputType map[string][]string `json:"category_applied_input_types"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil
+	}
+
+	if len(parsed.Results) == 0 {
+		return nil
+	}
+
+	const maxModerationResultsInTrace = 20
+	resultLimit := min(len(parsed.Results), maxModerationResultsInTrace)
+	parts := make([]string, 0, resultLimit+1)
+	for i, result := range parsed.Results[:resultLimit] {
+		flaggedCats := make([]string, 0)
+		for name, flagged := range result.Categories {
+			if flagged {
+				flaggedCats = append(flaggedCats, name)
+			}
+		}
+
+		sort.Strings(flaggedCats)
+
+		line := fmt.Sprintf("result[%d] flagged=%v", i, result.Flagged)
+		if len(flaggedCats) > 0 {
+			categories := make([]string, 0, len(flaggedCats))
+			for _, name := range flaggedCats {
+				category := name
+				if score, ok := result.Scores[name]; ok {
+					category += fmt.Sprintf("=%.4f", score)
+				}
+				if inputTypes := result.AppliedInputType[name]; len(inputTypes) > 0 {
+					category += "[" + strings.Join(inputTypes, ",") + "]"
+				}
+				categories = append(categories, category)
+			}
+			line += " categories=" + strings.Join(categories, ",")
+		}
+
+		parts = append(parts, line)
+	}
+	if len(parsed.Results) > resultLimit {
+		parts = append(parts, fmt.Sprintf("results_omitted=%d", len(parsed.Results)-resultLimit))
+	}
+
+	summary := strings.Join(parts, "; ")
+	if parsed.Model != "" {
+		summary = parsed.Model + ": " + summary
+	}
+
+	now := time.Now()
+
+	return []Span{{
+		ID:        fmt.Sprintf("%s-moderation-output", idPrefix),
+		Type:      "text",
+		StartTime: now,
+		EndTime:   now,
+		Value: &SpanValue{
+			Text: &SpanText{Text: summary},
+		},
+	}}
+}
+
+func moderationInputSummary(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return boundedModerationTraceValue("text", text)
+	}
+
+	var texts []string
+	if err := json.Unmarshal(raw, &texts); err == nil {
+		items := make([]string, 0, len(texts))
+		for _, item := range texts {
+			items = append(items, boundedModerationTraceValue("text", item))
+		}
+		return boundedModerationTraceSummary(strings.Join(items, " | "))
+	}
+
+	var parts []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text,omitempty"`
+		ImageURL *struct {
+			URL string `json:"url"`
+		} `json:"image_url,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return ""
+	}
+
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch strings.TrimSpace(part.Type) {
+		case "text":
+			if part.Text != "" {
+				items = append(items, boundedModerationTraceValue("text", part.Text))
+			}
+		case "image_url":
+			if part.ImageURL != nil && part.ImageURL.URL != "" {
+				items = append(items, boundedModerationTraceValue("image_url", part.ImageURL.URL))
+			}
+		}
+	}
+
+	return boundedModerationTraceSummary(strings.Join(items, " | "))
+}
+
+const (
+	moderationTraceValueLimit   = 512
+	moderationTraceSummaryLimit = 4096
+)
+
+// boundedModerationTraceValue keeps trace rendering useful without copying a
+// multi-megabyte prompt or data URL into a second diagnostic record. The full
+// body remains available in request storage; the trace carries type, original
+// byte length, a controlled preview and a stable digest.
+func boundedModerationTraceValue(kind, value string) string {
+	if len(value) <= moderationTraceValueLimit && !strings.HasPrefix(value, "data:") {
+		if kind == "image_url" {
+			return "image:" + value
+		}
+		return value
+	}
+
+	sum := sha256.Sum256([]byte(value))
+	preview := value
+	if len(preview) > moderationTraceValueLimit {
+		preview = preview[:moderationTraceValueLimit]
+	}
+
+	return fmt.Sprintf("%s(length=%d,sha256=%x,preview=%q)", kind, len(value), sum, preview)
+}
+
+func boundedModerationTraceSummary(summary string) string {
+	if len(summary) <= moderationTraceSummaryLimit {
+		return summary
+	}
+
+	sum := sha256.Sum256([]byte(summary))
+	return fmt.Sprintf("%s… summary(length=%d,sha256=%x)", summary[:moderationTraceSummaryLimit], len(summary), sum)
 }
 
 // extractSpansFromImageRequestBody extracts spans from an image edit/variation JSON request body.

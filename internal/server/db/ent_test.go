@@ -117,3 +117,42 @@ func TestNewEntClientUpgradeAddsRequestExecutionCleanupIndex(t *testing.T) {
 	require.NoError(t, rows.Err())
 	require.True(t, found, "startup migration must add the cleanup predicate index to an upgraded schema")
 }
+
+func TestNewEntClientUpgradeAddsAPIKeyAllowedIPsColumn(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.ToSlash(filepath.Join(t.TempDir(), "upgrade-api-key-allowed-ips.db"))
+	cfg := Config{
+		Dialect:              "sqlite3",
+		DSN:                  "file:" + dbPath + "?_fk=0",
+		DisableSQLiteAutoWAL: true,
+	}
+
+	oldClient := NewEntClient(cfg)
+	oldDriver, ok := oldClient.Driver().(*entsql.Driver)
+	require.True(t, ok)
+	_, err := oldDriver.ExecContext(context.Background(), "ALTER TABLE api_keys DROP COLUMN allowed_ips")
+	require.NoError(t, err)
+	require.NoError(t, oldClient.Close())
+
+	upgradedClient := NewEntClient(cfg)
+	t.Cleanup(func() { _ = upgradedClient.Close() })
+	upgradedDriver, ok := upgradedClient.Driver().(*entsql.Driver)
+	require.True(t, ok)
+	rows, err := upgradedDriver.DB().QueryContext(context.Background(), "PRAGMA table_info('api_keys')")
+	require.NoError(t, err)
+	defer rows.Close()
+
+	found := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		require.NoError(t, rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey))
+		if strings.EqualFold(name, "allowed_ips") {
+			found = true
+		}
+	}
+	require.NoError(t, rows.Err())
+	require.True(t, found, "startup auto-migration must add api_keys.allowed_ips to an upgraded schema")
+}

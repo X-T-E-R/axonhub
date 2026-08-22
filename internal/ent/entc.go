@@ -14,6 +14,23 @@ import (
 )
 
 func main() {
+	// entgql's bundled mutation template currently appends the base field
+	// (i.Scopes) instead of the generated append field (i.AppendScopes). Replace
+	// that one template through the extension so every generated string-slice
+	// append input retains its GraphQL semantics.
+	mutationInputTemplate := gen.MustParse(
+		gen.NewTemplate(entgql.MutationInputTemplate.Name()).
+			Funcs(entgql.TemplateFuncs).
+			ParseFiles(filepath.Join(xfile.CurDir(), "template", "gql_mutation_input.tmpl")),
+	)
+	templates := append([]*gen.Template(nil), entgql.AllTemplates...)
+	for i, tmpl := range templates {
+		if tmpl.Name() == entgql.MutationInputTemplate.Name() {
+			templates[i] = mutationInputTemplate
+			break
+		}
+	}
+
 	ex, err := entgql.NewExtension(
 		// entgql.WithConfigPath("../graph/gqlgen.yml"),
 		// entgql.WithConfigPath("./graph/gqlgen.yml"),
@@ -22,6 +39,7 @@ func main() {
 		// entgql.WithSchemaPath("../graph/ent.graphql"),
 		// entgql.WithSchemaPath("./graph/ent.graphql"),
 		entgql.WithSchemaPath("ent.graphql"),
+		entgql.WithTemplates(templates...),
 		entgql.WithWhereInputs(true),
 		entgql.WithNodeDescriptor(true),
 		entgql.WithRelaySpec(true),

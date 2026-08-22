@@ -232,10 +232,11 @@ var AllChannelTagsMatchMode = []ChannelTagsMatchMode{
 
 // CreateAPIKeyCreateLLMAPIKey includes the requested fields of the GraphQL type APIKey.
 type CreateAPIKeyCreateLLMAPIKey struct {
-	Id     string   `json:"id"`
-	Key    string   `json:"key"`
-	Name   string   `json:"name"`
-	Scopes []string `json:"scopes"`
+	Id         string   `json:"id"`
+	Key        string   `json:"key"`
+	Name       string   `json:"name"`
+	Scopes     []string `json:"scopes"`
+	AllowedIps []string `json:"allowedIps"`
 }
 
 // GetId returns CreateAPIKeyCreateLLMAPIKey.Id, and is useful for accessing the field via an interface.
@@ -250,6 +251,9 @@ func (v *CreateAPIKeyCreateLLMAPIKey) GetName() string { return v.Name }
 // GetScopes returns CreateAPIKeyCreateLLMAPIKey.Scopes, and is useful for accessing the field via an interface.
 func (v *CreateAPIKeyCreateLLMAPIKey) GetScopes() []string { return v.Scopes }
 
+// GetAllowedIps returns CreateAPIKeyCreateLLMAPIKey.AllowedIps, and is useful for accessing the field via an interface.
+func (v *CreateAPIKeyCreateLLMAPIKey) GetAllowedIps() []string { return v.AllowedIps }
+
 // CreateAPIKeyResponse is returned by CreateAPIKey on success.
 type CreateAPIKeyResponse struct {
 	CreateLLMAPIKey *CreateAPIKeyCreateLLMAPIKey `json:"createLLMAPIKey"`
@@ -262,11 +266,12 @@ func (v *CreateAPIKeyResponse) GetCreateLLMAPIKey() *CreateAPIKeyCreateLLMAPIKey
 
 // GetAPIKeyApiKeyAPIKey includes the requested fields of the GraphQL type APIKey.
 type GetAPIKeyApiKeyAPIKey struct {
-	Id       string                         `json:"id"`
-	Key      string                         `json:"key"`
-	Name     string                         `json:"name"`
-	Scopes   []string                       `json:"scopes"`
-	Profiles *GetAPIKeyApiKeyAPIKeyProfiles `json:"profiles"`
+	Id         string                         `json:"id"`
+	Key        string                         `json:"key"`
+	Name       string                         `json:"name"`
+	Scopes     []string                       `json:"scopes"`
+	AllowedIps []string                       `json:"allowedIps"`
+	Profiles   *GetAPIKeyApiKeyAPIKeyProfiles `json:"profiles"`
 }
 
 // GetId returns GetAPIKeyApiKeyAPIKey.Id, and is useful for accessing the field via an interface.
@@ -280,6 +285,9 @@ func (v *GetAPIKeyApiKeyAPIKey) GetName() string { return v.Name }
 
 // GetScopes returns GetAPIKeyApiKeyAPIKey.Scopes, and is useful for accessing the field via an interface.
 func (v *GetAPIKeyApiKeyAPIKey) GetScopes() []string { return v.Scopes }
+
+// GetAllowedIps returns GetAPIKeyApiKeyAPIKey.AllowedIps, and is useful for accessing the field via an interface.
+func (v *GetAPIKeyApiKeyAPIKey) GetAllowedIps() []string { return v.AllowedIps }
 
 // GetProfiles returns GetAPIKeyApiKeyAPIKey.Profiles, and is useful for accessing the field via an interface.
 func (v *GetAPIKeyApiKeyAPIKey) GetProfiles() *GetAPIKeyApiKeyAPIKeyProfiles { return v.Profiles }
@@ -394,11 +402,12 @@ func (v *LoadApiKeyProfileTemplateInput) GetApiKeyName() *string { return v.ApiK
 
 // LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey includes the requested fields of the GraphQL type APIKey.
 type LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey struct {
-	Id       string                                                            `json:"id"`
-	Key      string                                                            `json:"key"`
-	Name     string                                                            `json:"name"`
-	Scopes   []string                                                          `json:"scopes"`
-	Profiles *LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKeyProfiles `json:"profiles"`
+	Id         string                                                            `json:"id"`
+	Key        string                                                            `json:"key"`
+	Name       string                                                            `json:"name"`
+	Scopes     []string                                                          `json:"scopes"`
+	AllowedIps []string                                                          `json:"allowedIps"`
+	Profiles   *LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKeyProfiles `json:"profiles"`
 }
 
 // GetId returns LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey.Id, and is useful for accessing the field via an interface.
@@ -413,6 +422,11 @@ func (v *LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey) GetName() str
 // GetScopes returns LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey.Scopes, and is useful for accessing the field via an interface.
 func (v *LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey) GetScopes() []string {
 	return v.Scopes
+}
+
+// GetAllowedIps returns LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey.AllowedIps, and is useful for accessing the field via an interface.
+func (v *LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey) GetAllowedIps() []string {
+	return v.AllowedIps
 }
 
 // GetProfiles returns LoadApiKeyProfileTemplateLoadApiKeyProfileTemplateAPIKey.Profiles, and is useful for accessing the field via an interface.
@@ -544,11 +558,12 @@ func (v *UpdateAPIKeyProfilesResponse) GetUpdateAPIKeyProfiles() *UpdateAPIKeyPr
 
 // UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey includes the requested fields of the GraphQL type APIKey.
 type UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey struct {
-	Id       string                                                  `json:"id"`
-	Key      string                                                  `json:"key"`
-	Name     string                                                  `json:"name"`
-	Scopes   []string                                                `json:"scopes"`
-	Profiles *UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKeyProfiles `json:"profiles"`
+	Id         string                                                  `json:"id"`
+	Key        string                                                  `json:"key"`
+	Name       string                                                  `json:"name"`
+	Scopes     []string                                                `json:"scopes"`
+	AllowedIps []string                                                `json:"allowedIps"`
+	Profiles   *UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKeyProfiles `json:"profiles"`
 }
 
 // GetId returns UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey.Id, and is useful for accessing the field via an interface.
@@ -562,6 +577,11 @@ func (v *UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey) GetName() string { retu
 
 // GetScopes returns UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey.Scopes, and is useful for accessing the field via an interface.
 func (v *UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey) GetScopes() []string { return v.Scopes }
+
+// GetAllowedIps returns UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey.AllowedIps, and is useful for accessing the field via an interface.
+func (v *UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey) GetAllowedIps() []string {
+	return v.AllowedIps
+}
 
 // GetProfiles returns UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey.Profiles, and is useful for accessing the field via an interface.
 func (v *UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKey) GetProfiles() *UpdateAPIKeyProfilesUpdateAPIKeyProfilesAPIKeyProfiles {
@@ -767,6 +787,7 @@ mutation CreateAPIKey ($name: String!) {
 		key
 		name
 		scopes
+		allowedIps
 	}
 }
 `
@@ -804,6 +825,7 @@ query GetAPIKey ($id: ID, $key: String, $name: String) {
 		key
 		name
 		scopes
+		allowedIps
 		profiles {
 			activeProfile
 			profiles {
@@ -864,6 +886,7 @@ mutation LoadApiKeyProfileTemplate ($input: LoadApiKeyProfileTemplateInput!) {
 		key
 		name
 		scopes
+		allowedIps
 		profiles {
 			activeProfile
 			profiles {
@@ -919,6 +942,7 @@ mutation UpdateAPIKeyProfiles ($id: ID, $name: String, $input: UpdateAPIKeyProfi
 		key
 		name
 		scopes
+		allowedIps
 		profiles {
 			activeProfile
 			profiles {

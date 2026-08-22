@@ -124,3 +124,107 @@ func TestClientIPCandidatesDeduplicates(t *testing.T) {
 		t.Fatalf("clientIPCandidates() = %#v, want %#v", got, want)
 	}
 }
+
+func TestIsAllowedRemoteIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	newAllowlistCtx := func(t *testing.T, remoteAddr string, headers map[string]string) *gin.Context {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		ctx, engine := gin.CreateTestContext(recorder)
+		if err := engine.SetTrustedProxies(nil); err != nil {
+			t.Fatalf("failed to set trusted proxies: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = remoteAddr
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		ctx.Request = req
+		return ctx
+	}
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		headers    map[string]string
+		allowedIPs []string
+		want       bool
+	}{
+		{
+			name:       "empty allowed list does not match any peer",
+			remoteAddr: "203.0.113.10:12345",
+			allowedIPs: []string{},
+			want:       false,
+		},
+		{
+			name:       "direct peer exact match allowed",
+			remoteAddr: "203.0.113.10:12345",
+			allowedIPs: []string{"203.0.113.10"},
+			want:       true,
+		},
+		{
+			name:       "direct peer cidr match allowed",
+			remoteAddr: "203.0.113.10:12345",
+			allowedIPs: []string{"203.0.113.0/24"},
+			want:       true,
+		},
+		{
+			name:       "direct peer ipv6 exact match allowed",
+			remoteAddr: "[2001:db8::10]:12345",
+			allowedIPs: []string{"2001:db8::10"},
+			want:       true,
+		},
+		{
+			name:       "direct peer ipv6 cidr match allowed",
+			remoteAddr: "[2001:db8::10]:12345",
+			allowedIPs: []string{"2001:db8::/64"},
+			want:       true,
+		},
+		{
+			name:       "spoofed x-forwarded-for denied",
+			remoteAddr: "198.51.100.10:12345",
+			headers:    map[string]string{"X-Forwarded-For": "203.0.113.10"},
+			allowedIPs: []string{"203.0.113.10"},
+			want:       false,
+		},
+		{
+			name:       "spoofed x-real-ip denied",
+			remoteAddr: "198.51.100.10:12345",
+			headers:    map[string]string{"X-Real-IP": "203.0.113.10"},
+			allowedIPs: []string{"203.0.113.10"},
+			want:       false,
+		},
+		{
+			name:       "spoofed x-forwarded-for and x-real-ip denied",
+			remoteAddr: "198.51.100.10:12345",
+			headers: map[string]string{
+				"X-Forwarded-For": "203.0.113.10",
+				"X-Real-IP":       "203.0.113.10",
+			},
+			allowedIPs: []string{"203.0.113.0/24"},
+			want:       false,
+		},
+		{
+			name:       "non-allowed direct peer denied",
+			remoteAddr: "198.51.100.10:12345",
+			allowedIPs: []string{"192.0.2.1", "203.0.113.0/24"},
+			want:       false,
+		},
+		{
+			name:       "unparseable remote addr denied",
+			remoteAddr: "not-an-ip",
+			allowedIPs: []string{"203.0.113.0/24"},
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newAllowlistCtx(t, tt.remoteAddr, tt.headers)
+			if got := isAllowedRemoteIP(ctx, tt.allowedIPs); got != tt.want {
+				t.Fatalf("isAllowedRemoteIP() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

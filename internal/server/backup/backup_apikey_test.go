@@ -47,6 +47,73 @@ func TestBackupService_Backup_WithAPIKeys(t *testing.T) {
 	require.Equal(t, "Project2", backupData.APIKeys[1].ProjectName)
 }
 
+func TestBackupService_APIKeyAllowedIPs_RoundTripAndOverwrite(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+
+	user, err := client.User.Query().First(ctx)
+	require.NoError(t, err)
+	project := createBackupTestProject(t, client, ctx, "Allowed IPs", "")
+	key := createBackupTestAPIKey(t, client, ctx, user, project, "Restricted", "sk-restricted")
+	allowed := []string{"203.0.113.0/24", "2001:db8::7"}
+	client.APIKey.UpdateOneID(key.ID).SetAllowedIps(allowed).SaveX(ctx)
+
+	data, err := service.Backup(ctx, BackupOptions{IncludeAPIKeys: true})
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"allowed_ips":["203.0.113.0/24","2001:db8::7"]`)
+
+	client.APIKey.UpdateOneID(key.ID).SetAllowedIps([]string{"198.51.100.9"}).SaveX(ctx)
+	require.NoError(t, service.Restore(ctx, data, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	restored := client.APIKey.Query().Where(apikey.Key("sk-restricted")).OnlyX(ctx)
+	require.Equal(t, allowed, restored.AllowedIps)
+
+	// A subsequent overwrite must not leave a newer allowlist on the existing
+	// key either.
+	client.APIKey.UpdateOneID(restored.ID).SetAllowedIps([]string{"198.51.100.9"}).SaveX(ctx)
+	require.NoError(t, service.Restore(ctx, data, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	restored = client.APIKey.Query().Where(apikey.Key("sk-restricted")).OnlyX(ctx)
+	require.Equal(t, allowed, restored.AllowedIps)
+}
+
+func TestBackupService_Restore_APIKeyFromLegacyBackupWithoutAllowedIPs(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+	createBackupTestProject(t, client, ctx, "Default", "")
+
+	legacy := []byte(`{
+		"version":"1.2",
+		"api_keys":[{
+			"key":"sk-legacy",
+			"name":"Legacy",
+			"type":"user",
+			"status":"enabled",
+			"scopes":["chat"],
+			"project_name":"Default"
+		}]
+	}`)
+
+	require.NoError(t, service.Restore(ctx, legacy, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	restored := client.APIKey.Query().Where(apikey.Key("sk-legacy")).OnlyX(ctx)
+	require.Empty(t, restored.AllowedIps)
+
+	client.APIKey.UpdateOneID(restored.ID).SetAllowedIps([]string{"203.0.113.7"}).SaveX(ctx)
+	require.NoError(t, service.Restore(ctx, legacy, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	restored = client.APIKey.Query().Where(apikey.Key("sk-legacy")).OnlyX(ctx)
+	require.Empty(t, restored.AllowedIps, "a legacy backup explicitly restores the legacy empty allowlist")
+}
+
 func TestBackupService_Restore_APIKeys_NewKeys(t *testing.T) {
 	client, service, ctx := setupBackupTest(t)
 	defer client.Close()
@@ -68,12 +135,13 @@ func TestBackupService_Restore_APIKeys_NewKeys(t *testing.T) {
 		APIKeys: []*BackupAPIKey{
 			{
 				APIKey: ent.APIKey{
-					Key:      "sk-new-key-1",
-					Name:     "New API Key 1",
-					Type:     "user",
-					Status:   "enabled",
-					Scopes:   []string{"chat"},
-					Profiles: profiles,
+					Key:        "sk-new-key-1",
+					Name:       "New API Key 1",
+					Type:       "user",
+					Status:     "enabled",
+					Scopes:     []string{"chat"},
+					AllowedIps: []string{"203.0.113.0/24", "2001:db8::7"},
+					Profiles:   profiles,
 				},
 				ProjectName: "TestProject",
 			},
@@ -112,6 +180,7 @@ func TestBackupService_Restore_APIKeys_NewKeys(t *testing.T) {
 	require.Equal(t, "New API Key 1", ak1.Name)
 	require.Equal(t, proj1.ID, ak1.Edges.Project.ID)
 	require.Equal(t, "TestProject", ak1.Edges.Project.Name)
+	require.Equal(t, []string{"203.0.113.0/24", "2001:db8::7"}, ak1.AllowedIps)
 
 	ak2, err := client.APIKey.Query().
 		Where(apikey.Key("sk-new-key-2")).

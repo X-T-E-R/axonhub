@@ -71,6 +71,16 @@ func (svc *BackupService) Restore(ctx context.Context, data []byte, opts Restore
 
 	committed = true
 
+	if opts.IncludeAPIKeys && svc.apiKeyService != nil {
+		keys := make([]string, 0, len(backupData.APIKeys))
+		for _, apiKey := range backupData.APIKeys {
+			if apiKey != nil && apiKey.Key != "" {
+				keys = append(keys, apiKey.Key)
+			}
+		}
+		svc.apiKeyService.InvalidateAPIKeyCaches(ctx, keys...)
+	}
+
 	return nil
 }
 
@@ -775,6 +785,7 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 					SetType(akData.Type).
 					SetStatus(akData.Status).
 					SetScopes(akData.Scopes).
+					SetAllowedIps(akData.AllowedIps).
 					SetProfiles(akData.Profiles)
 
 				if _, err := update.Save(ctx); err != nil {
@@ -812,6 +823,7 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 				SetType(akData.Type).
 				SetStatus(akData.Status).
 				SetScopes(akData.Scopes).
+				SetAllowedIps(akData.AllowedIps).
 				SetProfiles(akData.Profiles).
 				SetUserID(user.ID).
 				SetProjectID(proj.ID)

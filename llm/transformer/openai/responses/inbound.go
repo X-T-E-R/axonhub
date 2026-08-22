@@ -225,6 +225,10 @@ func convertToLLMRequest(req *Request, rawBody ...[]byte) (*llm.Request, error) 
 
 	// Convert tool choice
 	if req.ToolChoice != nil {
+		if req.ToolChoice.Type != nil && *req.ToolChoice.Type == "function" &&
+			(req.ToolChoice.Name == nil || strings.TrimSpace(*req.ToolChoice.Name) == "") {
+			return nil, fmt.Errorf("%w: function tool_choice requires a non-empty name", transformer.ErrInvalidRequest)
+		}
 		chatReq.ToolChoice = convertToolChoiceToLLM(req.ToolChoice)
 	}
 
@@ -312,12 +316,12 @@ func convertToolChoiceToLLM(src *ToolChoice) *llm.ToolChoice {
 
 	if src.Mode != nil {
 		result.ToolChoice = src.Mode
-	} else if src.Type != nil && src.Name != nil {
+	} else if src.Type != nil {
 		result.NamedToolChoice = &llm.NamedToolChoice{
 			Type: *src.Type,
-			Function: llm.ToolFunction{
-				Name: *src.Name,
-			},
+		}
+		if src.Name != nil {
+			result.NamedToolChoice.Function.Name = *src.Name
 		}
 	}
 
