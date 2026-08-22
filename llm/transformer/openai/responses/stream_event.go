@@ -49,6 +49,8 @@ const (
 	StreamEventTypeReasoningSummaryPartDone  StreamEventType = "response.reasoning_summary_part.done"
 	StreamEventTypeReasoningSummaryTextDelta StreamEventType = "response.reasoning_summary_text.delta"
 	StreamEventTypeReasoningSummaryTextDone  StreamEventType = "response.reasoning_summary_text.done"
+	StreamEventTypeReasoningTextDelta        StreamEventType = "response.reasoning_text.delta"
+	StreamEventTypeReasoningTextDone         StreamEventType = "response.reasoning_text.done"
 
 	// Image generation events.
 
@@ -61,6 +63,11 @@ const (
 // StreamEvent represents a streaming event from the OpenAI Responses API.
 // Reference: https://platform.openai.com/docs/api-reference/responses-streaming
 type StreamEvent struct {
+	// ArgumentsPresent/InputPresent distinguish omitted terminal fields from
+	// explicit empty strings. They are aggregation-only wire-presence markers.
+	ArgumentsPresent bool `json:"-"`
+	InputPresent     bool `json:"-"`
+
 	// Common fields
 	Type           StreamEventType `json:"type"`
 	SequenceNumber int             `json:"sequence_number"`
@@ -105,6 +112,35 @@ type StreamEvent struct {
 	Code    string  `json:"code,omitempty"`
 	Message string  `json:"message,omitempty"`
 	Param   *string `json:"param,omitempty"`
+}
+
+func (e *StreamEvent) UnmarshalJSON(data []byte) error {
+	type streamEventAlias StreamEvent
+	raw := struct {
+		streamEventAlias
+		Arguments json.RawMessage `json:"arguments"`
+		Input     json.RawMessage `json:"input"`
+	}{}
+
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*e = StreamEvent(raw.streamEventAlias)
+	if len(raw.Arguments) > 0 && string(raw.Arguments) != "null" {
+		e.ArgumentsPresent = true
+		if err := json.Unmarshal(raw.Arguments, &e.Arguments); err != nil {
+			return err
+		}
+	}
+	if len(raw.Input) > 0 && string(raw.Input) != "null" {
+		e.InputPresent = true
+		if err := json.Unmarshal(raw.Input, &e.Input); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // StreamEventContentPart represents a content part in streaming events.

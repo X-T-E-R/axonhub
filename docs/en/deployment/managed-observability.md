@@ -38,6 +38,31 @@ The 24-hour Requests and 30-day Usage retention values are maxima. At the observ
 
 Do not run a destructive startup rewrite and do not use routine `VACUUM FULL`. Normal deletes plus `VACUUM (ANALYZE)` make heap/TOAST pages reusable and should make the managed payload relation's allocation plateau, but they do not promise to return historical relation files to the filesystem.
 
+## Stale streaming executions
+
+Retention cleanup automatically reconciles a historical `pending` or `processing`
+execution only when its parent Request is terminal, both rows are beyond the
+configured retention cutoff, and the execution has not been updated for at least
+24 hours. These are independent conditions: creation age uses the configured
+retention cutoff, while `updated_at` is compared only with the 24-hour activity
+grace. PostgreSQL instances share the existing non-waiting advisory owner and
+recheck each row under transaction locks before changing it to `failed`; retained
+Trace/Thread groups remain protected. Reconciliation does not delete external
+artifacts. The ordinary terminal-record cleanup path performs any later deletion.
+The 24-hour grace is the cross-instance safety authority; the process-local
+`LiveStreamRegistry` is only local evidence. SQLite and MySQL deployments therefore
+retain the documented single-process ownership limitation.
+
+For a one-time backlog, run
+`scripts/postgres-reconcile-stale-executions.sql` in small batches. It is dry-run
+by default, uses a 2-second `lock_timeout` and 30-second `statement_timeout`, and
+requires `-v apply=true` to update rows. It requires no service pause and embeds
+no connection details. Repeat until `candidate_count` is zero, then let normal
+retention cleanup delete eligible terminal groups. Ordinary `VACUUM (ANALYZE)`
+makes the reclaimed pages reusable; it does **not** return a historical 23 GB
+relation high-water allocation to the filesystem. Filesystem shrinkage requires
+a separately planned relation rewrite with its own lock and free-space budget.
+
 For a one-time filesystem shrink, use a separately approved online rewrite tool such as `pg_repack`, execution-first:
 
 1. Preflight extension/tool version compatibility, blocking DDL, long transactions, replica lag, and backup restore. Measure `pg_total_relation_size`, heap, TOAST, indexes, dead tuples, reusable pages, and filesystem free space separately.

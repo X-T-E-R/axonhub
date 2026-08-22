@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -234,6 +235,152 @@ func TestWorker_cleanupOldRequestExecutionsDeletesOnlyOldTerminalRows(t *testing
 	}
 }
 
+func TestWorker_reconcileStaleRequestExecutions(t *testing.T) {
+	worker, ctx, client := setupGCWorker(t)
+	cutoff := time.Now().UTC().Add(-72 * time.Hour)
+	old := cutoff.Add(-time.Hour)
+
+	eligibleParent := createGCRequest(t, client, ctx, request.StatusCompleted, old, 0)
+	eligible := createGCExecution(t, client, ctx, eligibleParent.ID, requestexecution.StatusProcessing, old)
+	client.RequestExecution.UpdateOneID(eligible.ID).SetManagedObservability(true).SetUpdatedAt(old).ExecX(ctx)
+	client.ManagedObservabilityState.Create().SetID(1).SetChargedBytes(100).SaveX(ctx)
+
+	recentlyUpdatedParent := createGCRequest(t, client, ctx, request.StatusCompleted, old, 0)
+	recentlyUpdated := createGCExecution(t, client, ctx, recentlyUpdatedParent.ID, requestexecution.StatusProcessing, old)
+
+	activeParent := createGCRequest(t, client, ctx, request.StatusProcessing, old, 0)
+	activeChild := createGCExecution(t, client, ctx, activeParent.ID, requestexecution.StatusProcessing, old)
+	client.RequestExecution.UpdateOneID(activeChild.ID).SetUpdatedAt(old).ExecX(ctx)
+
+	recentParent := createGCRequest(t, client, ctx, request.StatusCompleted, cutoff.Add(time.Hour), 0)
+	recentChild := createGCExecution(t, client, ctx, recentParent.ID, requestexecution.StatusProcessing, old)
+	client.RequestExecution.UpdateOneID(recentChild.ID).SetUpdatedAt(old).ExecX(ctx)
+
+	retainedTrace := client.Trace.Create().SetProjectID(1).SetTraceID("stale-reconcile-retained").
+		SetStatus(trace.StatusRetained).SetCreatedAt(old).SaveX(ctx)
+	retainedParent := createGCRequest(t, client, ctx, request.StatusCompleted, old, retainedTrace.ID)
+	retainedChild := createGCExecution(t, client, ctx, retainedParent.ID, requestexecution.StatusProcessing, old)
+	client.RequestExecution.UpdateOneID(retainedChild.ID).SetUpdatedAt(old).ExecX(ctx)
+
+	result, err := worker.reconcileStaleRequestExecutions(ctx, cutoff)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Scanned)
+	require.Equal(t, 1, result.ReconciledStale)
+	require.Zero(t, result.SkippedNonterminal)
+	updated := client.RequestExecution.GetX(ctx, eligible.ID)
+	require.Equal(t, requestexecution.StatusFailed, updated.Status)
+	require.Equal(t, staleExecutionError, updated.ErrorMessage)
+	require.Equal(t, int64(100+len(staleExecutionError)), client.ManagedObservabilityState.GetX(ctx, 1).ChargedBytes)
+	require.Equal(t, requestexecution.StatusProcessing, client.RequestExecution.GetX(ctx, recentlyUpdated.ID).Status)
+	require.Equal(t, requestexecution.StatusProcessing, client.RequestExecution.GetX(ctx, activeChild.ID).Status)
+	require.Equal(t, requestexecution.StatusProcessing, client.RequestExecution.GetX(ctx, recentChild.ID).Status)
+	require.Equal(t, requestexecution.StatusProcessing, client.RequestExecution.GetX(ctx, retainedChild.ID).Status)
+}
+
+func TestWorker_reconcileStaleRequestExecutionsRechecksRacyChild(t *testing.T) {
+	worker, ctx, client := setupGCWorker(t)
+	cutoff := time.Now().UTC().Add(-72 * time.Hour)
+	old := cutoff.Add(-time.Hour)
+	parent := createGCRequest(t, client, ctx, request.StatusCompleted, old, 0)
+	execution := createGCExecution(t, client, ctx, parent.ID, requestexecution.StatusProcessing, old)
+	client.RequestExecution.UpdateOneID(execution.ID).SetUpdatedAt(old).ExecX(ctx)
+	worker.beforeStaleReconcile = func(executionID int) {
+		client.RequestExecution.UpdateOneID(executionID).SetUpdatedAt(time.Now().UTC()).ExecX(ctx)
+	}
+
+	result, err := worker.reconcileStaleRequestExecutions(ctx, cutoff)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Scanned)
+	require.Equal(t, 1, result.SkippedNonterminal)
+	require.Zero(t, result.ReconciledStale)
+	require.Equal(t, requestexecution.StatusProcessing, client.RequestExecution.GetX(ctx, execution.ID).Status)
+}
+
+func TestWorker_cleanupRequestsReconcilesInBatchesThenUsesNormalDeletion(t *testing.T) {
+	worker, ctx, client := setupGCWorker(t)
+	originalBatchSize := defaultBatchSize
+	defaultBatchSize = 2
+	t.Cleanup(func() { defaultBatchSize = originalBatchSize })
+	old := time.Now().UTC().Add(-10 * 24 * time.Hour)
+	for range 5 {
+		parent := createGCRequest(t, client, ctx, request.StatusCompleted, old, 0)
+		execution := createGCExecution(t, client, ctx, parent.ID, requestexecution.StatusProcessing, old)
+		client.RequestExecution.UpdateOneID(execution.ID).SetUpdatedAt(old).ExecX(ctx)
+	}
+
+	result, err := worker.cleanupRequestsWithResult(ctx, 3, false)
+	require.NoError(t, err)
+	require.Equal(t, 15, result.Scanned)
+	require.Equal(t, 5, result.ReconciledStale)
+	require.Equal(t, 10, result.Deleted)
+	require.Zero(t, client.RequestExecution.Query().CountX(ctx))
+	require.Zero(t, client.Request.Query().CountX(ctx))
+}
+
+func TestWorker_cleanupRequestsReportsSuccessfulZeroDelete(t *testing.T) {
+	worker, ctx, _ := setupGCWorker(t)
+
+	result, err := worker.cleanupRequestsWithResult(ctx, 3, false)
+	require.NoError(t, err)
+	require.Equal(t, requestCleanupResult{}, result)
+}
+
+func TestWorker_PreviewAndCleanupUseIndependentRetentionAndActivityCutoffs(t *testing.T) {
+	for _, retentionDays := range []int{1, 3} {
+		t.Run(fmt.Sprintf("%d_day_retention", retentionDays), func(t *testing.T) {
+			worker, ctx, client := setupGCWorker(t)
+			now := time.Now().UTC()
+			createdOld := now.Add(-time.Duration(retentionDays*24+1) * time.Hour)
+			updatedStale := now.Add(-25 * time.Hour)
+			if retentionDays == 3 {
+				updatedStale = now.Add(-48 * time.Hour)
+			}
+
+			eligibleParent := createGCRequest(t, client, ctx, request.StatusCompleted, createdOld, 0)
+			eligibleChild := createGCExecution(t, client, ctx, eligibleParent.ID, requestexecution.StatusProcessing, createdOld)
+			client.RequestExecution.UpdateOneID(eligibleChild.ID).SetUpdatedAt(updatedStale).ExecX(ctx)
+			terminalSibling := createGCExecution(t, client, ctx, eligibleParent.ID, requestexecution.StatusCompleted, createdOld)
+
+			recentlyUpdatedParent := createGCRequest(t, client, ctx, request.StatusCompleted, createdOld, 0)
+			recentlyUpdatedChild := createGCExecution(t, client, ctx, recentlyUpdatedParent.ID, requestexecution.StatusProcessing, createdOld)
+			client.RequestExecution.UpdateOneID(recentlyUpdatedChild.ID).SetUpdatedAt(now.Add(-12 * time.Hour)).ExecX(ctx)
+
+			recentCreated := now.Add(-time.Duration(retentionDays*24-1) * time.Hour)
+			recentParent := createGCRequest(t, client, ctx, request.StatusCompleted, recentCreated, 0)
+			recentChild := createGCExecution(t, client, ctx, recentParent.ID, requestexecution.StatusProcessing, recentCreated)
+			client.RequestExecution.UpdateOneID(recentChild.ID).SetUpdatedAt(updatedStale).ExecX(ctx)
+
+			activeParent := createGCRequest(t, client, ctx, request.StatusProcessing, createdOld, 0)
+			activeChild := createGCExecution(t, client, ctx, activeParent.ID, requestexecution.StatusProcessing, createdOld)
+			client.RequestExecution.UpdateOneID(activeChild.ID).SetUpdatedAt(updatedStale).ExecX(ctx)
+
+			retainedTrace := client.Trace.Create().SetProjectID(1).
+				SetTraceID(fmt.Sprintf("preview-retained-%d", retentionDays)).
+				SetStatus(trace.StatusRetained).SetCreatedAt(createdOld).SaveX(ctx)
+			retainedParent := createGCRequest(t, client, ctx, request.StatusCompleted, createdOld, retainedTrace.ID)
+			retainedChild := createGCExecution(t, client, ctx, retainedParent.ID, requestexecution.StatusProcessing, createdOld)
+			client.RequestExecution.UpdateOneID(retainedChild.ID).SetUpdatedAt(updatedStale).ExecX(ctx)
+
+			preview, err := worker.PreviewCleanup(ctx, TriggerGcCleanupInput{RequestsCleanupDays: retentionDays})
+			require.NoError(t, err)
+			require.Len(t, preview, 1)
+			require.Equal(t, "requests", preview[0].ResourceType)
+			require.Equal(t, 1, preview[0].EstimatedCount)
+
+			result, err := worker.cleanupRequestsWithResult(ctx, retentionDays, false)
+			require.NoError(t, err)
+			require.Equal(t, 1, result.ReconciledStale)
+			require.Equal(t, 3, result.Deleted)
+			require.False(t, client.Request.Query().Where(request.IDEQ(eligibleParent.ID)).ExistX(ctx))
+			require.False(t, client.RequestExecution.Query().Where(requestexecution.IDEQ(eligibleChild.ID)).ExistX(ctx))
+			require.False(t, client.RequestExecution.Query().Where(requestexecution.IDEQ(terminalSibling.ID)).ExistX(ctx))
+			for _, executionID := range []int{recentlyUpdatedChild.ID, recentChild.ID, activeChild.ID, retainedChild.ID} {
+				require.Equal(t, requestexecution.StatusProcessing, client.RequestExecution.GetX(ctx, executionID).Status)
+			}
+		})
+	}
+}
+
 func TestWorker_cleanupOldRequestsPreservesActiveRecentAndRetainedRows(t *testing.T) {
 	worker, ctx, client := setupGCWorker(t)
 	cutoff := time.Now().UTC().Add(-72 * time.Hour)
@@ -362,6 +509,7 @@ func TestWorker_cleanupOldRequestsPreservesRowWhenExternalCleanupFails(t *testin
 func TestWorker_cleanupOldRequestsPreservesRowWhenStorageDeleteFails(t *testing.T) {
 	worker, ctx, client := setupGCWorker(t)
 	old := time.Now().UTC().Add(-96 * time.Hour)
+	deletable := createGCRequest(t, client, ctx, request.StatusCompleted, old, 0)
 	brokenStorage, err := client.DataStorage.Create().
 		SetName("broken-fs-storage").
 		SetDescription("missing directory for deterministic delete failure").
@@ -381,9 +529,13 @@ func TestWorker_cleanupOldRequestsPreservesRowWhenStorageDeleteFails(t *testing.
 		Save(ctx)
 	require.NoError(t, err)
 
-	deleted, err := worker.cleanupOldRequestsRecords(ctx, time.Now().UTC().Add(-72*time.Hour))
+	result, err := worker.cleanupRequestsWithResult(ctx, 3, false)
 	require.Error(t, err)
-	require.Zero(t, deleted)
+	require.Equal(t, 1, result.Deleted)
+	require.Equal(t, 2, result.Scanned)
+	require.Equal(t, 1, result.Retryable)
+	require.Equal(t, 1, result.Errors)
+	require.False(t, client.Request.Query().Where(request.IDEQ(deletable.ID)).ExistX(ctx))
 	require.True(t, client.Request.Query().Where(request.IDEQ(req.ID)).ExistX(ctx))
 }
 
@@ -442,13 +594,19 @@ func TestWorker_cleanupOldRequestsRevalidatesConcurrentStatusChangeBeforeExterna
 		}
 	}
 	type cleanupResult struct {
-		deleted int
-		err     error
+		deleted    int
+		accounting requestCleanupResult
+		err        error
 	}
 	result := make(chan cleanupResult, 1)
 	go func() {
-		deleted, cleanupErr := worker.cleanupOldRequestsRecords(ctx, time.Now().UTC().Add(-72*time.Hour))
-		result <- cleanupResult{deleted: deleted, err: cleanupErr}
+		var accounting requestCleanupResult
+		deleted, cleanupErr := worker.cleanupOldRequestsRecordsWithAccounting(
+			ctx,
+			time.Now().UTC().Add(-72*time.Hour),
+			&accounting,
+		)
+		result <- cleanupResult{deleted: deleted, accounting: accounting, err: cleanupErr}
 	}()
 
 	select {
@@ -463,6 +621,8 @@ func TestWorker_cleanupOldRequestsRevalidatesConcurrentStatusChangeBeforeExterna
 	got := <-result
 	require.NoError(t, got.err)
 	require.Zero(t, got.deleted)
+	require.Equal(t, 1, got.accounting.Scanned)
+	require.Equal(t, 1, got.accounting.SkippedNonterminal)
 	updated := client.Request.GetX(ctx, req.ID)
 	require.Equal(t, request.StatusProcessing, updated.Status)
 	_, err = os.Stat(pathForKey(baseDir, bodyKey))

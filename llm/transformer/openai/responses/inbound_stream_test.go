@@ -147,6 +147,50 @@ func TestInboundTransformer_StreamTransformation_WithTestData(t *testing.T) {
 	}
 }
 
+func TestInboundTransformer_TransformStream_MapsAbnormalFinishReason(t *testing.T) {
+	for _, tc := range []struct {
+		finishReason         string
+		wantStatus           string
+		wantIncompleteReason string
+	}{
+		{finishReason: "length", wantStatus: "incomplete", wantIncompleteReason: "max_output_tokens"},
+		{finishReason: "content_filter", wantStatus: "incomplete", wantIncompleteReason: "content_filter"},
+		{finishReason: "error", wantStatus: "failed"},
+		{finishReason: "cancelled", wantStatus: "cancelled"},
+	} {
+		t.Run(tc.finishReason, func(t *testing.T) {
+			trans := NewInboundTransformer()
+			stream, err := trans.TransformStream(t.Context(), streams.SliceStream([]*llm.Response{{
+				Object:  "chat.completion.chunk",
+				ID:      "resp_abnormal",
+				Created: 1700000000,
+				Model:   "gpt-5",
+				Choices: []llm.Choice{{
+					Index:        0,
+					Delta:        &llm.Message{},
+					FinishReason: lo.ToPtr(tc.finishReason),
+				}},
+			}}))
+			require.NoError(t, err)
+
+			events, err := streams.All(stream)
+			require.NoError(t, err)
+			require.NotEmpty(t, events)
+			var terminal StreamEvent
+			require.NoError(t, json.Unmarshal(events[len(events)-1].Data, &terminal))
+			require.Equal(t, StreamEventTypeResponseCompleted, terminal.Type)
+			require.NotNil(t, terminal.Response)
+			require.Equal(t, tc.wantStatus, lo.FromPtr(terminal.Response.Status))
+			if tc.wantIncompleteReason == "" {
+				require.Nil(t, terminal.Response.IncompleteDetails)
+			} else {
+				require.NotNil(t, terminal.Response.IncompleteDetails)
+				require.Equal(t, tc.wantIncompleteReason, terminal.Response.IncompleteDetails.Reason)
+			}
+		})
+	}
+}
+
 func TestInboundTransformer_TransformStream_KeepsResponsesReasoningItemsSeparate(t *testing.T) {
 	trans := NewInboundTransformer()
 

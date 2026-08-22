@@ -172,7 +172,7 @@ func TestInboundPersistentStream_Close_WithCompleteResponse(t *testing.T) {
 	event := stream.Current()
 	require.NotNil(t, event, "Expected current event to not be nil")
 
-	assert.False(t, state.StreamCompleted, "StreamCompleted should be false before Close()")
+	assert.True(t, state.StreamCompleted, "finish_reason should mark the stream complete before Close()")
 
 	err := stream.Close()
 	require.NoError(t, err, "Close() should not return an error")
@@ -356,4 +356,25 @@ func TestIsTerminalStreamEvent_AudioDoneEvents(t *testing.T) {
 	require.False(t, isTerminalStreamEvent(&httpclient.StreamEvent{Type: "speech.audio.delta"}))
 	require.False(t, isTerminalStreamEvent(&httpclient.StreamEvent{Type: "transcript.text.delta"}))
 	require.False(t, isTerminalStreamEvent(&httpclient.StreamEvent{Type: "audio/mpeg"}))
+}
+
+func TestTerminalStreamStatus_ResponsesAndFinishReason(t *testing.T) {
+	tests := []struct {
+		name  string
+		event *httpclient.StreamEvent
+		want  streamTerminalStatus
+	}{
+		{name: "completed type in data", event: &httpclient.StreamEvent{Data: []byte(`{"type":"response.completed","response":{"status":"completed"}}`)}, want: streamTerminalCompleted},
+		{name: "completed event carrying incomplete status", event: &httpclient.StreamEvent{Type: "response.completed", Data: []byte(`{"type":"response.completed","response":{"status":"incomplete"}}`)}, want: streamTerminalIncomplete},
+		{name: "provider failed", event: &httpclient.StreamEvent{Type: "response.failed", Data: []byte(`{"type":"response.failed"}`)}, want: streamTerminalFailed},
+		{name: "provider cancelled", event: &httpclient.StreamEvent{Data: []byte(`{"type":"response.cancelled"}`)}, want: streamTerminalCanceled},
+		{name: "finish reason stop", event: &httpclient.StreamEvent{Data: []byte(`{"choices":[{"finish_reason":"stop"}]}`)}, want: streamTerminalCompleted},
+		{name: "finish reason length", event: &httpclient.StreamEvent{Data: []byte(`{"choices":[{"finish_reason":"length"}]}`)}, want: streamTerminalIncomplete},
+		{name: "nil", want: streamTerminalNone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, terminalStreamStatus(tt.event))
+		})
+	}
 }

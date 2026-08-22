@@ -2,6 +2,7 @@ package responses
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -60,6 +61,37 @@ func TestOutboundToolCallIntegrity_CompletedEmptyArgumentsFail(t *testing.T) {
 	require.NoError(t, err)
 	_, err = streams.All(stream)
 	require.ErrorIs(t, err, transformer.ErrIncompleteToolCall)
+}
+
+func TestOutboundToolCallIntegrity_AbnormalTerminalAllowsEmptyArguments(t *testing.T) {
+	for status, wantFinishReason := range map[string]string{
+		"failed":     "error",
+		"incomplete": "length",
+		"cancelled":  "cancelled",
+	} {
+		t.Run(status, func(t *testing.T) {
+			outbound, err := NewOutboundTransformer("https://api.openai.com", "test")
+			require.NoError(t, err)
+			events := []*httpclient.StreamEvent{
+				{Data: []byte(`{"type":"response.created","response":{"id":"resp_1","model":"gpt-test","status":"in_progress","output":[]}}`)},
+				{Data: []byte(`{"type":"response.output_item.added","output_index":0,"item":{"id":"item_1","type":"function_call","call_id":"call_1","name":"spawn_agent","arguments":""}}`)},
+				{Data: []byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-test","status":%q,"output":[]}}`, status))},
+			}
+
+			stream, err := outbound.TransformStream(t.Context(), nil, streams.SliceStream(events))
+			require.NoError(t, err)
+			responses, err := streams.All(stream)
+			require.NoError(t, err)
+			require.NotEmpty(t, responses)
+			var finishReasons []string
+			for _, response := range responses {
+				if len(response.Choices) > 0 && response.Choices[0].FinishReason != nil {
+					finishReasons = append(finishReasons, *response.Choices[0].FinishReason)
+				}
+			}
+			require.Contains(t, finishReasons, wantFinishReason)
+		})
+	}
 }
 
 func TestOutboundToolCallIntegrity_TerminalNameCorrectionFails(t *testing.T) {

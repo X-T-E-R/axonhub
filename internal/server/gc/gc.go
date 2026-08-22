@@ -24,12 +24,29 @@ import (
 	"github.com/looplj/axonhub/internal/ent/trace"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/server/biz"
 	serverdb "github.com/looplj/axonhub/internal/server/db"
 	"github.com/looplj/axonhub/internal/server/scheduler"
 )
 
 var defaultBatchSize = 500
+
+// staleExecutionGrace exceeds the ordinary request/stream timeout budget. It
+// is a cross-instance safety window; the process-local live registry is not an
+// authority for PostgreSQL reconciliation.
+const staleExecutionGrace = 24 * time.Hour
+
+const staleExecutionError = "request execution abandoned after parent reached a terminal status"
+
+type requestCleanupResult struct {
+	Scanned            int
+	Deleted            int
+	SkippedNonterminal int
+	ReconciledStale    int
+	Retryable          int
+	Errors             int
+}
 
 type TriggerGcCleanupInput struct {
 	RequestsCleanupDays  int `json:"requests_cleanup_days"`
@@ -59,6 +76,7 @@ type Worker struct {
 	// beforeCandidateDelete is a deterministic test barrier. Production workers
 	// leave it nil. Eligibility is always revalidated and locked after this hook.
 	beforeCandidateDelete func(resource string, id int)
+	beforeStaleReconcile  func(executionID int)
 }
 
 type Params struct {
@@ -235,16 +253,48 @@ func (w *Worker) runCleanupOwned(ctx context.Context, manual bool, manualDays ma
 
 // cleanupRequests deletes requests older than the specified number of days.
 func (w *Worker) cleanupRequests(ctx context.Context, cleanupDays int, manual bool) error {
+	result, err := w.cleanupRequestsWithResult(ctx, cleanupDays, manual)
+	metrics.RecordRetentionGCRun(ctx, err == nil, result.Deleted)
+	metrics.RecordRetentionGC(ctx, "scanned", result.Scanned)
+	metrics.RecordRetentionGC(ctx, "deleted", result.Deleted)
+	metrics.RecordRetentionGC(ctx, "skipped_nonterminal", result.SkippedNonterminal)
+	metrics.RecordRetentionGC(ctx, "reconciled_stale", result.ReconciledStale)
+	metrics.RecordRetentionGC(ctx, "retryable", result.Retryable)
+	metrics.RecordRetentionGC(ctx, "error", result.Errors)
+	log.Info(ctx, "Request retention cleanup completed",
+		log.String("signal", "request_retention_gc"),
+		log.Int("scanned", result.Scanned),
+		log.Int("deleted", result.Deleted),
+		log.Int("skipped_nonterminal", result.SkippedNonterminal),
+		log.Int("reconciled_stale", result.ReconciledStale),
+		log.Int("retryable", result.Retryable),
+		log.Int("errors", result.Errors),
+		log.Bool("manual", manual))
+	return err
+}
+
+func (w *Worker) cleanupRequestsWithResult(ctx context.Context, cleanupDays int, manual bool) (requestCleanupResult, error) {
+	var result requestCleanupResult
 	if cleanupDays <= 0 {
 		log.Debug(ctx, "No cleanup needed for requests")
-		return nil
+		return result, nil
 	}
 
 	cutoffTime := time.Now().AddDate(0, 0, -cleanupDays)
-
-	execResult, err := w.cleanupOldRequestExecutions(ctx, cutoffTime)
+	reconcileResult, err := w.reconcileStaleRequestExecutions(ctx, cutoffTime)
+	result.Scanned += reconcileResult.Scanned
+	result.SkippedNonterminal += reconcileResult.SkippedNonterminal
+	result.ReconciledStale += reconcileResult.ReconciledStale
+	result.Retryable += reconcileResult.Retryable
+	result.Errors += reconcileResult.Errors
 	if err != nil {
-		return fmt.Errorf("failed to cleanup request executions: %w", err)
+		return result, fmt.Errorf("failed to reconcile stale request executions: %w", err)
+	}
+
+	execResult, err := w.cleanupOldRequestExecutionsWithAccounting(ctx, cutoffTime, &result)
+	result.Deleted += execResult
+	if err != nil {
+		return result, fmt.Errorf("failed to cleanup request executions: %w", err)
 	}
 
 	log.Debug(ctx, "Deleted old request executions",
@@ -252,19 +302,166 @@ func (w *Worker) cleanupRequests(ctx context.Context, cleanupDays int, manual bo
 		log.Time("cutoff_time", cutoffTime),
 	)
 
-	reqResult, err := w.cleanupOldRequestsRecords(ctx, cutoffTime)
+	reqResult, err := w.cleanupOldRequestsRecordsWithAccounting(ctx, cutoffTime, &result)
+	result.Deleted += reqResult
 	if err != nil {
-		return fmt.Errorf("failed to cleanup requests: %w", err)
+		return result, fmt.Errorf("failed to cleanup requests: %w", err)
 	}
 
 	log.Debug(ctx, "Deleted old requests",
 		log.Int("deleted_requests_count", reqResult),
 		log.Time("cutoff_time", cutoffTime))
 
-	return nil
+	return result, nil
+}
+
+func (w *Worker) reconcileStaleRequestExecutions(ctx context.Context, retentionCutoff time.Time) (requestCleanupResult, error) {
+	var result requestCleanupResult
+	staleCutoff := time.Now().UTC().Add(-staleExecutionGrace)
+	for {
+		ids, err := w.Ent.RequestExecution.Query().Where(
+			requestexecution.CreatedAtLT(retentionCutoff),
+			requestexecution.UpdatedAtLT(staleCutoff),
+			requestexecution.StatusIn(requestexecution.StatusPending, requestexecution.StatusProcessing),
+			requestexecution.HasRequestWith(
+				request.CreatedAtLT(retentionCutoff),
+				request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
+				request.Not(request.HasTraceWith(trace.Or(
+					trace.StatusEQ(trace.StatusRetained),
+					trace.HasThreadWith(thread.StatusEQ(thread.StatusRetained)),
+				))),
+			),
+		).Order(ent.Asc(requestexecution.FieldID)).Limit(w.getBatchSize()).IDs(ctx)
+		if err != nil {
+			result.Retryable++
+			result.Errors++
+			return result, fmt.Errorf("query stale request executions: %w", err)
+		}
+		if len(ids) == 0 {
+			return result, nil
+		}
+
+		batchReconciled := 0
+		for _, executionID := range ids {
+			result.Scanned++
+			if w.beforeStaleReconcile != nil {
+				w.beforeStaleReconcile(executionID)
+			}
+			reconciled, err := w.reconcileStaleExecutionCandidate(ctx, executionID, retentionCutoff, staleCutoff)
+			if err != nil {
+				result.Retryable++
+				result.Errors++
+				return result, err
+			}
+			if reconciled {
+				result.ReconciledStale++
+				batchReconciled++
+			} else {
+				result.SkippedNonterminal++
+			}
+		}
+		if batchReconciled == 0 {
+			return result, nil
+		}
+	}
+}
+
+func (w *Worker) reconcileStaleExecutionCandidate(
+	ctx context.Context,
+	executionID int,
+	retentionCutoff time.Time,
+	staleCutoff time.Time,
+) (bool, error) {
+	tx, err := w.Ent.Tx(ctx)
+	if err != nil {
+		return false, fmt.Errorf("start stale execution reconciliation transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	client := tx.Client()
+	txCtx := ent.NewContext(ent.NewTxContext(ctx, tx), client)
+
+	executionRef, err := client.RequestExecution.Query().Where(requestexecution.IDEQ(executionID)).
+		Select(requestexecution.FieldRequestID).Only(txCtx)
+	if ent.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("load stale execution %d request owner: %w", executionID, err)
+	}
+	lockedRequest, eligible, err := lockRequestCandidate(txCtx, client, executionRef.RequestID, retentionCutoff, false)
+	if err != nil || !eligible {
+		return false, err
+	}
+
+	query := client.RequestExecution.Query().Where(requestexecution.IDEQ(executionID)).Select(
+		requestexecution.FieldID,
+		requestexecution.FieldRequestID,
+		requestexecution.FieldCreatedAt,
+		requestexecution.FieldUpdatedAt,
+		requestexecution.FieldStatus,
+		requestexecution.FieldErrorMessage,
+		requestexecution.FieldManagedObservability,
+	)
+	if requestCleanupUsesForUpdate(client.Driver().Dialect()) {
+		query.Modify(func(selector *entsql.Selector) { selector.ForUpdate() })
+	}
+	execution, err := query.Only(txCtx)
+	if ent.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("lock stale execution %d: %w", executionID, err)
+	}
+	if execution.RequestID != lockedRequest.row.ID || !execution.CreatedAt.Before(retentionCutoff) ||
+		!execution.UpdatedAt.Before(staleCutoff) ||
+		(execution.Status != requestexecution.StatusPending && execution.Status != requestexecution.StatusProcessing) {
+		return false, nil
+	}
+
+	updated, err := client.RequestExecution.Update().Where(
+		requestexecution.IDEQ(execution.ID),
+		requestexecution.RequestIDEQ(lockedRequest.row.ID),
+		requestexecution.CreatedAtLT(retentionCutoff),
+		requestexecution.UpdatedAtEQ(execution.UpdatedAt),
+		requestexecution.UpdatedAtLT(staleCutoff),
+		requestexecution.StatusIn(requestexecution.StatusPending, requestexecution.StatusProcessing),
+	).SetStatus(requestexecution.StatusFailed).SetErrorMessage(staleExecutionError).Save(txCtx)
+	if err != nil {
+		return false, fmt.Errorf("reconcile stale execution %d: %w", execution.ID, err)
+	}
+	if updated != 1 {
+		return false, nil
+	}
+	if execution.ManagedObservability {
+		delta := int64(len(staleExecutionError) - len(execution.ErrorMessage))
+		if err := adjustManagedNonPayloadCharge(txCtx, client, delta); err != nil {
+			return false, fmt.Errorf("adjust managed charge for stale execution %d: %w", execution.ID, err)
+		}
+	}
+	if err := lockedRequest.restore(txCtx, client, true); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit stale execution %d reconciliation: %w", execution.ID, err)
+	}
+	committed = true
+	return true, nil
 }
 
 func (w *Worker) cleanupOldRequestExecutions(ctx context.Context, cutoffTime time.Time) (int, error) {
+	return w.cleanupOldRequestExecutionsWithAccounting(ctx, cutoffTime, nil)
+}
+
+func (w *Worker) cleanupOldRequestExecutionsWithAccounting(
+	ctx context.Context,
+	cutoffTime time.Time,
+	accounting *requestCleanupResult,
+) (int, error) {
 	batchSize := w.getBatchSize()
 	totalDeleted := 0
 	cache := make(map[int]*ent.DataStorage)
@@ -297,11 +494,18 @@ func (w *Worker) cleanupOldRequestExecutions(ctx context.Context, cutoffTime tim
 			Limit(batchSize).
 			All(ctx)
 		if err != nil {
+			if accounting != nil {
+				accounting.Retryable++
+				accounting.Errors++
+			}
 			return totalDeleted, fmt.Errorf("failed to query old request executions: %w", err)
 		}
 
 		if len(executions) == 0 {
 			break
+		}
+		if accounting != nil {
+			accounting.Scanned += len(executions)
 		}
 
 		var batchErr error
@@ -312,6 +516,10 @@ func (w *Worker) cleanupOldRequestExecutions(ctx context.Context, cutoffTime tim
 			}
 			deleted, err := w.deleteExecutionCandidate(ctx, exec.ID, cutoffTime, cache)
 			if err != nil {
+				if accounting != nil {
+					accounting.Retryable++
+					accounting.Errors++
+				}
 				if batchErr == nil {
 					batchErr = err
 				}
@@ -319,6 +527,8 @@ func (w *Worker) cleanupOldRequestExecutions(ctx context.Context, cutoffTime tim
 			}
 			if deleted {
 				batchDeleted++
+			} else if accounting != nil {
+				accounting.SkippedNonterminal++
 			}
 		}
 
@@ -340,6 +550,14 @@ func (w *Worker) cleanupOldRequestExecutions(ctx context.Context, cutoffTime tim
 }
 
 func (w *Worker) cleanupOldRequestsRecords(ctx context.Context, cutoffTime time.Time) (int, error) {
+	return w.cleanupOldRequestsRecordsWithAccounting(ctx, cutoffTime, nil)
+}
+
+func (w *Worker) cleanupOldRequestsRecordsWithAccounting(
+	ctx context.Context,
+	cutoffTime time.Time,
+	accounting *requestCleanupResult,
+) (int, error) {
 	batchSize := w.getBatchSize()
 	totalDeleted := 0
 	cache := make(map[int]*ent.DataStorage)
@@ -366,11 +584,18 @@ func (w *Worker) cleanupOldRequestsRecords(ctx context.Context, cutoffTime time.
 			Limit(batchSize).
 			All(ctx)
 		if err != nil {
+			if accounting != nil {
+				accounting.Retryable++
+				accounting.Errors++
+			}
 			return totalDeleted, fmt.Errorf("failed to query old requests: %w", err)
 		}
 
 		if len(reqs) == 0 {
 			break
+		}
+		if accounting != nil {
+			accounting.Scanned += len(reqs)
 		}
 
 		var batchErr error
@@ -381,6 +606,10 @@ func (w *Worker) cleanupOldRequestsRecords(ctx context.Context, cutoffTime time.
 			}
 			deleted, err := w.deleteRequestCandidate(ctx, req.ID, cutoffTime, cache)
 			if err != nil {
+				if accounting != nil {
+					accounting.Retryable++
+					accounting.Errors++
+				}
 				if batchErr == nil {
 					batchErr = err
 				}
@@ -388,6 +617,8 @@ func (w *Worker) cleanupOldRequestsRecords(ctx context.Context, cutoffTime time.
 			}
 			if deleted {
 				batchDeleted++
+			} else if accounting != nil {
+				accounting.SkippedNonterminal++
 			}
 		}
 
@@ -1400,13 +1631,25 @@ func (w *Worker) PreviewCleanup(ctx context.Context, input TriggerGcCleanupInput
 	var items []GcCleanupPreviewItem
 
 	if input.RequestsCleanupDays > 0 {
-		cutoff := time.Now().AddDate(0, 0, -input.RequestsCleanupDays)
+		now := time.Now().UTC()
+		cutoff := now.AddDate(0, 0, -input.RequestsCleanupDays)
+		staleCutoff := now.Add(-staleExecutionGrace)
 		count, err := w.Ent.Request.Query().Where(
 			request.CreatedAtLT(cutoff),
 			request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
 			request.Not(request.HasExecutionsWith(requestexecution.Or(
 				requestexecution.CreatedAtGTE(cutoff),
-				requestexecution.StatusIn(requestexecution.StatusPending, requestexecution.StatusProcessing),
+				requestexecution.StatusNotIn(
+					requestexecution.StatusPending,
+					requestexecution.StatusProcessing,
+					requestexecution.StatusCompleted,
+					requestexecution.StatusFailed,
+					requestexecution.StatusCanceled,
+				),
+				requestexecution.And(
+					requestexecution.StatusIn(requestexecution.StatusPending, requestexecution.StatusProcessing),
+					requestexecution.UpdatedAtGTE(staleCutoff),
+				),
 			))),
 			request.Not(request.HasTraceWith(trace.Or(
 				trace.StatusEQ(trace.StatusRetained),

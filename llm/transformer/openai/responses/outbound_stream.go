@@ -756,14 +756,22 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			},
 		}
 
-	case StreamEventTypeReasoningSummaryTextDelta:
+	case StreamEventTypeReasoningSummaryTextDelta, StreamEventTypeReasoningTextDelta:
 		// Reasoning content delta
 		s.state.reasoningContent.WriteString(streamEvent.Delta)
+		itemID := lo.FromPtr(streamEvent.ItemID)
+		if itemID == "" {
+			return nil
+		}
+		resp.TransformerMetadata = map[string]any{
+			responsesReasoningItemTransformerMetadataKey: map[string]any{"id": itemID},
+		}
 
 		resp.Choices = []llm.Choice{
 			{
 				Index: 0,
 				Delta: &llm.Message{
+					ID:               itemID,
 					ReasoningContent: &streamEvent.Delta,
 				},
 			},
@@ -773,7 +781,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		// Text content completed - skip, content was already streamed via deltas
 		return nil // Intentionally skip this event
 
-	case StreamEventTypeReasoningSummaryTextDone:
+	case StreamEventTypeReasoningSummaryTextDone, StreamEventTypeReasoningTextDone:
 		// Reasoning content completed - skip, content was already streamed via deltas
 		return nil // Intentionally skip this event
 
@@ -918,15 +926,21 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 				}
 			}
 		}
-		for _, toolCall := range s.state.toolCalls {
-			if toolCall.ResponseCustomToolCall != nil {
-				continue
-			}
-			if err := transformer.ValidateFunctionCall(
-				toolCall.Function.Name,
-				toolCall.Function.Arguments,
-			); err != nil {
-				return err
+		terminalStatus := ""
+		if streamEvent.Response != nil && streamEvent.Response.Status != nil {
+			terminalStatus = *streamEvent.Response.Status
+		}
+		if terminalStatus == "" || terminalStatus == "completed" {
+			for _, toolCall := range s.state.toolCalls {
+				if toolCall.ResponseCustomToolCall != nil {
+					continue
+				}
+				if err := transformer.ValidateFunctionCall(
+					toolCall.Function.Name,
+					toolCall.Function.Arguments,
+				); err != nil {
+					return err
+				}
 			}
 		}
 		s.flushPendingToolCallPayloads()
@@ -935,9 +949,23 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			s.state.transformerMetadataEmitted = true
 		}
 
-		finishReason := "stop"
-		if len(s.state.toolCalls) > 0 {
-			finishReason = "tool_calls"
+		finishReason := ""
+		switch terminalStatus {
+		case "incomplete":
+			finishReason = "length"
+			if streamEvent.Response != nil && streamEvent.Response.IncompleteDetails != nil &&
+				streamEvent.Response.IncompleteDetails.Reason == "content_filter" {
+				finishReason = "content_filter"
+			}
+		case "failed":
+			finishReason = "error"
+		case "cancelled", "canceled":
+			finishReason = "cancelled"
+		default:
+			finishReason = "stop"
+			if len(s.state.toolCalls) > 0 {
+				finishReason = "tool_calls"
+			}
 		}
 
 		// First event: finish_reason with empty delta
@@ -975,6 +1003,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		resp.Choices = []llm.Choice{
 			{
 				Index:        0,
+				Delta:        &llm.Message{},
 				FinishReason: &finishReason,
 			},
 		}
@@ -986,6 +1015,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		resp.Choices = []llm.Choice{
 			{
 				Index:        0,
+				Delta:        &llm.Message{},
 				FinishReason: &finishReason,
 			},
 		}
@@ -997,6 +1027,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		resp.Choices = []llm.Choice{
 			{
 				Index:        0,
+				Delta:        &llm.Message{},
 				FinishReason: &finishReason,
 			},
 		}

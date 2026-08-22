@@ -1207,6 +1207,55 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 	return nil
 }
 
+// UpdateRequestExecutionCompletedWithAggregationIncomplete records a confirmed
+// provider success when the diagnostic stream aggregator could not construct a
+// complete response body. Aggregation is an evidence concern and must not turn
+// a successfully forwarded execution into a channel/provider failure.
+func (s *RequestService) UpdateRequestExecutionCompletedWithAggregationIncomplete(
+	ctx context.Context,
+	executionID int,
+	metrics *LatencyMetrics,
+) error {
+	client := s.entFromContext(ctx)
+	execution, err := client.RequestExecution.Get(ctx, executionID)
+	if err != nil {
+		return err
+	}
+	if isTerminalRequestExecutionStatus(execution.Status) {
+		return nil
+	}
+
+	disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+	failureClass := "stream_aggregation_incomplete"
+	disposition.ResponseBody = objects.Disposition{
+		Intent:       "persist",
+		Location:     "none",
+		Outcome:      "unavailable",
+		CapturedAt:   time.Now().UTC(),
+		FailureClass: &failureClass,
+	}
+	upd := client.RequestExecution.UpdateOneID(executionID).
+		Where(requestexecution.StatusIn(requestexecution.StatusPending, requestexecution.StatusProcessing)).
+		SetStatus(requestexecution.StatusCompleted).
+		SetEvidenceDisposition(disposition)
+	if metrics != nil {
+		if metrics.LatencyMs != nil {
+			upd = upd.SetMetricsLatencyMs(*metrics.LatencyMs)
+		}
+		if metrics.FirstTokenLatencyMs != nil {
+			upd = upd.SetMetricsFirstTokenLatencyMs(*metrics.FirstTokenLatencyMs)
+		}
+		if metrics.ReasoningDurationMs != nil {
+			upd = upd.SetMetricsReasoningDurationMs(*metrics.ReasoningDurationMs)
+		}
+	}
+	_, err = upd.Save(ctx)
+	if err != nil && requestExecutionTerminalUpdateWasNoop(ctx, client, executionID, err) {
+		return nil
+	}
+	return err
+}
+
 // UpdateRequestExecutionCanceled updates request execution status to canceled with error message.
 func (s *RequestService) UpdateRequestExecutionCanceled(
 	ctx context.Context,

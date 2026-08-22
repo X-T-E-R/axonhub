@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/tidwall/gjson"
+
 	"github.com/looplj/axonhub/internal/dumper"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
@@ -22,16 +24,18 @@ import (
 //
 //nolint:containedctx // Checked.
 type InboundPersistentStream struct {
-	ctx            context.Context
-	stream         streams.Stream[*httpclient.StreamEvent]
-	request        *ent.Request
-	requestExec    *ent.RequestExecution
-	requestService *biz.RequestService
-	transformer    transformer.Inbound
-	perf           *biz.PerformanceRecord
-	responseChunks []*httpclient.StreamEvent
-	closed         bool
-	state          *PersistenceState
+	ctx             context.Context
+	stream          streams.Stream[*httpclient.StreamEvent]
+	request         *ent.Request
+	requestExec     *ent.RequestExecution
+	requestService  *biz.RequestService
+	transformer     transformer.Inbound
+	perf            *biz.PerformanceRecord
+	responseChunks  []*httpclient.StreamEvent
+	closed          bool
+	state           *PersistenceState
+	streamCompleted bool
+	providerStatus  streamTerminalStatus
 }
 
 var _ streams.Stream[*httpclient.StreamEvent] = (*InboundPersistentStream)(nil)
@@ -72,8 +76,14 @@ func (ts *InboundPersistentStream) Current() *httpclient.StreamEvent {
 		// For raw binary audio chunks (TTS stream_format=audio), persist only a size
 		// summary to avoid buffering the full audio payload in memory.
 		ts.responseChunks = append(ts.responseChunks, httpclient.SummarizeBinaryChunk(event))
-		if isTerminalStreamEvent(event) {
+		status := terminalStreamStatus(event)
+		switch status {
+		case streamTerminalCompleted:
+			ts.streamCompleted = true
 			ts.state.StreamCompleted = true
+		case streamTerminalFailed, streamTerminalIncomplete, streamTerminalCanceled:
+			ts.providerStatus = status
+			ts.state.recordProviderTerminalStatus(status)
 		}
 	}
 
@@ -83,17 +93,76 @@ func (ts *InboundPersistentStream) Current() *httpclient.StreamEvent {
 // isTerminalStreamEvent checks if the event represents the end of a successfully completed stream.
 // For Chat Completions API this is the raw [DONE] event; for Responses API this is response.completed.
 func isTerminalStreamEvent(event *httpclient.StreamEvent) bool {
-	// For chat completions, check for [DONE] event
-	return bytes.Equal(event.Data, llm.DoneStreamEvent.Data) ||
-		// For Responses API, check for response.completed event
-		event.Type == "response.completed" ||
-		// For Anthropic Messages API, check for message_stop event
-		event.Type == "message_stop" ||
-		// For OpenAI audio APIs (TTS sse / STT stream) which have no [DONE] sentinel:
-		// rely on the terminal *.done event surfaced as StreamEvent.Type.
-		event.Type == "speech.audio.done" ||
-		event.Type == "transcript.text.done" ||
-		event.Type == httpclient.BinaryStreamDoneEventType
+	return terminalStreamStatus(event) == streamTerminalCompleted
+}
+
+type streamTerminalStatus uint8
+
+const (
+	streamTerminalNone streamTerminalStatus = iota
+	streamTerminalCompleted
+	streamTerminalFailed
+	streamTerminalIncomplete
+	streamTerminalCanceled
+)
+
+func terminalStreamStatus(event *httpclient.StreamEvent) streamTerminalStatus {
+	if event == nil {
+		return streamTerminalNone
+	}
+	if bytes.Equal(event.Data, llm.DoneStreamEvent.Data) {
+		return streamTerminalCompleted
+	}
+
+	eventType := event.Type
+	if eventType == "" {
+		eventType = gjson.GetBytes(event.Data, "type").String()
+	}
+	switch eventType {
+	case "response.failed":
+		return streamTerminalFailed
+	case "response.incomplete":
+		return streamTerminalIncomplete
+	case "response.cancelled", "response.canceled":
+		return streamTerminalCanceled
+	case "response.completed":
+		switch gjson.GetBytes(event.Data, "response.status").String() {
+		case "failed":
+			return streamTerminalFailed
+		case "incomplete":
+			return streamTerminalIncomplete
+		case "cancelled", "canceled":
+			return streamTerminalCanceled
+		default:
+			return streamTerminalCompleted
+		}
+	case "message_stop", "speech.audio.done", "transcript.text.done", httpclient.BinaryStreamDoneEventType:
+		return streamTerminalCompleted
+	}
+
+	choices := gjson.GetBytes(event.Data, "choices")
+	if !choices.IsArray() {
+		return streamTerminalNone
+	}
+	status := streamTerminalNone
+	choices.ForEach(func(_, choice gjson.Result) bool {
+		finishReason := choice.Get("finish_reason")
+		if finishReason.Type != gjson.String || finishReason.String() == "" {
+			return true
+		}
+		switch finishReason.String() {
+		case "error":
+			status = streamTerminalFailed
+		case "length", "content_filter":
+			status = streamTerminalIncomplete
+		case "cancelled", "canceled":
+			status = streamTerminalCanceled
+		default:
+			status = streamTerminalCompleted
+		}
+		return false
+	})
+	return status
 }
 
 func (ts *InboundPersistentStream) Err() error {
@@ -107,8 +176,12 @@ func (ts *InboundPersistentStream) Close() error {
 
 	ts.closed = true
 	ctx := ts.ctx
+	// The wrapped transformed stream owns RequestExecution finalization. Close
+	// it before persisting the parent Request so the parent cannot become
+	// terminal while its current execution is still processing.
+	closeErr := ts.stream.Close()
 
-	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", ts.state.StreamCompleted))
+	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", ts.streamCompleted))
 
 	streamErr := ts.stream.Err()
 	ctxErr := ctx.Err()
@@ -133,18 +206,27 @@ func (ts *InboundPersistentStream) Close() error {
 			ts.persistTerminalStreamFailure(ctx, streamErr)
 		}
 
-		return ts.stream.Close()
+		return closeErr
+	}
+
+	providerStatus := ts.providerStatus
+	if providerStatus == streamTerminalNone {
+		providerStatus = ts.state.providerTerminalOutcome()
+	}
+	if providerStatus != streamTerminalNone {
+		ts.persistProviderTerminalStatus(ctx, providerStatus)
+		return closeErr
 	}
 
 	// If we received the [DONE] event, treat the stream as successfully completed
 	// even if there's a context cancellation error. This handles the case where
 	// the client disconnects immediately after receiving the last chunk.
-	if ts.state.StreamCompleted {
+	if ts.streamCompleted {
 		// Stream completed successfully - perform final persistence
 		log.Debug(ctx, "Stream completed successfully (received terminal event), performing final persistence")
 		ts.persistResponseChunks(ctx)
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	// If we haven't received a terminal event, check if the chunks we DO have form a complete response.
@@ -154,37 +236,38 @@ func (ts *InboundPersistentStream) Close() error {
 	var meta llm.ResponseMeta
 	var aggErr error
 
-	if len(ts.responseChunks) > 0 && !ts.state.StreamCompleted {
+	if len(ts.responseChunks) > 0 && !ts.streamCompleted {
 		responseBody, meta, aggErr = ts.transformer.AggregateStreamChunks(context.WithoutCancel(ctx), ts.responseChunks)
 		if aggErr == nil && meta.ID != "" && len(responseBody) > 0 && isCompletedAggregated(meta) {
 			log.Debug(ctx, "Stream has valid complete response without terminal event, treating as completed")
+			ts.streamCompleted = true
 			ts.state.StreamCompleted = true
 		}
 	}
 
 	// Check if context was canceled (client disconnected before [DONE]).
 	// Skip the error path if we determined the stream actually completed successfully above.
-	if (ctxErr != nil || streamErr != nil) && !ts.state.StreamCompleted {
+	if (ctxErr != nil || streamErr != nil) && !ts.streamCompleted {
 		errToReport := streamErr
 		if errToReport == nil {
 			errToReport = ctxErr
 		}
 		ts.persistTerminalStreamFailure(ctx, errToReport)
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	// If the stream ended without a terminal event and we couldn't determine it was
 	// completed through aggregation, mark it as incomplete/failed. This handles the case
 	// where the upstream connection drops silently (EOF) without sending a terminal event,
 	// which would otherwise fall through and incorrectly mark the request as "completed".
-	if !ts.state.StreamCompleted {
+	if !ts.streamCompleted {
 		log.Debug(ctx, "Stream ended without terminal event or completed response, treating as incomplete")
 
 		errToReport := errors.New("stream ended without terminal event or completed response")
 		ts.persistTerminalStreamFailure(ctx, errToReport)
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	// Stream completed successfully - perform final persistence
@@ -197,7 +280,26 @@ func (ts *InboundPersistentStream) Close() error {
 		ts.persistResponseChunks(ctx)
 	}
 
-	return ts.stream.Close()
+	return closeErr
+}
+
+func (ts *InboundPersistentStream) persistProviderTerminalStatus(ctx context.Context, status streamTerminalStatus) {
+	if ts.request == nil {
+		return
+	}
+
+	statusCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var err error
+	if status == streamTerminalCanceled {
+		err = ts.requestService.MarkRequestCanceled(statusCtx, ts.request.ID)
+	} else {
+		err = ts.requestService.MarkRequestFailed(statusCtx, ts.request.ID)
+	}
+	if err != nil {
+		log.Warn(statusCtx, "Failed to persist provider terminal request status", log.Cause(err))
+	}
+	ts.persistTerminalStreamFailureChunks(ctx)
 }
 
 func (ts *InboundPersistentStream) persistTerminalStreamFailure(ctx context.Context, streamErr error) {

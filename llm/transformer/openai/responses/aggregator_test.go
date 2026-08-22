@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/internal/pkg/xtest"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 func TestAggregateStreamChunks(t *testing.T) {
@@ -234,6 +236,132 @@ func TestAggregateStreamChunks_CompletedResponseOutputSnapshot(t *testing.T) {
 		require.NotNil(t, resp.Output[1].Input)
 		require.Equal(t, "echo done", *resp.Output[1].Input)
 	})
+}
+
+func TestAggregateStreamChunks_TerminalPayloadPresenceAndIdentity(t *testing.T) {
+	t.Run("missing terminal fields preserve assembled deltas and call id resolves done", func(t *testing.T) {
+		resp := aggregateResponseEvents(t,
+			`{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_a","type":"function_call","status":"in_progress","call_id":"call_a","name":"lookup","arguments":""}}`,
+			`{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_b","type":"function_call","status":"in_progress","call_id":"call_b","name":"wait","arguments":""}}`,
+			`{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_a","delta":"{\"city\":\"Paris\"}"}`,
+			`{"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_b","delta":"{\"ms\":1}"}`,
+			`{"type":"response.function_call_arguments.done","output_index":1,"call_id":"call_b","arguments":"{\"ms\":2}"}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"id":"fc_a","type":"function_call","status":"completed","call_id":"call_a","name":"lookup"}}`,
+			`{"type":"response.completed","response":{"id":"resp_presence","model":"gpt-test","status":"completed","output":[{"id":"fc_a","type":"function_call","status":"completed","call_id":"call_a","name":"lookup"},{"id":"fc_b","type":"function_call","status":"completed","call_id":"call_b","name":"wait"}]}}`,
+		)
+		require.Len(t, resp.Output, 2)
+		require.JSONEq(t, `{"city":"Paris"}`, resp.Output[0].Arguments)
+		require.JSONEq(t, `{"ms":2}`, resp.Output[1].Arguments)
+	})
+
+	t.Run("explicit empty terminal arguments remain malformed", func(t *testing.T) {
+		chunks := []*httpclient.StreamEvent{
+			{Data: []byte(`{"type":"response.output_item.added","output_index":0,"item":{"id":"fc","type":"function_call","call_id":"call","name":"lookup","arguments":""}}`)},
+			{Data: []byte(`{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc","delta":"{}"}`)},
+			{Data: []byte(`{"type":"response.output_item.done","output_index":0,"item":{"id":"fc","type":"function_call","status":"completed","call_id":"call","name":"lookup","arguments":""}}`)},
+			{Data: []byte(`{"type":"response.completed","response":{"id":"resp_empty","model":"gpt-test","status":"completed","output":[]}}`)},
+		}
+		_, _, err := AggregateStreamChunks(t.Context(), chunks)
+		require.ErrorIs(t, err, transformer.ErrToolCallIntegrity)
+	})
+
+	t.Run("custom tool omitted input preserves deltas while explicit empty wins", func(t *testing.T) {
+		preserved := aggregateResponseEvents(t,
+			`{"type":"response.output_item.added","output_index":0,"item":{"id":"custom","type":"custom_tool_call","call_id":"call_custom","name":"shell","input":""}}`,
+			`{"type":"response.custom_tool_call_input.delta","output_index":0,"item_id":"custom","delta":"echo ok"}`,
+			`{"type":"response.custom_tool_call_input.done","output_index":0,"call_id":"call_custom"}`,
+			`{"type":"response.completed","response":{"id":"resp_custom","model":"gpt-test","status":"completed","output":[]}}`,
+		)
+		require.Equal(t, "echo ok", lo.FromPtr(preserved.Output[0].Input))
+
+		empty := aggregateResponseEvents(t,
+			`{"type":"response.output_item.added","output_index":0,"item":{"id":"custom","type":"custom_tool_call","call_id":"call_custom","name":"shell","input":""}}`,
+			`{"type":"response.custom_tool_call_input.delta","output_index":0,"item_id":"custom","delta":"echo ok"}`,
+			`{"type":"response.custom_tool_call_input.done","output_index":0,"call_id":"call_custom","input":""}`,
+			`{"type":"response.completed","response":{"id":"resp_custom","model":"gpt-test","status":"completed","output":[]}}`,
+		)
+		require.Equal(t, "", lo.FromPtr(empty.Output[0].Input))
+	})
+}
+
+func TestStreamAggregator_ProgrammaticTerminalSnapshotsCarryFunctionArguments(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		want     string
+		terminal *StreamEvent
+	}{
+		{
+			name: "arguments done", want: `{"source":"arguments.done"}`,
+			terminal: &StreamEvent{
+				Type: StreamEventTypeFunctionCallArgumentsDone, OutputIndex: 0,
+				CallID: "call_snapshot", Arguments: `{"source":"arguments.done"}`,
+			},
+		},
+		{
+			name: "output item done", want: `{"source":"item.done"}`,
+			terminal: &StreamEvent{
+				Type: StreamEventTypeOutputItemDone, OutputIndex: 0,
+				Item: &Item{ID: "item_snapshot", Type: "function_call", CallID: "call_snapshot", Name: "lookup", Arguments: `{"source":"item.done"}`},
+			},
+		},
+		{
+			name: "response completed", want: `{"source":"response.completed"}`,
+			terminal: &StreamEvent{
+				Type: StreamEventTypeResponseCompleted,
+				Response: &Response{Status: lo.ToPtr("completed"), Output: []Item{{
+					ID: "item_snapshot", Type: "function_call", CallID: "call_snapshot", Name: "lookup", Arguments: `{"source":"response.completed"}`,
+				}}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			agg := newStreamAggregator()
+			agg.processEvent(&StreamEvent{
+				Type: StreamEventTypeOutputItemAdded, OutputIndex: 0,
+				Item: &Item{ID: "item_snapshot", Type: "function_call", CallID: "call_snapshot", Name: "lookup"},
+			})
+			agg.processEvent(tc.terminal)
+			response := agg.buildResponse()
+			require.Len(t, response.Output, 1)
+			require.JSONEq(t, tc.want, response.Output[0].Arguments)
+		})
+	}
+}
+
+func TestAggregateStreamChunks_ExplicitUnknownIdentityDoesNotFallBackToOutputIndex(t *testing.T) {
+	response := aggregateResponseEvents(t,
+		`{"type":"response.output_item.added","output_index":0,"item":{"id":"item_a","type":"function_call","call_id":"call_a","name":"lookup","arguments":""}}`,
+		`{"type":"response.output_item.added","output_index":0,"item":{"id":"item_b","type":"function_call","call_id":"call_b","name":"lookup","arguments":""}}`,
+		`{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"unknown_item","delta":"{\"corrupt\":true}"}`,
+		`{"type":"response.function_call_arguments.done","output_index":0,"item_id":"item_a","arguments":"{\"a\":1}"}`,
+		`{"type":"response.function_call_arguments.done","output_index":0,"call_id":"call_b","arguments":"{\"b\":2}"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"unknown_item","type":"function_call","call_id":"unknown_call","name":"lookup","arguments":"{\"corrupt\":true}"}}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"id":"item_c","type":"function_call","call_id":"call_c","name":"lookup","arguments":""}}`,
+		`{"type":"response.function_call_arguments.done","output_index":1,"arguments":"{\"c\":3}"}`,
+		`{"type":"response.completed","response":{"id":"resp_identity","model":"gpt-test","status":"completed","output":[]}}`,
+	)
+	require.Len(t, response.Output, 3)
+	require.JSONEq(t, `{"a":1}`, response.Output[0].Arguments)
+	require.JSONEq(t, `{"b":2}`, response.Output[1].Arguments)
+	require.JSONEq(t, `{"c":3}`, response.Output[2].Arguments)
+	for _, item := range response.Output {
+		require.NotContains(t, item.Arguments, "corrupt")
+	}
+}
+
+func TestAggregateStreamChunks_ReasoningTextBoundedContentIndex(t *testing.T) {
+	resp := aggregateResponseEvents(t,
+		`{"type":"response.output_item.added","output_index":0,"item":{"id":"reasoning","type":"reasoning","status":"in_progress","summary":[]}}`,
+		`{"type":"response.reasoning_text.delta","output_index":0,"item_id":"reasoning","content_index":1023,"delta":"bounded"}`,
+		`{"type":"response.reasoning_text.done","output_index":0,"item_id":"reasoning","content_index":1023,"text":"bounded done"}`,
+		`{"type":"response.reasoning_text.delta","output_index":0,"item_id":"reasoning","content_index":1024,"delta":"ignored"}`,
+		`{"type":"response.reasoning_text.delta","output_index":0,"item_id":"reasoning","delta":"missing index ignored"}`,
+		`{"type":"response.completed","response":{"id":"resp_reasoning","model":"gpt-test","status":"completed","output":[]}}`,
+	)
+	require.Len(t, resp.Output, 1)
+	content := resp.Output[0].GetContentItems()
+	require.Len(t, content, 1024)
+	require.Equal(t, "bounded done", content[1023].Text)
 }
 
 func aggregateResponseEvents(t *testing.T, events ...string) Response {

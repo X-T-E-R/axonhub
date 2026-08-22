@@ -65,6 +65,9 @@ type PersistenceState struct {
 	// versus a stream that completed successfully but the client disconnected
 	// immediately after receiving the last chunk.
 	StreamCompleted bool
+	// providerTerminalStatus records an abnormal provider-declared terminal
+	// outcome that arrived as a valid stream event rather than a transport error.
+	providerTerminalStatus streamTerminalStatus
 
 	// RawProviderResponse stores the raw provider response for non-stream response pass-through.
 	RawProviderResponse *httpclient.Response
@@ -93,6 +96,37 @@ type PersistenceState struct {
 	deferredStreamError               error
 	deferredRequestFailurePersisted   bool
 	deferredExecutionFailurePersisted bool
+}
+
+func (s *PersistenceState) recordProviderTerminalStatus(status streamTerminalStatus) {
+	if s == nil || status == streamTerminalNone || status == streamTerminalCompleted {
+		return
+	}
+	s.deferredFailureMu.Lock()
+	s.providerTerminalStatus = status
+	s.deferredFailureMu.Unlock()
+}
+
+func (s *PersistenceState) resetStreamTerminalState() {
+	if s == nil {
+		return
+	}
+	s.deferredFailureMu.Lock()
+	s.StreamCompleted = false
+	s.providerTerminalStatus = streamTerminalNone
+	s.deferredStreamError = nil
+	s.deferredRequestFailurePersisted = false
+	s.deferredExecutionFailurePersisted = false
+	s.deferredFailureMu.Unlock()
+}
+
+func (s *PersistenceState) providerTerminalOutcome() streamTerminalStatus {
+	if s == nil {
+		return streamTerminalNone
+	}
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+	return s.providerTerminalStatus
 }
 
 func (s *PersistenceState) recordDeferredRequestFailure(err error, persisted bool) {

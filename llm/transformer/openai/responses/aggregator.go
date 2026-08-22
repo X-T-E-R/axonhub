@@ -13,6 +13,10 @@ import (
 	"github.com/looplj/axonhub/llm/transformer"
 )
 
+// Responses providers control content_index. Keep the dense representation
+// bounded to the provider-compatible range 0..1023.
+const maxAggregatedContentIndex = 1023
+
 // streamAggregator holds the state for aggregating stream chunks.
 type streamAggregator struct {
 	// Response metadata
@@ -88,7 +92,7 @@ func newAggregatedContentPart() *aggregatedContentPart {
 }
 
 func ensureContentPart(item *aggregatedItem, contentIndex int) *aggregatedContentPart {
-	if item == nil || contentIndex < 0 {
+	if item == nil || contentIndex < 0 || contentIndex > maxAggregatedContentIndex {
 		return nil
 	}
 
@@ -171,11 +175,22 @@ func (a *streamAggregator) itemByIdentity(identity string) *aggregatedItem {
 	return nil
 }
 
-func (a *streamAggregator) getItemForEvent(outputIndex int, itemID *string) *aggregatedItem {
+func (a *streamAggregator) getItemForEvent(outputIndex int, itemID *string, callID ...string) *aggregatedItem {
+	explicitIdentity := false
 	if itemID != nil && *itemID != "" {
+		explicitIdentity = true
 		if item := a.itemByIdentity(*itemID); item != nil {
 			return item
 		}
+	}
+	if len(callID) > 0 && callID[0] != "" {
+		explicitIdentity = true
+		if item := a.itemByIdentity(callID[0]); item != nil {
+			return item
+		}
+	}
+	if explicitIdentity {
+		return nil
 	}
 
 	return a.lastItemByOutputIndex(outputIndex)
@@ -240,7 +255,8 @@ func AggregateStreamChunks(_ context.Context, chunks []*httpclient.StreamEvent) 
 	}
 
 	meta := llm.ResponseMeta{
-		ID: agg.responseID,
+		ID:        agg.responseID,
+		Completed: agg.status == "completed",
 	}
 
 	if agg.usage != nil {
@@ -323,7 +339,7 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 	case StreamEventTypeOutputTextDelta:
 		item := a.getItemForEvent(ev.OutputIndex, ev.ItemID)
 		if item != nil {
-			if ev.ContentIndex != nil && *ev.ContentIndex < len(item.Content) {
+			if ev.ContentIndex != nil && *ev.ContentIndex >= 0 && *ev.ContentIndex < len(item.Content) {
 				item.Content[*ev.ContentIndex].Text.WriteString(ev.Delta)
 			}
 		}
@@ -331,55 +347,48 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 	case StreamEventTypeOutputTextDone:
 		item := a.getItemForEvent(ev.OutputIndex, ev.ItemID)
 		if item != nil {
-			if ev.ContentIndex != nil && *ev.ContentIndex < len(item.Content) && ev.Text != "" {
+			if ev.ContentIndex != nil && *ev.ContentIndex >= 0 && *ev.ContentIndex < len(item.Content) && ev.Text != "" {
 				applyDoneText(item.Content[*ev.ContentIndex].Text, ev.Text)
 			}
 		}
 
 	case StreamEventTypeFunctionCallArgumentsDelta:
-		// Find item by item_id
-		if ev.ItemID != nil {
-			if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID); item != nil {
-				item.Arguments.WriteString(ev.Delta)
-			}
+		if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID, ev.CallID); item != nil {
+			item.Arguments.WriteString(ev.Delta)
 		}
 
 	case StreamEventTypeFunctionCallArgumentsDone:
 		// Find item and finalize arguments
-		if ev.ItemID != nil {
-			if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID); item != nil {
-				if ev.Name != "" {
-					item.Name = ev.Name
-				}
+		if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID, ev.CallID); item != nil {
+			if ev.Name != "" {
+				item.Name = ev.Name
+			}
 
-				if ev.Namespace != "" {
-					item.Namespace = ev.Namespace
-				}
+			if ev.Namespace != "" {
+				item.Namespace = ev.Namespace
+			}
 
-				if ev.Arguments != "" {
-					// Replace accumulated arguments with final version
-					item.Arguments.Reset()
-					item.Arguments.WriteString(ev.Arguments)
-				}
+			if ev.ArgumentsPresent || ev.Arguments != "" {
+				// Replace accumulated arguments with final version.
+				// Nonempty values also cover programmatically constructed events,
+				// while ArgumentsPresent preserves explicit-empty wire semantics.
+				item.Arguments.Reset()
+				item.Arguments.WriteString(ev.Arguments)
 			}
 		}
 
 	case StreamEventTypeCustomToolCallInputDelta:
 		// Accumulate custom tool call input delta
-		if ev.ItemID != nil {
-			if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID); item != nil {
-				current := lo.FromPtr(item.Input)
-				item.Input = lo.ToPtr(current + ev.Delta)
-			}
+		if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID, ev.CallID); item != nil {
+			current := lo.FromPtr(item.Input)
+			item.Input = lo.ToPtr(current + ev.Delta)
 		}
 
 	case StreamEventTypeCustomToolCallInputDone:
 		// Finalize custom tool call input
-		if ev.ItemID != nil {
-			if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID); item != nil {
-				if ev.Input != "" {
-					item.Input = lo.ToPtr(ev.Input)
-				}
+		if item := a.getItemForEvent(ev.OutputIndex, ev.ItemID, ev.CallID); item != nil {
+			if ev.InputPresent || ev.Input != "" {
+				item.Input = lo.ToPtr(ev.Input)
 			}
 		}
 
@@ -480,13 +489,40 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 		applyDoneText(part.Text, ev.Text)
 		part.Final = true
 
+	case StreamEventTypeReasoningTextDelta, StreamEventTypeReasoningTextDone:
+		if ev.ContentIndex == nil {
+			return
+		}
+		contentIndex := *ev.ContentIndex
+		if contentIndex < 0 || contentIndex > maxAggregatedContentIndex {
+			return
+		}
+		item := a.getItemForEvent(ev.OutputIndex, ev.ItemID)
+		if item == nil {
+			item = newAggregatedItem()
+			item.Type = "reasoning"
+			item.Status = "in_progress"
+			if ev.ItemID != nil && *ev.ItemID != "" {
+				item.ID = *ev.ItemID
+				a.outputItemsByID[item.ID] = item
+			}
+			a.outputItems[ev.OutputIndex] = append(a.outputItems[ev.OutputIndex], item)
+		}
+		part := ensureContentPart(item, contentIndex)
+		if part == nil {
+			return
+		}
+		part.Type = "reasoning_text"
+		if ev.Type == StreamEventTypeReasoningTextDone {
+			applyDoneText(part.Text, ev.Text)
+		} else {
+			part.Text.WriteString(ev.Delta)
+		}
+
 	case StreamEventTypeOutputItemDone:
 		// Mark item as completed and update with final data
 		if ev.Item != nil {
-			item := a.outputItemsByID[ev.Item.ID]
-			if item == nil {
-				item = a.lastItemByOutputIndex(ev.OutputIndex)
-			}
+			item := a.getItemForEvent(ev.OutputIndex, &ev.Item.ID, ev.Item.CallID)
 
 			if item != nil {
 				if ev.Item.Status != nil {
@@ -498,7 +534,7 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 				}
 
 				// Update with final data if provided
-				if ev.Item.Arguments != "" {
+				if ev.Item.ArgumentsPresent || ev.Item.Arguments != "" {
 					item.Arguments.Reset()
 					item.Arguments.WriteString(ev.Item.Arguments)
 				}
@@ -536,6 +572,10 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 
 				if ev.Item.Result != nil {
 					item.Result = ev.Item.Result
+				}
+
+				if ev.Item.Input != nil {
+					item.Input = ev.Item.Input
 				}
 			}
 		}
@@ -684,8 +724,10 @@ func (a *streamAggregator) applyOutputItemSnapshot(item *aggregatedItem, snapsho
 		}
 
 	case "function_call":
-		item.Arguments.Reset()
-		item.Arguments.WriteString(snapshot.Arguments)
+		if snapshot.ArgumentsPresent || snapshot.Arguments != "" {
+			item.Arguments.Reset()
+			item.Arguments.WriteString(snapshot.Arguments)
+		}
 
 	case "custom_tool_call":
 		if snapshot.Input != nil {
@@ -807,11 +849,26 @@ func (a *streamAggregator) buildResponse() *Response {
 						}
 					}
 
+					var content *Input
+					if len(item.Content) > 0 {
+						contentItems := make([]Item, 0, len(item.Content))
+						for _, part := range item.Content {
+							text := part.Text.String()
+							partType := part.Type
+							if partType == "" {
+								partType = "reasoning_text"
+							}
+							contentItems = append(contentItems, Item{Type: partType, Text: &text})
+						}
+						content = &Input{Items: contentItems}
+					}
+
 					output = append(output, Item{
 						ID:               item.ID,
 						Type:             item.Type,
 						Status:           lo.ToPtr(item.Status),
 						Summary:          summary,
+						Content:          content,
 						EncryptedContent: item.EncryptedContent,
 					})
 				}

@@ -1072,6 +1072,238 @@ func TestOutboundPersistentStream_Close_AggregatedResponsesCompletionHandling(t 
 	})
 }
 
+func TestOutboundPersistentStream_ProviderSuccessAggregationFailureCompletesWithEvidenceGap(t *testing.T) {
+	ctx := authz.WithTestBypass(context.Background())
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+	ctx = ent.NewContext(ctx, client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+	project := createTestProject(t, ctx, client)
+	channel := createTestChannel(t, ctx, client)
+	_, requestService, systemService, usageLogService := setupTestServices(t, client)
+	require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{StoreChunks: true, StoreResponseBody: true}))
+	req, err := client.Request.Create().SetProjectID(project.ID).SetChannelID(channel.ID).
+		SetModelID("gpt-5").SetStatus(request.StatusProcessing).SetRequestBody([]byte(`{"stream":true}`)).Save(ctx)
+	require.NoError(t, err)
+	exec, err := client.RequestExecution.Create().SetRequestID(req.ID).SetProjectID(project.ID).
+		SetChannelID(channel.ID).SetModelID("gpt-5").SetFormat("openai/responses").
+		SetStatus(requestexecution.StatusProcessing).SetStream(true).SetRequestBody([]byte(`{"stream":true}`)).Save(ctx)
+	require.NoError(t, err)
+
+	aggregateErr := errors.New("malformed diagnostic tool payload")
+	raw := &sliceEventStream{events: []*httpclient.StreamEvent{{
+		Type: "response.completed",
+		Data: []byte(`{"type":"response.completed","response":{"id":"resp_ok","status":"completed","output":[]}}`),
+	}}}
+	state := &PersistenceState{}
+	stream := NewOutboundPersistentStream(ctx, raw, req, exec, requestService, usageLogService,
+		&mockTransformer{apiFormat: llm.APIFormatOpenAIResponse, aggregatedErr: aggregateErr}, nil, state)
+	for stream.Next() {
+		_ = stream.Current()
+	}
+	require.NoError(t, stream.Close())
+
+	updated, err := client.RequestExecution.Get(ctx, exec.ID)
+	require.NoError(t, err)
+	require.Equal(t, requestexecution.StatusCompleted, updated.Status)
+	require.Empty(t, updated.ErrorMessage)
+	require.Empty(t, updated.ResponseBody)
+	require.NotNil(t, updated.EvidenceDisposition)
+	require.Equal(t, "unavailable", updated.EvidenceDisposition.ResponseBody.Outcome)
+	require.Equal(t, "stream_aggregation_incomplete", lo.FromPtr(updated.EvidenceDisposition.ResponseBody.FailureClass))
+	require.NotEmpty(t, updated.ResponseChunks)
+	usageCount, err := client.UsageLog.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, usageCount)
+}
+
+func TestOutboundPersistentStream_ResponsesAbnormalTerminalStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		eventType  string
+		status     string
+		wantStatus requestexecution.Status
+	}{
+		{name: "failed", eventType: "response.failed", status: "failed", wantStatus: requestexecution.StatusFailed},
+		{name: "incomplete", eventType: "response.completed", status: "incomplete", wantStatus: requestexecution.StatusFailed},
+		{name: "cancelled", eventType: "response.cancelled", status: "cancelled", wantStatus: requestexecution.StatusCanceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := authz.WithTestBypass(context.Background())
+			client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+			defer client.Close()
+			ctx = ent.NewContext(ctx, client)
+			project := createTestProject(t, ctx, client)
+			channel := createTestChannel(t, ctx, client)
+			_, requestService, _, usageLogService := setupTestServices(t, client)
+			req, err := client.Request.Create().SetProjectID(project.ID).SetChannelID(channel.ID).
+				SetModelID("gpt-5").SetStatus(request.StatusProcessing).SetRequestBody([]byte(`{}`)).Save(ctx)
+			require.NoError(t, err)
+			exec, err := client.RequestExecution.Create().SetRequestID(req.ID).SetProjectID(project.ID).
+				SetChannelID(channel.ID).SetModelID("gpt-5").SetFormat("openai/responses").
+				SetStatus(requestexecution.StatusProcessing).SetStream(true).SetRequestBody([]byte(`{}`)).Save(ctx)
+			require.NoError(t, err)
+			data := []byte(fmt.Sprintf(`{"type":%q,"response":{"id":"resp_terminal","status":%q,"output":[]}}`, tc.eventType, tc.status))
+			raw := &sliceEventStream{events: []*httpclient.StreamEvent{{Type: tc.eventType, Data: data}}}
+			stream := NewOutboundPersistentStream(ctx, raw, req, exec, requestService, usageLogService,
+				&mockTransformer{apiFormat: llm.APIFormatOpenAIResponse}, nil, &PersistenceState{})
+			for stream.Next() {
+				_ = stream.Current()
+			}
+			require.NoError(t, stream.Close())
+			updated, err := client.RequestExecution.Get(ctx, exec.ID)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantStatus, updated.Status)
+			require.Empty(t, updated.ResponseBody)
+		})
+	}
+}
+
+func TestPersistentStreams_ResponsesAbnormalTerminalKeepsParentAndExecutionConsistent(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		eventType           string
+		status              string
+		wantRequestStatus   request.Status
+		wantExecutionStatus requestexecution.Status
+	}{
+		{
+			name:                "failed",
+			eventType:           "response.failed",
+			status:              "failed",
+			wantRequestStatus:   request.StatusFailed,
+			wantExecutionStatus: requestexecution.StatusFailed,
+		},
+		{
+			name:                "incomplete",
+			eventType:           "response.completed",
+			status:              "incomplete",
+			wantRequestStatus:   request.StatusFailed,
+			wantExecutionStatus: requestexecution.StatusFailed,
+		},
+		{
+			name:                "cancelled",
+			eventType:           "response.cancelled",
+			status:              "cancelled",
+			wantRequestStatus:   request.StatusCanceled,
+			wantExecutionStatus: requestexecution.StatusCanceled,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+			t.Cleanup(func() { _ = client.Close() })
+			ctx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+			createOutboundTestPrimaryDataStorage(t, ctx, client)
+			project := createTestProject(t, ctx, client)
+			channel := createTestChannel(t, ctx, client)
+			_, requestService, _, usageLogService := setupTestServices(t, client)
+			req := client.Request.Create().SetProjectID(project.ID).SetChannelID(channel.ID).SetModelID("gpt-5").
+				SetStatus(request.StatusProcessing).SetRequestBody([]byte(`{}`)).SaveX(ctx)
+			exec := client.RequestExecution.Create().SetRequestID(req.ID).SetProjectID(project.ID).SetChannelID(channel.ID).
+				SetModelID("gpt-5").SetFormat("openai/responses").SetStatus(requestexecution.StatusProcessing).
+				SetStream(true).SetRequestBody([]byte(`{}`)).SaveX(ctx)
+
+			data := []byte(fmt.Sprintf(`{"type":%q,"response":{"id":"resp_terminal","status":%q,"output":[]}}`, tc.eventType, tc.status))
+			event := &httpclient.StreamEvent{Type: tc.eventType, Data: data}
+			state := &PersistenceState{}
+			outbound := NewOutboundPersistentStream(ctx, &sliceEventStream{events: []*httpclient.StreamEvent{event}}, req, exec,
+				requestService, usageLogService, &mockTransformer{apiFormat: llm.APIFormatOpenAIResponse}, nil, state)
+			inbound := NewInboundPersistentStream(ctx, outbound, req, exec, requestService, &mockInboundTransformer{}, nil, state)
+			require.True(t, inbound.Next())
+			_ = inbound.Current()
+			require.NoError(t, inbound.Close())
+			require.Equal(t, tc.wantRequestStatus, client.Request.GetX(ctx, req.ID).Status)
+			require.Equal(t, tc.wantExecutionStatus, client.RequestExecution.GetX(ctx, exec.ID).Status)
+		})
+	}
+}
+
+func TestOutboundPersistentStream_RetryAttemptTerminalStateIsIsolated(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	t.Cleanup(func() { _ = client.Close() })
+	ctx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+	project := createTestProject(t, ctx, client)
+	channel := createTestChannel(t, ctx, client)
+	_, requestService, _, usageLogService := setupTestServices(t, client)
+	req := client.Request.Create().SetProjectID(project.ID).SetChannelID(channel.ID).SetModelID("gpt-5").
+		SetStatus(request.StatusProcessing).SetRequestBody([]byte(`{}`)).SaveX(ctx)
+	makeExecution := func() *ent.RequestExecution {
+		return client.RequestExecution.Create().SetRequestID(req.ID).SetProjectID(project.ID).SetChannelID(channel.ID).
+			SetModelID("gpt-5").SetFormat("openai/responses").SetStatus(requestexecution.StatusProcessing).
+			SetStream(true).SetRequestBody([]byte(`{}`)).SaveX(ctx)
+	}
+	firstExec, secondExec := makeExecution(), makeExecution()
+	state := &PersistenceState{}
+	transform := &mockTransformer{
+		apiFormat:          llm.APIFormatOpenAIResponse,
+		aggregatedResponse: []byte(`{"id":"resp_first","status":"completed","output":[]}`),
+		aggregatedMeta:     llm.ResponseMeta{ID: "resp_first", Completed: true},
+	}
+	first := NewOutboundPersistentStream(ctx, &sliceEventStream{events: []*httpclient.StreamEvent{{
+		Type: "response.completed", Data: []byte(`{"type":"response.completed","response":{"status":"completed"}}`),
+	}}}, req, firstExec, requestService, usageLogService, transform, nil, state)
+	require.True(t, first.Next())
+	_ = first.Current()
+
+	state.resetStreamTerminalState()
+	second := NewOutboundPersistentStream(ctx, &sliceEventStream{events: []*httpclient.StreamEvent{{
+		Type: "response.failed", Data: []byte(`{"type":"response.failed","response":{"status":"failed"}}`),
+	}}}, req, secondExec, requestService, usageLogService, transform, nil, state)
+	require.True(t, second.Next())
+	_ = second.Current()
+
+	require.NoError(t, first.Close())
+	require.NoError(t, second.Close())
+	require.Equal(t, requestexecution.StatusCompleted, client.RequestExecution.GetX(ctx, firstExec.ID).Status)
+	require.Equal(t, requestexecution.StatusFailed, client.RequestExecution.GetX(ctx, secondExec.ID).Status)
+}
+
+func TestPersistentStreams_FinalizeExecutionBeforeParentRequest(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	t.Cleanup(func() { _ = client.Close() })
+	ctx := ent.NewContext(authz.WithTestBypass(context.Background()), client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+	project := createTestProject(t, ctx, client)
+	channel := createTestChannel(t, ctx, client)
+	_, requestService, _, usageLogService := setupTestServices(t, client)
+	req := client.Request.Create().SetProjectID(project.ID).SetChannelID(channel.ID).SetModelID("gpt-5").
+		SetStatus(request.StatusProcessing).SetRequestBody([]byte(`{}`)).SaveX(ctx)
+	exec := client.RequestExecution.Create().SetRequestID(req.ID).SetProjectID(project.ID).SetChannelID(channel.ID).
+		SetModelID("gpt-5").SetFormat("openai/responses").SetStatus(requestexecution.StatusProcessing).
+		SetStream(true).SetRequestBody([]byte(`{}`)).SaveX(ctx)
+
+	executionWasTerminal := false
+	client.Request.Use(func(next ent.Mutator) ent.Mutator {
+		return hook.RequestFunc(func(hookCtx context.Context, mutation *ent.RequestMutation) (ent.Value, error) {
+			if status, ok := mutation.Status(); ok && status == request.StatusCompleted {
+				current := client.RequestExecution.GetX(hookCtx, exec.ID)
+				executionWasTerminal = current.Status == requestexecution.StatusCompleted
+			}
+			return next.Mutate(hookCtx, mutation)
+		})
+	})
+
+	event := &httpclient.StreamEvent{Type: "response.completed", Data: []byte(`{"type":"response.completed","response":{"id":"resp_order","status":"completed","output":[]}}`)}
+	state := &PersistenceState{}
+	outbound := NewOutboundPersistentStream(ctx, &sliceEventStream{events: []*httpclient.StreamEvent{event}}, req, exec,
+		requestService, usageLogService, &mockTransformer{
+			apiFormat:          llm.APIFormatOpenAIResponse,
+			aggregatedResponse: []byte(`{"id":"resp_order","status":"completed","output":[]}`),
+			aggregatedMeta:     llm.ResponseMeta{ID: "resp_order", Completed: true},
+		}, nil, state)
+	inbound := NewInboundPersistentStream(ctx, outbound, req, exec, requestService, &mockInboundTransformer{
+		aggregateResponseBody: []byte(`{"id":"resp_order","status":"completed","output":[]}`),
+		aggregateMeta:         llm.ResponseMeta{ID: "resp_order", Completed: true},
+	}, nil, state)
+	require.True(t, inbound.Next())
+	_ = inbound.Current()
+	require.NoError(t, inbound.Close())
+	require.True(t, executionWasTerminal)
+	require.Equal(t, request.StatusCompleted, client.Request.GetX(ctx, req.ID).Status)
+	require.Equal(t, requestexecution.StatusCompleted, client.RequestExecution.GetX(ctx, exec.ID).Status)
+}
+
 func TestPersistentOutboundTransformer_TransformRequest_WithPrepopulatedState(t *testing.T) {
 	// Setup
 	ctx := context.Background()

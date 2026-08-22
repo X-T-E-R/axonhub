@@ -10,6 +10,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcontext"
 	"github.com/looplj/axonhub/internal/server/biz"
@@ -35,11 +36,13 @@ type OutboundPersistentStream struct {
 	request     *ent.Request
 	requestExec *ent.RequestExecution
 
-	transformer    transformer.Outbound
-	perf           *biz.PerformanceRecord
-	responseChunks []*httpclient.StreamEvent
-	closed         bool
-	state          *PersistenceState
+	transformer     transformer.Outbound
+	perf            *biz.PerformanceRecord
+	responseChunks  []*httpclient.StreamEvent
+	closed          bool
+	state           *PersistenceState
+	streamCompleted bool
+	providerStatus  streamTerminalStatus
 }
 
 var _ streams.Stream[*httpclient.StreamEvent] = (*OutboundPersistentStream)(nil)
@@ -86,7 +89,11 @@ func (ts *OutboundPersistentStream) Current() *httpclient.StreamEvent {
 		// For Chat Completions API this is the raw [DONE] event; for Responses API this is
 		// response.completed; for Anthropic Messages API this is message_stop.
 		if isTerminalStreamEvent(event) {
+			ts.streamCompleted = true
 			ts.state.StreamCompleted = true
+		} else if status := terminalStreamStatus(event); status != streamTerminalNone {
+			ts.providerStatus = status
+			ts.state.recordProviderTerminalStatus(status)
 		}
 	}
 
@@ -105,7 +112,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	ts.closed = true
 	ctx := ts.ctx
 
-	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", ts.state.StreamCompleted))
+	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", ts.streamCompleted))
 
 	streamErr := ts.stream.Err()
 	ctxErr := ctx.Err()
@@ -120,10 +127,15 @@ func (ts *OutboundPersistentStream) Close() error {
 		return ts.stream.Close()
 	}
 
+	if ts.providerStatus != streamTerminalNone {
+		ts.persistProviderTerminalStatus(ctx, ts.providerStatus)
+		return ts.stream.Close()
+	}
+
 	// If we received the [DONE] event, treat the stream as successfully completed
 	// even if there's a context cancellation error. This handles the case where
 	// the client disconnects immediately after receiving the last chunk.
-	if ts.state.StreamCompleted {
+	if ts.streamCompleted {
 		ts.logFinalizationDecision(ctx, "terminal_event_completed", streamErr, ctxErr, true, nil)
 		// Stream completed successfully - perform final persistence
 		log.Debug(ctx, "Stream completed successfully (received [DONE]), performing final persistence")
@@ -153,6 +165,7 @@ func (ts *OutboundPersistentStream) Close() error {
 		ts.logFinalizationDecision(ctx, "aggregated_outbound_chunks", streamErr, ctxErr, aggregatedCompleted, aggErr)
 		if aggregatedCompleted {
 			log.Debug(ctx, "Stream has valid complete response without terminal event, treating as completed")
+			ts.streamCompleted = true
 			ts.state.StreamCompleted = true
 		}
 	} else {
@@ -160,7 +173,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	}
 
 	// ended without a terminal event / complete aggregated response.
-	if (ctxErr != nil || streamErr != nil) && !ts.state.StreamCompleted {
+	if (ctxErr != nil || streamErr != nil) && !ts.streamCompleted {
 		ts.logFinalizationDecision(ctx, "incomplete_stream_with_error", streamErr, ctxErr, aggregatedCompleted, aggErr)
 
 		errToReport := streamErr
@@ -176,7 +189,7 @@ func (ts *OutboundPersistentStream) Close() error {
 		return ts.stream.Close()
 	}
 
-	if !ts.state.StreamCompleted {
+	if !ts.streamCompleted {
 		ts.logFinalizationDecision(ctx, "incomplete_stream_without_terminal_event", streamErr, ctxErr, aggregatedCompleted, aggErr)
 		errToReport := errors.New("stream ended without terminal event or completed response")
 		ts.persistTerminalStreamFailure(ctx, errToReport)
@@ -220,6 +233,31 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Con
 	ts.persistTerminalStreamFailureChunks(ctx)
 }
 
+func (ts *OutboundPersistentStream) persistProviderTerminalStatus(ctx context.Context, status streamTerminalStatus) {
+	if ts.requestExec == nil {
+		return
+	}
+
+	statusCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	message := "provider response failed"
+	var err error
+	switch status {
+	case streamTerminalCanceled:
+		message = "provider response canceled"
+		err = ts.RequestService.UpdateRequestExecutionCanceled(statusCtx, ts.requestExec.ID, message)
+	case streamTerminalIncomplete:
+		message = "provider response incomplete"
+		err = ts.RequestService.UpdateRequestExecutionFailed(statusCtx, ts.requestExec.ID, message, nil)
+	default:
+		err = ts.RequestService.UpdateRequestExecutionFailed(statusCtx, ts.requestExec.ID, message, nil)
+	}
+	if err != nil {
+		log.Warn(statusCtx, "Failed to persist provider terminal execution status", log.Cause(err))
+	}
+	ts.persistTerminalStreamFailureChunks(ctx)
+}
+
 func (ts *OutboundPersistentStream) persistTerminalStreamFailureChunks(ctx context.Context) {
 	if ts.requestExec == nil {
 		return
@@ -244,7 +282,7 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailureChunks(ctx conte
 func (ts *OutboundPersistentStream) logFinalizationDecision(ctx context.Context, decision string, streamErr error, ctxErr error, aggregatedCompleted bool, aggregatedErr error) {
 	fields := []log.Field{
 		log.String("decision", decision),
-		log.Bool("terminal_event_seen", ts.state.StreamCompleted),
+		log.Bool("terminal_event_seen", ts.streamCompleted),
 		log.Int("chunk_count", len(ts.responseChunks)),
 		log.String("api_format", string(ts.transformer.APIFormat())),
 		log.Bool("aggregated_completed", aggregatedCompleted),
@@ -267,6 +305,7 @@ func (ts *OutboundPersistentStream) persistResponseChunks(ctx context.Context) {
 	defer func() {
 		if cause := recover(); cause != nil {
 			log.Warn(ctx, "Failed to persist outbound response chunks", log.Any("cause", cause))
+			ts.persistAggregationIncomplete(ctx, fmt.Errorf("aggregation panic: %v", cause))
 		}
 	}()
 
@@ -279,11 +318,39 @@ func (ts *OutboundPersistentStream) persistResponseChunks(ctx context.Context) {
 		responseBody, meta, err := ts.transformer.AggregateStreamChunks(persistCtx, ts.state.RawProviderRequest, ts.responseChunks)
 		if err != nil {
 			log.Warn(persistCtx, "Failed to aggregate chunks using transformer", log.Cause(err))
+			ts.persistAggregationIncomplete(persistCtx, err)
 			return
 		}
 
 		ts.persistAggregatedResponse(persistCtx, responseBody, meta)
 	}
+}
+
+func (ts *OutboundPersistentStream) persistAggregationIncomplete(ctx context.Context, aggregateErr error) {
+	if ts.requestExec == nil {
+		return
+	}
+
+	var latency *biz.LatencyMetrics
+	if ts.perf != nil {
+		firstTokenLatencyMs, requestLatencyMs, _ := ts.perf.Calculate()
+		latency = &biz.LatencyMetrics{LatencyMs: &requestLatencyMs}
+		if ts.perf.Stream && ts.perf.FirstTokenTime != nil {
+			latency.FirstTokenLatencyMs = &firstTokenLatencyMs
+		}
+	}
+	if err := ts.RequestService.UpdateRequestExecutionCompletedWithAggregationIncomplete(ctx, ts.requestExec.ID, latency); err != nil {
+		log.Warn(ctx, "Failed to finalize execution after stream aggregation failure", log.Cause(err))
+		ts.persistTerminalStreamFailureChunks(ctx)
+		return
+	}
+
+	metrics.RecordStreamEvidenceAggregationIncomplete(ctx, string(ts.transformer.APIFormat()))
+	log.Warn(ctx, "Stream completed but response aggregation evidence is incomplete",
+		log.String("signal", "stream_evidence_aggregation_incomplete"),
+		log.String("api_format", string(ts.transformer.APIFormat())),
+		log.Cause(aggregateErr))
+	ts.persistTerminalStreamFailureChunks(ctx)
 }
 
 func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Context, responseBody []byte, meta llm.ResponseMeta) {
@@ -407,7 +474,7 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 	entry := candidate.Models[p.state.CurrentModelIndex]
 
 	p.state.CurrentCandidate = candidate
-	p.state.StreamCompleted = false
+	p.state.resetStreamTerminalState()
 
 	p.wrapped = selectOutboundForCandidate(candidate)
 

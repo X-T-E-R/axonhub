@@ -382,6 +382,27 @@ func subtractManagedPayloadCharge(ctx context.Context, client *ent.Client, charg
 	return err
 }
 
+func adjustManagedNonPayloadCharge(ctx context.Context, client *ent.Client, delta int64) error {
+	if delta == 0 {
+		return nil
+	}
+	query := client.ManagedObservabilityState.Query().Where(managedobservabilitystate.IDEQ(1))
+	if client.Driver().Dialect() == dialect.Postgres || client.Driver().Dialect() == dialect.MySQL {
+		query.Modify(func(selector *entsql.Selector) { selector.ForUpdate() })
+	}
+	state, err := query.Only(ctx)
+	if ent.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = client.ManagedObservabilityState.UpdateOneID(1).
+		SetChargedBytes(max(int64(0), state.ChargedBytes+delta)).
+		Save(ctx)
+	return err
+}
+
 // cleanupUnreferencedManagedPayloads removes payloads whose last execution
 // reference was just deleted. Runtime migrations disable foreign keys, so this
 // application-owned cleanup is the lifecycle authority.

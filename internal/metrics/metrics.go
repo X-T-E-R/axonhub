@@ -31,6 +31,9 @@ type _Metrics struct {
 	ManagedObservabilityEvicted          metric.Int64Counter
 	ManagedObservabilityFailures         metric.Int64Counter
 	ManagedObservabilityChargedBytes     metric.Int64Gauge
+	StreamEvidenceAggregationIncomplete  metric.Int64Counter
+	RetentionGCRuns                      metric.Int64Counter
+	RetentionGCRecords                   metric.Int64Counter
 }
 
 var Metrics *_Metrics
@@ -179,7 +182,70 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	}
 	Metrics.ManagedObservabilityChargedBytes = managedChargedBytes
 
+	streamAggregationIncomplete, err := meter.Int64Counter(
+		"stream_evidence_aggregation_incomplete_total",
+		metric.WithDescription("Successful provider streams whose diagnostic response aggregation was incomplete"),
+		metric.WithUnit("streams"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create stream_evidence_aggregation_incomplete_total: %w", err)
+	}
+	Metrics.StreamEvidenceAggregationIncomplete = streamAggregationIncomplete
+
+	retentionRuns, err := meter.Int64Counter(
+		"retention_gc_runs_total",
+		metric.WithDescription("Retention GC runs, including successful zero-delete runs"),
+		metric.WithUnit("runs"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create retention_gc_runs_total: %w", err)
+	}
+	Metrics.RetentionGCRuns = retentionRuns
+	retentionRecords, err := meter.Int64Counter(
+		"retention_gc_records_total",
+		metric.WithDescription("Retention GC record accounting by outcome"),
+		metric.WithUnit("records"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create retention_gc_records_total: %w", err)
+	}
+	Metrics.RetentionGCRecords = retentionRecords
+
 	return nil
+}
+
+func RecordStreamEvidenceAggregationIncomplete(ctx context.Context, apiFormat string) {
+	if Metrics == nil || Metrics.StreamEvidenceAggregationIncomplete == nil {
+		return
+	}
+	Metrics.StreamEvidenceAggregationIncomplete.Add(ctx, 1, metric.WithAttributes(attribute.String("api_format", apiFormat)))
+}
+
+func RecordRetentionGC(ctx context.Context, outcome string, count int) {
+	if Metrics == nil {
+		return
+	}
+	if Metrics.RetentionGCRecords != nil && count > 0 {
+		Metrics.RetentionGCRecords.Add(ctx, int64(count), metric.WithAttributes(attribute.String("outcome", outcome)))
+	}
+}
+
+func RecordRetentionGCRun(ctx context.Context, succeeded bool, deleted int) {
+	if Metrics == nil || Metrics.RetentionGCRuns == nil {
+		return
+	}
+	status := "error"
+	if succeeded {
+		status = "success"
+	}
+	deletionOutcome := "nonzero"
+	if deleted == 0 {
+		deletionOutcome = "zero"
+	}
+	Metrics.RetentionGCRuns.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("status", status),
+		attribute.String("deleted", deletionOutcome),
+	))
 }
 
 func RecordManagedObservabilityAdmissionSkipped(ctx context.Context, reason string) {

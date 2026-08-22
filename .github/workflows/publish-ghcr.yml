@@ -6,6 +6,7 @@ on:
     branches:
       - unstable
       - codex/key-panel-unstable-sync
+      - codex/fix-stream-finalization-gc
     tags:
       - 'v*'
       - 'key-health-*'
@@ -17,6 +18,10 @@ permissions:
 env:
   IMAGE_NAME: ghcr.io/x-t-e-r/axonhub
 
+concurrency:
+  group: publish-ghcr-target-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
   metadata:
     name: Resolve image metadata
@@ -25,9 +30,11 @@ jobs:
       ref_name: ${{ steps.meta.outputs.ref_name }}
       ref_type: ${{ steps.meta.outputs.ref_type }}
       short_sha: ${{ steps.meta.outputs.short_sha }}
+      publication_sha: ${{ steps.meta.outputs.publication_sha }}
       version: ${{ steps.meta.outputs.version }}
       publish_latest: ${{ steps.meta.outputs.publish_latest }}
       is_promotion: ${{ steps.meta.outputs.is_promotion }}
+      immutable_candidate: ${{ steps.meta.outputs.immutable_candidate }}
       promotion_sha: ${{ steps.meta.outputs.promotion_sha }}
       promotion_source_tag: ${{ steps.meta.outputs.promotion_source_tag }}
     steps:
@@ -36,9 +43,11 @@ jobs:
         shell: bash
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
+          PUBLICATION_SHA="${SHORT_SHA}"
           REF_NAME="${GITHUB_REF_NAME}"
           REF_TYPE="${GITHUB_REF_TYPE}"
           IS_PROMOTION="false"
+          IMMUTABLE_CANDIDATE="false"
           PROMOTION_SHA=""
           PROMOTION_SOURCE_TAG=""
 
@@ -56,9 +65,19 @@ jobs:
           elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" == "key-health-latest" ]]; then
             echo "key-health-latest is reserved; use key-health-promote-<shortsha>" >&2
             exit 1
+          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME,,}" =~ ^key-health-candidate-[0-9a-f]{40} ]]; then
+            echo "full-SHA candidate tags are workflow-owned; publish from codex/fix-stream-finalization-gc" >&2
+            exit 1
           fi
 
-          if [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" == "codex/key-panel-unstable-sync" ]]; then
+          if [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" == "codex/fix-stream-finalization-gc" ]]; then
+            # This candidate uses the full commit identity for every permanent
+            # tag. It is intentionally outside the seven-character legacy
+            # key-health promotion route.
+            IMMUTABLE_CANDIDATE="true"
+            PUBLICATION_SHA="${GITHUB_SHA}"
+            REF_NAME="key-health-candidate-${PUBLICATION_SHA}"
+          elif [[ "${REF_TYPE}" == "branch" && "${REF_NAME}" == "codex/key-panel-unstable-sync" ]]; then
             # Branch pushes publish an immutable release candidate. Moving
             # key-health-latest is a separate, explicit promotion after the
             # candidate digest has passed release verification.
@@ -78,9 +97,11 @@ jobs:
           echo "ref_name=${REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "ref_type=${REF_TYPE}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "publication_sha=${PUBLICATION_SHA}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "publish_latest=${PUBLISH_LATEST}" >> "$GITHUB_OUTPUT"
           echo "is_promotion=${IS_PROMOTION}" >> "$GITHUB_OUTPUT"
+          echo "immutable_candidate=${IMMUTABLE_CANDIDATE}" >> "$GITHUB_OUTPUT"
           echo "promotion_sha=${PROMOTION_SHA}" >> "$GITHUB_OUTPUT"
           echo "promotion_source_tag=${PROMOTION_SOURCE_TAG}" >> "$GITHUB_OUTPUT"
 
@@ -130,19 +151,26 @@ jobs:
         run: |
           {
             echo "tags<<EOF"
-            echo "${IMAGE_NAME}:sha-${{ needs.metadata.outputs.short_sha }}-${{ matrix.arch }}"
-            if [[ "${{ needs.metadata.outputs.ref_type }}" == "tag" ]]; then
-              echo "${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}-${{ matrix.arch }}"
+            if [[ "${{ needs.metadata.outputs.immutable_candidate }}" == "true" ]]; then
+              # Build legs may publish only run-scoped staging tags. Permanent
+              # per-arch tags are attached after the manifest preflight.
+              echo "${IMAGE_NAME}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.arch }}"
             else
-              echo "${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}-${{ matrix.arch }}"
-              if [[ "${{ needs.metadata.outputs.publish_latest }}" == "true" ]]; then
-                echo "${IMAGE_NAME}:latest-${{ matrix.arch }}"
+              echo "${IMAGE_NAME}:sha-${{ needs.metadata.outputs.publication_sha }}-${{ matrix.arch }}"
+              if [[ "${{ needs.metadata.outputs.ref_type }}" == "tag" ]]; then
+                echo "${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}-${{ matrix.arch }}"
+              else
+                echo "${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}-${{ matrix.arch }}"
+                if [[ "${{ needs.metadata.outputs.publish_latest }}" == "true" ]]; then
+                  echo "${IMAGE_NAME}:latest-${{ matrix.arch }}"
+                fi
               fi
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and push single-arch image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -154,6 +182,113 @@ jobs:
           provenance: false
           sbom: false
 
+      - name: Smoke immutable amd64 candidate
+        if: matrix.arch == 'amd64' && github.ref_type == 'branch' && github.ref_name == 'codex/fix-stream-finalization-gc'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_DIGEST="${{ steps.build.outputs.digest }}"
+          EXPECTED_VERSION="${{ needs.metadata.outputs.version }}"
+          CONTAINER_NAME="axonhub-candidate-smoke-${{ needs.metadata.outputs.short_sha }}"
+          HEALTH_BODY="${RUNNER_TEMP}/axonhub-candidate-health.json"
+          SYSTEM_BODY="${RUNNER_TEMP}/axonhub-candidate-system.json"
+
+          cleanup() {
+            rc=$?
+            trap - EXIT
+            if (( rc != 0 )); then
+              echo "AxonHub candidate smoke failed; container logs follow" >&2
+              docker logs "${CONTAINER_NAME}" >&2 2>/dev/null || true
+            fi
+            docker rm --force "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+            rm -f "${HEALTH_BODY}" "${SYSTEM_BODY}"
+            exit "${rc}"
+          }
+          trap cleanup EXIT
+
+          if [[ ! "${BUILD_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "build action returned an invalid amd64 digest: ${BUILD_DIGEST}" >&2
+            exit 1
+          fi
+          IMAGE_REF="${IMAGE_NAME}@${BUILD_DIGEST}"
+
+          pulled=false
+          for _ in $(seq 1 10); do
+            if docker pull "${IMAGE_REF}"; then
+              pulled=true
+              break
+            fi
+            sleep 3
+          done
+          if [[ "${pulled}" != "true" ]]; then
+            echo "failed to pull pushed candidate ${IMAGE_REF}" >&2
+            exit 1
+          fi
+
+          docker run --detach \
+            --name "${CONTAINER_NAME}" \
+            --publish 127.0.0.1:18090:8090 \
+            --env AXONHUB_DB_DIALECT=sqlite3 \
+            --env 'AXONHUB_DB_DSN=file:/tmp/axonhub-smoke.db?cache=shared&_fk=1&_pragma=journal_mode(WAL)' \
+            --env AXONHUB_LOG_OUTPUT=stdio \
+            "${IMAGE_REF}" >/dev/null
+
+          healthy=false
+          for _ in $(seq 1 90); do
+            if [[ "$(docker inspect "${CONTAINER_NAME}" --format '{{.State.Running}}' 2>/dev/null || true)" != "true" ]]; then
+              echo "candidate container exited before becoming healthy" >&2
+              exit 1
+            fi
+            if curl --fail --silent --show-error --max-time 2 \
+              http://127.0.0.1:18090/health --output "${HEALTH_BODY}"; then
+              if jq -e --arg expected "${EXPECTED_VERSION}" \
+                '.status == "healthy" and .version == $expected' "${HEALTH_BODY}" >/dev/null; then
+                healthy=true
+                break
+              fi
+              echo "health endpoint returned a nonhealthy response:" >&2
+              cat "${HEALTH_BODY}" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          if [[ "${healthy}" != "true" ]]; then
+            echo "candidate did not become healthy before timeout" >&2
+            exit 1
+          fi
+
+          sleep 3
+          [[ "$(docker inspect "${CONTAINER_NAME}" --format '{{.State.Running}}')" == "true" ]]
+          curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:18090/health --output "${HEALTH_BODY}"
+          jq -e --arg expected "${EXPECTED_VERSION}" \
+            '.status == "healthy" and .version == $expected' "${HEALTH_BODY}" >/dev/null
+          curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:18090/admin/system/status --output "${SYSTEM_BODY}"
+          jq -e '.isInitialized | type == "boolean"' "${SYSTEM_BODY}" >/dev/null
+          echo "Smoke passed for ${IMAGE_REF}"
+
+      - name: Record pushed architecture digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIGEST="${{ steps.build.outputs.digest }}"
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "build action returned an invalid ${{ matrix.arch }} digest: ${DIGEST}" >&2
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/ghcr-digests"
+          printf '%s\n' "${DIGEST}" > "${RUNNER_TEMP}/ghcr-digests/${{ matrix.arch }}"
+
+      - name: Upload architecture digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghcr-digest-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/ghcr-digests/${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
   create-manifests:
     name: Create multi-arch manifests
     needs: [metadata, build-single-arch]
@@ -161,6 +296,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Download architecture digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ghcr-digest-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/ghcr-digests
+          merge-multiple: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -174,22 +316,193 @@ jobs:
       - name: Create and push manifests
         shell: bash
         run: |
-          docker buildx imagetools create \
-            -t "${IMAGE_NAME}:sha-${{ needs.metadata.outputs.short_sha }}" \
-            "${IMAGE_NAME}:sha-${{ needs.metadata.outputs.short_sha }}-amd64" \
-            "${IMAGE_NAME}:sha-${{ needs.metadata.outputs.short_sha }}-arm64"
+          set -euo pipefail
 
-          docker buildx imagetools create \
-            -t "${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}" \
-            "${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}-amd64" \
-            "${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}-arm64"
+          AMD64_DIGEST="$(tr -d '\r\n' < "${RUNNER_TEMP}/ghcr-digests/amd64")"
+          ARM64_DIGEST="$(tr -d '\r\n' < "${RUNNER_TEMP}/ghcr-digests/arm64")"
+          for digest in "${AMD64_DIGEST}" "${ARM64_DIGEST}"; do
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "invalid architecture digest artifact: ${digest}" >&2
+              exit 1
+            fi
+          done
+          if [[ "${AMD64_DIGEST}" == "${ARM64_DIGEST}" ]]; then
+            echo "amd64 and arm64 unexpectedly produced the same digest" >&2
+            exit 1
+          fi
+
+          AMD64_REF="${IMAGE_NAME}@${AMD64_DIGEST}"
+          ARM64_REF="${IMAGE_NAME}@${ARM64_DIGEST}"
+          SHA_REF="${IMAGE_NAME}:sha-${{ needs.metadata.outputs.publication_sha }}"
+          RELEASE_REF="${IMAGE_NAME}:${{ needs.metadata.outputs.ref_name }}"
+          SHA_AMD64_REF="${SHA_REF}-amd64"
+          SHA_ARM64_REF="${SHA_REF}-arm64"
+          RELEASE_AMD64_REF="${RELEASE_REF}-amd64"
+          RELEASE_ARM64_REF="${RELEASE_REF}-arm64"
+
+          resolve_digest() {
+            local ref="$1"
+            local digest=""
+            for _ in $(seq 1 10); do
+              digest="$(docker buildx imagetools inspect "${ref}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+              if [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                printf '%s\n' "${digest}"
+                return 0
+              fi
+              sleep 3
+            done
+            return 1
+          }
+
+          inspect_digest_once() {
+            local ref="$1"
+            local error_file
+            local digest
+            local registry_error
+            error_file="$(mktemp)"
+            if digest="$(docker buildx imagetools inspect "${ref}" --format '{{.Manifest.Digest}}' 2>"${error_file}")"; then
+              rm -f "${error_file}"
+              if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "registry returned an invalid digest for ${ref}: ${digest}" >&2
+                return 1
+              fi
+              printf '%s\n' "${digest}"
+              return 0
+            fi
+            # Buildx reports a missing target as exactly "ERROR: <ref>: not
+            # found". Bind absence to the inspected target; nested content,
+            # credential, authentication, network and tooling errors fail.
+            registry_error="$(sed 's/\r$//' "${error_file}")"
+            if [[ "${registry_error}" == "ERROR: ${ref}: not found" ]]; then
+              rm -f "${error_file}"
+              return 0
+            fi
+            echo "failed to establish immutable target ownership for ${ref}:" >&2
+            cat "${error_file}" >&2
+            rm -f "${error_file}"
+            return 1
+          }
+
+          assert_index_sources() {
+            local ref="$1"
+            local output="$2"
+            docker buildx imagetools inspect --raw "${ref}" > "${output}"
+            jq -e --arg amd64 "${AMD64_DIGEST}" --arg arm64 "${ARM64_DIGEST}" '
+              (.mediaType == "application/vnd.oci.image.index.v1+json" or
+               .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json") and
+              (.manifests | length == 2) and
+              any(.manifests[]?;
+                .digest == $amd64 and .platform.os == "linux" and .platform.architecture == "amd64") and
+              any(.manifests[]?;
+                .digest == $arm64 and .platform.os == "linux" and .platform.architecture == "arm64")
+            ' "${output}" >/dev/null
+          }
+
+          IMMUTABLE_CANDIDATE="${{ needs.metadata.outputs.immutable_candidate }}"
+
+          if [[ "${IMMUTABLE_CANDIDATE}" == "true" ]]; then
+            # Read every permanent target before writing any of them. Existing
+            # targets are ownership claims: exact content is idempotent, while
+            # any mismatch aborts without mutating a permanent tag.
+            EXISTING_SHA_AMD64_DIGEST="$(inspect_digest_once "${SHA_AMD64_REF}")"
+            EXISTING_SHA_ARM64_DIGEST="$(inspect_digest_once "${SHA_ARM64_REF}")"
+            EXISTING_RELEASE_AMD64_DIGEST="$(inspect_digest_once "${RELEASE_AMD64_REF}")"
+            EXISTING_RELEASE_ARM64_DIGEST="$(inspect_digest_once "${RELEASE_ARM64_REF}")"
+            EXISTING_SHA_DIGEST="$(inspect_digest_once "${SHA_REF}")"
+            EXISTING_RELEASE_DIGEST="$(inspect_digest_once "${RELEASE_REF}")"
+
+            for existing_expected in \
+              "${EXISTING_SHA_AMD64_DIGEST}|${AMD64_DIGEST}|${SHA_AMD64_REF}" \
+              "${EXISTING_RELEASE_AMD64_DIGEST}|${AMD64_DIGEST}|${RELEASE_AMD64_REF}" \
+              "${EXISTING_SHA_ARM64_DIGEST}|${ARM64_DIGEST}|${SHA_ARM64_REF}" \
+              "${EXISTING_RELEASE_ARM64_DIGEST}|${ARM64_DIGEST}|${RELEASE_ARM64_REF}"; do
+              IFS='|' read -r existing expected target <<< "${existing_expected}"
+              if [[ -n "${existing}" && "${existing}" != "${expected}" ]]; then
+                echo "immutable per-arch target ${target} already points to ${existing}, expected ${expected}" >&2
+                exit 1
+              fi
+            done
+
+            EXISTING_INDEX_DIGEST="${EXISTING_SHA_DIGEST:-${EXISTING_RELEASE_DIGEST}}"
+            if [[ -n "${EXISTING_SHA_DIGEST}" && "${EXISTING_SHA_DIGEST}" != "${EXISTING_INDEX_DIGEST}" ]] || \
+               [[ -n "${EXISTING_RELEASE_DIGEST}" && "${EXISTING_RELEASE_DIGEST}" != "${EXISTING_INDEX_DIGEST}" ]]; then
+              echo "existing immutable candidate index tags disagree" >&2
+              exit 1
+            fi
+            if [[ -n "${EXISTING_INDEX_DIGEST}" ]]; then
+              assert_index_sources "${IMAGE_NAME}@${EXISTING_INDEX_DIGEST}" existing-index.json || {
+                echo "same-SHA rerun produced architecture digests that differ from the published candidate" >&2
+                exit 1
+              }
+            fi
+
+            amd64_tags=()
+            [[ -n "${EXISTING_SHA_AMD64_DIGEST}" ]] || amd64_tags+=(--tag "${SHA_AMD64_REF}")
+            [[ -n "${EXISTING_RELEASE_AMD64_DIGEST}" ]] || amd64_tags+=(--tag "${RELEASE_AMD64_REF}")
+            if (( ${#amd64_tags[@]} > 0 )); then
+              docker buildx imagetools create "${amd64_tags[@]}" "${AMD64_REF}"
+            fi
+
+            arm64_tags=()
+            [[ -n "${EXISTING_SHA_ARM64_DIGEST}" ]] || arm64_tags+=(--tag "${SHA_ARM64_REF}")
+            [[ -n "${EXISTING_RELEASE_ARM64_DIGEST}" ]] || arm64_tags+=(--tag "${RELEASE_ARM64_REF}")
+            if (( ${#arm64_tags[@]} > 0 )); then
+              docker buildx imagetools create "${arm64_tags[@]}" "${ARM64_REF}"
+            fi
+
+            index_tags=()
+            [[ -n "${EXISTING_SHA_DIGEST}" ]] || index_tags+=(--tag "${SHA_REF}")
+            [[ -n "${EXISTING_RELEASE_DIGEST}" ]] || index_tags+=(--tag "${RELEASE_REF}")
+            if (( ${#index_tags[@]} > 0 )); then
+              if [[ -n "${EXISTING_INDEX_DIGEST}" ]]; then
+                docker buildx imagetools create "${index_tags[@]}" "${IMAGE_NAME}@${EXISTING_INDEX_DIGEST}"
+              else
+                docker buildx imagetools create "${index_tags[@]}" "${AMD64_REF}" "${ARM64_REF}"
+              fi
+            fi
+          else
+            tags=(--tag "${SHA_REF}" --tag "${RELEASE_REF}")
+            if [[ "${{ needs.metadata.outputs.publish_latest }}" == "true" ]]; then
+              tags+=(--tag "${IMAGE_NAME}:latest")
+            fi
+            docker buildx imagetools create "${tags[@]}" "${AMD64_REF}" "${ARM64_REF}"
+          fi
+
+          INDEX_DIGEST="$(resolve_digest "${SHA_REF}")"
+          RELEASE_DIGEST="$(resolve_digest "${RELEASE_REF}")"
+          if [[ "${INDEX_DIGEST}" != "${RELEASE_DIGEST}" ]]; then
+            echo "published sha and release tags resolve to different indexes" >&2
+            exit 1
+          fi
+          assert_index_sources "${IMAGE_NAME}@${INDEX_DIGEST}" final-index.json || {
+            echo "published index does not contain this run's captured architecture digests" >&2
+            exit 1
+          }
+
+          if [[ "${IMMUTABLE_CANDIDATE}" == "true" ]]; then
+            for target_expected in \
+              "${SHA_AMD64_REF}|${AMD64_DIGEST}" \
+              "${RELEASE_AMD64_REF}|${AMD64_DIGEST}" \
+              "${SHA_ARM64_REF}|${ARM64_DIGEST}" \
+              "${RELEASE_ARM64_REF}|${ARM64_DIGEST}"; do
+              IFS='|' read -r target expected <<< "${target_expected}"
+              actual="$(resolve_digest "${target}")"
+              if [[ "${actual}" != "${expected}" ]]; then
+                echo "per-arch target ${target} resolved to ${actual}, expected ${expected}" >&2
+                exit 1
+              fi
+            done
+          fi
 
           if [[ "${{ needs.metadata.outputs.publish_latest }}" == "true" ]]; then
-            docker buildx imagetools create \
-              -t "${IMAGE_NAME}:latest" \
-              "${IMAGE_NAME}:latest-amd64" \
-              "${IMAGE_NAME}:latest-arm64"
+            LATEST_DIGEST="$(resolve_digest "${IMAGE_NAME}:latest")"
+            if [[ "${LATEST_DIGEST}" != "${INDEX_DIGEST}" ]]; then
+              echo "latest tag does not match the just-created index" >&2
+              exit 1
+            fi
           fi
+
+          echo "Published ${RELEASE_REF} and ${SHA_REF} at immutable index ${INDEX_DIGEST}"
 
   promote-key-health:
     name: Promote verified key-health candidate

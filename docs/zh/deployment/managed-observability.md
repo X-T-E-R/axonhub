@@ -38,6 +38,26 @@ Requests 24 小时和 Usage 30 天都是最长保留值。按已观测到的父�
 
 不要在启动时破坏性改写，也不要例行使用 `VACUUM FULL`。普通删除加 `VACUUM (ANALYZE)` 会让 heap/TOAST 页面可复用，并应使托管载荷关系的分配量进入平台期，但不保证把历史关系文件归还给文件系统。
 
+## 陈旧流式执行
+
+保留期清理只会自动修复满足全部条件的历史 `pending`/`processing` 执行：父
+Request 已终态、父子创建时间均早于保留截止线、且执行至少 24 小时没有更新。
+这两项条件相互独立：创建时间使用配置的保留截止线，`updated_at` 只与 24 小时活动
+保护窗比较。
+PostgreSQL 实例复用现有非等待 advisory owner，并在事务行锁下重新检查后把执行
+改为 `failed`；已保留的 Trace/Thread 组继续受保护。修复阶段不删除外部制品，后续
+删除仍走普通终态记录清理路径。跨实例安全以 24 小时保护窗为准，本进程
+`LiveStreamRegistry` 只提供本地证据。因此 SQLite/MySQL 仍受文档所述的单进程 owner
+限制。
+
+一次性处理历史积压可小批量运行
+`scripts/postgres-reconcile-stale-executions.sql`。脚本默认只读预览，设置 2 秒
+`lock_timeout` 和 30 秒 `statement_timeout`，只有显式传入 `-v apply=true` 才更新；
+无需停服，也不内置连接地址或凭据。重复运行至 `candidate_count` 为零，再由常规
+保留期清理删除符合条件的终态组。普通 `VACUUM (ANALYZE)` 只会让回收页可复用，
+**不会**把历史 23 GB 关系高水位归还文件系统；若要缩小文件，需另行规划关系重写、
+锁窗口和额外磁盘预算。
+
 若需要一次性收缩文件系统，应使用另行审批的在线改写工具（例如 `pg_repack`），并先处理执行表：
 
 1. 预检扩展/工具版本兼容性、阻塞 DDL、长事务、复制延迟和备份恢复。分别测量 `pg_total_relation_size`、heap、TOAST、索引、死元组、可复用页面及文件系统剩余空间。
