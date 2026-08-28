@@ -230,6 +230,7 @@ linters:
           - unused
           - deadcode
           - exhaustruct
+          - exhaustruct_v5
           - funlen
           - maintidx
           - cyclop

@@ -178,7 +178,7 @@ func hasUnsafeAxonHubFullPassThroughPath(path string) bool {
 		return true
 	}
 
-	for _, segment := range strings.Split(path, "/") {
+	for segment := range strings.SplitSeq(path, "/") {
 		if segment == "." || segment == ".." {
 			return true
 		}
