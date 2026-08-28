@@ -332,6 +332,34 @@ func TestIsPassThroughEnabled_AllowsNilAndFalseStreamToAlign(t *testing.T) {
 	assert.True(t, outbound.isPassThroughEnabled(ctx, nil))
 }
 
+func TestIsPassThroughEnabled_AxonHubFullPassThroughStillHonorsBodyPassThroughSetting(t *testing.T) {
+	ctx := context.Background()
+	channel := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:      1,
+			Name:    "upstream axonhub",
+			Type:    entchannel.TypeAxonhub,
+			BaseURL: "http://upstream.local:8090",
+			Settings: &objects.ChannelSettings{
+				FullPassThrough: true,
+				PassThroughBody: lo.ToPtr(false),
+			},
+		},
+	}
+	state := &PersistenceState{
+		CurrentCandidate: &ChannelModelsCandidate{Channel: channel},
+		LlmRequest: &llm.Request{
+			APIFormat: llm.APIFormatOpenAIChatCompletion,
+		},
+		RawProviderRequest: &httpclient.Request{
+			APIFormat: string(llm.APIFormatOpenAIChatCompletion),
+		},
+	}
+	outbound := &PersistentOutboundTransformer{state: state}
+
+	assert.False(t, outbound.isPassThroughEnabled(ctx, nil))
+}
+
 func TestIsPassThroughEnabled_DisablesWhenRequestStreamSemanticsDoNotMatchCurrentRequirement(t *testing.T) {
 	ctx := context.Background()
 	channel := &biz.Channel{
@@ -1556,6 +1584,83 @@ func TestApplyAxonHubFullPassThroughRequest_RejectsUnsupportedPath(t *testing.T)
 				RawRequest: &httpclient.Request{
 					Method:     http.MethodPost,
 					Path:       "/admin/graphql",
+					Headers:    rawHTTPReq.Header,
+					Body:       []byte(`{"query":"{__typename}"}`),
+					RawRequest: rawHTTPReq,
+				},
+			},
+		},
+	}
+
+	_, err = applyAxonHubFullPassThroughRequest(outbound).OnOutboundRawRequest(ctx, &httpclient.Request{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "path is not allowed")
+}
+
+func TestApplyAxonHubFullPassThroughRequest_RejectsPathTraversal(t *testing.T) {
+	ctx := context.Background()
+	rawHTTPReq, err := http.NewRequest(http.MethodPost, "http://gateway.local/v1/../admin/graphql", nil)
+	require.NoError(t, err)
+
+	outbound := &PersistentOutboundTransformer{
+		state: &PersistenceState{
+			CurrentCandidate: &ChannelModelsCandidate{
+				Channel: &biz.Channel{
+					Channel: &ent.Channel{
+						ID:      1,
+						Name:    "upstream axonhub",
+						Type:    entchannel.TypeAxonhub,
+						BaseURL: "http://upstream.local:8090",
+						Settings: &objects.ChannelSettings{
+							FullPassThrough: true,
+						},
+					},
+				},
+			},
+			LlmRequest: &llm.Request{
+				APIFormat: llm.APIFormatOpenAIChatCompletion,
+				RawRequest: &httpclient.Request{
+					Method:     http.MethodPost,
+					Path:       "/v1/../admin/graphql",
+					Headers:    rawHTTPReq.Header,
+					Body:       []byte(`{"query":"{__typename}"}`),
+					RawRequest: rawHTTPReq,
+				},
+			},
+		},
+	}
+
+	_, err = applyAxonHubFullPassThroughRequest(outbound).OnOutboundRawRequest(ctx, &httpclient.Request{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "path is not allowed")
+}
+
+func TestApplyAxonHubFullPassThroughRequest_RejectsBackslashPath(t *testing.T) {
+	ctx := context.Background()
+	rawHTTPReq, err := http.NewRequest(http.MethodPost, "http://gateway.local/v1/chat/completions", nil)
+	require.NoError(t, err)
+	rawHTTPReq.URL.Path = "/v1\\admin/graphql"
+
+	outbound := &PersistentOutboundTransformer{
+		state: &PersistenceState{
+			CurrentCandidate: &ChannelModelsCandidate{
+				Channel: &biz.Channel{
+					Channel: &ent.Channel{
+						ID:      1,
+						Name:    "upstream axonhub",
+						Type:    entchannel.TypeAxonhub,
+						BaseURL: "http://upstream.local:8090",
+						Settings: &objects.ChannelSettings{
+							FullPassThrough: true,
+						},
+					},
+				},
+			},
+			LlmRequest: &llm.Request{
+				APIFormat: llm.APIFormatOpenAIChatCompletion,
+				RawRequest: &httpclient.Request{
+					Method:     http.MethodPost,
+					Path:       "/v1\\admin/graphql",
 					Headers:    rawHTTPReq.Header,
 					Body:       []byte(`{"query":"{__typename}"}`),
 					RawRequest: rawHTTPReq,

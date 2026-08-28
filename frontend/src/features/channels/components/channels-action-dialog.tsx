@@ -59,11 +59,19 @@ import { Channel, ChannelType, ApiFormat, RetryableErrorPattern, createChannelIn
 import { ProxyConfig, useOAuthFlow } from '../hooks/use-oauth-flow';
 import {
   AXONHUB_CAPTURE_PRESETS,
-  getAxonHubCapturePreset,
+  getAxonHubBehaviorPreset,
   getAxonHubCaptureSettings,
-  resolveAxonHubCapturePreset,
+  getGenericChannelBehaviorSettings,
+  resolveGenericChannelBehaviorSettings,
+  resolveAxonHubBehaviorPreset,
+  transitionAxonHubScopedSettings,
 } from '../utils/capture-settings';
-import type { AxonHubCapturePreset, AxonHubCaptureSettings } from '../utils/capture-settings';
+import type {
+  AxonHubBehaviorPreset,
+  AxonHubBehaviorSettings,
+  AxonHubCaptureSettings,
+  GenericChannelBehaviorSettings,
+} from '../utils/capture-settings';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
 import { isValidModelPattern, matchesModelPattern } from '../utils/pattern';
 import { ProxyType } from './channels-proxy-dialog';
@@ -87,7 +95,7 @@ const isAxonHubChannelType = (channelType?: ChannelType | null) => {
   return !!channelType && AXONHUB_CHANNEL_TYPES.includes(channelType);
 };
 
-const AXONHUB_CAPTURE_PRESET_OPTIONS: AxonHubCapturePreset[] = ['inherit', 'fullDebug', 'lowLatency'];
+const AXONHUB_BEHAVIOR_PRESET_OPTIONS: AxonHubBehaviorPreset[] = ['lowLatency', 'standard', 'audit', 'fullDebug'];
 const AXONHUB_CAPTURE_FIELDS = [
   'storeExecutionRequestBody',
   'storeExecutionResponseBody',
@@ -414,18 +422,44 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   );
   const [disableRetries, setDisableRetries] = useState(() => initialRow?.settings?.disableRetries ?? false);
   const [fullPassThrough, setFullPassThrough] = useState(() => initialRow?.settings?.fullPassThrough ?? false);
+  const genericSettingsBeforeAxonHubRef = useRef<GenericChannelBehaviorSettings | null>(
+    isAxonHubChannelType(initialRow?.type) ? getGenericChannelBehaviorSettings(initialRow?.settings) : null
+  );
   const [axonHubCaptureSettings, setAxonHubCaptureSettings] = useState<AxonHubCaptureSettings>(() =>
     getAxonHubCaptureSettings(initialRow?.settings)
   );
-  const axonHubCapturePreset = useMemo(() => getAxonHubCapturePreset(axonHubCaptureSettings), [axonHubCaptureSettings]);
+  const axonHubBehaviorSettings = useMemo<AxonHubBehaviorSettings>(
+    () => ({
+      passThroughUserAgent,
+      passThroughBody,
+      disableRetries,
+      fullPassThrough,
+      ...axonHubCaptureSettings,
+    }),
+    [passThroughUserAgent, passThroughBody, disableRetries, fullPassThrough, axonHubCaptureSettings]
+  );
+  const axonHubBehaviorPreset = useMemo(
+    () => getAxonHubBehaviorPreset(axonHubBehaviorSettings),
+    [axonHubBehaviorSettings]
+  );
   const axonHubCaptureHasDisabledField = useMemo(
     () => Object.values(axonHubCaptureSettings).some((value) => value === false),
     [axonHubCaptureSettings]
   );
 
-  const applyAxonHubCapturePreset = useCallback((preset: string) => {
-    const settings = resolveAxonHubCapturePreset(preset);
-    if (settings) setAxonHubCaptureSettings(settings);
+  const applyAxonHubBehaviorPreset = useCallback((preset: string) => {
+    const settings = resolveAxonHubBehaviorPreset(preset);
+    if (!settings) return;
+
+    setPassThroughUserAgent(settings.passThroughUserAgent);
+    setPassThroughBody(settings.passThroughBody);
+    setDisableRetries(settings.disableRetries);
+    setFullPassThrough(settings.fullPassThrough);
+    setAxonHubCaptureSettings({
+      storeExecutionRequestBody: settings.storeExecutionRequestBody,
+      storeExecutionResponseBody: settings.storeExecutionResponseBody,
+      storeExecutionStreamChunks: settings.storeExecutionStreamChunks,
+    });
   }, []);
 
   const setAxonHubCaptureField = useCallback((field: keyof AxonHubCaptureSettings, value: boolean | null) => {
@@ -533,6 +567,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     setDisableRetries(initialRow.settings?.disableRetries ?? false);
     setFullPassThrough(initialRow.settings?.fullPassThrough ?? false);
     setAxonHubCaptureSettings(getAxonHubCaptureSettings(initialRow.settings));
+    genericSettingsBeforeAxonHubRef.current = isAxonHubChannelType(initialRow.type)
+      ? getGenericChannelBehaviorSettings(initialRow.settings)
+      : null;
 
     // Detect authMode for codex and claudecode
     if (initialRow.type === 'codex') {
@@ -807,6 +844,29 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const isOpenCodeGoType = isOpenCodeGoChannelType(activeChannelType);
   const isAxonHubType = isAxonHubChannelType(activeChannelType);
 
+  const applyAxonHubChannelTransition = useCallback(
+    (newChannelType: ChannelType) => {
+      const transition = transitionAxonHubScopedSettings(
+        { passThroughUserAgent, passThroughBody, disableRetries },
+        genericSettingsBeforeAxonHubRef.current,
+        isAxonHubType,
+        isAxonHubChannelType(newChannelType)
+      );
+
+      genericSettingsBeforeAxonHubRef.current = transition.restoreSettings;
+      if (transition.enteredAxonHub) {
+        if (!isEdit) applyAxonHubBehaviorPreset('lowLatency');
+        return;
+      }
+      if (transition.leftAxonHub) {
+        setPassThroughUserAgent(transition.settings.passThroughUserAgent);
+        setPassThroughBody(transition.settings.passThroughBody);
+        setDisableRetries(transition.settings.disableRetries);
+      }
+    },
+    [passThroughUserAgent, passThroughBody, disableRetries, isAxonHubType, isEdit, applyAxonHubBehaviorPreset]
+  );
+
   // OAuth providers cannot have their provider/API format changed during edit.
   // Derived from currentRow credentials so it stays stable across re-renders
   // and is not affected by mutable authMode state.
@@ -870,6 +930,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
       if (provider === 'codex') {
         setSelectedApiFormat(OPENAI_RESPONSES);
+        applyAxonHubChannelTransition('codex');
         form.setValue('type', 'codex');
         if (!isEdit) {
           const baseURL = responsesTransport === 'websocket' ? getResponsesWebSocketBaseURL('codex') : getDefaultBaseURL('codex');
@@ -884,6 +945,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
       if (provider === 'antigravity') {
         setSelectedApiFormat(GEMINI_CONTENTS);
+        applyAxonHubChannelTransition('antigravity');
         form.setValue('type', 'antigravity');
         if (!isEdit) {
           setFetchedModels([]);
@@ -916,11 +978,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
               ? 'moonshot_coding'
               : getChannelTypeForApiFormat(provider, newFormat);
       if (newChannelType) {
+        applyAxonHubChannelTransition(newChannelType);
         form.setValue('type', newChannelType);
         if (!isEdit) {
-          if (isAxonHubChannelType(newChannelType) && passThroughBody === null) {
-            setPassThroughBody(true);
-          }
           if (!isDuplicate) {
             const baseURL = getDefaultBaseURL(newChannelType);
             if (baseURL) {
@@ -941,7 +1001,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       isEdit,
       selectedApiFormat,
       isOAuthChannel,
-      passThroughBody,
+      applyAxonHubChannelTransition,
       responsesTransport,
     ]
   );
@@ -977,12 +1037,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
               ? 'moonshot_coding'
               : channelTypeFromFormat;
       if (newChannelType) {
+        applyAxonHubChannelTransition(newChannelType);
         form.setValue('type', newChannelType);
 
         if (!isEdit) {
-          if (isAxonHubChannelType(newChannelType) && passThroughBody === null) {
-            setPassThroughBody(true);
-          }
           const baseURLFieldState = form.getFieldState('baseURL', form.formState);
           if (nextResponsesTransport === 'websocket') {
             const baseURL = getResponsesWebSocketBaseURL(newChannelType);
@@ -998,7 +1056,17 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     },
-    [selectedProvider, form, useGeminiVertex, useAnthropicAws, useKimiCoding, isDuplicate, isEdit, isOAuthChannel, passThroughBody]
+    [
+      selectedProvider,
+      form,
+      useGeminiVertex,
+      useAnthropicAws,
+      useKimiCoding,
+      isDuplicate,
+      isEdit,
+      isOAuthChannel,
+      applyAxonHubChannelTransition,
+    ]
   );
 
   const handleResponsesTransportChange = useCallback(
@@ -1241,6 +1309,11 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             ...values,
             type: derivedChannelType,
           };
+      const genericSettingsForSubmit = resolveGenericChannelBehaviorSettings(
+        isAxonHubChannelType(valuesForSubmit.type),
+        { passThroughUserAgent, passThroughBody, disableRetries },
+        genericSettingsBeforeAxonHubRef.current
+      );
 
       const dataWithModels = {
         ...valuesForSubmit,
@@ -1277,13 +1350,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
       if (isEdit && currentRow) {
         const nextSettings = mergeChannelSettingsForUpdate(settingsForSubmit, {
-          passThroughUserAgent,
-          passThroughBody,
+          passThroughUserAgent: genericSettingsForSubmit.passThroughUserAgent,
+          passThroughBody: genericSettingsForSubmit.passThroughBody,
           retryableStatusCodes,
           retryableErrorPatterns,
-          disableRetries,
-          fullPassThrough: isAxonHubChannelType(values.type) ? fullPassThrough : false,
-          ...(isAxonHubChannelType(values.type) ? axonHubCaptureSettings : AXONHUB_CAPTURE_PRESETS.inherit),
+          disableRetries: genericSettingsForSubmit.disableRetries,
+          fullPassThrough: isAxonHubChannelType(valuesForSubmit.type) ? fullPassThrough : false,
+          ...(isAxonHubChannelType(valuesForSubmit.type) ? axonHubCaptureSettings : AXONHUB_CAPTURE_PRESETS.inherit),
         });
 
         const updateInput = {
@@ -1324,13 +1397,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
         const nextSettings = mergeChannelSettingsForUpdate(settingsForSubmit, {
           proxy: proxyConfig,
-          passThroughUserAgent,
-          passThroughBody,
+          passThroughUserAgent: genericSettingsForSubmit.passThroughUserAgent,
+          passThroughBody: genericSettingsForSubmit.passThroughBody,
           retryableStatusCodes,
           retryableErrorPatterns,
-          disableRetries,
-          fullPassThrough: isAxonHubChannelType(values.type) ? fullPassThrough : false,
-          ...(isAxonHubChannelType(values.type) ? axonHubCaptureSettings : AXONHUB_CAPTURE_PRESETS.inherit),
+          disableRetries: genericSettingsForSubmit.disableRetries,
+          fullPassThrough: isAxonHubChannelType(valuesForSubmit.type) ? fullPassThrough : false,
+          ...(isAxonHubChannelType(valuesForSubmit.type) ? axonHubCaptureSettings : AXONHUB_CAPTURE_PRESETS.inherit),
         });
 
         const createInput = {
@@ -1765,6 +1838,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
             setDisableRetries(initialRow?.settings?.disableRetries ?? false);
             setFullPassThrough(initialRow?.settings?.fullPassThrough ?? false);
             setAxonHubCaptureSettings(getAxonHubCaptureSettings(initialRow?.settings));
+            genericSettingsBeforeAxonHubRef.current = isAxonHubChannelType(initialRow?.type)
+              ? getGenericChannelBehaviorSettings(initialRow?.settings)
+              : null;
             // Reset provider and API format state
             if (initialRow) {
               setSelectedProvider(getProviderFromChannelType(initialRow.type) || 'openai');
@@ -2846,26 +2922,26 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
                           <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
                             <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
-                              {t('channels.dialogs.axonHubCapture.label')}
+                              {t('channels.dialogs.axonHubBehavior.preset.label')}
                             </FormLabel>
                             <div className='space-y-3 md:col-span-6'>
-                              <Select value={axonHubCapturePreset} onValueChange={applyAxonHubCapturePreset}>
-                                <SelectTrigger aria-label={t('channels.dialogs.axonHubCapture.label')} data-testid='axonhub-capture-preset'>
+                              <Select value={axonHubBehaviorPreset} onValueChange={applyAxonHubBehaviorPreset}>
+                                <SelectTrigger aria-label={t('channels.dialogs.axonHubBehavior.preset.label')} data-testid='axonhub-behavior-preset'>
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {AXONHUB_CAPTURE_PRESET_OPTIONS.map((preset) => (
+                                  {AXONHUB_BEHAVIOR_PRESET_OPTIONS.map((preset) => (
                                     <SelectItem key={preset} value={preset}>
-                                      {t(`channels.dialogs.axonHubCapture.presets.${preset}.label`)}
+                                      {t(`channels.dialogs.axonHubBehavior.presets.${preset}.label`)}
                                     </SelectItem>
                                   ))}
-                                  {axonHubCapturePreset === 'custom' && (
-                                    <SelectItem value='custom'>{t('channels.dialogs.axonHubCapture.presets.custom.label')}</SelectItem>
+                                  {axonHubBehaviorPreset === 'custom' && (
+                                    <SelectItem value='custom'>{t('channels.dialogs.axonHubBehavior.presets.custom.label')}</SelectItem>
                                   )}
                                 </SelectContent>
                               </Select>
                               <p className='text-muted-foreground text-sm'>
-                                {t(`channels.dialogs.axonHubCapture.presets.${axonHubCapturePreset}.description`)}
+                                {t(`channels.dialogs.axonHubBehavior.presets.${axonHubBehaviorPreset}.description`)}
                               </p>
                               {axonHubCaptureHasDisabledField && (
                                 <p className='text-xs text-amber-600 dark:text-amber-400'>

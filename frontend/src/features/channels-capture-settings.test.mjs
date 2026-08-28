@@ -49,6 +49,72 @@ test('mixed capture settings derive a custom preset', () => {
   );
 });
 
+test('combined AxonHub behavior presets keep passthrough, retries, and capture coherent', () => {
+  assert.deepEqual(capture.AXONHUB_BEHAVIOR_PRESETS.lowLatency, {
+    passThroughUserAgent: false,
+    passThroughBody: true,
+    disableRetries: true,
+    fullPassThrough: true,
+    storeExecutionRequestBody: false,
+    storeExecutionResponseBody: false,
+    storeExecutionStreamChunks: false,
+  });
+  assert.deepEqual(capture.AXONHUB_BEHAVIOR_PRESETS.audit, {
+    passThroughUserAgent: null,
+    passThroughBody: false,
+    disableRetries: false,
+    fullPassThrough: true,
+    storeExecutionRequestBody: true,
+    storeExecutionResponseBody: true,
+    storeExecutionStreamChunks: false,
+  });
+});
+
+test('combined AxonHub behavior derives presets and detects custom capture combinations', () => {
+  const standard = capture.resolveAxonHubBehaviorPreset('standard');
+  assert.deepEqual(standard, capture.AXONHUB_BEHAVIOR_PRESETS.standard);
+  assert.equal(capture.getAxonHubBehaviorPreset(standard), 'standard');
+  assert.equal(capture.resolveAxonHubBehaviorPreset('custom'), null);
+  assert.equal(
+    capture.getAxonHubBehaviorPreset({ ...standard, storeExecutionResponseBody: false }),
+    'custom'
+  );
+});
+
+for (const targetProvider of ['OpenAI', 'Codex']) {
+  test(`leaving AxonHub for ${targetProvider} restores generic settings instead of leaking the low-latency preset`, () => {
+    const genericSettings = {
+      passThroughUserAgent: true,
+      passThroughBody: false,
+      disableRetries: false,
+    };
+    const entered = capture.transitionAxonHubScopedSettings(genericSettings, null, false, true);
+    assert.equal(entered.enteredAxonHub, true);
+    assert.deepEqual(entered.restoreSettings, genericSettings);
+
+    const lowLatency = capture.AXONHUB_BEHAVIOR_PRESETS.lowLatency;
+    const left = capture.transitionAxonHubScopedSettings(lowLatency, entered.restoreSettings, true, false);
+    assert.equal(left.leftAxonHub, true);
+    assert.deepEqual(left.settings, genericSettings);
+    assert.deepEqual(capture.resolveGenericChannelBehaviorSettings(false, lowLatency, entered.restoreSettings), genericSettings);
+  });
+}
+
+test('an edited AxonHub channel restores its persisted generic baseline after applying a preset', () => {
+  const persisted = capture.getGenericChannelBehaviorSettings({
+    passThroughUserAgent: true,
+    passThroughBody: false,
+    disableRetries: false,
+  });
+  const left = capture.transitionAxonHubScopedSettings(capture.AXONHUB_BEHAVIOR_PRESETS.lowLatency, persisted, true, false);
+  assert.deepEqual(left.settings, persisted);
+});
+
+test('a transition without a prior generic snapshot uses neutral defaults', () => {
+  const left = capture.transitionAxonHubScopedSettings(capture.AXONHUB_BEHAVIOR_PRESETS.lowLatency, null, true, false);
+  assert.deepEqual(left.settings, capture.DEFAULT_GENERIC_CHANNEL_BEHAVIOR_SETTINGS);
+});
+
 test('non-preset select values cannot clear capture settings', () => {
   assert.equal(capture.resolveAxonHubCapturePreset('disabled'), null);
   assert.equal(capture.resolveAxonHubCapturePreset('custom'), null);

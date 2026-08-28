@@ -48,8 +48,6 @@ func (p *PersistentOutboundTransformer) isPassThroughEnabled(ctx context.Context
 	var enabled bool
 
 	switch {
-	case isAxonHubFullPassThroughChannel(channel):
-		enabled = true
 	case channel.Settings != nil && channel.Settings.PassThroughBody != nil:
 		enabled = *channel.Settings.PassThroughBody
 	case systemService != nil:
@@ -153,6 +151,9 @@ func isAllowedAxonHubFullPassThroughPath(path string) bool {
 	if path == "" || !strings.HasPrefix(path, "/") {
 		return false
 	}
+	if hasUnsafeAxonHubFullPassThroughPath(path) {
+		return false
+	}
 
 	allowedPrefixes := []string{
 		"/v1/",
@@ -170,6 +171,20 @@ func isAllowedAxonHubFullPassThroughPath(path string) bool {
 	}
 
 	return path == "/v1" || path == "/v1beta"
+}
+
+func hasUnsafeAxonHubFullPassThroughPath(path string) bool {
+	if strings.Contains(path, "\\") {
+		return true
+	}
+
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+
+	return false
 }
 
 func buildAxonHubFullPassThroughURL(baseURL, escapedPath, rawQuery string) (string, error) {

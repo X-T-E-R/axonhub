@@ -30,6 +30,7 @@ import { Request, RequestConnection } from '../data/schema';
 import { CurlPreviewDialog } from './curl-preview-dialog';
 import { getStatusColor } from './help';
 import { generateRequestCurl } from '../utils/curl-generator';
+import { formatToolChoiceForDisplay } from '../utils/tool-choice';
 
 interface RequestBodyDrawerProps {
   open: boolean;
@@ -128,6 +129,11 @@ export function RequestBodyDrawer({
   }, [open]);
   if (request) displayedRequestRef.current = request;
   const displayedRequest = displayedRequestRef.current;
+  const toolChoiceDisplay = formatToolChoiceForDisplay(
+    displayedRequest?.requestBody && typeof displayedRequest.requestBody === 'object'
+      ? (displayedRequest.requestBody as Record<string, unknown>).tool_choice
+      : undefined
+  );
 
   // ── active tab ─────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('request');
@@ -361,6 +367,16 @@ export function RequestBodyDrawer({
 
                 <TabsContent value='request' className='m-0 min-h-0 flex-1 px-6 pb-6 pt-4'>
                   <ScrollArea className='bg-muted/20 h-full w-full rounded-lg border p-4'>
+                    {toolChoiceDisplay && (
+                      <div className='border-border bg-background/60 mb-3 rounded-md border px-3 py-2'>
+                        <div className='text-muted-foreground mb-1 font-mono text-[11px]'>tool_choice</div>
+                        {toolChoiceDisplay.kind === 'json' ? (
+                          <pre className='overflow-x-auto whitespace-pre-wrap font-mono text-xs'>{toolChoiceDisplay.value}</pre>
+                        ) : (
+                          <div className='font-mono text-xs'>{toolChoiceDisplay.value}</div>
+                        )}
+                      </div>
+                    )}
                     {displayedRequest.requestBody ? (
                       <JsonViewer
                         key={`req-${currentRequestId}`}
