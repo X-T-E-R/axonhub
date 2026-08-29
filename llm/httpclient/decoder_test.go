@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"net"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -98,6 +100,35 @@ func (r *readChunkThenError) Close() error {
 type cancelThenErrorReadCloser struct {
 	cancel context.CancelFunc
 	err    error
+}
+
+type closeUnblocksWithErrorReadCloser struct {
+	err         error
+	readStarted chan struct{}
+	release     chan struct{}
+	startOnce   sync.Once
+	closeOnce   sync.Once
+}
+
+func newCloseUnblocksWithErrorReadCloser(err error) *closeUnblocksWithErrorReadCloser {
+	return &closeUnblocksWithErrorReadCloser{
+		err:         err,
+		readStarted: make(chan struct{}),
+		release:     make(chan struct{}),
+	}
+}
+
+func (r *closeUnblocksWithErrorReadCloser) Read([]byte) (int, error) {
+	r.startOnce.Do(func() { close(r.readStarted) })
+	<-r.release
+
+	return 0, r.err
+}
+
+func (r *closeUnblocksWithErrorReadCloser) Close() error {
+	r.closeOnce.Do(func() { close(r.release) })
+
+	return nil
 }
 
 func (r *cancelThenErrorReadCloser) Read([]byte) (int, error) {
@@ -227,6 +258,8 @@ func TestDefaultSSEDecoder_PreservesTransportErrorWhenContextIsCanceledLater(t *
 	require.False(t, decoder.Next())
 	require.ErrorIs(t, decoder.Err(), transportErr)
 	require.NotErrorIs(t, decoder.Err(), context.Canceled)
+	require.NoError(t, decoder.Close())
+	require.ErrorIs(t, decoder.Err(), transportErr, "later Close must not clear an established provider error")
 }
 
 func TestDefaultSSEDecoder_GenuineCancellation(t *testing.T) {
@@ -236,6 +269,57 @@ func TestDefaultSSEDecoder_GenuineCancellation(t *testing.T) {
 
 	require.False(t, decoder.Next())
 	require.ErrorIs(t, decoder.Err(), context.Canceled)
+}
+
+func TestDefaultSSEDecoder_LocalInterruptSuppressesReadErrorCausedByClose(t *testing.T) {
+	transportErr := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: net.ErrClosed,
+	}
+	rc := newCloseUnblocksWithErrorReadCloser(transportErr)
+	decoder := NewDefaultSSEDecoder(context.Background(), rc)
+	interruptible := decoder.(interface{ Interrupt() error })
+
+	nextReturned := make(chan bool, 1)
+	go func() { nextReturned <- decoder.Next() }()
+
+	<-rc.readStarted
+	require.NoError(t, interruptible.Interrupt())
+	require.False(t, <-nextReturned)
+	require.NoError(t, decoder.Err(),
+		"a read error caused by the decoder's own interrupt is teardown evidence, not an upstream failure")
+}
+
+func TestDefaultSSEDecoder_InterruptAfterReadCompletionDoesNotSuppressProviderError(t *testing.T) {
+	transportErr := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: net.ErrClosed,
+	}
+	decoder := NewDefaultSSEDecoder(context.Background(), &cancelThenErrorReadCloser{
+		cancel: func() {},
+		err:    transportErr,
+	})
+	concreteDecoder := decoder.(*defaultSSEDecoder)
+	interruptible := decoder.(interface{ Interrupt() error })
+	recvReturned := make(chan struct{})
+	classify := make(chan struct{})
+	concreteDecoder.afterRecv = func() {
+		close(recvReturned)
+		<-classify
+	}
+
+	nextReturned := make(chan bool, 1)
+	go func() { nextReturned <- decoder.Next() }()
+
+	<-recvReturned
+	require.NoError(t, interruptible.Interrupt(),
+		"the read has completed, but Interrupt occurs before Next classifies its provider error")
+	close(classify)
+	require.False(t, <-nextReturned)
+	require.ErrorIs(t, decoder.Err(), transportErr,
+		"a later local Close must not relabel or clear an already completed provider error")
 }
 
 func TestBinaryChunkDecoder(t *testing.T) {

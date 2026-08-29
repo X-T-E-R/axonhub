@@ -3,11 +3,14 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
 )
 
@@ -48,6 +51,70 @@ func (s *deferredErrorStream[T]) Close() error {
 }
 
 var _ streams.Stream[string] = (*deferredErrorStream[string])(nil)
+
+type closeUnblocksSSEReadWithError struct {
+	data        []byte
+	err         error
+	readStarted chan struct{}
+	release     chan struct{}
+	startOnce   sync.Once
+	closeOnce   sync.Once
+}
+
+type terminalClassificationGateError struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newTerminalClassificationGateError() *terminalClassificationGateError {
+	return &terminalClassificationGateError{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (e *terminalClassificationGateError) Error() string { return net.ErrClosed.Error() }
+
+func (e *terminalClassificationGateError) As(any) bool {
+	e.once.Do(func() { close(e.started) })
+	<-e.release
+
+	return false
+}
+
+func newCloseUnblocksSSEReadWithError(err error) *closeUnblocksSSEReadWithError {
+	return &closeUnblocksSSEReadWithError{
+		data:        []byte("data: [DONE]\n\n"),
+		err:         err,
+		readStarted: make(chan struct{}),
+		release:     make(chan struct{}),
+	}
+}
+
+func (r *closeUnblocksSSEReadWithError) Read(p []byte) (int, error) {
+	if len(r.data) > 0 {
+		n := copy(p, r.data)
+		r.data = r.data[n:]
+
+		return n, nil
+	}
+
+	r.startOnce.Do(func() { close(r.readStarted) })
+	<-r.release
+
+	return 0, r.err
+}
+
+func (r *closeUnblocksSSEReadWithError) unblock() {
+	r.closeOnce.Do(func() { close(r.release) })
+}
+
+func (r *closeUnblocksSSEReadWithError) Close() error {
+	r.unblock()
+
+	return nil
+}
 
 func TestTerminalErrorReportingStream_ReportsDeferredErrorExactlyOnce(t *testing.T) {
 	terminalErr := errors.New("terminal transform integrity failure")
@@ -189,4 +256,85 @@ func TestTerminalErrorReportingStream_ReportsDistinctFinalTransformError(t *test
 	}
 	require.False(t, finalStream.Next())
 	require.Equal(t, 1, reportedCall)
+}
+
+func TestTerminalErrorReportingStream_LocalSSEInterruptDoesNotReportRawError(t *testing.T) {
+	transportErr := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: net.ErrClosed,
+	}
+	rc := newCloseUnblocksSSEReadWithError(transportErr)
+	decoder := httpclient.NewDefaultSSEDecoder(context.Background(), rc)
+	interruptible := decoder.(streams.Interruptible)
+	reported := make(chan error, 1)
+	stream := &terminalErrorReportingStream[*httpclient.StreamEvent]{
+		stream: decoder,
+		reporter: &terminalErrorReporter{
+			ctx: context.Background(),
+			onError: func(_ context.Context, err error) {
+				reported <- err
+			},
+		},
+	}
+
+	require.True(t, stream.Next())
+	require.Equal(t, []byte("[DONE]"), stream.Current().Data,
+		"the terminal response evidence must be consumed before cleanup interrupts the next read")
+
+	nextReturned := make(chan bool, 1)
+	go func() { nextReturned <- stream.Next() }()
+
+	<-rc.readStarted
+	require.NoError(t, interruptible.Interrupt())
+	require.False(t, <-nextReturned)
+	require.NoError(t, stream.Err())
+	select {
+	case err := <-reported:
+		t.Fatalf("locally interrupted SSE read reached raw-error middleware: %v", err)
+	default:
+	}
+}
+
+func TestTerminalErrorReportingStream_ProviderDisconnectAfterTerminalEventStillReportsRawError(t *testing.T) {
+	classificationGate := newTerminalClassificationGateError()
+	transportErr := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: classificationGate,
+	}
+	rc := newCloseUnblocksSSEReadWithError(transportErr)
+	decoder := httpclient.NewDefaultSSEDecoder(context.Background(), rc)
+	reported := make(chan error, 1)
+	stream := &terminalErrorReportingStream[*httpclient.StreamEvent]{
+		stream: decoder,
+		reporter: &terminalErrorReporter{
+			ctx: context.Background(),
+			onError: func(_ context.Context, err error) {
+				reported <- err
+			},
+		},
+	}
+
+	require.True(t, stream.Next())
+	require.Equal(t, []byte("[DONE]"), stream.Current().Data)
+
+	nextReturned := make(chan bool, 1)
+	go func() { nextReturned <- stream.Next() }()
+
+	<-rc.readStarted
+	rc.unblock()
+	<-classificationGate.started
+	require.NoError(t, decoder.(streams.Interruptible).Interrupt(),
+		"Interrupt occurs after the provider Read completed but before decoder classification")
+	close(classificationGate.release)
+	require.False(t, <-nextReturned)
+	require.ErrorIs(t, stream.Err(), transportErr)
+	select {
+	case err := <-reported:
+		require.ErrorIs(t, err, transportErr,
+			"an identical read error without decoder Interrupt remains a provider failure")
+	case <-time.After(time.Second):
+		t.Fatal("genuine provider disconnect did not reach raw-error middleware")
+	}
 }

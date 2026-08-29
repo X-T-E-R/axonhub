@@ -41,14 +41,73 @@ func GetDecoder(contentType string) (StreamDecoderFactory, bool) {
 	return factory, exists
 }
 
+const (
+	sseReadIdle uint32 = iota
+	sseReadInProgress
+	sseReadClosed
+)
+
+// localSSEReadInterruptError marks an error from a Read that was still active
+// when this decoder closed its body. The marker records lifecycle provenance;
+// the wrapped transport error remains available for diagnostics.
+type localSSEReadInterruptError struct {
+	err error
+}
+
+func (e *localSSEReadInterruptError) Error() string { return e.err.Error() }
+func (e *localSSEReadInterruptError) Unwrap() error { return e.err }
+
+// interruptibleSSEReadCloser linearizes completion of each body Read against a
+// local Close. Once Read changes in-progress back to idle, a later Close cannot
+// relabel its provider error as local teardown, even if Recv has not classified
+// that error yet.
+type interruptibleSSEReadCloser struct {
+	reader io.ReadCloser
+	state  atomic.Uint32
+}
+
+func (r *interruptibleSSEReadCloser) Read(p []byte) (int, error) {
+	if !r.state.CompareAndSwap(sseReadIdle, sseReadInProgress) {
+		return 0, &localSSEReadInterruptError{err: io.ErrClosedPipe}
+	}
+
+	n, err := r.reader.Read(p)
+	if r.state.CompareAndSwap(sseReadInProgress, sseReadIdle) {
+		return n, err
+	}
+
+	// Close is the only transition away from in-progress. It claimed this
+	// Read before the Read completion transition, so its resulting error has
+	// positive local-interrupt provenance.
+	if err == nil {
+		err = io.ErrClosedPipe
+	}
+
+	return n, &localSSEReadInterruptError{err: err}
+}
+
+func (r *interruptibleSSEReadCloser) Close() error {
+	r.state.Swap(sseReadClosed)
+
+	return r.reader.Close()
+}
+
+func isLocalSSEReadInterrupt(err error) bool {
+	var interruptErr *localSSEReadInterruptError
+
+	return errors.As(err, &interruptErr)
+}
+
 // NewDefaultSSEDecoder creates a new default SSE decoder.
 func NewDefaultSSEDecoder(ctx context.Context, rc io.ReadCloser) StreamDecoder {
+	reader := &interruptibleSSEReadCloser{reader: rc}
+
 	return &defaultSSEDecoder{
 		ctx:    ctx,
-		reader: rc,
+		reader: reader,
 		// sseStream: sse.NewStream(rc),
 		// 图片生成需要大量数据，设置最大事件大小
-		sseStream: sse.NewStreamWithConfig(rc, &sse.StreamConfig{
+		sseStream: sse.NewStreamWithConfig(reader, &sse.StreamConfig{
 			MaxEventSize: 32 * 1024 * 1024,
 		}),
 	}
@@ -107,6 +166,7 @@ type defaultSSEDecoder struct {
 	sseStream *sse.Stream
 	current   *StreamEvent
 	err       error
+	afterRecv func()
 
 	closed    atomic.Bool
 	closeOnce sync.Once
@@ -135,7 +195,19 @@ func (s *defaultSSEDecoder) Next() bool {
 	}
 
 	event, err := s.sseStream.Recv()
+	if s.afterRecv != nil {
+		s.afterRecv()
+	}
 	if err != nil {
+		// Only the reader-owned marker can prove that local Close claimed the
+		// active body Read. The decoder-level closed flag alone is insufficient:
+		// Close may race after a provider error has already completed its Read.
+		if isLocalSSEReadInterrupt(err) {
+			slog.DebugContext(s.ctx, "SSE stream read interrupted")
+
+			return false
+		}
+
 		if errors.Is(err, io.EOF) {
 			slog.DebugContext(s.ctx, "SSE stream closed")
 

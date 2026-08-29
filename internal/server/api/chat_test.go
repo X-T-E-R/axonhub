@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -274,6 +275,7 @@ type closeSignalStream struct {
 }
 
 type blockingReadCloser struct {
+	err         error
 	readStarted chan struct{}
 	released    chan struct{}
 	startOnce   sync.Once
@@ -284,7 +286,7 @@ type blockingReadCloser struct {
 func (r *blockingReadCloser) Read([]byte) (int, error) {
 	r.startOnce.Do(func() { close(r.readStarted) })
 	<-r.released
-	return 0, errors.New("reader interrupted")
+	return 0, r.err
 }
 
 func (r *blockingReadCloser) Close() error {
@@ -684,6 +686,11 @@ func TestWriteSSEStream_DownstreamFailureInterruptsDecoderBeforePersistentClose(
 	c.Writer = failingWriter
 
 	rawReader := &blockingReadCloser{
+		err: &net.OpError{
+			Op:  "read",
+			Net: "tcp",
+			Err: net.ErrClosed,
+		},
 		readStarted: make(chan struct{}),
 		released:    make(chan struct{}),
 	}
@@ -700,6 +707,9 @@ func TestWriteSSEStream_DownstreamFailureInterruptsDecoderBeforePersistentClose(
 	default:
 		t.Fatal("decoder Next never reached the blocking reader")
 	}
+	require.NoError(t, decoder.Err(),
+		"reader.Stop's local interrupt must not turn downstream teardown into an upstream failure")
+	require.Equal(t, sseCloseDownstreamWriteFailed, session.ledger.reason())
 	require.NoError(t, owned.Close())
 	require.Equal(t, int32(1), rawReader.closeCount.Load())
 }
