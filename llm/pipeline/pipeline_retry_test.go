@@ -3,8 +3,10 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -390,6 +392,149 @@ func TestPipeline_Process_RetryLogic(t *testing.T) {
 		require.Nil(t, res)
 		require.Equal(t, 4, execCalls)
 	})
+}
+
+func TestPipeline_Process_BadGatewayCapsSameChannelRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		configuredRetries int
+		wantAttempts      int
+	}{
+		{name: "configured zero", configuredRetries: 0, wantAttempts: 1},
+		{name: "configured one", configuredRetries: 1, wantAttempts: 2},
+		{name: "configured above cap", configuredRetries: 2, wantAttempts: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attempts := 0
+			executor := &mockExecutor{
+				do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+					attempts++
+					return nil, &httpclient.Error{StatusCode: http.StatusBadGateway}
+				},
+			}
+			outbound := &mockOutbound{
+				canRetry: func(error) bool { return true },
+				transformError: func(context.Context, *httpclient.Error) *llm.ResponseError {
+					return &llm.ResponseError{StatusCode: http.StatusBadGateway}
+				},
+			}
+
+			p := NewFactory(executor).Pipeline(
+				&mockInbound{},
+				outbound,
+				WithRetry(0, tc.configuredRetries, 0),
+			)
+
+			result, err := p.Process(context.Background(), &httpclient.Request{})
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Equal(t, tc.wantAttempts, attempts)
+		})
+	}
+}
+
+func TestPipeline_Process_BadGatewayCapPreservesCrossChannelRetries(t *testing.T) {
+	attempts := 0
+	switches := 0
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			attempts++
+			return nil, &httpclient.Error{StatusCode: http.StatusBadGateway}
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry:        func(error) bool { return true },
+		hasMoreChannels: func() bool { return true },
+		nextChannel: func(context.Context) error {
+			switches++
+			return nil
+		},
+		transformError: func(context.Context, *httpclient.Error) *llm.ResponseError {
+			return &llm.ResponseError{StatusCode: http.StatusBadGateway}
+		},
+	}
+
+	p := NewFactory(executor).Pipeline(&mockInbound{}, outbound, WithRetry(1, 2, 0))
+	result, err := p.Process(context.Background(), &httpclient.Request{})
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 4, attempts)
+	require.Equal(t, 1, switches)
+}
+
+func TestPipeline_Process_UnrelatedStatusKeepsConfiguredSameChannelRetries(t *testing.T) {
+	attempts := 0
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			attempts++
+			return nil, &httpclient.Error{StatusCode: http.StatusServiceUnavailable}
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		transformError: func(context.Context, *httpclient.Error) *llm.ResponseError {
+			return &llm.ResponseError{StatusCode: http.StatusServiceUnavailable}
+		},
+	}
+
+	p := NewFactory(executor).Pipeline(&mockInbound{}, outbound, WithRetry(0, 2, 0))
+	result, err := p.Process(context.Background(), &httpclient.Request{})
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 3, attempts)
+}
+
+func TestBadGatewayErrorRecognizesTypedHTTPAndLLMErrors(t *testing.T) {
+	require.True(t, isBadGatewayError(fmt.Errorf("wrapped: %w", &httpclient.Error{StatusCode: http.StatusBadGateway})))
+	require.True(t, isBadGatewayError(WrapUpstreamError(&llm.ResponseError{StatusCode: http.StatusBadGateway})))
+	require.False(t, isBadGatewayError(&llm.ResponseError{StatusCode: http.StatusServiceUnavailable}))
+	require.False(t, isBadGatewayError(errors.New("502")))
+}
+
+func TestPipeline_Process_RetryDelayStopsOnContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	prepared := make(chan struct{})
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			return nil, errors.New("temporary failure")
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		prepareForRetry: func(context.Context) error {
+			close(prepared)
+			return nil
+		},
+	}
+	p := NewFactory(executor).Pipeline(
+		&mockInbound{},
+		outbound,
+		WithRetry(0, 1, 5*time.Second),
+	)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Process(ctx, &httpclient.Request{})
+		done <- err
+	}()
+
+	select {
+	case <-prepared:
+	case <-time.After(time.Second):
+		t.Fatal("retry was not prepared")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("retry delay did not stop after context cancellation")
+	}
 }
 
 func TestPipeline_Process_RetryPreservesOriginalStreamIntent(t *testing.T) {

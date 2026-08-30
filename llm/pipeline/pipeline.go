@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/looplj/axonhub/llm"
@@ -300,18 +301,19 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 		// Determine retry strategy
 		canRetry := false
 		timeoutRetry := isResponseTimeoutError(lastErr)
+		maxSameChannelRetries := p.maxSameChannelRetriesForError(lastErr)
 
 		// 1. Try same-channel retry first if supported
 		if !timeoutRetry {
 			if channelRetryable, ok := p.Outbound.(ChannelRetryable); ok {
-				if sameChannelRetries < p.getMaxSameChannelRetries() && channelRetryable.CanRetry(lastErr) {
+				if sameChannelRetries < maxSameChannelRetries && channelRetryable.CanRetry(lastErr) {
 					if err := channelRetryable.PrepareForRetry(ctx); err == nil {
 						sameChannelRetries++
 						canRetry = true
 
 						slog.DebugContext(ctx, "retrying same channel",
 							slog.Int("same_channel_attempt", sameChannelRetries),
-							slog.Int("max_same_channel_retries", p.getMaxSameChannelRetries()),
+							slog.Int("max_same_channel_retries", maxSameChannelRetries),
 						)
 					} else {
 						slog.WarnContext(ctx, "failed to prepare same channel retry, will try channel switch", slog.Any("error", err))
@@ -347,7 +349,21 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 
 		// Add retry delay if configured
 		if p.retryDelay > 0 {
-			time.Sleep(p.retryDelay)
+			timer := time.NewTimer(p.retryDelay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				return nil, lastErr
+			}
+		}
+		if ctx.Err() != nil {
+			return nil, lastErr
 		}
 
 		slog.WarnContext(ctx, "request process failed, retrying...",
@@ -445,6 +461,27 @@ func (p *pipeline) processRequest(ctx context.Context, request *llm.Request) (*R
 // getMaxSameChannelRetries returns the maximum number of same-channel retries.
 func (p *pipeline) getMaxSameChannelRetries() int {
 	return p.maxSameChannelRetries
+}
+
+const maxBadGatewaySameChannelRetries = 1
+
+func (p *pipeline) maxSameChannelRetriesForError(err error) int {
+	configured := p.getMaxSameChannelRetries()
+	if !isBadGatewayError(err) || configured <= maxBadGatewaySameChannelRetries {
+		return configured
+	}
+
+	return maxBadGatewaySameChannelRetries
+}
+
+func isBadGatewayError(err error) bool {
+	var responseErr *llm.ResponseError
+	if errors.As(err, &responseErr) && responseErr.StatusCode == http.StatusBadGateway {
+		return true
+	}
+
+	var httpErr *httpclient.Error
+	return errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusBadGateway
 }
 
 func isResponseTimeoutError(err error) bool {
