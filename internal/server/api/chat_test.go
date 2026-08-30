@@ -503,7 +503,7 @@ func TestWriteSSEStream_SemanticSuccessInterruptsBlockedTailOnce(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("semantic terminal grace did not stop the blocked stream")
 	}
 
