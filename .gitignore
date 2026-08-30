@@ -167,3 +167,7 @@ config.schema.json
 .omc/
 .playwright-mcp/
 .ace-tool/
+
+# Local diagnostic and Assay control state
+/.workflow/
+/system.yaml
