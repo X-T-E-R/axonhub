@@ -209,6 +209,10 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha,scope=ghcr-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
           provenance: false
           sbom: false
 
@@ -369,6 +373,14 @@ jobs:
           SHA_ARM64_REF="${SHA_REF}-arm64"
           RELEASE_AMD64_REF="${RELEASE_REF}-amd64"
           RELEASE_ARM64_REF="${RELEASE_REF}-arm64"
+          EXPECTED_SOURCE="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          EXPECTED_REVISION="${GITHUB_SHA}"
+          EXPECTED_VERSION="${{ needs.metadata.outputs.version }}"
+
+          if [[ ! "${EXPECTED_REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "workflow source revision is not a full commit SHA: ${EXPECTED_REVISION}" >&2
+            exit 1
+          fi
 
           resolve_digest() {
             local ref="$1"
@@ -417,15 +429,65 @@ jobs:
             local ref="$1"
             local output="$2"
             docker buildx imagetools inspect --raw "${ref}" > "${output}"
-            jq -e --arg amd64 "${AMD64_DIGEST}" --arg arm64 "${ARM64_DIGEST}" '
-              (.mediaType == "application/vnd.oci.image.index.v1+json" or
-               .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json") and
+            jq -e \
+              --arg amd64 "${AMD64_DIGEST}" \
+              --arg arm64 "${ARM64_DIGEST}" \
+              --arg source "${EXPECTED_SOURCE}" \
+              --arg revision "${EXPECTED_REVISION}" \
+              --arg version "${EXPECTED_VERSION}" '
+              .mediaType == "application/vnd.oci.image.index.v1+json" and
+              .annotations["org.opencontainers.image.source"] == $source and
+              .annotations["org.opencontainers.image.revision"] == $revision and
+              .annotations["org.opencontainers.image.version"] == $version and
               (.manifests | length == 2) and
               any(.manifests[]?;
-                .digest == $amd64 and .platform.os == "linux" and .platform.architecture == "amd64") and
+                .digest == $amd64 and .platform.os == "linux" and .platform.architecture == "amd64" and
+                .annotations["org.opencontainers.image.source"] == $source and
+                .annotations["org.opencontainers.image.revision"] == $revision and
+                .annotations["org.opencontainers.image.version"] == $version) and
               any(.manifests[]?;
-                .digest == $arm64 and .platform.os == "linux" and .platform.architecture == "arm64")
+                .digest == $arm64 and .platform.os == "linux" and .platform.architecture == "arm64" and
+                .annotations["org.opencontainers.image.source"] == $source and
+                .annotations["org.opencontainers.image.revision"] == $revision and
+                .annotations["org.opencontainers.image.version"] == $version)
             ' "${output}" >/dev/null
+          }
+
+          assert_platform_provenance() {
+            local ref="$1"
+            local expected_platform="$2"
+            local output="$3"
+            docker buildx imagetools inspect "${ref}" --format '{{json .Image}}' > "${output}"
+            jq -e \
+              --arg platform "${expected_platform}" \
+              --arg source "${EXPECTED_SOURCE}" \
+              --arg revision "${EXPECTED_REVISION}" \
+              --arg version "${EXPECTED_VERSION}" '
+              ((.os + "/" + .architecture) == $platform) and
+              .config.Labels["org.opencontainers.image.source"] == $source and
+              .config.Labels["org.opencontainers.image.revision"] == $revision and
+              .config.Labels["org.opencontainers.image.version"] == $version
+            ' "${output}" >/dev/null
+          }
+
+          create_annotated_index() {
+            docker buildx imagetools create \
+              --annotation "index:org.opencontainers.image.source=${EXPECTED_SOURCE}" \
+              --annotation "index:org.opencontainers.image.revision=${EXPECTED_REVISION}" \
+              --annotation "index:org.opencontainers.image.version=${EXPECTED_VERSION}" \
+              --annotation "manifest-descriptor:org.opencontainers.image.source=${EXPECTED_SOURCE}" \
+              --annotation "manifest-descriptor:org.opencontainers.image.revision=${EXPECTED_REVISION}" \
+              --annotation "manifest-descriptor:org.opencontainers.image.version=${EXPECTED_VERSION}" \
+              "$@"
+          }
+
+          assert_platform_provenance "${AMD64_REF}" "linux/amd64" amd64-image.json || {
+            echo "amd64 image config does not identify source ${EXPECTED_REVISION}" >&2
+            exit 1
+          }
+          assert_platform_provenance "${ARM64_REF}" "linux/arm64" arm64-image.json || {
+            echo "arm64 image config does not identify source ${EXPECTED_REVISION}" >&2
+            exit 1
           }
 
           IMMUTABLE_CANDIDATE="${{ needs.metadata.outputs.immutable_candidate }}"
@@ -487,7 +549,7 @@ jobs:
               if [[ -n "${EXISTING_INDEX_DIGEST}" ]]; then
                 docker buildx imagetools create "${index_tags[@]}" "${IMAGE_NAME}@${EXISTING_INDEX_DIGEST}"
               else
-                docker buildx imagetools create "${index_tags[@]}" "${AMD64_REF}" "${ARM64_REF}"
+                create_annotated_index "${index_tags[@]}" "${AMD64_REF}" "${ARM64_REF}"
               fi
             fi
           else
@@ -495,7 +557,7 @@ jobs:
             if [[ "${{ needs.metadata.outputs.publish_latest }}" == "true" ]]; then
               tags+=(--tag "${IMAGE_NAME}:latest")
             fi
-            docker buildx imagetools create "${tags[@]}" "${AMD64_REF}" "${ARM64_REF}"
+            create_annotated_index "${tags[@]}" "${AMD64_REF}" "${ARM64_REF}"
           fi
 
           INDEX_DIGEST="$(resolve_digest "${SHA_REF}")"
@@ -533,6 +595,13 @@ jobs:
           fi
 
           echo "Published ${RELEASE_REF} and ${SHA_REF} at immutable index ${INDEX_DIGEST}"
+          {
+            echo "### GHCR publication provenance"
+            echo "- Index: \`${IMAGE_NAME}@${INDEX_DIGEST}\`"
+            echo "- Platforms: \`linux/amd64@${AMD64_DIGEST}\`, \`linux/arm64@${ARM64_DIGEST}\`"
+            echo "- Source: \`${EXPECTED_SOURCE}@${EXPECTED_REVISION}\`"
+            echo "- Version: \`${EXPECTED_VERSION}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   promote-key-health:
     name: Promote verified key-health candidate
