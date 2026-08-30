@@ -1146,6 +1146,11 @@ func (s *webSocketStream) Close() error {
 	return nil
 }
 
+// Interrupt is concurrency-safe and unblocks an in-flight ReadMessage.
+func (s *webSocketStream) Interrupt() error {
+	return s.Close()
+}
+
 func (s *webSocketStream) contextCancelled() bool {
 	select {
 	case <-s.ctx.Done():

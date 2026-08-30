@@ -16,6 +16,7 @@ import { useGeneralSettings } from '@/features/system/data/system';
 import { type Request, useRequest, useRequestExecutions } from '../data';
 import { useUsageLogs } from '../data/usage-logs';
 import { generateRequestCurl, generateExecutionCurl } from '../utils/curl-generator';
+import { formatLatencyMs, resolveExecutionLatencyMs } from '../utils/request-latency';
 import { parseResponse } from '../utils/response-parser';
 import { ChunksDialog } from './chunks-dialog';
 import { CurlPreviewDialog } from './curl-preview-dialog';
@@ -296,19 +297,8 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
     []
   );
 
-  const calculateLatency = (createdAt: string | Date, updatedAt: string | Date) => {
-    if (!createdAt || !updatedAt) return null;
-    const start = new Date(createdAt).getTime();
-    const end = new Date(updatedAt).getTime();
-    const diffMs = end - start;
-    if (diffMs < 0) return null;
-    return diffMs;
-  };
-
   const formatLatency = (latencyMs: number | null) => {
-    if (latencyMs === null) return t('requests.columns.unknown');
-    if (latencyMs < 1000) return `${latencyMs}ms`;
-    return `${(latencyMs / 1000).toFixed(2)}s`;
+    return formatLatencyMs(latencyMs, t('requests.columns.unknown'));
   };
 
   if (isLoading) {
@@ -846,7 +836,13 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                               </span>
                               <p className='text-muted-foreground font-mono text-sm'>
                                 {execution.status === 'completed' || execution.status === 'failed'
-                                  ? formatLatency(calculateLatency(execution.createdAt, execution.updatedAt))
+                                  ? formatLatency(
+                                      resolveExecutionLatencyMs(
+                                        execution.metricsLatencyMs,
+                                        execution.createdAt,
+                                        execution.updatedAt
+                                      )
+                                    )
                                   : '-'}
                               </p>
                             </div>

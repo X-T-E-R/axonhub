@@ -315,6 +315,7 @@
   "channels.dialogs.fields.apiFormat.formats.openai/image_generation": "OpenAI (Image Generation)",
   "channels.dialogs.fields.apiFormat.formats.openai/image_edit": "OpenAI (Image Edit)",
   "channels.dialogs.fields.apiFormat.formats.openai/embeddings": "OpenAI (Embeddings)",
+  "channels.dialogs.fields.apiFormat.formats.openai/moderations": "OpenAI (Moderations)",
   "channels.dialogs.fields.apiFormat.formats.openai/video": "OpenAI (Video)",
   "channels.dialogs.fields.apiFormat.formats.anthropic/messages": "Anthropic (Messages)",
   "channels.dialogs.fields.apiFormat.formats.gemini/contents": "Gemini (Contents)",

@@ -11,6 +11,9 @@ server:
   # pid_file: "~/.config/axonhub/axonhub.pid"  # PID file for axonhub reload (env: AXONHUB_SERVER_PID_FILE)
   request_timeout: "30s"        # Request timeout duration (env: AXONHUB_SERVER_REQUEST_TIMEOUT)
   llm_request_timeout: "600s"   # LLM request timeout duration (env: AXONHUB_SERVER_LLM_REQUEST_TIMEOUT)
+  sse_keep_alive:
+    enabled: false               # Send API-compatible heartbeats while an SSE stream is idle (env: AXONHUB_SERVER_SSE_KEEP_ALIVE_ENABLED)
+    interval: "15s"              # Idle duration between heartbeats (env: AXONHUB_SERVER_SSE_KEEP_ALIVE_INTERVAL)
   trace:
     thread_header: "AH-Thread-Id" # Thread ID header name (env: AXONHUB_SERVER_TRACE_THREAD_HEADER)
     trace_header: "AH-Trace-Id" # Trace ID header name (env: AXONHUB_SERVER_TRACE_TRACE_HEADER)
@@ -21,6 +24,10 @@ server:
     codex_trace_enabled: false # Enable extracting trace IDs from Codex Session_id header (env: AXONHUB_SERVER_TRACE_CODEX_TRACE_ENABLED)
   debug: false                  # Enable debug mode (env: AXONHUB_SERVER_DEBUG)
   disable_ssl_verify: false     # Disable SSL certificate verification for self-signed certificates (env: AXONHUB_SERVER_DISABLE_SSL_VERIFY)
+  # Max multipart form memory for large uploads (e.g. backup restore).
+  # Accepts plain bytes or K/M/G suffixes: "32M", "512MB", "1G", "536870912".
+  # Default: "32M" (env: AXONHUB_SERVER_MAX_MULTIPART_MEMORY)
+  max_multipart_memory: "32M"
   cors:
     enabled: true               # Enable CORS middleware (env: AXONHUB_SERVER_CORS_ENABLED)
     debug: false                # Enable CORS debug logging (env: AXONHUB_SERVER_CORS_DEBUG)

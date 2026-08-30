@@ -769,6 +769,10 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 	}
 
 	next := *settings
+	if settings.SSEKeepAlive != nil {
+		sseKeepAlive := *settings.SSEKeepAlive
+		next.SSEKeepAlive = &sseKeepAlive
+	}
 	if settings.KeySelection != nil {
 		keySelection := *settings.KeySelection
 		next.KeySelection = &keySelection

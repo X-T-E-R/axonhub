@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.uber.org/zap/zapcore"
 )
@@ -47,4 +48,53 @@ func writeTestConfig(t *testing.T, contents string) string {
 		t.Fatalf("write test config: %v", err)
 	}
 	return configFile
+}
+
+func TestSSEKeepAliveConfig(t *testing.T) {
+	configFile := writeTestConfig(t, `
+server:
+  sse_keep_alive:
+    enabled: true
+    interval: 30s
+`)
+
+	cfg, _, err := loadConfig(configFile)
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+	if !cfg.APIServer.SSEKeepAlive.Enabled {
+		t.Fatal("SSE keep-alive should be enabled")
+	}
+	if cfg.APIServer.SSEKeepAlive.Interval != 30*time.Second {
+		t.Fatalf("SSE keep-alive interval = %s, want 30s", cfg.APIServer.SSEKeepAlive.Interval)
+	}
+}
+
+func TestSSEKeepAliveDefaultsToDisabled(t *testing.T) {
+	configFile := writeTestConfig(t, "")
+
+	cfg, _, err := loadConfig(configFile)
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+	if cfg.APIServer.SSEKeepAlive.Enabled {
+		t.Fatal("SSE keep-alive should default to disabled")
+	}
+	if cfg.APIServer.SSEKeepAlive.Interval != 15*time.Second {
+		t.Fatalf("SSE keep-alive interval = %s, want 15s", cfg.APIServer.SSEKeepAlive.Interval)
+	}
+}
+
+func TestSSEKeepAliveRejectsNonPositiveInterval(t *testing.T) {
+	configFile := writeTestConfig(t, `
+server:
+  sse_keep_alive:
+    enabled: true
+    interval: 0s
+`)
+
+	_, _, err := loadConfig(configFile)
+	if err == nil {
+		t.Fatal("loadConfig() should reject a non-positive SSE keep-alive interval")
+	}
 }

@@ -682,28 +682,36 @@ func TestPersistentOutboundTransformer_HasMoreChannels_DisableRetries(t *testing
 }
 
 func TestIsCompletedAggregatedOutboundResponse(t *testing.T) {
-	t.Run("usage with completion tokens means completed", func(t *testing.T) {
-		require.True(t, isCompletedAggregated(llm.ResponseMeta{Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}}))
+	t.Run("usage with completion tokens alone is not completed", func(t *testing.T) {
+		require.False(t, isCompletedAggregated(nil, llm.ResponseMeta{Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}}))
 	})
 
 	t.Run("usage with zero completion tokens is not completed", func(t *testing.T) {
-		require.False(t, isCompletedAggregated(llm.ResponseMeta{Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 0, TotalTokens: 10}}))
+		require.False(t, isCompletedAggregated(nil, llm.ResponseMeta{Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 0, TotalTokens: 10}}))
 	})
 
 	t.Run("response id without usage is not completed", func(t *testing.T) {
-		require.False(t, isCompletedAggregated(llm.ResponseMeta{ID: "resp_123"}))
+		require.False(t, isCompletedAggregated(nil, llm.ResponseMeta{ID: "resp_123"}))
 	})
 
 	t.Run("explicit completed flag is completed", func(t *testing.T) {
-		require.True(t, isCompletedAggregated(llm.ResponseMeta{ID: llm.SpeechStreamResponseID, Completed: true}))
+		require.True(t, isCompletedAggregated(nil, llm.ResponseMeta{ID: llm.SpeechStreamResponseID, Completed: true}))
+	})
+
+	t.Run("completed response status is completed", func(t *testing.T) {
+		require.True(t, isCompletedAggregated([]byte(`{"id":"resp_123","object":"response","status":"completed","output":[]}`), llm.ResponseMeta{ID: "resp_123"}))
+	})
+
+	t.Run("chat finish reason is completed", func(t *testing.T) {
+		require.True(t, isCompletedAggregated([]byte(`{"choices":[{"finish_reason":"tool_calls"}]}`), llm.ResponseMeta{ID: "chatcmpl_123"}))
 	})
 
 	t.Run("speech stream aggregate id alone is not completed", func(t *testing.T) {
-		require.False(t, isCompletedAggregated(llm.ResponseMeta{ID: llm.SpeechStreamResponseID}))
+		require.False(t, isCompletedAggregated(nil, llm.ResponseMeta{ID: llm.SpeechStreamResponseID}))
 	})
 
 	t.Run("missing usage and id is not completed", func(t *testing.T) {
-		require.False(t, isCompletedAggregated(llm.ResponseMeta{}))
+		require.False(t, isCompletedAggregated(nil, llm.ResponseMeta{}))
 	})
 }
 

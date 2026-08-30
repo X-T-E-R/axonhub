@@ -168,6 +168,7 @@ type ChannelSettings {
   storeExecutionRequestBody: Boolean
   storeExecutionResponseBody: Boolean
   storeExecutionStreamChunks: Boolean
+  sseKeepAlive: ChannelSSEKeepAlive
   rateLimit: ChannelRateLimit
   retryableStatusCodes: [Int!]
   retryableErrorPatterns: [RetryableErrorPattern!]
@@ -176,6 +177,16 @@ type ChannelSettings {
   keyHealthCheck: ChannelKeyHealthCheck
   balanceProbe: ChannelBalanceProbe
   failurePolicy: ChannelFailurePolicy
+}
+
+type ChannelSSEKeepAlive {
+  enabled: Boolean
+  intervalSeconds: Int
+}
+
+input ChannelSSEKeepAliveInput {
+  enabled: Boolean
+  intervalSeconds: Int
 }
 
 enum ChannelKeySelectionStrategy {
@@ -753,6 +764,7 @@ input ChannelSettingsInput {
   storeExecutionRequestBody: Boolean
   storeExecutionResponseBody: Boolean
   storeExecutionStreamChunks: Boolean
+  sseKeepAlive: ChannelSSEKeepAliveInput
   rateLimit: ChannelRateLimitInput
   retryableStatusCodes: [Int!]
   retryableErrorPatterns: [RetryableErrorPatternInput!]

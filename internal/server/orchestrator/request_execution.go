@@ -63,6 +63,15 @@ func persistRequestExecution(outbound *PersistentOutboundTransformer) pipeline.M
 	}
 }
 
+func failureLatencyMetrics(perf *biz.PerformanceRecord) *biz.LatencyMetrics {
+	if perf == nil || perf.StartTime.IsZero() {
+		return nil
+	}
+
+	latencyMs := biz.ClampLatency(time.Since(perf.StartTime).Milliseconds())
+	return &biz.LatencyMetrics{LatencyMs: &latencyMs}
+}
+
 func (m *persistRequestExecutionMiddleware) Name() string {
 	return "persist-request-execution"
 }
@@ -222,13 +231,14 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 	persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	updateErr := state.RequestService.UpdateRequestExecutionStatusFromErrorDetails(
+	updateErr := state.RequestService.UpdateRequestExecutionStatusFromErrorDetailsWithMetrics(
 		persistCtx,
 		state.RequestExec.ID,
 		err,
 		requestContextErr,
 		ExtractErrorMessage(err),
 		ExtractErrorInfo(err),
+		failureLatencyMetrics(state.Perf),
 	)
 	if updateErr != nil {
 		log.Warn(persistCtx, "Failed to update request execution terminal status", log.Cause(updateErr))

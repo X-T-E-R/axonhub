@@ -113,20 +113,21 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	APIKey struct {
-		CreatedAt func(childComplexity int) int
-		ID        func(childComplexity int) int
-		Key       func(childComplexity int) int
-		Name      func(childComplexity int) int
-		Profiles  func(childComplexity int) int
-		Project   func(childComplexity int) int
-		ProjectID func(childComplexity int) int
-		Requests  func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
-		Scopes    func(childComplexity int) int
-		Status    func(childComplexity int) int
-		Type      func(childComplexity int) int
-		UpdatedAt func(childComplexity int) int
-		User      func(childComplexity int) int
-		UserID    func(childComplexity int) int
+		AllowedIps func(childComplexity int) int
+		CreatedAt  func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Key        func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Profiles   func(childComplexity int) int
+		Project    func(childComplexity int) int
+		ProjectID  func(childComplexity int) int
+		Requests   func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
+		Scopes     func(childComplexity int) int
+		Status     func(childComplexity int) int
+		Type       func(childComplexity int) int
+		UpdatedAt  func(childComplexity int) int
+		User       func(childComplexity int) int
+		UserID     func(childComplexity int) int
 	}
 
 	APIKeyConnection struct {
@@ -791,6 +792,11 @@ type ComplexityRoot struct {
 		Pattern   func(childComplexity int) int
 	}
 
+	ChannelSSEKeepAlive struct {
+		Enabled         func(childComplexity int) int
+		IntervalSeconds func(childComplexity int) int
+	}
+
 	ChannelSettings struct {
 		AutoTrimedModelPrefixes    func(childComplexity int) int
 		BalanceProbe               func(childComplexity int) int
@@ -813,6 +819,7 @@ type ComplexityRoot struct {
 		RateLimit                  func(childComplexity int) int
 		RetryableErrorPatterns     func(childComplexity int) int
 		RetryableStatusCodes       func(childComplexity int) int
+		SSEKeepAlive               func(childComplexity int) int
 		StoreExecutionRequestBody  func(childComplexity int) int
 		StoreExecutionResponseBody func(childComplexity int) int
 		StoreExecutionStreamChunks func(childComplexity int) int
@@ -2838,6 +2845,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	_ = ec
 	switch typeName + "." + field {
 
+	case "APIKey.allowedIps":
+		if e.complexity.APIKey.AllowedIps == nil {
+			break
+		}
+
+		return e.complexity.APIKey.AllowedIps(childComplexity), true
 	case "APIKey.createdAt":
 		if e.complexity.APIKey.CreatedAt == nil {
 			break
@@ -5560,6 +5573,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelRegexAssociation.Pattern(childComplexity), true
 
+	case "ChannelSSEKeepAlive.enabled":
+		if e.complexity.ChannelSSEKeepAlive.Enabled == nil {
+			break
+		}
+
+		return e.complexity.ChannelSSEKeepAlive.Enabled(childComplexity), true
+	case "ChannelSSEKeepAlive.intervalSeconds":
+		if e.complexity.ChannelSSEKeepAlive.IntervalSeconds == nil {
+			break
+		}
+
+		return e.complexity.ChannelSSEKeepAlive.IntervalSeconds(childComplexity), true
+
 	case "ChannelSettings.autoTrimedModelPrefixes":
 		if e.complexity.ChannelSettings.AutoTrimedModelPrefixes == nil {
 			break
@@ -5686,6 +5712,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.RetryableStatusCodes(childComplexity), true
+	case "ChannelSettings.sseKeepAlive":
+		if e.complexity.ChannelSettings.SSEKeepAlive == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.SSEKeepAlive(childComplexity), true
 	case "ChannelSettings.storeExecutionRequestBody":
 		if e.complexity.ChannelSettings.StoreExecutionRequestBody == nil {
 			break
@@ -13068,6 +13100,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputChannelProviderQuotaSettingsInput,
 		ec.unmarshalInputChannelRateLimitInput,
 		ec.unmarshalInputChannelRegexAssociationInput,
+		ec.unmarshalInputChannelSSEKeepAliveInput,
 		ec.unmarshalInputChannelSettingsInput,
 		ec.unmarshalInputChannelTagsModelAssociationInput,
 		ec.unmarshalInputChannelTagsRegexAssociationInput,
@@ -17305,6 +17338,35 @@ func (ec *executionContext) fieldContext_APIKey_profiles(_ context.Context, fiel
 	return fc, nil
 }
 
+func (ec *executionContext) _APIKey_allowedIps(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_allowedIps,
+		func(ctx context.Context) (any, error) {
+			return obj.AllowedIps, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_allowedIps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _APIKey_user(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -17635,6 +17697,8 @@ func (ec *executionContext) fieldContext_APIKeyEdge_node(_ context.Context, fiel
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -21889,6 +21953,8 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 				return ec.fieldContext_ChannelSettings_storeExecutionResponseBody(ctx, field)
 			case "storeExecutionStreamChunks":
 				return ec.fieldContext_ChannelSettings_storeExecutionStreamChunks(ctx, field)
+			case "sseKeepAlive":
+				return ec.fieldContext_ChannelSettings_sseKeepAlive(ctx, field)
 			case "rateLimit":
 				return ec.fieldContext_ChannelSettings_rateLimit(ctx, field)
 			case "retryableStatusCodes":
@@ -31460,6 +31526,64 @@ func (ec *executionContext) fieldContext_ChannelRegexAssociation_pattern(_ conte
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelSSEKeepAlive_enabled(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSSEKeepAlive) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSSEKeepAlive_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSSEKeepAlive_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSSEKeepAlive",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSSEKeepAlive_intervalSeconds(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSSEKeepAlive) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSSEKeepAlive_intervalSeconds,
+		func(ctx context.Context) (any, error) {
+			return obj.IntervalSeconds, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSSEKeepAlive_intervalSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSSEKeepAlive",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelSettings_extraModelPrefix(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -32016,6 +32140,41 @@ func (ec *executionContext) fieldContext_ChannelSettings_storeExecutionStreamChu
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_sseKeepAlive(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_sseKeepAlive,
+		func(ctx context.Context) (any, error) {
+			return obj.SSEKeepAlive, nil
+		},
+		nil,
+		ec.marshalOChannelSSEKeepAlive2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSSEKeepAlive,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_sseKeepAlive(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_ChannelSSEKeepAlive_enabled(ctx, field)
+			case "intervalSeconds":
+				return ec.fieldContext_ChannelSSEKeepAlive_intervalSeconds(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelSSEKeepAlive", field.Name)
 		},
 	}
 	return fc, nil
@@ -41282,6 +41441,8 @@ func (ec *executionContext) fieldContext_Mutation_createAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -41353,6 +41514,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -41424,6 +41587,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyStatus(ctx context
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -41495,6 +41660,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyProfiles(ctx conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -41566,6 +41733,8 @@ func (ec *executionContext) fieldContext_Mutation_rotateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -43381,6 +43550,8 @@ func (ec *executionContext) fieldContext_Mutation_loadApiKeyProfileTemplate(ctx 
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -56128,6 +56299,8 @@ func (ec *executionContext) fieldContext_Request_apiKey(_ context.Context, field
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -78993,6 +79166,40 @@ func (ec *executionContext) unmarshalInputChannelRegexAssociationInput(ctx conte
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputChannelSSEKeepAliveInput(ctx context.Context, obj any) (objects.ChannelSSEKeepAlive, error) {
+	var it objects.ChannelSSEKeepAlive
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"enabled", "intervalSeconds"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		case "intervalSeconds":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("intervalSeconds"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.IntervalSeconds = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Context, obj any) (objects.ChannelSettings, error) {
 	var it objects.ChannelSettings
 	asMap := map[string]any{}
@@ -79000,7 +79207,7 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
+	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -79126,6 +79333,13 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 				return it, err
 			}
 			it.StoreExecutionStreamChunks = data
+		case "sseKeepAlive":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sseKeepAlive"))
+			data, err := ec.unmarshalOChannelSSEKeepAliveInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSSEKeepAlive(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SSEKeepAlive = data
 		case "rateLimit":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rateLimit"))
 			data, err := ec.unmarshalOChannelRateLimitInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRateLimit(ctx, v)
@@ -80581,7 +80795,7 @@ func (ec *executionContext) unmarshalInputCreateAPIKeyInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "type", "scopes", "projectID"}
+	fieldsInOrder := [...]string{"name", "type", "scopes", "allowedIps", "projectID"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -80609,6 +80823,13 @@ func (ec *executionContext) unmarshalInputCreateAPIKeyInput(ctx context.Context,
 				return it, err
 			}
 			it.Scopes = data
+		case "allowedIps":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("allowedIps"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AllowedIps = data
 		case "projectID":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectID"))
 			data, err := ec.unmarshalNID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
@@ -94551,7 +94772,7 @@ func (ec *executionContext) unmarshalInputUpdateAPIKeyInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "scopes", "appendScopes", "clearScopes"}
+	fieldsInOrder := [...]string{"name", "scopes", "appendScopes", "clearScopes", "allowedIps", "appendAllowedIps", "clearAllowedIps"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -94586,6 +94807,27 @@ func (ec *executionContext) unmarshalInputUpdateAPIKeyInput(ctx context.Context,
 				return it, err
 			}
 			it.ClearScopes = data
+		case "allowedIps":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("allowedIps"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AllowedIps = data
+		case "appendAllowedIps":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("appendAllowedIps"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AppendAllowedIps = data
+		case "clearAllowedIps":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("clearAllowedIps"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClearAllowedIps = data
 		}
 	}
 
@@ -100985,6 +101227,8 @@ func (ec *executionContext) _APIKey(ctx context.Context, sel ast.SelectionSet, o
 			out.Values[i] = ec._APIKey_scopes(ctx, field, obj)
 		case "profiles":
 			out.Values[i] = ec._APIKey_profiles(ctx, field, obj)
+		case "allowedIps":
+			out.Values[i] = ec._APIKey_allowedIps(ctx, field, obj)
 		case "user":
 			field := field
 
@@ -106579,6 +106823,44 @@ func (ec *executionContext) _ChannelRegexAssociation(ctx context.Context, sel as
 	return out
 }
 
+var channelSSEKeepAliveImplementors = []string{"ChannelSSEKeepAlive"}
+
+func (ec *executionContext) _ChannelSSEKeepAlive(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelSSEKeepAlive) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelSSEKeepAliveImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelSSEKeepAlive")
+		case "enabled":
+			out.Values[i] = ec._ChannelSSEKeepAlive_enabled(ctx, field, obj)
+		case "intervalSeconds":
+			out.Values[i] = ec._ChannelSSEKeepAlive_intervalSeconds(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var channelSettingsImplementors = []string{"ChannelSettings"}
 
 func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelSettings) graphql.Marshaler {
@@ -106692,6 +106974,8 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelSettings_storeExecutionResponseBody(ctx, field, obj)
 		case "storeExecutionStreamChunks":
 			out.Values[i] = ec._ChannelSettings_storeExecutionStreamChunks(ctx, field, obj)
+		case "sseKeepAlive":
+			out.Values[i] = ec._ChannelSettings_sseKeepAlive(ctx, field, obj)
 		case "rateLimit":
 			out.Values[i] = ec._ChannelSettings_rateLimit(ctx, field, obj)
 		case "retryableStatusCodes":
@@ -131725,6 +132009,21 @@ func (ec *executionContext) unmarshalOChannelRegexAssociationInput2ᚖgithubᚗc
 		return nil, nil
 	}
 	res, err := ec.unmarshalInputChannelRegexAssociationInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelSSEKeepAlive2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSSEKeepAlive(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelSSEKeepAlive) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelSSEKeepAlive(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelSSEKeepAliveInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSSEKeepAlive(ctx context.Context, v any) (*objects.ChannelSSEKeepAlive, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelSSEKeepAliveInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 

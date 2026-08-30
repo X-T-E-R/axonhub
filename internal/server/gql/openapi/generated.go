@@ -50,11 +50,12 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	APIKey struct {
-		ID       func(childComplexity int) int
-		Key      func(childComplexity int) int
-		Name     func(childComplexity int) int
-		Profiles func(childComplexity int) int
-		Scopes   func(childComplexity int) int
+		AllowedIps func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Key        func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Profiles   func(childComplexity int) int
+		Scopes     func(childComplexity int) int
 	}
 
 	APIKeyProfile struct {
@@ -159,6 +160,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	_ = ec
 	switch typeName + "." + field {
 
+	case "APIKey.allowedIps":
+		if e.complexity.APIKey.AllowedIps == nil {
+			break
+		}
+
+		return e.complexity.APIKey.AllowedIps(childComplexity), true
 	case "APIKey.id":
 		if e.complexity.APIKey.ID == nil {
 			break
@@ -827,6 +834,35 @@ func (ec *executionContext) _APIKey_scopes(ctx context.Context, field graphql.Co
 }
 
 func (ec *executionContext) fieldContext_APIKey_scopes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKey_allowedIps(ctx context.Context, field graphql.CollectedField, obj *APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_allowedIps,
+		func(ctx context.Context) (any, error) {
+			return obj.AllowedIps, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_allowedIps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "APIKey",
 		Field:      field,
@@ -1882,6 +1918,8 @@ func (ec *executionContext) fieldContext_Mutation_createLLMAPIKey(ctx context.Co
 				return ec.fieldContext_APIKey_name(ctx, field)
 			case "scopes":
 				return ec.fieldContext_APIKey_scopes(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -1935,6 +1973,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyProfiles(ctx conte
 				return ec.fieldContext_APIKey_name(ctx, field)
 			case "scopes":
 				return ec.fieldContext_APIKey_scopes(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -1988,6 +2028,8 @@ func (ec *executionContext) fieldContext_Mutation_loadApiKeyProfileTemplate(ctx 
 				return ec.fieldContext_APIKey_name(ctx, field)
 			case "scopes":
 				return ec.fieldContext_APIKey_scopes(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -2041,6 +2083,8 @@ func (ec *executionContext) fieldContext_Query_apiKey(ctx context.Context, field
 				return ec.fieldContext_APIKey_name(ctx, field)
 			case "scopes":
 				return ec.fieldContext_APIKey_scopes(ctx, field)
+			case "allowedIps":
+				return ec.fieldContext_APIKey_allowedIps(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -4044,6 +4088,8 @@ func (ec *executionContext) _APIKey(ctx context.Context, sel ast.SelectionSet, o
 			}
 		case "scopes":
 			out.Values[i] = ec._APIKey_scopes(ctx, field, obj)
+		case "allowedIps":
+			out.Values[i] = ec._APIKey_allowedIps(ctx, field, obj)
 		case "profiles":
 			out.Values[i] = ec._APIKey_profiles(ctx, field, obj)
 		default:

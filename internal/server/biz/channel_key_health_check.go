@@ -90,6 +90,7 @@ func (svc *ChannelService) SetChannelKeyHealthCheckTester(tester ChannelKeyHealt
 func (svc *ChannelService) runChannelKeyHealthChecksScheduled(ctx context.Context) {
 	runCtx, cancel := context.WithTimeout(ctx, channelKeyHealthCheckTaskTimeout)
 	defer cancel()
+	runCtx = authz.WithSystemBypass(runCtx, "channel-key-health-check")
 
 	if err := svc.RunDueChannelKeyHealthChecks(runCtx, time.Now()); err != nil {
 		log.Warn(ctx, "channel key health check task failed", log.Cause(err))

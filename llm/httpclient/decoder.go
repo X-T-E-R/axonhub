@@ -189,6 +189,12 @@ func (s *defaultSSEDecoder) Close() error {
 	return s.closeErr
 }
 
+// Interrupt safely unblocks an in-flight Next without requiring callers to
+// concurrently close stateful outer stream wrappers.
+func (s *defaultSSEDecoder) Interrupt() error {
+	return s.Close()
+}
+
 // init registers the default SSE decoder.
 func init() {
 	RegisterDecoder("text/event-stream", NewDefaultSSEDecoder)
@@ -313,4 +319,9 @@ func (d *binaryChunkDecoder) Close() error {
 	})
 
 	return d.closeErr
+}
+
+// Interrupt safely unblocks an in-flight Next without touching outer wrappers.
+func (d *binaryChunkDecoder) Interrupt() error {
+	return d.Close()
 }

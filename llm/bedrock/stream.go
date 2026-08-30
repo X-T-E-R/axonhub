@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi"
@@ -29,10 +31,9 @@ type AWSEventStreamDecoder struct {
 	evt *httpclient.StreamEvent
 	err error
 
-	// NOT concurrency-safe: do not call Next/Close from multiple goroutines.
-	// Close is made idempotent (safe to call multiple times sequentially).
-	closed   bool
-	closeErr error
+	closed    atomic.Bool
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewAWSEventStreamDecoder creates a new AWS EventStream decoder.
@@ -44,15 +45,16 @@ func NewAWSEventStreamDecoder(ctx context.Context, rc io.ReadCloser) httpclient.
 
 // Close closes the underlying reader.
 func (d *AWSEventStreamDecoder) Close() error {
-	// NOT concurrency-safe: callers must not call Close concurrently with Next.
-	if d.closed {
-		return d.closeErr
-	}
-
-	d.closed = true
-	d.closeErr = d.rc.Close()
-
+	d.closeOnce.Do(func() {
+		d.closed.Store(true)
+		d.closeErr = d.rc.Close()
+	})
 	return d.closeErr
+}
+
+// Interrupt safely unblocks an in-flight Next by closing only the raw reader.
+func (d *AWSEventStreamDecoder) Interrupt() error {
+	return d.Close()
 }
 
 // Err returns any error that occurred during decoding.
@@ -66,7 +68,7 @@ func (d *AWSEventStreamDecoder) Next() bool {
 		return false
 	}
 
-	if d.closed {
+	if d.closed.Load() {
 		return false
 	}
 

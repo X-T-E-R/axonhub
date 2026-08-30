@@ -1193,6 +1193,52 @@ func TestChannelService_RunDueHealthCheckUpdatesMetadataAndDisablesFailedKey(t *
 	require.Equal(t, "unexpected status 401", updated.DisabledAPIKeys[0].Reason)
 }
 
+func TestChannelService_ScheduledHealthCheckUsesSystemBypass(t *testing.T) {
+	disableChannelKeyHealthCheckDelays(t)
+
+	svc, client := setupTestChannelService(t)
+	defer client.Close()
+
+	setupCtx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	bypassObserved := make(chan bool, 1)
+	svc.SetChannelKeyHealthCheckTester(channelKeyHealthCheckTesterFunc(func(ctx context.Context, _ objects.GUID, _ string, _ *string, _ *httpclient.ProxyConfig) ChannelKeyHealthCheckBuiltinResult {
+		info, ok := authz.GetBypassInfo(ctx)
+		bypassObserved <- ok && authz.IsBypassActive(ctx) && info.Reason == "channel-key-health-check"
+		return ChannelKeyHealthCheckBuiltinResult{Success: true, Reason: "ok"}
+	}))
+
+	ch, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("Scheduled Health Check Bypass").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://api.openai.com/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{"scheduled-key"}}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		SetSettings(&objects.ChannelSettings{
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled:         true,
+				IntervalMinutes: 60,
+			},
+		}).
+		Save(setupCtx)
+	require.NoError(t, err)
+
+	scheduledCtx := ent.NewContext(context.Background(), client)
+	svc.runChannelKeyHealthChecksScheduled(scheduledCtx)
+
+	select {
+	case active := <-bypassObserved:
+		require.True(t, active)
+	default:
+		t.Fatal("scheduled health check did not reach the tester")
+	}
+
+	updated, err := client.Channel.Get(setupCtx, ch.ID)
+	require.NoError(t, err)
+	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 1)
+}
+
 func TestChannelService_RunDueHealthCheckSpacesKeyChecks(t *testing.T) {
 	svc, client := setupTestChannelService(t)
 	defer client.Close()

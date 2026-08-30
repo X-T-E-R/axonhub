@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -390,6 +391,145 @@ func TestPipeline_Process_RetryLogic(t *testing.T) {
 		require.Nil(t, res)
 		require.Equal(t, 4, execCalls)
 	})
+}
+
+func TestPipeline_Process_RetryGateStopsSameAndCrossChannelRetries(t *testing.T) {
+	attempts := 0
+	prepareCalls := 0
+	switchCalls := 0
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			attempts++
+			return nil, errors.New("upstream failed after downstream commit")
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		prepareForRetry: func(context.Context) error {
+			prepareCalls++
+			return nil
+		},
+		hasMoreChannels: func() bool { return true },
+		nextChannel: func(context.Context) error {
+			switchCalls++
+			return nil
+		},
+	}
+
+	p := NewFactory(executor).Pipeline(
+		&mockInbound{},
+		outbound,
+		WithRetry(2, 2, 0),
+		WithRetryAllowed(func() bool { return false }),
+	)
+
+	result, err := p.Process(context.Background(), &httpclient.Request{})
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, attempts)
+	require.Zero(t, prepareCalls)
+	require.Zero(t, switchCalls)
+}
+
+func TestPipeline_Process_RetryGateClosingDuringPreparationStopsNextAttempt(t *testing.T) {
+	attempts := 0
+	allowed := true
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			attempts++
+			return nil, errors.New("upstream failure")
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		prepareForRetry: func(context.Context) error {
+			allowed = false
+			return nil
+		},
+	}
+
+	p := NewFactory(executor).Pipeline(
+		&mockInbound{},
+		outbound,
+		WithRetry(0, 1, 0),
+		WithRetryAllowed(func() bool { return allowed }),
+	)
+
+	result, err := p.Process(context.Background(), &httpclient.Request{})
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, attempts)
+}
+
+func TestPipeline_Process_BadGatewayCapsSameChannelRetry(t *testing.T) {
+	attempts := 0
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			attempts++
+			return nil, &httpclient.Error{StatusCode: http.StatusBadGateway}
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		transformError: func(context.Context, *httpclient.Error) *llm.ResponseError {
+			return &llm.ResponseError{StatusCode: http.StatusBadGateway}
+		},
+	}
+
+	p := NewFactory(executor).Pipeline(
+		&mockInbound{},
+		outbound,
+		WithRetry(0, 2, 0),
+	)
+
+	result, err := p.Process(context.Background(), &httpclient.Request{})
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 2, attempts, "a configured two-retry policy must not turn one 502 into three same-channel hits")
+}
+
+func TestPipeline_Process_RetryDelayStopsOnContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	prepared := make(chan struct{})
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			return nil, errors.New("temporary failure")
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		prepareForRetry: func(context.Context) error {
+			close(prepared)
+			return nil
+		},
+	}
+	p := NewFactory(executor).Pipeline(
+		&mockInbound{},
+		outbound,
+		WithRetry(0, 1, 5*time.Second),
+	)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Process(ctx, &httpclient.Request{})
+		done <- err
+	}()
+
+	select {
+	case <-prepared:
+	case <-time.After(time.Second):
+		t.Fatal("retry was not prepared")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("retry delay did not stop after context cancellation")
+	}
 }
 
 func TestPipeline_Process_RetryPreservesOriginalStreamIntent(t *testing.T) {

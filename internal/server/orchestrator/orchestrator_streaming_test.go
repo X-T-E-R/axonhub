@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -600,6 +601,8 @@ func TestChatCompletionOrchestrator_Process_StreamingError(t *testing.T) {
 
 	dbExec := executions[0]
 	assert.Equal(t, requestexecution.StatusFailed, dbExec.Status, "request execution should be marked as failed on stream error")
+	require.NotNil(t, dbExec.MetricsLatencyMs)
+	require.Positive(t, *dbExec.MetricsLatencyMs)
 }
 
 // TestChatCompletionOrchestrator_Process_StreamingSuccess_NotMarkedAsError verifies that
@@ -692,6 +695,77 @@ func TestChatCompletionOrchestrator_Process_StreamingSuccess_NotMarkedAsError(t 
 
 	dbExec := executions[0]
 	assert.Equal(t, requestexecution.StatusCompleted, dbExec.Status, "successful stream execution should be marked as completed")
+	require.NotNil(t, dbExec.MetricsLatencyMs)
+	require.Positive(t, *dbExec.MetricsLatencyMs)
+}
+
+func TestChatCompletionOrchestrator_ConfirmedSemanticCompletionSuppressesInterruptErrorPersistence(t *testing.T) {
+	ctx := authz.WithTestBypass(context.Background())
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	defer client.Close()
+	ctx = ent.NewContext(ctx, client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+	project := createTestProject(t, ctx, client)
+	ch := createTestChannel(t, ctx, client)
+	channelService, requestService, systemService, usageLogService := setupTestServices(t, client)
+	require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{
+		StoreChunks:       true,
+		StoreRequestBody:  true,
+		StoreResponseBody: true,
+	}))
+
+	interruptErr := errors.New("read interrupted after confirmed semantic completion")
+	rawStream := &interruptErrorTailStream{
+		err: interruptErr,
+		events: []*httpclient.StreamEvent{
+			{Data: []byte(`{"id":"chatcmpl-confirmed","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":null}]}`)},
+			{Data: []byte(`{"id":"chatcmpl-confirmed","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}`)},
+		},
+	}
+	outbound, err := openai.NewOutboundTransformer(ch.BaseURL, ch.Credentials.APIKey)
+	require.NoError(t, err)
+	bizChannel := &biz.Channel{Channel: ch, Outbound: outbound}
+	observer := &confirmAndInterruptObserver{}
+	orchestrator := &ChatCompletionOrchestrator{
+		channelSelector:       &staticChannelSelector{candidates: channelsToTestCandidates([]*biz.Channel{bizChannel}, "gpt-4")},
+		Inbound:               openai.NewInboundTransformer(),
+		RequestService:        requestService,
+		ChannelService:        channelService,
+		PromptProvider:        &stubPromptProvider{},
+		SystemService:         systemService,
+		UsageLogService:       usageLogService,
+		PipelineFactory:       pipeline.NewFactory(&fixedInterruptStreamExecutor{stream: rawStream}),
+		ModelMapper:           NewModelMapper(),
+		channelLimiterManager: NewChannelLimiterManager(),
+		Middlewares:           []pipeline.Middleware{stream.EnsureUsage()},
+	}
+	ctx = contexts.WithProjectID(ctx, project.ID)
+
+	result, err := orchestrator.ProcessWithStreamLivenessObserver(ctx, buildTestRequest("gpt-4", "Call tools", true), observer)
+	require.NoError(t, err)
+	require.NotNil(t, result.ChatCompletionStream)
+	for result.ChatCompletionStream.Next() {
+		_ = result.ChatCompletionStream.Current()
+	}
+	require.ErrorIs(t, rawStream.Err(), interruptErr, "the underlying interrupt must produce the reviewed non-nil error")
+	require.NoError(t, result.ChatCompletionStream.Err(), "the confirmed raw interrupt error must stop at the liveness boundary")
+	require.NoError(t, result.ChatCompletionStream.Close())
+	require.Equal(t, 1, observer.confirmCount)
+	require.Equal(t, int32(1), rawStream.interruptCount.Load())
+	require.Equal(t, int32(1), rawStream.closeCount.Load())
+
+	requests, err := client.Request.Query().All(ctx)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, request.StatusCompleted, requests[0].Status)
+	require.NotEmpty(t, requests[0].ResponseBody)
+
+	executions, err := client.RequestExecution.Query().All(ctx)
+	require.NoError(t, err)
+	require.Len(t, executions, 1)
+	require.Equal(t, requestexecution.StatusCompleted, executions[0].Status)
+	require.Empty(t, executions[0].ErrorMessage)
+	require.NotEmpty(t, executions[0].ResponseBody)
 }
 
 // mockExecutorWithErrorStream returns a stream that emits events then errors.
@@ -738,6 +812,78 @@ func (s *errorAfterEventsStream) Err() error {
 }
 
 func (s *errorAfterEventsStream) Close() error { return nil }
+
+type interruptErrorTailStream struct {
+	events         []*httpclient.StreamEvent
+	index          int
+	current        *httpclient.StreamEvent
+	err            error
+	interrupted    atomic.Bool
+	interruptCount atomic.Int32
+	closeCount     atomic.Int32
+}
+
+func (s *interruptErrorTailStream) Next() bool {
+	if s.index < len(s.events) {
+		s.current = s.events[s.index]
+		s.index++
+		return true
+	}
+	return false
+}
+
+func (s *interruptErrorTailStream) Current() *httpclient.StreamEvent { return s.current }
+func (s *interruptErrorTailStream) Err() error {
+	if s.interrupted.Load() {
+		return s.err
+	}
+	return nil
+}
+func (s *interruptErrorTailStream) Close() error {
+	s.closeCount.Add(1)
+	return nil
+}
+func (s *interruptErrorTailStream) Interrupt() error {
+	s.interruptCount.Add(1)
+	s.interrupted.Store(true)
+	return nil
+}
+
+type fixedInterruptStreamExecutor struct {
+	stream streams.Stream[*httpclient.StreamEvent]
+}
+
+func (e *fixedInterruptStreamExecutor) Do(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (e *fixedInterruptStreamExecutor) DoStream(context.Context, *httpclient.Request) (streams.Stream[*httpclient.StreamEvent], error) {
+	return e.stream, nil
+}
+
+type confirmAndInterruptObserver struct {
+	attempt      StreamLivenessAttempt
+	confirmCount int
+}
+
+func (o *confirmAndInterruptObserver) OnUpstreamResponseHeaders(attempt StreamLivenessAttempt) {
+	o.attempt = attempt
+}
+
+func (o *confirmAndInterruptObserver) OnRawSSE(event *httpclient.StreamEvent) {
+	if ClassifyStreamSemanticTerminal(event) != StreamSemanticSucceeded || o.confirmCount > 0 {
+		return
+	}
+	if o.attempt.ConfirmSemanticCompletion != nil && o.attempt.ConfirmSemanticCompletion() {
+		o.confirmCount++
+		if o.attempt.Interrupt != nil {
+			_ = o.attempt.Interrupt()
+		}
+	}
+}
+
+func (*confirmAndInterruptObserver) OnTransformableEvent(*llm.Response) {}
+func (*confirmAndInterruptObserver) OnUpstreamError(error)              {}
 
 // terminalIntegrityOutbound simulates a streaming transformer that discovers a
 // terminal integrity violation only after consuming the provider's successful

@@ -12,3 +12,10 @@ type Stream[T any] interface {
 	// Close closes the stream
 	Close() error
 }
+
+// Interruptible is implemented by the lowest stream layer that can safely
+// interrupt a blocking Next from another goroutine. Outer transform and
+// persistence wrappers must finish Next/Current before their Close runs.
+type Interruptible interface {
+	Interrupt() error
+}

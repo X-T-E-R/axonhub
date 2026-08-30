@@ -51,6 +51,13 @@ func WithAPIKeyConfig(auth *biz.AuthService, config *APIKeyConfig) gin.HandlerFu
 			return
 		}
 
+		if len(apiKey.AllowedIps) > 0 {
+			if !isAllowedRemoteIP(c, apiKey.AllowedIps) {
+				AbortWithError(c, http.StatusForbidden, errors.New("IP address is not allowed for this API key"))
+				return
+			}
+		}
+
 		ctx := contexts.WithAPIKey(c.Request.Context(), apiKey)
 
 		if apiKey.Edges.Project != nil {
@@ -152,6 +159,13 @@ func WithOpenAPIAuthResponder(auth *biz.AuthService, responder ErrorResponder) g
 			return
 		}
 
+		if len(apiKey.AllowedIps) > 0 {
+			if !isAllowedRemoteIP(c, apiKey.AllowedIps) {
+				respondMiddlewareError(c, responder, http.StatusForbidden, errors.New("IP address is not allowed for this API key"))
+				return
+			}
+		}
+
 		ctx := contexts.WithAPIKey(c.Request.Context(), apiKey)
 		if apiKey.Edges.Project != nil {
 			ctx = contexts.WithProjectID(ctx, apiKey.Edges.Project.ID)
@@ -203,6 +217,13 @@ func WithGeminiKeyAuth(auth *biz.AuthService) gin.HandlerFunc {
 			}
 
 			return
+		}
+
+		if len(apiKey.AllowedIps) > 0 {
+			if !isAllowedRemoteIP(c, apiKey.AllowedIps) {
+				AbortWithError(c, http.StatusForbidden, errors.New("IP address is not allowed for this API key"))
+				return
+			}
 		}
 
 		// 将 API key entity 保存到 context 中

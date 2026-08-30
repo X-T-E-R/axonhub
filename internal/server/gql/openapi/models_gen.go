@@ -10,11 +10,12 @@ import (
 )
 
 type APIKey struct {
-	ID       objects.GUID            `json:"id"`
-	Key      string                  `json:"key"`
-	Name     string                  `json:"name"`
-	Scopes   []string                `json:"scopes,omitempty"`
-	Profiles *objects.APIKeyProfiles `json:"profiles,omitempty"`
+	ID         objects.GUID            `json:"id"`
+	Key        string                  `json:"key"`
+	Name       string                  `json:"name"`
+	Scopes     []string                `json:"scopes,omitempty"`
+	AllowedIps []string                `json:"allowedIps,omitempty"`
+	Profiles   *objects.APIKeyProfiles `json:"profiles,omitempty"`
 }
 
 type APIKeyProfileQuotaUsage struct {

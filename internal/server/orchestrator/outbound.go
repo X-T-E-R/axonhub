@@ -149,7 +149,7 @@ func (ts *OutboundPersistentStream) Close() error {
 
 	if len(ts.responseChunks) > 0 {
 		responseBody, meta, aggErr = ts.transformer.AggregateStreamChunks(context.WithoutCancel(ctx), ts.state.RawProviderRequest, ts.responseChunks)
-		aggregatedCompleted = aggErr == nil && isCompletedAggregated(meta)
+		aggregatedCompleted = aggErr == nil && isCompletedAggregated(responseBody, meta)
 		ts.logFinalizationDecision(ctx, "aggregated_outbound_chunks", streamErr, ctxErr, aggregatedCompleted, aggErr)
 		if aggregatedCompleted {
 			log.Debug(ctx, "Stream has valid complete response without terminal event, treating as completed")
@@ -212,7 +212,13 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Con
 	// Give the terminal status its own persistence budget and store it first. A
 	// blocked external chunk write must not leave the execution processing.
 	statusCtx, cancelStatus := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-	if err := ts.RequestService.UpdateRequestExecutionStatusFromError(statusCtx, ts.requestExec.ID, streamErr, requestContextCause); err != nil {
+	if err := ts.RequestService.UpdateRequestExecutionStatusFromErrorWithMetrics(
+		statusCtx,
+		ts.requestExec.ID,
+		streamErr,
+		requestContextCause,
+		failureLatencyMetrics(ts.perf),
+	); err != nil {
 		log.Warn(statusCtx, "Failed to update request execution status from error", log.Cause(err))
 	}
 	cancelStatus()
@@ -340,9 +346,8 @@ func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Contex
 	}
 }
 
-func isCompletedAggregated(meta llm.ResponseMeta) bool {
-	return meta.Completed ||
-		(meta.Usage != nil && meta.Usage.CompletionTokens > 0)
+func isCompletedAggregated(responseBody []byte, meta llm.ResponseMeta) bool {
+	return meta.Completed || ClassifyStreamSemanticTerminal(&httpclient.StreamEvent{Data: responseBody}) == StreamSemanticSucceeded
 }
 
 var errSkipCandidateByCircuitBreaker = errors.New("skip candidate by circuit breaker")
@@ -408,6 +413,7 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 
 	p.state.CurrentCandidate = candidate
 	p.state.StreamCompleted = false
+	p.state.resetStreamCompletionConfirmation()
 
 	p.wrapped = selectOutboundForCandidate(candidate)
 
