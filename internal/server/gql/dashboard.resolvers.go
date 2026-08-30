@@ -20,7 +20,6 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/channel"
-	"github.com/looplj/axonhub/internal/ent/privacy"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
@@ -1789,8 +1788,9 @@ func (r *queryResolver) UsageStatsByUser(ctx context.Context, timeWindow *string
 		return nil, fmt.Errorf("permission denied: only project owners can view usage statistics")
 	}
 
-	// For owners/system owners, we allow querying all logs within the project
-	ctx = privacy.DecisionContext(ctx, privacy.Allow)
+	// The owner gate above is project-aware; use the matching request-read scope
+	// decision so UsageLog privacy remains tied to the selected project.
+	ctx = authz.WithScopeDecision(ctx, scopes.ScopeReadRequests)
 
 	var since time.Time
 	var until time.Time
