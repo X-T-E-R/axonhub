@@ -345,11 +345,12 @@ func (processor *ChatCompletionOrchestrator) process(
 		// Update the last request execution status based on error if it exists
 		// This ensures that when retry fails completely, the last execution is properly marked
 		if requestExec := outbound.GetRequestExecution(); requestExec != nil {
-			if updateErr := processor.RequestService.UpdateRequestExecutionStatusFromError(
+			if updateErr := processor.RequestService.UpdateRequestExecutionStatusFromErrorWithMetrics(
 				persistCtx,
 				requestExec.ID,
 				causalErr,
 				requestContextErr,
+				failureLatencyMetrics(state.Perf),
 			); updateErr != nil {
 				log.Warn(persistCtx, "Failed to update request execution status from error", log.Cause(updateErr))
 			}

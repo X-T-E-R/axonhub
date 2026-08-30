@@ -225,7 +225,13 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Con
 	// Give the terminal status its own persistence budget and store it first. A
 	// blocked external chunk write must not leave the execution processing.
 	statusCtx, cancelStatus := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-	if err := ts.RequestService.UpdateRequestExecutionStatusFromError(statusCtx, ts.requestExec.ID, streamErr, requestContextCause); err != nil {
+	if err := ts.RequestService.UpdateRequestExecutionStatusFromErrorWithMetrics(
+		statusCtx,
+		ts.requestExec.ID,
+		streamErr,
+		requestContextCause,
+		failureLatencyMetrics(ts.perf),
+	); err != nil {
 		log.Warn(statusCtx, "Failed to update request execution status from error", log.Cause(err))
 	}
 	cancelStatus()
@@ -248,9 +254,9 @@ func (ts *OutboundPersistentStream) persistProviderTerminalStatus(ctx context.Co
 		err = ts.RequestService.UpdateRequestExecutionCanceled(statusCtx, ts.requestExec.ID, message)
 	case streamTerminalIncomplete:
 		message = "provider response incomplete"
-		err = ts.RequestService.UpdateRequestExecutionFailed(statusCtx, ts.requestExec.ID, message, nil)
+		err = ts.RequestService.UpdateRequestExecutionFailedWithMetrics(statusCtx, ts.requestExec.ID, message, nil, failureLatencyMetrics(ts.perf))
 	default:
-		err = ts.RequestService.UpdateRequestExecutionFailed(statusCtx, ts.requestExec.ID, message, nil)
+		err = ts.RequestService.UpdateRequestExecutionFailedWithMetrics(statusCtx, ts.requestExec.ID, message, nil, failureLatencyMetrics(ts.perf))
 	}
 	if err != nil {
 		log.Warn(statusCtx, "Failed to persist provider terminal execution status", log.Cause(err))

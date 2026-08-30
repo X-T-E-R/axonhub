@@ -1277,7 +1277,25 @@ func (s *RequestService) UpdateRequestExecutionFailed(
 	errorMsg string,
 	errorInfo *ExecutionErrorInfo,
 ) error {
-	return s.UpdateRequestExecutionStatus(ctx, executionID, requestexecution.StatusFailed, errorMsg, errorInfo)
+	return s.UpdateRequestExecutionFailedWithMetrics(ctx, executionID, errorMsg, errorInfo, nil)
+}
+
+func (s *RequestService) UpdateRequestExecutionFailedWithMetrics(
+	ctx context.Context,
+	executionID int,
+	errorMsg string,
+	errorInfo *ExecutionErrorInfo,
+	metrics *LatencyMetrics,
+) error {
+	return s.updateRequestExecutionStatus(
+		ctx,
+		executionID,
+		requestexecution.StatusFailed,
+		errorMsg,
+		errorInfo,
+		true,
+		metrics,
+	)
 }
 
 // UpdateRequestExecutionStatus updates request execution status to the provided value (e.g., canceled or failed), with optional error message.
@@ -1295,6 +1313,7 @@ func (s *RequestService) UpdateRequestExecutionStatus(
 		errorMsg,
 		errorInfo,
 		status == requestexecution.StatusFailed,
+		nil,
 	)
 }
 
@@ -1309,6 +1328,7 @@ func (s *RequestService) updateRequestExecutionStatus(
 	errorMsg string,
 	errorInfo *ExecutionErrorInfo,
 	causalFailure bool,
+	metrics *LatencyMetrics,
 ) error {
 	client := s.entFromContext(ctx)
 
@@ -1337,6 +1357,9 @@ func (s *RequestService) updateRequestExecutionStatus(
 
 	if errorInfo != nil && errorInfo.StatusCode != nil {
 		upd = upd.SetResponseStatusCode(*errorInfo.StatusCode)
+	}
+	if metrics != nil && metrics.LatencyMs != nil {
+		upd = upd.SetMetricsLatencyMs(*metrics.LatencyMs)
 	}
 
 	_, err := upd.Save(ctx)
@@ -1392,18 +1415,35 @@ func (s *RequestService) UpdateRequestExecutionStatusFromError(
 	rawErr error,
 	requestContextErr error,
 ) error {
+	return s.UpdateRequestExecutionStatusFromErrorWithMetrics(
+		ctx,
+		executionID,
+		rawErr,
+		requestContextErr,
+		nil,
+	)
+}
+
+func (s *RequestService) UpdateRequestExecutionStatusFromErrorWithMetrics(
+	ctx context.Context,
+	executionID int,
+	rawErr error,
+	requestContextErr error,
+	metrics *LatencyMetrics,
+) error {
 	errorMsg := ""
 	if rawErr != nil {
 		errorMsg = rawErr.Error()
 	}
 
-	return s.UpdateRequestExecutionStatusFromErrorDetails(
+	return s.UpdateRequestExecutionStatusFromErrorDetailsWithMetrics(
 		ctx,
 		executionID,
 		rawErr,
 		requestContextErr,
 		errorMsg,
 		nil,
+		metrics,
 	)
 }
 
@@ -1417,13 +1457,33 @@ func (s *RequestService) UpdateRequestExecutionStatusFromErrorDetails(
 	errorMsg string,
 	errorInfo *ExecutionErrorInfo,
 ) error {
+	return s.UpdateRequestExecutionStatusFromErrorDetailsWithMetrics(
+		ctx,
+		executionID,
+		rawErr,
+		requestContextErr,
+		errorMsg,
+		errorInfo,
+		nil,
+	)
+}
+
+func (s *RequestService) UpdateRequestExecutionStatusFromErrorDetailsWithMetrics(
+	ctx context.Context,
+	executionID int,
+	rawErr error,
+	requestContextErr error,
+	errorMsg string,
+	errorInfo *ExecutionErrorInfo,
+	metrics *LatencyMetrics,
+) error {
 	status := requestexecution.StatusFailed
 	if isCallerCancellation(rawErr, requestContextErr) {
 		status = requestexecution.StatusCanceled
 	}
 
 	causalFailure := status == requestexecution.StatusFailed && !errors.Is(rawErr, context.Canceled)
-	return s.updateRequestExecutionStatus(ctx, executionID, status, errorMsg, errorInfo, causalFailure)
+	return s.updateRequestExecutionStatus(ctx, executionID, status, errorMsg, errorInfo, causalFailure, metrics)
 }
 
 type jsonStreamEvent struct {

@@ -258,6 +258,7 @@ function buildRequestExecutionsQuery(permissions: { canViewChannels: boolean }) 
                 stream
                 requestURL
                 passThroughApplied
+                metricsLatencyMs
                 metricsFirstTokenLatencyMs
                 metricsReasoningDurationMs
               }

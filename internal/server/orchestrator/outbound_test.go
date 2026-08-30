@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -798,8 +799,10 @@ func TestOutboundPersistentStream_Close_AggregatedResponsesCompletionHandling(t 
 			aggregatedResponse: []byte(`{"id":"resp_123","status":"in_progress"}`),
 		}
 		state := &PersistenceState{}
+		perfStart := time.Now().Add(-75 * time.Millisecond)
+		perf := &biz.PerformanceRecord{StartTime: perfStart, EndTime: perfStart.Add(50 * time.Millisecond)}
 
-		persistentStream := NewOutboundPersistentStream(ctx, stream, req, exec, requestService, usageLogService, transformer, nil, state)
+		persistentStream := NewOutboundPersistentStream(ctx, stream, req, exec, requestService, usageLogService, transformer, perf, state)
 		for persistentStream.Next() {
 			_ = persistentStream.Current()
 		}
@@ -809,6 +812,8 @@ func TestOutboundPersistentStream_Close_AggregatedResponsesCompletionHandling(t 
 		require.NoError(t, err)
 		require.NotEqual(t, requestexecution.StatusCompleted, dbExec.Status)
 		require.Equal(t, requestexecution.StatusFailed, dbExec.Status)
+		require.NotNil(t, dbExec.MetricsLatencyMs)
+		require.EqualValues(t, 50, *dbExec.MetricsLatencyMs)
 		require.Contains(t, dbExec.ErrorMessage, "stream ended without terminal event or completed response")
 		require.Empty(t, dbExec.ResponseBody)
 		require.Empty(t, dbExec.ExternalID)
@@ -872,8 +877,10 @@ func TestOutboundPersistentStream_Close_AggregatedResponsesCompletionHandling(t 
 			},
 		}
 		state := &PersistenceState{}
+		perfStart := time.Now().Add(-75 * time.Millisecond)
+		perf := &biz.PerformanceRecord{StartTime: perfStart, EndTime: perfStart.Add(50 * time.Millisecond)}
 
-		persistentStream := NewOutboundPersistentStream(ctx, stream, req, exec, requestService, usageLogService, transformer, nil, state)
+		persistentStream := NewOutboundPersistentStream(ctx, stream, req, exec, requestService, usageLogService, transformer, perf, state)
 		for persistentStream.Next() {
 			_ = persistentStream.Current()
 		}
@@ -882,6 +889,8 @@ func TestOutboundPersistentStream_Close_AggregatedResponsesCompletionHandling(t 
 		dbExec, err := client.RequestExecution.Get(ctx, exec.ID)
 		require.NoError(t, err)
 		require.Equal(t, requestexecution.StatusFailed, dbExec.Status)
+		require.NotNil(t, dbExec.MetricsLatencyMs)
+		require.EqualValues(t, 50, *dbExec.MetricsLatencyMs)
 		require.Equal(t, streamErr.Error(), dbExec.ErrorMessage)
 		require.Empty(t, dbExec.ResponseBody)
 		require.Empty(t, dbExec.ExternalID)
@@ -1145,8 +1154,10 @@ func TestOutboundPersistentStream_ResponsesAbnormalTerminalStatus(t *testing.T) 
 			require.NoError(t, err)
 			data := []byte(fmt.Sprintf(`{"type":%q,"response":{"id":"resp_terminal","status":%q,"output":[]}}`, tc.eventType, tc.status))
 			raw := &sliceEventStream{events: []*httpclient.StreamEvent{{Type: tc.eventType, Data: data}}}
+			perfStart := time.Now().Add(-75 * time.Millisecond)
+			perf := &biz.PerformanceRecord{StartTime: perfStart, EndTime: perfStart.Add(50 * time.Millisecond)}
 			stream := NewOutboundPersistentStream(ctx, raw, req, exec, requestService, usageLogService,
-				&mockTransformer{apiFormat: llm.APIFormatOpenAIResponse}, nil, &PersistenceState{})
+				&mockTransformer{apiFormat: llm.APIFormatOpenAIResponse}, perf, &PersistenceState{})
 			for stream.Next() {
 				_ = stream.Current()
 			}
@@ -1154,6 +1165,10 @@ func TestOutboundPersistentStream_ResponsesAbnormalTerminalStatus(t *testing.T) 
 			updated, err := client.RequestExecution.Get(ctx, exec.ID)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantStatus, updated.Status)
+			if tc.wantStatus == requestexecution.StatusFailed {
+				require.NotNil(t, updated.MetricsLatencyMs)
+				require.EqualValues(t, 50, *updated.MetricsLatencyMs)
+			}
 			require.Empty(t, updated.ResponseBody)
 		})
 	}

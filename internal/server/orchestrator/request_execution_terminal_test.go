@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -58,10 +59,16 @@ func setupRequestExecutionTerminalMiddleware(
 		Save(ctx)
 	require.NoError(t, err)
 
+	perfStart := time.Now().Add(-50 * time.Millisecond)
 	outbound := &PersistentOutboundTransformer{
 		state: &PersistenceState{
 			RequestService: requestService,
 			RequestExec:    execution,
+			Perf: &biz.PerformanceRecord{
+				StartTime:        perfStart,
+				EndTime:          perfStart.Add(50 * time.Millisecond),
+				RequestCompleted: true,
+			},
 			CurrentCandidate: &ChannelModelsCandidate{
 				Channel: &biz.Channel{Channel: channel},
 			},
@@ -76,6 +83,33 @@ func setupRequestExecutionTerminalMiddleware(
 	require.NoError(t, err)
 
 	return ctx, client, requestService, middleware, execution
+}
+
+func TestFailureLatencyMetrics(t *testing.T) {
+	t.Run("completed uses recorded end time and clamps", func(t *testing.T) {
+		start := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+		metrics := failureLatencyMetrics(&biz.PerformanceRecord{
+			StartTime: start,
+			EndTime:   start.Add(time.Millisecond),
+		})
+
+		require.NotNil(t, metrics)
+		require.NotNil(t, metrics.LatencyMs)
+		require.EqualValues(t, biz.MinLatencyMs, *metrics.LatencyMs)
+	})
+
+	t.Run("unfinished uses current time", func(t *testing.T) {
+		metrics := failureLatencyMetrics(&biz.PerformanceRecord{
+			StartTime: time.Now().Add(-50 * time.Millisecond),
+		})
+
+		require.NotNil(t, metrics)
+		require.NotNil(t, metrics.LatencyMs)
+		require.GreaterOrEqual(t, *metrics.LatencyMs, int64(40))
+	})
+
+	require.Nil(t, failureLatencyMetrics(nil))
+	require.Nil(t, failureLatencyMetrics(&biz.PerformanceRecord{}))
 }
 
 func TestPersistRequestExecutionMiddleware_TerminalOrdering(t *testing.T) {
@@ -97,6 +131,19 @@ func TestPersistRequestExecutionMiddleware_TerminalOrdering(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, requestexecution.StatusFailed, execution.Status)
 		require.Equal(t, transformErr.Error(), execution.ErrorMessage)
+	})
+
+	t.Run("raw failure records latency from performance interval", func(t *testing.T) {
+		ctx, client, _, middleware, execution := setupRequestExecutionTerminalMiddleware(t)
+		defer client.Close()
+
+		middleware.OnOutboundRawError(ctx, errors.New("upstream returned 502"))
+
+		execution, err := client.RequestExecution.Get(ctx, execution.ID)
+		require.NoError(t, err)
+		require.Equal(t, requestexecution.StatusFailed, execution.Status)
+		require.NotNil(t, execution.MetricsLatencyMs)
+		require.EqualValues(t, 50, *execution.MetricsLatencyMs)
 	})
 
 	t.Run("late completion cannot overwrite earlier transform failure", func(t *testing.T) {

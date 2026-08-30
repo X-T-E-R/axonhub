@@ -600,6 +600,8 @@ func TestChatCompletionOrchestrator_Process_StreamingError(t *testing.T) {
 
 	dbExec := executions[0]
 	assert.Equal(t, requestexecution.StatusFailed, dbExec.Status, "request execution should be marked as failed on stream error")
+	require.NotNil(t, dbExec.MetricsLatencyMs)
+	require.Positive(t, *dbExec.MetricsLatencyMs)
 }
 
 // TestChatCompletionOrchestrator_Process_StreamingSuccess_NotMarkedAsError verifies that
@@ -692,6 +694,8 @@ func TestChatCompletionOrchestrator_Process_StreamingSuccess_NotMarkedAsError(t 
 
 	dbExec := executions[0]
 	assert.Equal(t, requestexecution.StatusCompleted, dbExec.Status, "successful stream execution should be marked as completed")
+	require.NotNil(t, dbExec.MetricsLatencyMs)
+	require.Positive(t, *dbExec.MetricsLatencyMs)
 }
 
 // mockExecutorWithErrorStream returns a stream that emits events then errors.
@@ -907,6 +911,8 @@ func TestChatCompletionOrchestrator_StreamTerminalTransformErrorSupersedesProvid
 	require.NoError(t, err)
 	require.Len(t, executions, 1)
 	require.Equal(t, requestexecution.StatusFailed, executions[0].Status)
+	require.NotNil(t, executions[0].MetricsLatencyMs)
+	require.Positive(t, *executions[0].MetricsLatencyMs)
 	require.Equal(t, integrityErr.Error(), executions[0].ErrorMessage)
 	require.Equal(t, "chatcmpl-integrity", executions[0].ExternalID,
 		"the failed row should retain evidence from provisional raw completion")
