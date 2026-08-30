@@ -866,6 +866,8 @@ type confirmAndInterruptObserver struct {
 	confirmCount int
 }
 
+func (*confirmAndInterruptObserver) OnUpstreamAttemptSelected(StreamLivenessAttempt) {}
+
 func (o *confirmAndInterruptObserver) OnUpstreamResponseHeaders(attempt StreamLivenessAttempt) {
 	o.attempt = attempt
 }

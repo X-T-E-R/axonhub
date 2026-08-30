@@ -16,10 +16,15 @@ import (
 )
 
 type recordingStreamLivenessObserver struct {
-	attempts      []StreamLivenessAttempt
-	rawEvents     int
-	transformable int
-	upstreamErr   error
+	selectedAttempts []StreamLivenessAttempt
+	attempts         []StreamLivenessAttempt
+	rawEvents        int
+	transformable    int
+	upstreamErr      error
+}
+
+func (o *recordingStreamLivenessObserver) OnUpstreamAttemptSelected(attempt StreamLivenessAttempt) {
+	o.selectedAttempts = append(o.selectedAttempts, attempt)
 }
 
 type countingEventStream struct {
@@ -96,6 +101,39 @@ func TestStreamLivenessMiddleware_ReportsTransportMilestonesWithoutChangingEvent
 	require.Equal(t, 1, observer.transformable)
 	require.ErrorIs(t, observer.upstreamErr, upstreamErr)
 	require.Equal(t, 1, rawSource.closeCount)
+}
+
+func TestStreamLivenessSelectionMiddleware_ReportsChannelPolicyBeforeProviderSetup(t *testing.T) {
+	disabled := false
+	wantsStream := true
+	settings := &objects.ChannelSSEKeepAlive{Enabled: &disabled}
+	state := &PersistenceState{
+		OriginalRequestStream: &wantsStream,
+		CurrentCandidate: &ChannelModelsCandidate{
+			Channel: &biz.Channel{Channel: &ent.Channel{
+				ID:       7,
+				Name:     "DeepSeek Pro",
+				Settings: &objects.ChannelSettings{SSEKeepAlive: settings},
+			}},
+		},
+	}
+	observer := &recordingStreamLivenessObserver{}
+	middleware := newStreamLivenessSelectionMiddleware(state, observer)
+	request := &httpclient.Request{}
+
+	got, err := middleware.OnOutboundRawRequest(context.Background(), request)
+	require.NoError(t, err)
+	require.Same(t, request, got)
+	require.Len(t, observer.selectedAttempts, 1)
+	require.Equal(t, 7, observer.selectedAttempts[0].ChannelID)
+	require.Equal(t, "DeepSeek Pro", observer.selectedAttempts[0].ChannelName)
+	require.Same(t, settings, observer.selectedAttempts[0].KeepAlive)
+	require.Empty(t, observer.attempts, "provider response headers have not arrived")
+
+	wantsStream = false
+	_, err = middleware.OnOutboundRawRequest(context.Background(), request)
+	require.NoError(t, err)
+	require.Len(t, observer.selectedAttempts, 1, "non-streaming request must not start SSE liveness")
 }
 
 func TestStreamLivenessMiddleware_DoesNotReportProviderOnlyAutoAggregateStream(t *testing.T) {

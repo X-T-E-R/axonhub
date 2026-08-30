@@ -263,6 +263,11 @@ func (processor *ChatCompletionOrchestrator) process(
 	}
 
 	var middlewares []pipeline.Middleware
+	if streamLivenessObserver != nil {
+		// The selected channel is known after outbound transformation. Publish its
+		// keep-alive policy before any provider request setup can block.
+		middlewares = append(middlewares, newStreamLivenessSelectionMiddleware(state, streamLivenessObserver))
+	}
 
 	// Add global middlewares
 	middlewares = append(middlewares, processor.Middlewares...)

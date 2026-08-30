@@ -683,10 +683,11 @@ func TestSSELivenessSession_CommitsAndHeartbeatsOnlyForConfirmedStream(t *testin
 			result := make(chan struct{ committed, aborted bool }, 1)
 			go func() {
 				_, committed, aborted := session.awaitProcess(c, func(
-					context.Context,
-					*httpclient.Request,
-					orchestrator.StreamLivenessObserver,
+					_ context.Context,
+					_ *httpclient.Request,
+					observer orchestrator.StreamLivenessObserver,
 				) (orchestrator.ChatCompletionResult, error) {
+					observer.OnUpstreamAttemptSelected(orchestrator.StreamLivenessAttempt{})
 					close(processStarted)
 					<-releaseProcess
 					return orchestrator.ChatCompletionResult{}, errors.New("upstream unavailable")
@@ -727,6 +728,86 @@ func TestSSELivenessSession_CommitsAndHeartbeatsOnlyForConfirmedStream(t *testin
 	}
 }
 
+func TestSSELivenessSession_HonorsChannelOverrideBeforeProviderSetup(t *testing.T) {
+	tests := []struct {
+		name           string
+		globalEnabled  bool
+		channelEnabled bool
+		wantHeartbeat  bool
+	}{
+		{
+			name:           "channel disabled overrides global enabled",
+			globalEnabled:  true,
+			channelEnabled: false,
+			wantHeartbeat:  false,
+		},
+		{
+			name:           "channel enabled overrides global disabled",
+			globalEnabled:  false,
+			channelEnabled: true,
+			wantHeartbeat:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			observingWriter := &heartbeatObservingResponseWriter{
+				ResponseWriter: c.Writer,
+				heartbeat:      make(chan struct{}, 1),
+			}
+			c.Writer = observingWriter
+
+			ctx, cancel := requestWithSSELivenessContext(c)
+			defer cancel(nil)
+			session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
+				Enabled:  tt.globalEnabled,
+				Interval: 5 * time.Millisecond,
+			}, sseHeartbeatOpenAI, true)
+
+			selected := make(chan struct{})
+			releaseProviderSetup := make(chan struct{})
+			result := make(chan bool, 1)
+			go func() {
+				_, committed, _ := session.awaitProcess(c, func(
+					_ context.Context,
+					_ *httpclient.Request,
+					observer orchestrator.StreamLivenessObserver,
+				) (orchestrator.ChatCompletionResult, error) {
+					observer.OnUpstreamAttemptSelected(orchestrator.StreamLivenessAttempt{
+						KeepAlive: &objects.ChannelSSEKeepAlive{Enabled: &tt.channelEnabled},
+					})
+					close(selected)
+					<-releaseProviderSetup
+					return orchestrator.ChatCompletionResult{}, errors.New("provider setup failed")
+				}, &httpclient.Request{})
+				result <- committed
+			}()
+
+			<-selected
+			if tt.wantHeartbeat {
+				select {
+				case <-observingWriter.heartbeat:
+				case <-time.After(time.Second):
+					t.Fatal("channel-enabled request did not heartbeat during provider setup")
+				}
+			} else {
+				select {
+				case <-observingWriter.heartbeat:
+					t.Fatal("channel-disabled request emitted a heartbeat during provider setup")
+				case <-time.After(50 * time.Millisecond):
+				}
+			}
+
+			close(releaseProviderSetup)
+			require.Equal(t, tt.wantHeartbeat, <-result)
+			require.Equal(t, tt.wantHeartbeat, strings.Contains(recorder.Body.String(), ": keep-alive\n\n"))
+		})
+	}
+}
+
 func TestSSELivenessSession_HeartbeatDuringProcessPreRead(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -744,6 +825,13 @@ func TestSSELivenessSession_HeartbeatDuringProcessPreRead(t *testing.T) {
 		_ *httpclient.Request,
 		observer orchestrator.StreamLivenessObserver,
 	) (orchestrator.ChatCompletionResult, error) {
+		observer.OnUpstreamAttemptSelected(orchestrator.StreamLivenessAttempt{
+			ChannelID:   42,
+			ChannelName: "DeepSeek Pro",
+			KeepAlive: &objects.ChannelSSEKeepAlive{
+				Enabled: &enabled,
+			},
+		})
 		observer.OnUpstreamResponseHeaders(orchestrator.StreamLivenessAttempt{
 			ChannelID:   42,
 			ChannelName: "DeepSeek Pro",

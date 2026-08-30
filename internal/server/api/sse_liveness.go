@@ -292,13 +292,26 @@ func (s *sseLivenessSession) IsDownstreamCommitted() bool {
 	return s.committed.Load()
 }
 
+func (s *sseLivenessSession) OnUpstreamAttemptSelected(attempt orchestrator.StreamLivenessAttempt) {
+	s.applyAttemptKeepAlive(attempt)
+}
+
 func (s *sseLivenessSession) OnUpstreamResponseHeaders(attempt orchestrator.StreamLivenessAttempt) {
 	s.ledger.recordUpstreamHeaders(attempt)
 	s.mu.Lock()
-	s.effective = resolveSSEKeepAlive(s.global, attempt.KeepAlive)
 	s.interrupt = &sseStreamInterrupt{fn: attempt.Interrupt}
 	s.confirmSemanticCompletion = attempt.ConfirmSemanticCompletion
 	s.mu.Unlock()
+	s.applyAttemptKeepAlive(attempt)
+}
+
+func (s *sseLivenessSession) applyAttemptKeepAlive(attempt orchestrator.StreamLivenessAttempt) {
+	s.mu.Lock()
+	s.effective = resolveSSEKeepAlive(s.global, attempt.KeepAlive)
+	s.mu.Unlock()
+	if !s.streaming {
+		return
+	}
 	select {
 	case s.readySignal <- struct{}{}:
 	default:
@@ -448,19 +461,6 @@ func (s *sseLivenessSession) awaitProcess(
 	var timer *time.Timer
 	var timerC <-chan time.Time
 	committed := false
-
-	if config := s.effectiveConfig(); s.streaming && config.Enabled && config.Interval > 0 {
-		commitSSEHeaders(c)
-		committed = true
-		s.committed.Store(true)
-		if err := flushSSE(c.Writer); err != nil {
-			s.failDownstream(err)
-			s.abandon()
-			return sseProcessOutcome{}, committed, true
-		}
-		timer = time.NewTimer(config.Interval)
-		timerC = timer.C
-	}
 
 	// Unbuffered handoff keeps ownership explicit: if the handler abandons the
 	// request after a downstream failure, the worker must close any late stream

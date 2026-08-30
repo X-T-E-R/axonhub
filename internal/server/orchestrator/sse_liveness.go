@@ -15,8 +15,9 @@ import (
 	"github.com/looplj/axonhub/llm/streams"
 )
 
-// StreamLivenessAttempt describes a provider stream after its response headers
-// have been accepted. It intentionally excludes request and response bodies.
+// StreamLivenessAttempt describes the selected provider attempt. Interrupt and
+// ConfirmSemanticCompletion become available after response headers are accepted.
+// It intentionally excludes request and response bodies.
 type StreamLivenessAttempt struct {
 	ChannelID   int
 	ChannelName string
@@ -42,10 +43,17 @@ const (
 // StreamLivenessObserver receives transport-only milestones. Implementations
 // must not turn these callbacks into semantic stream events or retry signals.
 type StreamLivenessObserver interface {
+	OnUpstreamAttemptSelected(StreamLivenessAttempt)
 	OnUpstreamResponseHeaders(StreamLivenessAttempt)
 	OnRawSSE(*httpclient.StreamEvent)
 	OnTransformableEvent(*llm.Response)
 	OnUpstreamError(error)
+}
+
+type streamLivenessSelectionMiddleware struct {
+	*pipeline.DummyMiddleware
+	state    *PersistenceState
+	observer StreamLivenessObserver
 }
 
 type downstreamCommitObserver interface {
@@ -96,12 +104,53 @@ func newStreamLivenessMiddleware(state *PersistenceState, observer StreamLivenes
 	}
 }
 
+func newStreamLivenessSelectionMiddleware(state *PersistenceState, observer StreamLivenessObserver) pipeline.Middleware {
+	return &streamLivenessSelectionMiddleware{
+		DummyMiddleware: &pipeline.DummyMiddleware{},
+		state:           state,
+		observer:        observer,
+	}
+}
+
+func (m *streamLivenessSelectionMiddleware) Name() string {
+	return "stream_liveness_selection"
+}
+
+func (m *streamLivenessSelectionMiddleware) OnOutboundRawRequest(
+	_ context.Context,
+	request *httpclient.Request,
+) (*httpclient.Request, error) {
+	if downstreamWantsStream(m.state) {
+		m.observer.OnUpstreamAttemptSelected(streamLivenessAttemptFromState(m.state))
+	}
+	return request, nil
+}
+
 func (m *streamLivenessMiddleware) Name() string {
 	return "stream_liveness"
 }
 
 func (m *streamLivenessMiddleware) downstreamWantsStream() bool {
-	return m.state != nil && m.state.OriginalRequestStream != nil && *m.state.OriginalRequestStream
+	return downstreamWantsStream(m.state)
+}
+
+func downstreamWantsStream(state *PersistenceState) bool {
+	return state != nil && state.OriginalRequestStream != nil && *state.OriginalRequestStream
+}
+
+func streamLivenessAttemptFromState(state *PersistenceState) StreamLivenessAttempt {
+	attempt := StreamLivenessAttempt{}
+	if state == nil || state.CurrentCandidate == nil || state.CurrentCandidate.Channel == nil {
+		return attempt
+	}
+
+	channel := state.CurrentCandidate.Channel
+	attempt.ChannelID = channel.ID
+	attempt.ChannelName = channel.Name
+	if channel.Settings != nil {
+		attempt.KeepAlive = channel.Settings.SSEKeepAlive
+	}
+	return attempt
 }
 
 func (m *streamLivenessMiddleware) OnOutboundRawStream(
@@ -112,7 +161,7 @@ func (m *streamLivenessMiddleware) OnOutboundRawStream(
 		return stream, nil
 	}
 
-	attempt := StreamLivenessAttempt{}
+	attempt := streamLivenessAttemptFromState(m.state)
 	if interruptible, ok := stream.(streams.Interruptible); ok {
 		attempt.Interrupt = func() error {
 			if m.state != nil {
@@ -123,14 +172,6 @@ func (m *streamLivenessMiddleware) OnOutboundRawStream(
 	}
 	attempt.ConfirmSemanticCompletion = func() bool {
 		return m.state != nil && m.state.confirmStreamCompletion()
-	}
-	if m.state != nil && m.state.CurrentCandidate != nil && m.state.CurrentCandidate.Channel != nil {
-		channel := m.state.CurrentCandidate.Channel
-		attempt.ChannelID = channel.ID
-		attempt.ChannelName = channel.Name
-		if channel.Settings != nil {
-			attempt.KeepAlive = channel.Settings.SSEKeepAlive
-		}
 	}
 	m.observer.OnUpstreamResponseHeaders(attempt)
 
