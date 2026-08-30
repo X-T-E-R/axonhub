@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
+	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -21,6 +24,7 @@ type sseCloseCause string
 const (
 	sseCloseStreamCompleted        sseCloseCause = "stream_completed"
 	sseCloseTerminalEvent          sseCloseCause = "terminal_event"
+	sseCloseSemanticCompletion     sseCloseCause = "semantic_completion"
 	sseCloseUpstreamEOF            sseCloseCause = "upstream_eof"
 	sseCloseUpstreamError          sseCloseCause = "upstream_error"
 	sseCloseDownstreamWriteFailed  sseCloseCause = "downstream_write_failed"
@@ -46,6 +50,11 @@ type sseProcessFunc func(
 	*httpclient.Request,
 	orchestrator.StreamLivenessObserver,
 ) (orchestrator.ChatCompletionResult, error)
+
+func commitSSEHeaders(c *gin.Context) {
+	c.Header("Access-Control-Allow-Origin", "*")
+	setSSEHeaders(c)
+}
 
 type sseLivenessLedger struct {
 	ctx     context.Context
@@ -214,19 +223,32 @@ func closeReasonFromContext(ctx context.Context) (sseCloseCause, bool) {
 }
 
 type sseLivenessSession struct {
-	ctx         context.Context
-	cancel      context.CancelCauseFunc
-	global      SSEKeepAliveConfig
-	heartbeat   sseHeartbeatFormat
-	ledger      *sseLivenessLedger
-	readySignal chan struct{}
-	abandoned   chan struct{}
-	abandonOnce sync.Once
+	ctx             context.Context
+	cancel          context.CancelCauseFunc
+	global          SSEKeepAliveConfig
+	heartbeat       sseHeartbeatFormat
+	streaming       bool
+	ledger          *sseLivenessLedger
+	readySignal     chan struct{}
+	semanticSuccess chan struct{}
+	abandoned       chan struct{}
+	abandonOnce     sync.Once
+	semanticOnce    sync.Once
+	confirmOnce     sync.Once
 
-	mu        sync.Mutex
-	effective SSEKeepAliveConfig
-	interrupt *sseStreamInterrupt
+	mu                        sync.Mutex
+	effective                 SSEKeepAliveConfig
+	interrupt                 *sseStreamInterrupt
+	confirmSemanticCompletion func() bool
+	confirmAccepted           bool
+	semanticResponse          *llm.Response
+	semanticChoices           map[int]struct{}
+	expectedChoices           int
+	terminalGrace             time.Duration
+	committed                 atomic.Bool
 }
+
+const defaultSSETerminalGrace = 250 * time.Millisecond
 
 type sseStreamInterrupt struct {
 	once sync.Once
@@ -247,17 +269,27 @@ func newSSELivenessSession(
 	cancel context.CancelCauseFunc,
 	global SSEKeepAliveConfig,
 	heartbeat sseHeartbeatFormat,
+	streaming bool,
 ) *sseLivenessSession {
 	return &sseLivenessSession{
-		ctx:         ctx,
-		cancel:      cancel,
-		global:      global,
-		heartbeat:   heartbeat,
-		ledger:      newSSELivenessLedger(ctx),
-		readySignal: make(chan struct{}, 1),
-		abandoned:   make(chan struct{}),
-		effective:   global,
+		ctx:             ctx,
+		cancel:          cancel,
+		global:          global,
+		heartbeat:       heartbeat,
+		streaming:       streaming,
+		ledger:          newSSELivenessLedger(ctx),
+		readySignal:     make(chan struct{}, 1),
+		semanticSuccess: make(chan struct{}),
+		abandoned:       make(chan struct{}),
+		effective:       global,
+		semanticChoices: make(map[int]struct{}),
+		expectedChoices: 1,
+		terminalGrace:   defaultSSETerminalGrace,
 	}
+}
+
+func (s *sseLivenessSession) IsDownstreamCommitted() bool {
+	return s.committed.Load()
 }
 
 func (s *sseLivenessSession) OnUpstreamResponseHeaders(attempt orchestrator.StreamLivenessAttempt) {
@@ -265,6 +297,7 @@ func (s *sseLivenessSession) OnUpstreamResponseHeaders(attempt orchestrator.Stre
 	s.mu.Lock()
 	s.effective = resolveSSEKeepAlive(s.global, attempt.KeepAlive)
 	s.interrupt = &sseStreamInterrupt{fn: attempt.Interrupt}
+	s.confirmSemanticCompletion = attempt.ConfirmSemanticCompletion
 	s.mu.Unlock()
 	select {
 	case s.readySignal <- struct{}{}:
@@ -272,12 +305,32 @@ func (s *sseLivenessSession) OnUpstreamResponseHeaders(attempt orchestrator.Stre
 	}
 }
 
-func (s *sseLivenessSession) OnRawSSE() {
+func (s *sseLivenessSession) OnRawSSE(event *httpclient.StreamEvent) {
 	s.ledger.recordFirstRawSSE()
+	if orchestrator.ClassifyStreamSemanticTerminal(event) != orchestrator.StreamSemanticSucceeded {
+		return
+	}
+	choices := gjson.GetBytes(event.Data, "choices")
+	if !choices.IsArray() || len(choices.Array()) == 0 {
+		s.signalSemanticSuccess(nil)
+		return
+	}
+	indices := make([]int, 0, len(choices.Array()))
+	for _, choice := range choices.Array() {
+		indices = append(indices, int(choice.Get("index").Int()))
+	}
+	s.recordSemanticChoices(indices, nil)
 }
 
-func (s *sseLivenessSession) OnTransformableEvent() {
+func (s *sseLivenessSession) OnTransformableEvent(response *llm.Response) {
 	s.ledger.recordFirstTransformableEvent()
+	if orchestrator.ClassifyLLMStreamSemanticTerminal(response) == orchestrator.StreamSemanticSucceeded {
+		indices := make([]int, 0, len(response.Choices))
+		for _, choice := range response.Choices {
+			indices = append(indices, choice.Index)
+		}
+		s.recordSemanticChoices(indices, response)
+	}
 }
 
 func (s *sseLivenessSession) OnUpstreamError(err error) {
@@ -312,6 +365,54 @@ func (s *sseLivenessSession) interruptUpstream() error {
 	return interrupt.run()
 }
 
+func (s *sseLivenessSession) signalSemanticSuccess(response *llm.Response) {
+	s.mu.Lock()
+	if response != nil {
+		s.semanticResponse = response
+	}
+	s.mu.Unlock()
+	s.semanticOnce.Do(func() { close(s.semanticSuccess) })
+}
+
+func (s *sseLivenessSession) recordSemanticChoices(indices []int, response *llm.Response) {
+	s.mu.Lock()
+	for _, index := range indices {
+		s.semanticChoices[index] = struct{}{}
+	}
+	if response != nil {
+		s.semanticResponse = response
+	}
+	ready := len(s.semanticChoices) >= s.expectedChoices
+	s.mu.Unlock()
+	if ready {
+		s.semanticOnce.Do(func() { close(s.semanticSuccess) })
+	}
+}
+
+func (s *sseLivenessSession) semanticSuccessSignal() <-chan struct{} {
+	return s.semanticSuccess
+}
+
+func (s *sseLivenessSession) semanticCompletionResponse() *llm.Response {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.semanticResponse
+}
+
+func (s *sseLivenessSession) confirmSemanticSuccess() bool {
+	s.confirmOnce.Do(func() {
+		s.mu.Lock()
+		confirm := s.confirmSemanticCompletion
+		s.mu.Unlock()
+		if confirm == nil {
+			s.confirmAccepted = true
+		} else {
+			s.confirmAccepted = confirm()
+		}
+	})
+	return s.confirmAccepted
+}
+
 func resolveSSEKeepAlive(global SSEKeepAliveConfig, override *objects.ChannelSSEKeepAlive) SSEKeepAliveConfig {
 	resolved := global
 	if override == nil {
@@ -344,6 +445,23 @@ func (s *sseLivenessSession) awaitProcess(
 	process sseProcessFunc,
 	request *httpclient.Request,
 ) (sseProcessOutcome, bool, bool) {
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	committed := false
+
+	if config := s.effectiveConfig(); s.streaming && config.Enabled && config.Interval > 0 {
+		commitSSEHeaders(c)
+		committed = true
+		s.committed.Store(true)
+		if err := flushSSE(c.Writer); err != nil {
+			s.failDownstream(err)
+			s.abandon()
+			return sseProcessOutcome{}, committed, true
+		}
+		timer = time.NewTimer(config.Interval)
+		timerC = timer.C
+	}
+
 	// Unbuffered handoff keeps ownership explicit: if the handler abandons the
 	// request after a downstream failure, the worker must close any late stream
 	// instead of depositing it into an unread result buffer.
@@ -385,10 +503,6 @@ func (s *sseLivenessSession) awaitProcess(
 		}
 	}()
 
-	var timer *time.Timer
-	var timerC <-chan time.Time
-	committed := false
-
 	defer func() {
 		if timer != nil {
 			stopTimer(timer)
@@ -418,13 +532,14 @@ func (s *sseLivenessSession) awaitProcess(
 			}
 
 			if !committed {
-				setSSEHeaders(c)
+				commitSSEHeaders(c)
+				committed = true
+				s.committed.Store(true)
 				if err := flushSSE(c.Writer); err != nil {
 					s.failDownstream(err)
 					s.abandon()
 					return sseProcessOutcome{}, true, true
 				}
-				committed = true
 			}
 
 			if timer == nil {

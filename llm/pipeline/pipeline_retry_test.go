@@ -394,6 +394,74 @@ func TestPipeline_Process_RetryLogic(t *testing.T) {
 	})
 }
 
+func TestPipeline_Process_RetryGateStopsSameAndCrossChannelRetries(t *testing.T) {
+	attempts := 0
+	prepareCalls := 0
+	switchCalls := 0
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			attempts++
+			return nil, errors.New("upstream failed after downstream commit")
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		prepareForRetry: func(context.Context) error {
+			prepareCalls++
+			return nil
+		},
+		hasMoreChannels: func() bool { return true },
+		nextChannel: func(context.Context) error {
+			switchCalls++
+			return nil
+		},
+	}
+
+	p := NewFactory(executor).Pipeline(
+		&mockInbound{},
+		outbound,
+		WithRetry(2, 2, 0),
+		WithRetryAllowed(func() bool { return false }),
+	)
+
+	result, err := p.Process(context.Background(), &httpclient.Request{})
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, attempts)
+	require.Zero(t, prepareCalls)
+	require.Zero(t, switchCalls)
+}
+
+func TestPipeline_Process_RetryGateClosingDuringPreparationStopsNextAttempt(t *testing.T) {
+	attempts := 0
+	allowed := true
+	executor := &mockExecutor{
+		do: func(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+			attempts++
+			return nil, errors.New("upstream failure")
+		},
+	}
+	outbound := &mockOutbound{
+		canRetry: func(error) bool { return true },
+		prepareForRetry: func(context.Context) error {
+			allowed = false
+			return nil
+		},
+	}
+
+	p := NewFactory(executor).Pipeline(
+		&mockInbound{},
+		outbound,
+		WithRetry(0, 1, 0),
+		WithRetryAllowed(func() bool { return allowed }),
+	)
+
+	result, err := p.Process(context.Background(), &httpclient.Request{})
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, attempts)
+}
+
 func TestPipeline_Process_BadGatewayCapsSameChannelRetry(t *testing.T) {
 	for _, tc := range []struct {
 		name              string

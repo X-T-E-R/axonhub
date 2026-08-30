@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,9 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
@@ -195,6 +199,42 @@ type blockingEventStream struct {
 	interruptCount atomic.Int32
 }
 
+type terminalThenBlockingStream struct {
+	event           *httpclient.StreamEvent
+	current         *httpclient.StreamEvent
+	emitted         bool
+	nextStarted     chan struct{}
+	nextStartedOnce sync.Once
+	released        chan struct{}
+	releaseOnce     sync.Once
+	closeCount      atomic.Int32
+	interruptCount  atomic.Int32
+}
+
+func (s *terminalThenBlockingStream) Next() bool {
+	if !s.emitted {
+		s.current = s.event
+		s.emitted = true
+		return true
+	}
+	s.nextStartedOnce.Do(func() { close(s.nextStarted) })
+	<-s.released
+	return false
+}
+
+func (s *terminalThenBlockingStream) Current() *httpclient.StreamEvent { return s.current }
+func (s *terminalThenBlockingStream) Err() error                       { return nil }
+func (s *terminalThenBlockingStream) Close() error {
+	s.closeCount.Add(1)
+	s.releaseOnce.Do(func() { close(s.released) })
+	return nil
+}
+func (s *terminalThenBlockingStream) Interrupt() error {
+	s.interruptCount.Add(1)
+	s.releaseOnce.Do(func() { close(s.released) })
+	return nil
+}
+
 func (s *blockingEventStream) Next() bool {
 	if s.done {
 		return false
@@ -244,6 +284,11 @@ type heartbeatFailingResponseWriter struct {
 
 	err    error
 	failed chan struct{}
+}
+
+type heartbeatObservingResponseWriter struct {
+	gin.ResponseWriter
+	heartbeat chan struct{}
 }
 
 type secondFlushFailingResponseWriter struct {
@@ -316,6 +361,22 @@ func (w *heartbeatFailingResponseWriter) Write(_ []byte) (int, error) {
 }
 
 func (w *heartbeatFailingResponseWriter) WriteString(data string) (int, error) {
+	return w.Write([]byte(data))
+}
+
+func (w *heartbeatObservingResponseWriter) Write(data []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(data)
+	if bytes.Contains(data, []byte("keep-alive")) {
+		select {
+		case w.heartbeat <- struct{}{}:
+		default:
+		}
+	}
+
+	return n, err
+}
+
+func (w *heartbeatObservingResponseWriter) WriteString(data string) (int, error) {
 	return w.Write([]byte(data))
 }
 
@@ -395,6 +456,277 @@ func TestWriteSSEStream_AnthropicHeartbeat(t *testing.T) {
 	require.Contains(t, body, "event:message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 }
 
+func TestWriteSSEStream_SemanticSuccessInterruptsBlockedTailOnce(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	heartbeats := &heartbeatObservingResponseWriter{ResponseWriter: c.Writer, heartbeat: make(chan struct{}, 1)}
+	c.Writer = heartbeats
+	ctx, cancel := requestWithSSELivenessContext(c)
+	defer cancel(nil)
+
+	var confirmed atomic.Int32
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{Enabled: true, Interval: 5 * time.Millisecond}, sseHeartbeatOpenAI, true)
+	session.terminalGrace = 20 * time.Millisecond
+	finalChunk := &httpclient.StreamEvent{
+		Data: []byte(`{"id":"chatcmpl-144325","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":9,"total_tokens":19}}`),
+	}
+	stream := &terminalThenBlockingStream{
+		event: finalChunk, nextStarted: make(chan struct{}), released: make(chan struct{}),
+	}
+	owned := newCloseOnceStream(stream)
+	session.OnUpstreamResponseHeaders(orchestrator.StreamLivenessAttempt{
+		Interrupt: stream.Interrupt,
+		ConfirmSemanticCompletion: func() bool {
+			confirmed.Add(1)
+			return true
+		},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		writeSSEStreamWithHeartbeat(c, owned, FormatStreamError, 5*time.Millisecond, sseHeartbeatOpenAI, session)
+		close(done)
+	}()
+
+	select {
+	case <-stream.nextStarted:
+	case <-time.After(time.Second):
+		t.Fatal("reader did not block after the semantic final chunk")
+	}
+	select {
+	case <-heartbeats.heartbeat:
+	case <-time.After(time.Second):
+		t.Fatal("heartbeat did not keep the pre-terminal blocked stream alive")
+	}
+	session.OnRawSSE(finalChunk)
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("semantic terminal grace did not stop the blocked stream")
+	}
+
+	body := w.Body.String()
+	require.Contains(t, body, `"finish_reason":"tool_calls"`)
+	require.Contains(t, body, "data: [DONE]\n\n")
+	require.Less(t, strings.LastIndex(body, ": keep-alive"), strings.LastIndex(body, "data: [DONE]"))
+	require.Equal(t, int32(1), confirmed.Load())
+	require.Equal(t, int32(1), stream.interruptCount.Load())
+	require.NoError(t, owned.Close())
+	require.Equal(t, int32(1), stream.closeCount.Load())
+	require.Equal(t, sseCloseSemanticCompletion, session.ledger.reason())
+}
+
+func TestWriteSSEStream_ExplicitSuccessConfirmsBeforeInterruptingBlockedTail(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx, cancel := requestWithSSELivenessContext(c)
+	defer cancel(nil)
+
+	var confirmed atomic.Int32
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{Enabled: true, Interval: time.Hour}, sseHeartbeatOpenAI, true)
+	stream := &terminalThenBlockingStream{
+		event: &httpclient.StreamEvent{Data: []byte(`[DONE]`)}, nextStarted: make(chan struct{}), released: make(chan struct{}),
+	}
+	owned := newCloseOnceStream(stream)
+	session.OnUpstreamResponseHeaders(orchestrator.StreamLivenessAttempt{
+		Interrupt: stream.Interrupt,
+		ConfirmSemanticCompletion: func() bool {
+			confirmed.Add(1)
+			return true
+		},
+	})
+
+	writeSSEStreamWithHeartbeat(c, owned, FormatStreamError, time.Hour, sseHeartbeatOpenAI, session)
+	require.Contains(t, w.Body.String(), "data: [DONE]\n\n")
+	require.Equal(t, int32(1), confirmed.Load())
+	require.Equal(t, int32(1), stream.interruptCount.Load())
+	require.NoError(t, owned.Close())
+	require.Equal(t, int32(1), stream.closeCount.Load())
+	require.Equal(t, sseCloseTerminalEvent, session.ledger.reason())
+}
+
+func TestWriteSSEStream_GenuineErrorDuringSemanticGraceWins(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx, cancel := requestWithSSELivenessContext(c)
+	defer cancel(nil)
+
+	var confirmed atomic.Int32
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI, true)
+	session.terminalGrace = 100 * time.Millisecond
+	session.OnUpstreamResponseHeaders(orchestrator.StreamLivenessAttempt{
+		ConfirmSemanticCompletion: func() bool {
+			confirmed.Add(1)
+			return true
+		},
+	})
+	finalChunk := &httpclient.StreamEvent{Data: []byte(`{"id":"chatcmpl-grace-error","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`)}
+	session.OnRawSSE(finalChunk)
+	streamErr := errors.New("provider failed during terminal grace")
+	stream := &errorAfterStream{items: []*httpclient.StreamEvent{finalChunk}, err: streamErr}
+
+	writeSSEStreamWithHeartbeat(c, stream, FormatStreamError, 0, sseHeartbeatOpenAI, session)
+	body := w.Body.String()
+	require.Contains(t, body, "provider failed during terminal grace")
+	require.Contains(t, body, "event:error")
+	require.NotContains(t, body, "data: [DONE]\n\n")
+	require.Zero(t, confirmed.Load())
+	require.Equal(t, sseCloseUpstreamError, session.ledger.reason())
+}
+
+func TestWriteSSEStream_SlowPreTerminalStreamIsNotTruncated(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx, cancel := requestWithSSELivenessContext(c)
+	defer cancel(nil)
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{Enabled: true, Interval: 5 * time.Millisecond}, sseHeartbeatOpenAI, true)
+	session.terminalGrace = time.Millisecond
+
+	stream := &delayedSequenceStream{
+		delay: 20 * time.Millisecond,
+		events: []*httpclient.StreamEvent{
+			{Data: []byte(`{"choices":[{"delta":{"content":"still working"},"finish_reason":null}]}`)},
+			{Data: []byte(`[DONE]`)},
+		},
+	}
+	writeSSEStreamWithHeartbeat(c, stream, FormatStreamError, 5*time.Millisecond, sseHeartbeatOpenAI, session)
+
+	body := w.Body.String()
+	require.Contains(t, body, "still working")
+	require.Contains(t, body, ": keep-alive\n\n")
+	require.Contains(t, body, "data: [DONE]\n\n")
+	require.Equal(t, sseCloseTerminalEvent, session.ledger.reason())
+}
+
+func TestSSESemanticTerminalTracker_SynthesizesCompletedResponsesSnapshot(t *testing.T) {
+	tracker := newSSESemanticTerminalTracker(sseHeartbeatOpenAI)
+	tracker.observe(&httpclient.StreamEvent{
+		Type: "response.created",
+		Data: []byte(`{"type":"response.created","sequence_number":0,"response":{"id":"resp_144325","object":"response","status":"in_progress","model":"grok-4.1","output":[]}}`),
+	})
+	for i := range 9 {
+		tracker.observe(&httpclient.StreamEvent{
+			Type: "response.output_item.done",
+			Data: []byte(fmt.Sprintf(`{"type":"response.output_item.done","sequence_number":%d,"output_index":%d,"item":{"id":"fc_%d","type":"function_call","status":"completed","call_id":"call_%d","name":"tool","arguments":"{}"}}`, i+1, i, i, i)),
+		})
+	}
+
+	w := httptest.NewRecorder()
+	require.NoError(t, tracker.writeFallback(w, &llm.Response{
+		ID: "resp_144325", Model: "grok-4.1",
+		Usage: &llm.Usage{PromptTokens: 100, CompletionTokens: 90, TotalTokens: 190},
+	}))
+
+	body := w.Body.String()
+	require.Contains(t, body, "event:response.completed")
+	dataLine := ""
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "data:") {
+			dataLine = strings.TrimPrefix(line, "data:")
+			break
+		}
+	}
+	require.NotEmpty(t, dataLine)
+	require.Equal(t, "completed", gjson.Get(dataLine, "response.status").String())
+	require.Len(t, gjson.Get(dataLine, "response.output").Array(), 9)
+	require.Equal(t, int64(190), gjson.Get(dataLine, "response.usage.total_tokens").Int())
+}
+
+func TestSSELivenessSession_WaitsForEveryRequestedChoice(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI, true)
+	session.expectedChoices = 2
+
+	session.OnRawSSE(&httpclient.StreamEvent{Data: []byte(`{"choices":[{"index":0,"finish_reason":"stop"}]}`)})
+	select {
+	case <-session.semanticSuccessSignal():
+		t.Fatal("one completed choice must not terminate an n=2 stream")
+	default:
+	}
+
+	session.OnRawSSE(&httpclient.StreamEvent{Data: []byte(`{"choices":[{"index":1,"finish_reason":"tool_calls"}]}`)})
+	select {
+	case <-session.semanticSuccessSignal():
+	case <-time.After(time.Second):
+		t.Fatal("all requested choices completed without signaling semantic success")
+	}
+}
+
+func TestSSELivenessSession_CommitsAndHeartbeatsOnlyForConfirmedStream(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		streaming bool
+		wantSSE   bool
+	}{
+		{name: "streaming request", streaming: true, wantSSE: true},
+		{name: "non-streaming request", streaming: false, wantSSE: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			observingWriter := &heartbeatObservingResponseWriter{ResponseWriter: c.Writer, heartbeat: make(chan struct{}, 1)}
+			c.Writer = observingWriter
+
+			ctx, cancel := requestWithSSELivenessContext(c)
+			defer cancel(nil)
+			session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{Enabled: true, Interval: 5 * time.Millisecond}, sseHeartbeatOpenAI, tt.streaming)
+
+			processStarted := make(chan struct{})
+			releaseProcess := make(chan struct{})
+			result := make(chan struct{ committed, aborted bool }, 1)
+			go func() {
+				_, committed, aborted := session.awaitProcess(c, func(
+					context.Context,
+					*httpclient.Request,
+					orchestrator.StreamLivenessObserver,
+				) (orchestrator.ChatCompletionResult, error) {
+					close(processStarted)
+					<-releaseProcess
+					return orchestrator.ChatCompletionResult{}, errors.New("upstream unavailable")
+				}, &httpclient.Request{})
+				result <- struct{ committed, aborted bool }{committed: committed, aborted: aborted}
+			}()
+
+			select {
+			case <-processStarted:
+			case <-time.After(time.Second):
+				t.Fatal("process did not start")
+			}
+
+			if tt.wantSSE {
+				select {
+				case <-observingWriter.heartbeat:
+				case <-time.After(time.Second):
+					t.Fatal("heartbeat was not emitted while process was blocked")
+				}
+				require.Equal(t, sse.ContentType, recorder.Header().Get("Content-Type"))
+				require.Equal(t, "*", recorder.Header().Get("Access-Control-Allow-Origin"))
+				require.Contains(t, recorder.Body.String(), ": keep-alive\n\n")
+			} else {
+				select {
+				case <-observingWriter.heartbeat:
+					t.Fatal("non-streaming request emitted an SSE heartbeat")
+				case <-time.After(25 * time.Millisecond):
+				}
+				require.Empty(t, recorder.Header().Get("Content-Type"))
+				require.Empty(t, recorder.Body.String())
+			}
+
+			close(releaseProcess)
+			got := <-result
+			require.Equal(t, tt.wantSSE, got.committed)
+			require.False(t, got.aborted)
+		})
+	}
+}
+
 func TestSSELivenessSession_HeartbeatDuringProcessPreRead(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -404,7 +736,7 @@ func TestSSELivenessSession_HeartbeatDuringProcessPreRead(t *testing.T) {
 	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
 		Enabled:  false,
 		Interval: 5 * time.Millisecond,
-	}, sseHeartbeatOpenAI)
+	}, sseHeartbeatOpenAI, true)
 
 	enabled := true
 	process := func(
@@ -420,8 +752,8 @@ func TestSSELivenessSession_HeartbeatDuringProcessPreRead(t *testing.T) {
 			},
 		})
 		time.Sleep(25 * time.Millisecond)
-		observer.OnRawSSE()
-		observer.OnTransformableEvent()
+		observer.OnRawSSE(&httpclient.StreamEvent{Data: []byte(`{"choices":[{"finish_reason":null}]}`)})
+		observer.OnTransformableEvent(&llm.Response{Object: "chat.completion.chunk"})
 
 		return orchestrator.ChatCompletionResult{
 			ChatCompletionStream: streams.SliceStream([]*httpclient.StreamEvent{{Data: []byte("[DONE]")}}),
@@ -446,7 +778,7 @@ func TestSSELivenessSession_PreReadHeartbeatFailureCancelsAndClosesLateStream(t 
 	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
 		Enabled:  true,
 		Interval: time.Millisecond,
-	}, sseHeartbeatOpenAI)
+	}, sseHeartbeatOpenAI, true)
 
 	failingWriter := &heartbeatFailingResponseWriter{
 		ResponseWriter: c.Writer,
@@ -514,7 +846,7 @@ func TestSSELivenessSession_ContextCauseWinsOutcomeRace(t *testing.T) {
 			ctx, cancel := context.WithCancelCause(context.Background())
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, "/", nil)
-			session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI)
+			session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI, true)
 			processStarted := make(chan struct{})
 			releaseProcess := make(chan struct{})
 			result := make(chan struct {
@@ -551,7 +883,7 @@ func TestSSELivenessSession_ContextCauseWinsOutcomeRace(t *testing.T) {
 
 func TestSSELivenessSession_ExistingCancellationWinsDownstreamFailure(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
-	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI)
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI, true)
 	requestCause := errors.New("server shutdown")
 	cancel(requestCause)
 
@@ -568,7 +900,7 @@ func TestSSELivenessSession_DisabledAttemptWinsPendingHeartbeatTick(t *testing.T
 	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
 		Enabled:  true,
 		Interval: time.Millisecond,
-	}, sseHeartbeatOpenAI)
+	}, sseHeartbeatOpenAI, true)
 
 	enabled := true
 	disabled := false
@@ -615,7 +947,7 @@ func TestWriteSSEStream_HeartbeatWriteErrorClosesReader(t *testing.T) {
 	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
 		Enabled:  true,
 		Interval: time.Millisecond,
-	}, sseHeartbeatOpenAI)
+	}, sseHeartbeatOpenAI, true)
 
 	failingWriter := &heartbeatFailingResponseWriter{
 		ResponseWriter: c.Writer,
@@ -676,7 +1008,7 @@ func TestWriteSSEStream_DownstreamFailureInterruptsDecoderBeforePersistentClose(
 	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
 		Enabled:  true,
 		Interval: time.Millisecond,
-	}, sseHeartbeatOpenAI)
+	}, sseHeartbeatOpenAI, true)
 
 	failingWriter := &heartbeatFailingResponseWriter{
 		ResponseWriter: c.Writer,
@@ -722,7 +1054,7 @@ func TestWriteSSEStream_BusinessWriteErrorCancelsAndClosesOnce(t *testing.T) {
 	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
 		Enabled:  true,
 		Interval: time.Hour,
-	}, sseHeartbeatOpenAI)
+	}, sseHeartbeatOpenAI, true)
 
 	failingWriter := &heartbeatFailingResponseWriter{
 		ResponseWriter: c.Writer,
@@ -753,7 +1085,7 @@ func TestWriteSSEStream_BusinessFlushErrorCancelsUpstream(t *testing.T) {
 	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{
 		Enabled:  true,
 		Interval: time.Hour,
-	}, sseHeartbeatOpenAI)
+	}, sseHeartbeatOpenAI, true)
 
 	failingWriter := &secondFlushFailingResponseWriter{
 		ResponseWriter: c.Writer,

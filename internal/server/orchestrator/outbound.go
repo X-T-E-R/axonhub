@@ -112,7 +112,8 @@ func (ts *OutboundPersistentStream) Close() error {
 	ts.closed = true
 	ctx := ts.ctx
 
-	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", ts.streamCompleted))
+	streamCompleted := ts.streamCompleted || ts.state.isStreamCompletionConfirmed()
+	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", streamCompleted))
 
 	streamErr := ts.stream.Err()
 	ctxErr := ctx.Err()
@@ -135,7 +136,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	// If we received the [DONE] event, treat the stream as successfully completed
 	// even if there's a context cancellation error. This handles the case where
 	// the client disconnects immediately after receiving the last chunk.
-	if ts.streamCompleted {
+	if streamCompleted {
 		ts.logFinalizationDecision(ctx, "terminal_event_completed", streamErr, ctxErr, true, nil)
 		// Stream completed successfully - perform final persistence
 		log.Debug(ctx, "Stream completed successfully (received [DONE]), performing final persistence")
@@ -161,11 +162,12 @@ func (ts *OutboundPersistentStream) Close() error {
 
 	if len(ts.responseChunks) > 0 {
 		responseBody, meta, aggErr = ts.transformer.AggregateStreamChunks(context.WithoutCancel(ctx), ts.state.RawProviderRequest, ts.responseChunks)
-		aggregatedCompleted = aggErr == nil && isCompletedAggregated(meta)
+		aggregatedCompleted = aggErr == nil && isCompletedAggregated(responseBody, meta)
 		ts.logFinalizationDecision(ctx, "aggregated_outbound_chunks", streamErr, ctxErr, aggregatedCompleted, aggErr)
 		if aggregatedCompleted {
 			log.Debug(ctx, "Stream has valid complete response without terminal event, treating as completed")
 			ts.streamCompleted = true
+			streamCompleted = true
 			ts.state.StreamCompleted = true
 		}
 	} else {
@@ -173,7 +175,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	}
 
 	// ended without a terminal event / complete aggregated response.
-	if (ctxErr != nil || streamErr != nil) && !ts.streamCompleted {
+	if (ctxErr != nil || streamErr != nil) && !streamCompleted {
 		ts.logFinalizationDecision(ctx, "incomplete_stream_with_error", streamErr, ctxErr, aggregatedCompleted, aggErr)
 
 		errToReport := streamErr
@@ -189,7 +191,7 @@ func (ts *OutboundPersistentStream) Close() error {
 		return ts.stream.Close()
 	}
 
-	if !ts.streamCompleted {
+	if !streamCompleted {
 		ts.logFinalizationDecision(ctx, "incomplete_stream_without_terminal_event", streamErr, ctxErr, aggregatedCompleted, aggErr)
 		errToReport := errors.New("stream ended without terminal event or completed response")
 		ts.persistTerminalStreamFailure(ctx, errToReport)
@@ -413,9 +415,8 @@ func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Contex
 	}
 }
 
-func isCompletedAggregated(meta llm.ResponseMeta) bool {
-	return meta.Completed ||
-		(meta.Usage != nil && meta.Usage.CompletionTokens > 0)
+func isCompletedAggregated(responseBody []byte, meta llm.ResponseMeta) bool {
+	return meta.Completed || ClassifyStreamSemanticTerminal(&httpclient.StreamEvent{Data: responseBody}) == StreamSemanticSucceeded
 }
 
 var errSkipCandidateByCircuitBreaker = errors.New("skip candidate by circuit breaker")

@@ -36,8 +36,8 @@ func (o *recordingStreamLivenessObserver) OnUpstreamResponseHeaders(attempt Stre
 	o.attempts = append(o.attempts, attempt)
 }
 
-func (o *recordingStreamLivenessObserver) OnRawSSE() { o.rawEvents++ }
-func (o *recordingStreamLivenessObserver) OnTransformableEvent() {
+func (o *recordingStreamLivenessObserver) OnRawSSE(*httpclient.StreamEvent) { o.rawEvents++ }
+func (o *recordingStreamLivenessObserver) OnTransformableEvent(*llm.Response) {
 	o.transformable++
 }
 func (o *recordingStreamLivenessObserver) OnUpstreamError(err error) { o.upstreamErr = err }
@@ -88,6 +88,10 @@ func TestStreamLivenessMiddleware_ReportsTransportMilestonesWithoutChangingEvent
 	require.Equal(t, 7, observer.attempts[0].ChannelID)
 	require.Equal(t, "DeepSeek Pro", observer.attempts[0].ChannelName)
 	require.Same(t, settings, observer.attempts[0].KeepAlive)
+	require.NotNil(t, observer.attempts[0].ConfirmSemanticCompletion)
+	require.False(t, state.StreamCompleted)
+	require.True(t, observer.attempts[0].ConfirmSemanticCompletion())
+	require.True(t, state.StreamCompleted)
 	require.Equal(t, 1, observer.rawEvents)
 	require.Equal(t, 1, observer.transformable)
 	require.ErrorIs(t, observer.upstreamErr, upstreamErr)
@@ -112,4 +116,119 @@ func TestStreamLivenessMiddleware_DoesNotReportProviderOnlyAutoAggregateStream(t
 
 	middleware.OnOutboundRawError(context.Background(), errors.New("provider stream failed"))
 	require.NoError(t, observer.upstreamErr)
+}
+
+func TestClassifyStreamSemanticTerminal_ProtocolAwareStatuses(t *testing.T) {
+	tests := []struct {
+		name   string
+		event  *httpclient.StreamEvent
+		status StreamSemanticStatus
+	}{
+		{
+			name:   "chat tool calls completed",
+			event:  &httpclient.StreamEvent{Data: []byte(`{"choices":[{"finish_reason":"tool_calls"}],"usage":{"completion_tokens":9}}`)},
+			status: StreamSemanticSucceeded,
+		},
+		{
+			name:   "responses completed snapshot",
+			event:  &httpclient.StreamEvent{Type: "response.in_progress", Data: []byte(`{"type":"response.in_progress","response":{"status":"completed","usage":{"output_tokens":9},"output":[{"status":"completed"}]}}`)},
+			status: StreamSemanticSucceeded,
+		},
+		{
+			name:   "responses failed",
+			event:  &httpclient.StreamEvent{Type: "response.failed", Data: []byte(`{"type":"response.failed","response":{"status":"failed"}}`)},
+			status: StreamSemanticFailed,
+		},
+		{
+			name:   "response completed event carrying incomplete status",
+			event:  &httpclient.StreamEvent{Type: "response.completed", Data: []byte(`{"type":"response.completed","response":{"status":"incomplete"}}`)},
+			status: StreamSemanticIncomplete,
+		},
+		{
+			name:   "responses incomplete",
+			event:  &httpclient.StreamEvent{Type: "response.incomplete", Data: []byte(`{"type":"response.incomplete","response":{"status":"incomplete"}}`)},
+			status: StreamSemanticIncomplete,
+		},
+		{
+			name:   "chat length is incomplete",
+			event:  &httpclient.StreamEvent{Data: []byte(`{"choices":[{"finish_reason":"length"}]}`)},
+			status: StreamSemanticIncomplete,
+		},
+		{
+			name:   "usage alone is not terminal",
+			event:  &httpclient.StreamEvent{Data: []byte(`{"choices":[],"usage":{"completion_tokens":9}}`)},
+			status: StreamSemanticNone,
+		},
+		{
+			name:   "ordinary delta is not terminal",
+			event:  &httpclient.StreamEvent{Data: []byte(`{"choices":[{"delta":{"content":"working"},"finish_reason":null}]}`)},
+			status: StreamSemanticNone,
+		},
+		{
+			name:   "mixed completed and unfinished choices are not terminal",
+			event:  &httpclient.StreamEvent{Data: []byte(`{"choices":[{"finish_reason":"stop"},{"finish_reason":null}]}`)},
+			status: StreamSemanticNone,
+		},
+		{
+			name:   "mixed success and incomplete choices are incomplete",
+			event:  &httpclient.StreamEvent{Data: []byte(`{"choices":[{"finish_reason":"stop"},{"finish_reason":"length"}]}`)},
+			status: StreamSemanticIncomplete,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.status, ClassifyStreamSemanticTerminal(tt.event))
+		})
+	}
+}
+
+func TestClassifyLLMStreamSemanticTerminal_DistinguishesSuccessAndIncomplete(t *testing.T) {
+	toolCalls := "tool_calls"
+	length := "length"
+	require.Equal(t, StreamSemanticSucceeded, ClassifyLLMStreamSemanticTerminal(&llm.Response{
+		Choices: []llm.Choice{{FinishReason: &toolCalls}},
+		Usage:   &llm.Usage{CompletionTokens: 9},
+	}))
+	require.Equal(t, StreamSemanticIncomplete, ClassifyLLMStreamSemanticTerminal(&llm.Response{
+		Choices: []llm.Choice{{FinishReason: &length}},
+	}))
+	require.Equal(t, StreamSemanticNone, ClassifyLLMStreamSemanticTerminal(&llm.Response{
+		Usage: &llm.Usage{CompletionTokens: 9},
+	}))
+}
+
+func TestPersistenceState_SemanticConfirmationAndDeferredFailureAreFirstWriterWins(t *testing.T) {
+	confirmed := &PersistenceState{}
+	require.True(t, confirmed.confirmStreamCompletion())
+	require.True(t, confirmed.beginSemanticCompletionInterrupt())
+	require.True(t, confirmed.isSemanticCompletionInterruptStarted())
+
+	providerAfterInterrupt := &PersistenceState{}
+	require.True(t, providerAfterInterrupt.confirmStreamCompletion())
+	require.True(t, providerAfterInterrupt.beginSemanticCompletionInterrupt())
+	providerRaceErr := context.Canceled
+	require.True(t, providerAfterInterrupt.reserveRawStreamFailure(providerRaceErr))
+	recorded, _, _ := providerAfterInterrupt.deferredStreamFailure()
+	require.ErrorIs(t, recorded, providerRaceErr)
+
+	providerErr := errors.New("provider failed during grace")
+	failed := &PersistenceState{}
+	require.True(t, failed.reserveRawStreamFailure(providerErr))
+	require.False(t, failed.confirmStreamCompletion())
+	require.False(t, failed.StreamCompleted)
+	recorded, _, _ = failed.deferredStreamFailure()
+	require.ErrorIs(t, recorded, providerErr)
+
+	errorBeforeInterrupt := &PersistenceState{}
+	require.True(t, errorBeforeInterrupt.confirmStreamCompletion())
+	require.True(t, errorBeforeInterrupt.reserveRawStreamFailure(providerErr),
+		"a genuine error observed before the deliberate interrupt must still win")
+	require.False(t, errorBeforeInterrupt.beginSemanticCompletionInterrupt())
+
+	transformFailure := &PersistenceState{}
+	require.True(t, transformFailure.confirmStreamCompletion())
+	transformFailure.reserveDeferredStreamFailure(errors.New("final transform failed before interrupt"))
+	require.False(t, transformFailure.beginSemanticCompletionInterrupt(),
+		"a deferred transform error reserved by the first liveness middleware must supersede confirmation")
 }

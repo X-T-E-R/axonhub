@@ -256,6 +256,11 @@ func (processor *ChatCompletionOrchestrator) process(
 			time.Duration(retryPolicy.NonStreamResponseTimeoutSeconds)*time.Second,
 		))
 	}
+	if commitObserver, ok := streamLivenessObserver.(downstreamCommitObserver); ok {
+		pipelineOpts = append(pipelineOpts, pipeline.WithRetryAllowed(func() bool {
+			return !commitObserver.IsDownstreamCommitted()
+		}))
+	}
 
 	var middlewares []pipeline.Middleware
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -102,7 +103,17 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 		var cancel context.CancelCauseFunc
 		ctx, cancel = requestWithSSELivenessContext(c)
 		defer cancel(nil)
-		liveness = newSSELivenessSession(ctx, cancel, handlers.sseKeepAlive, handlers.sseHeartbeatFormat)
+		streaming := gjson.GetBytes(genericReq.Body, "stream").Bool()
+		liveness = newSSELivenessSession(
+			ctx,
+			cancel,
+			handlers.sseKeepAlive,
+			handlers.sseHeartbeatFormat,
+			streaming,
+		)
+		if requestedChoices := int(gjson.GetBytes(genericReq.Body, "n").Int()); requestedChoices > 1 {
+			liveness.expectedChoices = requestedChoices
+		}
 		outcome, responseCommitted, aborted := liveness.awaitProcess(
 			c,
 			handlers.ChatCompletionOrchestrator.ProcessWithStreamLivenessObserver,
@@ -207,12 +218,16 @@ func writeSSEStream(
 	heartbeatFormat sseHeartbeatFormat,
 	liveness *sseLivenessSession,
 ) {
-	if !keepAlive.Enabled || keepAlive.Interval <= 0 || heartbeatFormat == sseHeartbeatNone {
+	if heartbeatFormat == sseHeartbeatNone || (liveness == nil && (!keepAlive.Enabled || keepAlive.Interval <= 0)) {
 		writeSSEStreamWithoutHeartbeat(c, stream, formatErr, heartbeatFormat, liveness)
 		return
 	}
 
-	writeSSEStreamWithHeartbeat(c, stream, formatErr, keepAlive.Interval, heartbeatFormat, liveness)
+	interval := time.Duration(0)
+	if keepAlive.Enabled && keepAlive.Interval > 0 {
+		interval = keepAlive.Interval
+	}
+	writeSSEStreamWithHeartbeat(c, stream, formatErr, interval, heartbeatFormat, liveness)
 }
 
 func writeSSEStreamWithoutHeartbeat(
@@ -296,6 +311,9 @@ func writeSSEStreamWithoutHeartbeat(
 
 		if isTerminalSSEEvent(cur, heartbeatFormat) {
 			if liveness != nil {
+				if orchestrator.ClassifyStreamSemanticTerminal(cur) == orchestrator.StreamSemanticSucceeded {
+					liveness.confirmSemanticSuccess()
+				}
 				liveness.finish(sseCloseTerminalEvent)
 			}
 			return
@@ -343,18 +361,45 @@ func writeSSEStreamWithHeartbeat(
 	}
 	defer reader.Stop(interrupt)
 
-	timer := time.NewTimer(interval)
-	defer timer.Stop()
+	var heartbeatTimer *time.Timer
+	var heartbeatC <-chan time.Time
+	if interval > 0 {
+		heartbeatTimer = time.NewTimer(interval)
+		heartbeatC = heartbeatTimer.C
+	}
+	defer func() {
+		if heartbeatTimer != nil {
+			heartbeatTimer.Stop()
+		}
+	}()
+	var terminalTimer *time.Timer
+	defer func() {
+		if terminalTimer != nil {
+			terminalTimer.Stop()
+		}
+	}()
 
-	timerC := timer.C
+	var terminalC <-chan time.Time
+	var semanticC <-chan struct{}
+	terminalTracker := newSSESemanticTerminalTracker(heartbeatFormat)
+	semanticObserved := false
+	if liveness != nil {
+		semanticC = liveness.semanticSuccessSignal()
+	}
 	ctxDone := ctx.Done()
 	for {
 		select {
 		case <-ctxDone:
 			reason, _ := closeReasonFromContext(ctx)
 			clientDisconnected = reason == sseCloseClientDisconnect
-			stopTimer(timer)
-			timerC = nil
+			if heartbeatTimer != nil {
+				stopTimer(heartbeatTimer)
+			}
+			heartbeatC = nil
+			if terminalTimer != nil {
+				stopTimer(terminalTimer)
+				terminalC = nil
+			}
 			if liveness != nil {
 				liveness.finish(reason)
 			}
@@ -384,21 +429,57 @@ func writeSSEStreamWithHeartbeat(
 			if liveness != nil {
 				liveness.ledger.recordWrite(false)
 			}
+			terminalTracker.observe(cur)
 
 			if isTerminalSSEEvent(cur, heartbeatFormat) {
-				stopTimer(timer)
-				timerC = nil
+				if heartbeatTimer != nil {
+					stopTimer(heartbeatTimer)
+				}
+				heartbeatC = nil
+				if terminalTimer != nil {
+					stopTimer(terminalTimer)
+					terminalC = nil
+				}
 				if liveness != nil {
+					if orchestrator.ClassifyStreamSemanticTerminal(cur) == orchestrator.StreamSemanticSucceeded {
+						liveness.confirmSemanticSuccess()
+					}
 					liveness.finish(sseCloseTerminalEvent)
 				}
 				return
 			}
 
-			if timerC != nil {
-				resetTimer(timer, interval)
+			if semanticObserved {
+				resetTimer(terminalTimer, liveness.terminalGrace)
+				terminalC = terminalTimer.C
+			} else if heartbeatTimer != nil && heartbeatC != nil {
+				resetTimer(heartbeatTimer, interval)
 			}
 
-		case <-timerC:
+		case <-semanticC:
+			semanticObserved = true
+			semanticC = nil
+			if heartbeatTimer != nil {
+				stopTimer(heartbeatTimer)
+			}
+			heartbeatC = nil
+			terminalTimer = time.NewTimer(liveness.terminalGrace)
+			terminalC = terminalTimer.C
+
+		case <-terminalC:
+			terminalC = nil
+			if !liveness.confirmSemanticSuccess() {
+				continue
+			}
+			if err := terminalTracker.writeFallback(c.Writer, liveness.semanticCompletionResponse()); err != nil {
+				liveness.failDownstream(err)
+				return
+			}
+			liveness.ledger.recordWrite(false)
+			liveness.finish(sseCloseSemanticCompletion)
+			return
+
+		case <-heartbeatC:
 			if err := writeAndFlushSSEHeartbeat(c.Writer, heartbeatFormat); err != nil {
 				clientDisconnected = true
 				if liveness != nil {
@@ -412,7 +493,9 @@ func writeSSEStreamWithHeartbeat(
 			if liveness != nil {
 				liveness.ledger.recordWrite(true)
 			}
-			timer.Reset(interval)
+			if heartbeatTimer != nil {
+				heartbeatTimer.Reset(interval)
+			}
 		}
 	}
 }
@@ -556,6 +639,127 @@ func isTerminalSSEEvent(event *httpclient.StreamEvent, format sseHeartbeatFormat
 	}
 
 	return false
+}
+
+type sseWireProtocol uint8
+
+const (
+	sseWireProtocolOpenAIChat sseWireProtocol = iota
+	sseWireProtocolOpenAIResponses
+	sseWireProtocolAnthropic
+)
+
+type sseSemanticTerminalTracker struct {
+	protocol       sseWireProtocol
+	response       map[string]any
+	completedItems map[int]any
+	lastSequence   int64
+}
+
+func newSSESemanticTerminalTracker(format sseHeartbeatFormat) *sseSemanticTerminalTracker {
+	protocol := sseWireProtocolOpenAIChat
+	if format == sseHeartbeatAnthropic {
+		protocol = sseWireProtocolAnthropic
+	}
+	return &sseSemanticTerminalTracker{
+		protocol:       protocol,
+		completedItems: make(map[int]any),
+	}
+}
+
+func (t *sseSemanticTerminalTracker) observe(event *httpclient.StreamEvent) {
+	if event == nil || t.protocol == sseWireProtocolAnthropic {
+		return
+	}
+
+	typeName := event.Type
+	if typeName == "" {
+		typeName = gjson.GetBytes(event.Data, "type").String()
+	}
+	if !strings.HasPrefix(typeName, "response.") {
+		return
+	}
+	t.protocol = sseWireProtocolOpenAIResponses
+
+	var payload map[string]any
+	if err := json.Unmarshal(event.Data, &payload); err != nil {
+		return
+	}
+	if sequence := gjson.GetBytes(event.Data, "sequence_number"); sequence.Exists() && sequence.Int() > t.lastSequence {
+		t.lastSequence = sequence.Int()
+	}
+	if response, ok := payload["response"].(map[string]any); ok && t.response == nil {
+		t.response = response
+	}
+	if typeName != "response.output_item.done" {
+		return
+	}
+	index := int(gjson.GetBytes(event.Data, "output_index").Int())
+	item, ok := payload["item"]
+	if !ok {
+		return
+	}
+	t.completedItems[index] = item
+}
+
+func (t *sseSemanticTerminalTracker) writeFallback(writer http.ResponseWriter, semantic *llm.Response) error {
+	switch t.protocol {
+	case sseWireProtocolAnthropic:
+		return writeAndFlushSSEEvent(writer, "message_stop", json.RawMessage(`{"type":"message_stop"}`))
+	case sseWireProtocolOpenAIResponses:
+		response := t.completedResponse(semantic)
+		payload := map[string]any{
+			"type":            "response.completed",
+			"sequence_number": t.lastSequence + 1,
+			"response":        response,
+		}
+		return writeAndFlushSSEEvent(writer, "response.completed", payload)
+	default:
+		return writeAndFlushSSEEvent(writer, "", []byte(`[DONE]`))
+	}
+}
+
+func (t *sseSemanticTerminalTracker) completedResponse(semantic *llm.Response) map[string]any {
+	response := make(map[string]any)
+	for key, value := range t.response {
+		response[key] = value
+	}
+	response["object"] = "response"
+	response["status"] = "completed"
+	response["error"] = nil
+	response["incomplete_details"] = nil
+
+	indices := make([]int, 0, len(t.completedItems))
+	for index := range t.completedItems {
+		indices = append(indices, index)
+	}
+	sort.Ints(indices)
+	output := make([]any, 0, len(indices))
+	for _, index := range indices {
+		output = append(output, t.completedItems[index])
+	}
+	response["output"] = output
+
+	if semantic == nil {
+		return response
+	}
+	if _, ok := response["id"]; !ok && semantic.ID != "" {
+		response["id"] = semantic.ID
+	}
+	if _, ok := response["model"]; !ok && semantic.Model != "" {
+		response["model"] = semantic.Model
+	}
+	if _, ok := response["created_at"]; !ok && semantic.Created != 0 {
+		response["created_at"] = semantic.Created
+	}
+	if _, ok := response["usage"]; !ok && semantic.Usage != nil {
+		response["usage"] = map[string]any{
+			"input_tokens":  semantic.Usage.PromptTokens,
+			"output_tokens": semantic.Usage.CompletionTokens,
+			"total_tokens":  semantic.Usage.TotalTokens,
+		}
+	}
+	return response
 }
 
 // WriteBinaryStream writes raw bytes from stream events directly to the response body.

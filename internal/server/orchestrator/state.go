@@ -96,6 +96,86 @@ type PersistenceState struct {
 	deferredStreamError               error
 	deferredRequestFailurePersisted   bool
 	deferredExecutionFailurePersisted bool
+	streamCompletionConfirmed         bool
+	semanticInterruptStarted          bool
+}
+
+// reserveRawStreamFailure linearizes a genuine raw read failure against the
+// API's semantic-completion confirmation before terminal reporting middleware
+// can persist it. The decoder filters locally interrupted reads by provenance;
+// every non-nil error that reaches this boundary remains authoritative.
+func (s *PersistenceState) reserveRawStreamFailure(err error) bool {
+	if s == nil || err == nil {
+		return false
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+	if s.deferredStreamError == nil {
+		s.deferredStreamError = err
+	}
+	return true
+}
+
+func (s *PersistenceState) reserveDeferredStreamFailure(err error) {
+	if s == nil || err == nil {
+		return
+	}
+
+	s.deferredFailureMu.Lock()
+	if s.deferredStreamError == nil {
+		s.deferredStreamError = err
+	}
+	s.deferredFailureMu.Unlock()
+}
+
+func (s *PersistenceState) confirmStreamCompletion() bool {
+	if s == nil {
+		return false
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+	if s.deferredStreamError != nil {
+		return false
+	}
+	s.StreamCompleted = true
+	s.streamCompletionConfirmed = true
+	return true
+}
+
+func (s *PersistenceState) beginSemanticCompletionInterrupt() bool {
+	if s == nil {
+		return false
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+	if !s.streamCompletionConfirmed || s.deferredStreamError != nil {
+		return false
+	}
+	s.semanticInterruptStarted = true
+	return true
+}
+
+func (s *PersistenceState) isSemanticCompletionInterruptStarted() bool {
+	if s == nil {
+		return false
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+	return s.streamCompletionConfirmed && s.semanticInterruptStarted
+}
+
+func (s *PersistenceState) isStreamCompletionConfirmed() bool {
+	if s == nil {
+		return false
+	}
+
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+	return s.streamCompletionConfirmed
 }
 
 func (s *PersistenceState) recordProviderTerminalStatus(status streamTerminalStatus) {
@@ -117,6 +197,8 @@ func (s *PersistenceState) resetStreamTerminalState() {
 	s.deferredStreamError = nil
 	s.deferredRequestFailurePersisted = false
 	s.deferredExecutionFailurePersisted = false
+	s.streamCompletionConfirmed = false
+	s.semanticInterruptStarted = false
 	s.deferredFailureMu.Unlock()
 }
 

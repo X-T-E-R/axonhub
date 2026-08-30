@@ -181,7 +181,8 @@ func (ts *InboundPersistentStream) Close() error {
 	// terminal while its current execution is still processing.
 	closeErr := ts.stream.Close()
 
-	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", ts.streamCompleted))
+	streamCompleted := ts.streamCompleted || ts.state.isStreamCompletionConfirmed()
+	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", streamCompleted))
 
 	streamErr := ts.stream.Err()
 	ctxErr := ctx.Err()
@@ -221,7 +222,7 @@ func (ts *InboundPersistentStream) Close() error {
 	// If we received the [DONE] event, treat the stream as successfully completed
 	// even if there's a context cancellation error. This handles the case where
 	// the client disconnects immediately after receiving the last chunk.
-	if ts.streamCompleted {
+	if streamCompleted {
 		// Stream completed successfully - perform final persistence
 		log.Debug(ctx, "Stream completed successfully (received terminal event), performing final persistence")
 		ts.persistResponseChunks(ctx)
@@ -236,18 +237,19 @@ func (ts *InboundPersistentStream) Close() error {
 	var meta llm.ResponseMeta
 	var aggErr error
 
-	if len(ts.responseChunks) > 0 && !ts.streamCompleted {
+	if len(ts.responseChunks) > 0 && !streamCompleted {
 		responseBody, meta, aggErr = ts.transformer.AggregateStreamChunks(context.WithoutCancel(ctx), ts.responseChunks)
-		if aggErr == nil && meta.ID != "" && len(responseBody) > 0 && isCompletedAggregated(meta) {
+		if aggErr == nil && meta.ID != "" && len(responseBody) > 0 && isCompletedAggregated(responseBody, meta) {
 			log.Debug(ctx, "Stream has valid complete response without terminal event, treating as completed")
 			ts.streamCompleted = true
+			streamCompleted = true
 			ts.state.StreamCompleted = true
 		}
 	}
 
 	// Check if context was canceled (client disconnected before [DONE]).
 	// Skip the error path if we determined the stream actually completed successfully above.
-	if (ctxErr != nil || streamErr != nil) && !ts.streamCompleted {
+	if (ctxErr != nil || streamErr != nil) && !streamCompleted {
 		errToReport := streamErr
 		if errToReport == nil {
 			errToReport = ctxErr
@@ -261,7 +263,7 @@ func (ts *InboundPersistentStream) Close() error {
 	// completed through aggregation, mark it as incomplete/failed. This handles the case
 	// where the upstream connection drops silently (EOF) without sending a terminal event,
 	// which would otherwise fall through and incorrectly mark the request as "completed".
-	if !ts.streamCompleted {
+	if !streamCompleted {
 		log.Debug(ctx, "Stream ended without terminal event or completed response, treating as incomplete")
 
 		errToReport := errors.New("stream ended without terminal event or completed response")
