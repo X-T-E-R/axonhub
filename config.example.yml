@@ -88,6 +88,14 @@ db:
     read_max_open_conns: 0      #   Max open connections for replica (env: AXONHUB_DB_READ_REPLICA_READ_MAX_OPEN_CONNS)
     read_max_idle_conns: 0      #   Max idle connections for replica (env: AXONHUB_DB_READ_REPLICA_READ_MAX_IDLE_CONNS)
 
+# Managed primary-database request-body persistence
+managed_request_body_writer:
+  workers: 1                  # Background workers for primary-database parent/execution request bodies
+  max_items: 64               # Maximum accepted request bodies waiting or being written
+  max_bytes_mib: 64           # Maximum total bytes held by accepted request bodies
+  attempt_timeout: "2s"       # Independent deadline for each persistence attempt
+  max_attempts: 3             # Attempts before leaving evidence unavailable
+
 # Cache configuration
 cache:
   # One of: memory, redis, two-level (memory + redis)

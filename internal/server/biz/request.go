@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/eko/gocache/lib/v4/store"
+	"github.com/samber/lo"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
@@ -33,23 +34,35 @@ import (
 type RequestService struct {
 	*AbstractService
 
-	SystemService      *SystemService
-	UsageLogService    *UsageLogService
-	DataStorageService *DataStorageService
-	LiveStreamRegistry *LiveStreamRegistry
-	channelCache       xcache.Cache[int]
+	SystemService            *SystemService
+	UsageLogService          *UsageLogService
+	DataStorageService       *DataStorageService
+	LiveStreamRegistry       *LiveStreamRegistry
+	ManagedRequestBodyWriter *ManagedRequestBodyWriter
+	channelCache             xcache.Cache[int]
 }
 
 // NewRequestService creates a new RequestService.
 func NewRequestService(ent *ent.Client, systemService *SystemService, usageLogService *UsageLogService, dataStorageService *DataStorageService, liveStreamRegistry *LiveStreamRegistry) *RequestService {
+	return newRequestService(ent, systemService, usageLogService, dataStorageService, liveStreamRegistry, nil)
+}
+
+// NewRequestServiceWithManagedRequestBodyWriter creates the process-wired
+// request service that submits primary-database request bodies asynchronously.
+func NewRequestServiceWithManagedRequestBodyWriter(ent *ent.Client, systemService *SystemService, usageLogService *UsageLogService, dataStorageService *DataStorageService, liveStreamRegistry *LiveStreamRegistry, writer *ManagedRequestBodyWriter) *RequestService {
+	return newRequestService(ent, systemService, usageLogService, dataStorageService, liveStreamRegistry, writer)
+}
+
+func newRequestService(ent *ent.Client, systemService *SystemService, usageLogService *UsageLogService, dataStorageService *DataStorageService, liveStreamRegistry *LiveStreamRegistry, writer *ManagedRequestBodyWriter) *RequestService {
 	return &RequestService{
 		AbstractService: &AbstractService{
 			db: ent,
 		},
-		SystemService:      systemService,
-		UsageLogService:    usageLogService,
-		DataStorageService: dataStorageService,
-		LiveStreamRegistry: liveStreamRegistry,
+		SystemService:            systemService,
+		UsageLogService:          usageLogService,
+		DataStorageService:       dataStorageService,
+		LiveStreamRegistry:       liveStreamRegistry,
+		ManagedRequestBodyWriter: writer,
 		channelCache: xcache.NewFromConfig[int](xcache.Config{
 			Mode: xcache.ModeMemory,
 			Memory: xcache.MemoryConfig{
@@ -256,6 +269,11 @@ func (s *RequestService) CreateRequest(
 	useExternalStorage := storeRequestBody && s.shouldUseExternalStorage(ctx, dataStorage)
 	useManagedStorage := storeRequestBody && !useExternalStorage
 	managedGroup := useManagedStorage || capacityManaged
+	var managedReservation *managedRequestBodyReservation
+	managedRejection := ""
+	if useManagedStorage && s.ManagedRequestBodyWriter != nil {
+		managedReservation, managedRejection = s.ManagedRequestBodyWriter.reserve(requestBodyBytes)
+	}
 	if capacityManaged && len(requestHeadersBytes) > 2 {
 		_, admitted, _ := s.admitManagedDatabaseEvidence(ctx, "request_headers", int64(len(requestHeadersBytes)))
 		if !admitted {
@@ -282,6 +300,8 @@ func (s *RequestService) CreateRequest(
 	}
 	if !storeRequestBody {
 		disposition.RequestBody = objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
+	} else if useManagedStorage && s.ManagedRequestBodyWriter != nil {
+		disposition.RequestBody = asyncManagedRequestBodyDisposition(requestBodyBytes, managedRejection, now)
 	}
 	mut = mut.SetEvidenceDisposition(disposition)
 
@@ -345,10 +365,12 @@ func (s *RequestService) CreateRequest(
 
 			req, err = mut.Save(ctx)
 			if err != nil {
+				managedReservation.release()
 				log.Error(ctx, "Failed to save request even with placeholder", log.Cause(err))
 				return nil, err
 			}
 		} else {
+			managedReservation.release()
 			return nil, err
 		}
 	}
@@ -369,6 +391,13 @@ func (s *RequestService) CreateRequest(
 			disposition.RequestBody.Outcome = "stored"
 		}
 		_, _ = client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		req.EvidenceDisposition = disposition
+	} else if useManagedStorage && s.ManagedRequestBodyWriter != nil {
+		if managedReservation != nil {
+			s.ManagedRequestBodyWriter.submit(managedReservation, managedRequestBodyTarget{
+				kind: managedRequestBodyTargetRequest, requestID: req.ID, targetID: req.ID,
+			})
+		}
 		req.EvidenceDisposition = disposition
 	} else if useManagedStorage {
 		disposition.RequestBody.Location = "managed"
@@ -500,6 +529,11 @@ func (s *RequestService) CreateRequestExecution(
 	useManagedStorage := storeRequestBody && !useExternalStorage
 	capacityManaged := s.SystemService.ManagedObservabilityCapacityEnabled(ctx)
 	managedGroup := useManagedStorage || capacityManaged
+	var managedReservation *managedRequestBodyReservation
+	managedRejection := ""
+	if useManagedStorage && s.ManagedRequestBodyWriter != nil {
+		managedReservation, managedRejection = s.ManagedRequestBodyWriter.reserve(requestBodyBytes)
+	}
 	if capacityManaged && len(requestHeadersBytes) > 2 {
 		_, admitted, _ := s.admitManagedDatabaseEvidence(ctx, "execution_request_headers", int64(len(requestHeadersBytes)))
 		if !admitted {
@@ -541,6 +575,8 @@ func (s *RequestService) CreateRequestExecution(
 		if dataStorage != nil {
 			disposition.RequestBody.StorageID = &dataStorage.ID
 		}
+	} else if useManagedStorage && s.ManagedRequestBodyWriter != nil {
+		disposition.RequestBody = asyncManagedRequestBodyDisposition(requestBodyBytes, managedRejection, now)
 	}
 	mut = mut.SetEvidenceDisposition(disposition)
 
@@ -561,6 +597,7 @@ func (s *RequestService) CreateRequestExecution(
 	execution, err := mut.Save(ctx)
 	if err != nil {
 		if useExternalStorage {
+			managedReservation.release()
 			return nil, err
 		}
 
@@ -570,6 +607,7 @@ func (s *RequestService) CreateRequestExecution(
 
 		execution, err = mut.Save(ctx)
 		if err != nil {
+			managedReservation.release()
 			log.Error(ctx, "Failed to save execution request even with placeholder", log.Cause(err))
 			return nil, err
 		}
@@ -591,6 +629,13 @@ func (s *RequestService) CreateRequestExecution(
 			disposition.RequestBody.Outcome = "stored"
 		}
 		_, _ = client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		execution.EvidenceDisposition = disposition
+	} else if useManagedStorage && s.ManagedRequestBodyWriter != nil {
+		if managedReservation != nil {
+			s.ManagedRequestBodyWriter.submit(managedReservation, managedRequestBodyTarget{
+				kind: managedRequestBodyTargetExecution, requestID: request.ID, targetID: execution.ID,
+			})
+		}
 		execution.EvidenceDisposition = disposition
 	} else if useManagedStorage {
 		disposition.RequestBody.Location = "managed"
@@ -679,6 +724,23 @@ func evidenceDisposition(intent, location, outcome string, storage *ent.DataStor
 	disposition := objects.Disposition{Intent: intent, Location: location, Outcome: outcome, CapturedAt: time.Now().UTC(), StorageKey: key}
 	if storage != nil {
 		disposition.StorageID = &storage.ID
+	}
+	return disposition
+}
+
+func asyncManagedRequestBodyDisposition(body []byte, rejection string, capturedAt time.Time) objects.Disposition {
+	disposition := objects.Disposition{
+		Intent:       "persist",
+		Location:     "managed",
+		Outcome:      "unavailable",
+		FailureClass: lo.ToPtr(managedRequestBodyAsyncPending),
+		CapturedAt:   capturedAt,
+	}
+	setManagedBodyMetadata(&disposition, body)
+	if rejection != "" {
+		disposition.Location = "none"
+		disposition.Outcome = "omitted"
+		disposition.FailureClass = lo.ToPtr(rejection)
 	}
 	return disposition
 }

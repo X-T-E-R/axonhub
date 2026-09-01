@@ -1006,6 +1006,7 @@ func (s *Service) requestRecord(ctx context.Context, row *ent.Request, allowExte
 	if err != nil {
 		return nil, nil, err
 	}
+	requestEvidence = normalizeManagedRequestBodyEvidence(requestEvidence, row.RequestBodyPayloadID)
 	m["requestBody"] = requestEvidence
 	issues = appendCanonicalizationIssue(issues, "requests", "request", row.ID, "requestBody", requestEvidence)
 	if requestEvidence.Reason == "cancelable_bounded_read_unsupported" {
@@ -1131,6 +1132,7 @@ func (s *Service) executionRecord(ctx context.Context, row *ent.RequestExecution
 	if err != nil {
 		return nil, nil, err
 	}
+	requestEvidence = normalizeManagedRequestBodyEvidence(requestEvidence, row.RequestBodyPayloadID)
 	m["requestBody"] = requestEvidence
 	issues = appendCanonicalizationIssue(issues, "executions", "execution", row.ID, "requestBody", requestEvidence)
 	if requestEvidence.Reason == "cancelable_bounded_read_unsupported" {
@@ -1213,6 +1215,9 @@ func evidenceFromRawWithSource(raw objects.JSONRawMessage, d *objects.EvidenceDi
 		if disp.Intent == "notApplicable" {
 			return Evidence{State: "notApplicable", Source: "none", MediaType: "application/json"}
 		}
+		if disp.Outcome == "unavailable" || disp.Outcome == "writeFailed" {
+			return Evidence{State: "storageUnavailable", Source: dispositionSource(disp), MediaType: "application/json"}
+		}
 		if disp.Location == "external" && (disp.Outcome == "stored" || disp.Outcome == "writeFailed") {
 			return Evidence{State: "storageUnavailable", Source: "external", MediaType: "application/json"}
 		}
@@ -1223,9 +1228,7 @@ func evidenceFromRawWithSource(raw objects.JSONRawMessage, d *objects.EvidenceDi
 	}
 	source := "database"
 	if disp != nil {
-		if disp.Location == "external" {
-			source = "external"
-		}
+		source = dispositionSource(disp)
 	}
 	if sourceOverride != "" {
 		source = sourceOverride
@@ -1255,6 +1258,29 @@ func evidenceFromRawWithSource(raw objects.JSONRawMessage, d *objects.EvidenceDi
 	}
 	sum := sha256.Sum256(encoded)
 	evidence.CanonicalSHA256 = hex.EncodeToString(sum[:])
+	return evidence
+}
+
+func dispositionSource(disposition *objects.Disposition) string {
+	switch disposition.Location {
+	case "external":
+		return disposition.Location
+	case "managed":
+		// Managed payloads live in the primary database. The diagnostics v1
+		// source enum intentionally describes the storage boundary, not the
+		// internal payload table.
+		return "database"
+	case "none":
+		return "none"
+	default:
+		return "database"
+	}
+}
+
+func normalizeManagedRequestBodyEvidence(evidence Evidence, payloadID *int) Evidence {
+	if payloadID != nil {
+		evidence.Source = "database"
+	}
 	return evidence
 }
 

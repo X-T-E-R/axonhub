@@ -232,9 +232,13 @@ func ensureManagedState(ctx context.Context, client *ent.Client) (*ent.ManagedOb
 // converge on a single physical payload. Hash and length only narrow the
 // candidates; bytes.Equal is the reuse authority.
 func (s *RequestService) persistManagedRequestBody(ctx context.Context, requestID int, body objects.JSONRawMessage) (managedPayloadResult, error) {
+	return persistManagedRequestBody(ctx, s.SystemService, requestID, body)
+}
+
+func persistManagedRequestBody(ctx context.Context, system *SystemService, requestID int, body objects.JSONRawMessage) (managedPayloadResult, error) {
 	var result managedPayloadResult
-	err := s.RunInTransaction(ctx, func(txCtx context.Context) error {
-		client := s.entFromContext(txCtx)
+	err := system.RunInTransaction(ctx, func(txCtx context.Context) error {
+		client := system.entFromContext(txCtx)
 		if err := lockRequestGroup(txCtx, client, requestID); err != nil {
 			return err
 		}
@@ -258,7 +262,7 @@ func (s *RequestService) persistManagedRequestBody(ctx context.Context, requestI
 			}
 		}
 
-		policy, err := s.SystemService.StoragePolicy(txCtx)
+		policy, err := system.StoragePolicy(txCtx)
 		if err != nil {
 			return fmt.Errorf("load managed observability capacity policy: %w", err)
 		}

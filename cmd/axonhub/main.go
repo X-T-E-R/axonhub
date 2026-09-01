@@ -98,7 +98,7 @@ func startServer() {
 				},
 			})
 		}),
-		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService) {
+		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService, requestBodyWriter *biz.ManagedRequestBodyWriter) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					if provider != nil {
@@ -117,6 +117,9 @@ func startServer() {
 			})
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
+					if err := requestBodyWriter.Start(ctx); err != nil {
+						return fmt.Errorf("start managed request-body writer: %w", err)
+					}
 					// Run cleanup asynchronously with timeout to avoid blocking startup
 					go func() {
 						cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:gosec // intentional detached context
@@ -142,6 +145,11 @@ func startServer() {
 					err := server.Shutdown(ctx)
 					if err != nil {
 						log.Error(context.Background(), "server shutdown error:", log.Cause(err))
+					}
+
+					err = requestBodyWriter.Stop(ctx)
+					if err != nil {
+						log.Error(context.Background(), "managed request-body writer shutdown error:", log.Cause(err))
 					}
 
 					err = ent.Close()

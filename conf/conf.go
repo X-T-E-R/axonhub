@@ -28,17 +28,18 @@ import (
 type Config struct {
 	fx.Out `yaml:"-" json:"-"`
 
-	DB               db.Config           `conf:"db" yaml:"db" json:"db"`
-	Log              log.Config          `conf:"log" yaml:"log" json:"log"`
-	APIServer        server.Config       `conf:"server" yaml:"server" json:"server"`
-	Metrics          metrics.Config      `conf:"metrics" yaml:"metrics" json:"metrics"`
-	GC               gc.Config           `conf:"gc" yaml:"gc" json:"gc"`
-	Cache            xcache.Config       `conf:"cache" yaml:"cache" json:"cache"`
-	ProviderQuota    providerQuotaConfig `conf:"provider_quota" yaml:"provider_quota" json:"provider_quota"`
-	OIDC             biz.OIDCConfig      `conf:"oidc" yaml:"oidc" json:"oidc"`
-	DisableSSLVerify bool                `name:"disable_ssl_verify" yaml:"-" json:"-"`
-	AllowNoAuth      bool                `name:"allow_no_auth" yaml:"-" json:"-"`
-	APIKeyPrefix     string              `name:"api_key_prefix" yaml:"-" json:"-"`
+	DB                       db.Config                          `conf:"db" yaml:"db" json:"db"`
+	Log                      log.Config                         `conf:"log" yaml:"log" json:"log"`
+	APIServer                server.Config                      `conf:"server" yaml:"server" json:"server"`
+	Metrics                  metrics.Config                     `conf:"metrics" yaml:"metrics" json:"metrics"`
+	GC                       gc.Config                          `conf:"gc" yaml:"gc" json:"gc"`
+	Cache                    xcache.Config                      `conf:"cache" yaml:"cache" json:"cache"`
+	ProviderQuota            providerQuotaConfig                `conf:"provider_quota" yaml:"provider_quota" json:"provider_quota"`
+	OIDC                     biz.OIDCConfig                     `conf:"oidc" yaml:"oidc" json:"oidc"`
+	ManagedRequestBodyWriter biz.ManagedRequestBodyWriterConfig `conf:"managed_request_body_writer" yaml:"managed_request_body_writer" json:"managed_request_body_writer"`
+	DisableSSLVerify         bool                               `name:"disable_ssl_verify" yaml:"-" json:"-"`
+	AllowNoAuth              bool                               `name:"allow_no_auth" yaml:"-" json:"-"`
+	APIKeyPrefix             string                             `name:"api_key_prefix" yaml:"-" json:"-"`
 }
 
 type providerQuotaConfig struct {
@@ -303,6 +304,13 @@ func setDefaults(v *viper.Viper) {
 	// Provider quota defaults
 	v.SetDefault("provider_quota.check_interval", "5m")
 	v.SetDefault("provider_quota.warning_check_interval_ratio", 4) // Warning interval = check_interval * ratio
+
+	// Managed request-body writer defaults
+	v.SetDefault("managed_request_body_writer.workers", 1)
+	v.SetDefault("managed_request_body_writer.max_items", 64)
+	v.SetDefault("managed_request_body_writer.max_bytes_mib", 64)
+	v.SetDefault("managed_request_body_writer.attempt_timeout", "2s")
+	v.SetDefault("managed_request_body_writer.max_attempts", 3)
 
 	// Cache defaults
 	v.SetDefault("cache.mode", "memory")
