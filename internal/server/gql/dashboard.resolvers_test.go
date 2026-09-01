@@ -72,7 +72,7 @@ func TestQueryResolver_ChannelSuccessRatesUsesParentFinalOutcome(t *testing.T) {
 	createExecution(retried, finalDeleted, requestexecution.StatusCompleted, now)
 	createRequest(finalDeleted, request.StatusFailed, now)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		createRequest(highVolume, request.StatusCompleted, now)
 	}
 	createRequest(highVolume, request.StatusFailed, now)
