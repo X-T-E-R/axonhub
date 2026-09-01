@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect"
-	entsql "entgo.io/ent/dialect/sql"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+
+	entsql "entgo.io/ent/dialect/sql"
 
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"

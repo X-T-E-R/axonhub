@@ -10,8 +10,9 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect"
-	entsql "entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
+
+	entsql "entgo.io/ent/dialect/sql"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
@@ -134,14 +135,24 @@ func NewManagedRequestBodyWriter(config ManagedRequestBodyWriterConfig, client *
 	idle := make(chan struct{})
 	close(idle)
 	return &ManagedRequestBodyWriter{
-		config:       config,
-		ent:          client,
-		system:       system,
-		idle:         idle,
-		jobs:         make(chan managedRequestBodyJob, config.MaxItems),
-		reservations: make(map[*managedRequestBodyReservation]struct{}),
-		workersDone:  make(chan struct{}),
-		stopDone:     make(chan struct{}),
+		config:               config,
+		ent:                  client,
+		system:               system,
+		mu:                   sync.Mutex{},
+		started:              false,
+		stopping:             false,
+		reservedItems:        0,
+		reservedBytes:        0,
+		reservations:         make(map[*managedRequestBodyReservation]struct{}),
+		idle:                 idle,
+		jobs:                 make(chan managedRequestBodyJob, config.MaxItems),
+		workerCtx:            nil,
+		cancelWorkers:        nil,
+		liveWorkers:          0,
+		workersDone:          make(chan struct{}),
+		stopDone:             make(chan struct{}),
+		stopOnce:             sync.Once{},
+		beforePersistForTest: nil,
 	}
 }
 
@@ -425,7 +436,15 @@ func (w *ManagedRequestBodyWriter) attachRequestBodyPointer(ctx context.Context,
 }
 
 func (w *ManagedRequestBodyWriter) discardUnreferencedManagedPayload(ctx context.Context, payloadID int) {
-	requestService := &RequestService{AbstractService: &AbstractService{db: w.ent}, SystemService: w.system}
+	requestService := &RequestService{
+		AbstractService:          &AbstractService{db: w.ent},
+		SystemService:            w.system,
+		UsageLogService:          nil,
+		DataStorageService:       nil,
+		LiveStreamRegistry:       nil,
+		ManagedRequestBodyWriter: nil,
+		channelCache:             nil,
+	}
 	requestService.discardUnreferencedManagedPayload(authz.WithSystemBypass(ctx, "managed-request-body-orphan-cleanup"), payloadID)
 }
 

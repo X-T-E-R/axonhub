@@ -1216,7 +1216,21 @@ func evidenceFromRawWithSource(raw objects.JSONRawMessage, d *objects.EvidenceDi
 			return Evidence{State: "notApplicable", Source: "none", MediaType: "application/json"}
 		}
 		if disp.Outcome == "unavailable" || disp.Outcome == "writeFailed" {
-			return Evidence{State: "storageUnavailable", Source: dispositionSource(disp), MediaType: "application/json"}
+			return Evidence{
+				State:                  "storageUnavailable",
+				Source:                 dispositionSource(disp),
+				MediaType:              "application/json",
+				Encoding:               "",
+				Canonicalization:       "",
+				CanonicalizationStatus: "",
+				CanonicalizationReason: "",
+				ByteLength:             0,
+				SHA256:                 "",
+				CanonicalSHA256:        "",
+				RawSHA256:              "",
+				Value:                  nil,
+				Reason:                 "",
+			}
 		}
 		if disp.Location == "external" && (disp.Outcome == "stored" || disp.Outcome == "writeFailed") {
 			return Evidence{State: "storageUnavailable", Source: "external", MediaType: "application/json"}

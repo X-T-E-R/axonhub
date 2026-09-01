@@ -733,8 +733,12 @@ func asyncManagedRequestBodyDisposition(body []byte, rejection string, capturedA
 		Intent:       "persist",
 		Location:     "managed",
 		Outcome:      "unavailable",
-		FailureClass: lo.ToPtr(managedRequestBodyAsyncPending),
+		SHA256:       "",
+		ByteLength:   nil,
+		StorageID:    nil,
+		StorageKey:   nil,
 		CapturedAt:   capturedAt,
+		FailureClass: lo.ToPtr(managedRequestBodyAsyncPending),
 	}
 	setManagedBodyMetadata(&disposition, body)
 	if rejection != "" {
