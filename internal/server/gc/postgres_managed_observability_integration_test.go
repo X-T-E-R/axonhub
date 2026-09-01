@@ -258,7 +258,8 @@ func TestManagedObservabilityPostgresApplicationContract(t *testing.T) {
 				Source: usagelog.SourceAPI, Format: string(llm.APIFormatOpenAIChatCompletion),
 			})
 			require.NoError(t, err)
-			require.Nil(t, usage)
+			require.NotNil(t, usage)
+			require.Equal(t, int64(30), usage.TotalTokens)
 			require.True(t, f.client.ManagedObservabilityState.GetX(f.ctx, 1).UnderPressure)
 
 			f.cleanupOwned(t, policy)

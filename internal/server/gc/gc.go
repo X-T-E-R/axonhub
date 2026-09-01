@@ -75,8 +75,9 @@ type Worker struct {
 
 	// beforeCandidateDelete is a deterministic test barrier. Production workers
 	// leave it nil. Eligibility is always revalidated and locked after this hook.
-	beforeCandidateDelete func(resource string, id int)
-	beforeStaleReconcile  func(executionID int)
+	beforeCandidateDelete         func(resource string, id int)
+	beforeStaleReconcile          func(executionID int)
+	beforeManagedReconcileForTest func()
 }
 
 type Params struct {

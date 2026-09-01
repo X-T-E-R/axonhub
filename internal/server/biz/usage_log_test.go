@@ -2,13 +2,16 @@ package biz
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
+	entchannel "github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -140,6 +143,18 @@ func TestUsageLogService_CreateUsageLog_WithPriceReferenceID(t *testing.T) {
 		CacheConfig: xcache.Config{},
 		Ent:         client,
 	})
+	require.NoError(t, systemService.SetStoragePolicy(ctx, &StoragePolicy{
+		StoreRequestBody:            true,
+		StoreResponseBody:           true,
+		ManagedObservabilityHardMiB: lo.ToPtr(2),
+		ManagedObservabilityLowMiB:  lo.ToPtr(1),
+	}))
+	initialCharge := int64(2<<20) - 1
+	client.ManagedObservabilityState.UpdateOneID(1).
+		SetChargedBytes(initialCharge).
+		SetUnderPressure(false).
+		SetLastError("capacity_reconciliation_pending").
+		ExecX(ctx)
 	channelService := NewChannelServiceForTest(client)
 
 	// Preload the channel with model prices
@@ -155,6 +170,8 @@ func TestUsageLogService_CreateUsageLog_WithPriceReferenceID(t *testing.T) {
 	require.Equal(t, "test-ref-123", enabledCh.cachedModelPrices["gpt-4"].ReferenceID)
 
 	svc := NewUsageLogService(client, systemService, channelService)
+	callbackCount := 0
+	svc.OnUsageLogCreated = func() { callbackCount++ }
 
 	// Create usage log with price calculation
 	usage := &llm.Usage{
@@ -176,6 +193,10 @@ func TestUsageLogService_CreateUsageLog_WithPriceReferenceID(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, created)
+	require.Equal(t, int64(1000), created.PromptTokens)
+	require.Equal(t, int64(500), created.CompletionTokens)
+	require.Equal(t, int64(1500), created.TotalTokens)
+	require.Equal(t, 1, callbackCount)
 
 	// Verify price_reference_id is set
 	require.Equal(t, "test-ref-123", created.CostPriceReferenceID)
@@ -185,6 +206,110 @@ func TestUsageLogService_CreateUsageLog_WithPriceReferenceID(t *testing.T) {
 	// Verify cost calculation is correct
 	// (1000 / 1_000_000) * 0.03 + (500 / 1_000_000) * 0.06 = 0.00003 + 0.00003 = 0.00006
 	require.InDelta(t, 0.00006, *created.TotalCost, 0.0000001)
+
+	costItemsJSON, err := json.Marshal(created.CostItems)
+	require.NoError(t, err)
+	expectedCharge := int64(4<<10 + len(created.ModelID) + len(created.Format) + len(created.CostPriceReferenceID) + len(costItemsJSON))
+	state := client.ManagedObservabilityState.GetX(ctx, 1)
+	require.Equal(t, initialCharge+expectedCharge, state.ChargedBytes)
+	require.True(t, state.UnderPressure)
+	require.Equal(t, "capacity_reconciliation_pending", state.LastError)
+	require.True(t, client.Request.GetX(ctx, req.ID).ManagedObservability)
+}
+
+func TestUsageLogService_CreateUsageLog_ManagedMarkFailurePreservesCoreRow(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:usage-mark-degraded?mode=memory&_fk=0")
+	defer client.Close()
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	proj := client.Project.Create().SetName("usage-mark-degraded").SetStatus(project.StatusActive).SaveX(ctx)
+	system := NewSystemService(SystemServiceParams{Ent: client})
+	require.NoError(t, system.SetStoragePolicy(ctx, &StoragePolicy{
+		ManagedObservabilityHardMiB: lo.ToPtr(2),
+		ManagedObservabilityLowMiB:  lo.ToPtr(1),
+	}))
+	service := NewUsageLogService(client, system, NewChannelServiceForTest(client))
+	callbackCount := 0
+	service.OnUsageLogCreated = func() { callbackCount++ }
+
+	created, err := service.CreateUsageLog(ctx, CreateUsageLogParams{
+		RequestID: 9999, ProjectID: proj.ID, ChannelID: 0,
+		ActualModelID: "model", Usage: &llm.Usage{PromptTokens: 4, CompletionTokens: 5, TotalTokens: 9},
+		Source: usagelog.SourceAPI, Format: "openai/chat_completions",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	require.Equal(t, int64(9), created.TotalTokens)
+	require.Equal(t, 1, callbackCount)
+	require.Equal(t, 1, client.UsageLog.Query().CountX(ctx))
+	state := client.ManagedObservabilityState.GetX(ctx, 1)
+	require.True(t, state.UnderPressure)
+	require.Equal(t, "usage_group_mark:failed", state.LastError)
+}
+
+func TestUsageLogService_CreateUsageLog_AccountingFailurePreservesCoreRow(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:usage-accounting-degraded?mode=memory&_fk=0")
+	defer client.Close()
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	proj := client.Project.Create().SetName("usage-accounting-degraded").SetStatus(project.StatusActive).SaveX(ctx)
+	parent := client.Request.Create().
+		SetProjectID(proj.ID).
+		SetModelID("model").
+		SetRequestBody(objects.JSONRawMessage(`{}`)).
+		SetStatus(request.StatusCompleted).
+		SaveX(ctx)
+
+	accountingClient := enttest.NewEntClient(t, "sqlite3", "file:usage-accounting-unavailable?mode=memory&_fk=0")
+	require.NoError(t, accountingClient.Close())
+	system := NewSystemService(SystemServiceParams{Ent: accountingClient})
+	service := NewUsageLogService(client, system, NewChannelServiceForTest(client))
+	callbackCount := 0
+	service.OnUsageLogCreated = func() { callbackCount++ }
+
+	created, err := service.CreateUsageLog(ctx, CreateUsageLogParams{
+		RequestID: parent.ID, ProjectID: proj.ID, ChannelID: 0,
+		ActualModelID: "model", Usage: &llm.Usage{PromptTokens: 4, CompletionTokens: 5, TotalTokens: 9},
+		Source: usagelog.SourceAPI, Format: "openai/chat_completions",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	require.Equal(t, int64(9), created.TotalTokens)
+	require.Equal(t, 1, callbackCount)
+	require.Equal(t, 1, client.UsageLog.Query().CountX(ctx))
+}
+
+func TestUsageLogService_CreateUsageLog_InsertFailureReturnsErrorWithoutCallback(t *testing.T) {
+	client := enttest.NewEntClient(t, "sqlite3", "file:usage-insert-failure?mode=memory&_fk=1")
+	defer client.Close()
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	proj := client.Project.Create().SetName("usage-insert-failure").SetStatus(project.StatusActive).SaveX(ctx)
+	channel := client.Channel.Create().
+		SetType(entchannel.TypeOpenai).
+		SetName("usage-insert-failure").
+		SetCredentials(objects.ChannelCredentials{}).
+		SetSupportedModels([]string{"model"}).
+		SetDefaultTestModel("model").
+		SaveX(ctx)
+	parent := client.Request.Create().
+		SetProjectID(proj.ID).
+		SetChannelID(channel.ID).
+		SetModelID("model").
+		SetRequestBody(objects.JSONRawMessage(`{}`)).
+		SetStatus(request.StatusCompleted).
+		SaveX(ctx)
+	system := NewSystemService(SystemServiceParams{Ent: client})
+	service := NewUsageLogService(client, system, NewChannelServiceForTest(client))
+	callbackCount := 0
+	service.OnUsageLogCreated = func() { callbackCount++ }
+
+	created, err := service.CreateUsageLog(ctx, CreateUsageLogParams{
+		RequestID: parent.ID, ProjectID: proj.ID, ChannelID: channel.ID,
+		ActualModelID: "model", Usage: &llm.Usage{TotalTokens: 9},
+		Source: usagelog.Source("invalid"), Format: "openai/chat_completions",
+	})
+	require.Error(t, err)
+	require.Nil(t, created)
+	require.Zero(t, callbackCount)
+	require.Zero(t, client.UsageLog.Query().CountX(ctx))
 }
 
 func TestUsageLogService_CreateUsageLog_WithCachedTokens(t *testing.T) {

@@ -3,6 +3,7 @@ package biz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -11,7 +12,6 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/log"
-	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm"
 )
@@ -26,7 +26,14 @@ type UsageLogService struct {
 	// OnUsageLogCreated is called after a usage log is successfully created.
 	// Used to invalidate caches that depend on usage log data.
 	OnUsageLogCreated func()
+
+	afterManagedCoreInsertForTest func()
 }
+
+var (
+	errUsageLogInsertStage = errors.New("usage log insert stage failed")
+	errUsageLogMarkStage   = errors.New("usage log managed-group mark stage failed")
+)
 
 func (s *UsageLogService) computeUsageCost(ctx context.Context, channelID int, modelID string, usage *llm.Usage) ([]objects.CostItem, *float64, string) {
 	if usage == nil {
@@ -82,6 +89,12 @@ func NewUsageLogService(ent *ent.Client, systemService *SystemService, channelSe
 	}
 }
 
+// SetAfterManagedCoreInsertHookForTest installs a deterministic barrier after
+// the core insert but before the managed-group mark and accounting delta.
+func (s *UsageLogService) SetAfterManagedCoreInsertHookForTest(hook func()) {
+	s.afterManagedCoreInsertForTest = hook
+}
+
 // CreateUsageLogParams represents the parameters for creating a usage log.
 type CreateUsageLogParams struct {
 	RequestID     int
@@ -100,44 +113,6 @@ func (s *UsageLogService) CreateUsageLog(ctx context.Context, params CreateUsage
 		return nil, nil // No usage data to log
 	}
 
-	client := s.entFromContext(ctx)
-
-	mut := client.UsageLog.Create().
-		SetRequestID(params.RequestID).
-		SetProjectID(params.ProjectID).
-		SetModelID(params.ActualModelID).
-		SetChannelID(params.ChannelID).
-		SetPromptTokens(params.Usage.PromptTokens).
-		SetCompletionTokens(params.Usage.CompletionTokens).
-		SetTotalTokens(params.Usage.TotalTokens).
-		SetSource(params.Source).
-		SetFormat(params.Format)
-
-	if params.APIKeyID != nil {
-		mut = mut.SetAPIKeyID(*params.APIKeyID)
-	} else if ctxAPIKey, ok := contexts.GetAPIKey(ctx); ok && ctxAPIKey != nil {
-		mut = mut.SetAPIKeyID(ctxAPIKey.ID)
-	}
-
-	// Set prompt tokens details if available
-	if params.Usage.PromptTokensDetails != nil {
-		mut = mut.
-			SetPromptAudioTokens(params.Usage.PromptTokensDetails.AudioTokens).
-			SetPromptCachedTokens(params.Usage.PromptTokensDetails.CachedTokens).
-			SetPromptWriteCachedTokens(params.Usage.PromptTokensDetails.WriteCachedTokens).
-			SetPromptWriteCachedTokens5m(params.Usage.PromptTokensDetails.WriteCached5MinTokens).
-			SetPromptWriteCachedTokens1h(params.Usage.PromptTokensDetails.WriteCached1HourTokens)
-	}
-
-	// Set completion tokens details if available
-	if params.Usage.CompletionTokensDetails != nil {
-		mut = mut.
-			SetCompletionAudioTokens(params.Usage.CompletionTokensDetails.AudioTokens).
-			SetCompletionReasoningTokens(params.Usage.CompletionTokensDetails.ReasoningTokens).
-			SetCompletionAcceptedPredictionTokens(params.Usage.CompletionTokensDetails.AcceptedPredictionTokens).
-			SetCompletionRejectedPredictionTokens(params.Usage.CompletionTokensDetails.RejectedPredictionTokens)
-	}
-
 	// Calculate cost if price is configured
 	var (
 		totalCost        *float64
@@ -147,43 +122,111 @@ func (s *UsageLogService) CreateUsageLog(ctx context.Context, params CreateUsage
 
 	costItems, totalCost, priceReferenceID = s.computeUsageCost(ctx, params.ChannelID, params.ActualModelID, params.Usage)
 
-	// Usage rows are part of the managed primary-database allowlist even when
-	// request-body capture is disabled. Under pressure they are optional
-	// observability evidence: provider forwarding and the request skeleton have
-	// already succeeded, so skip the row rather than turning capacity into an
-	// availability failure.
-	costBytes, _ := json.Marshal(costItems)
-	managed, admitted, admissionErr := s.SystemService.AdmitManagedObservabilityEvidence(
-		ctx, "usage_log", int64(len(costBytes)+512),
-	)
-	if managed {
-		if _, err := client.Request.UpdateOneID(params.RequestID).SetManagedObservability(true).Save(ctx); err != nil && !ent.IsNotFound(err) {
-			s.SystemService.RecordManagedObservabilityFailure(ctx, "usage_group_mark", "failed")
-			metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "write_failed", "usage_log")
-			log.Warn(ctx, "Managed usage-log group marking failed; skipping usage evidence", log.Cause(err))
-			return nil, nil
+	saveUsageLog := func(saveCtx context.Context) (*ent.UsageLog, error) {
+		client := s.entFromContext(saveCtx)
+		mut := client.UsageLog.Create().
+			SetRequestID(params.RequestID).
+			SetProjectID(params.ProjectID).
+			SetModelID(params.ActualModelID).
+			SetChannelID(params.ChannelID).
+			SetPromptTokens(params.Usage.PromptTokens).
+			SetCompletionTokens(params.Usage.CompletionTokens).
+			SetTotalTokens(params.Usage.TotalTokens).
+			SetSource(params.Source).
+			SetFormat(params.Format).
+			SetNillableTotalCost(totalCost).
+			SetCostItems(costItems)
+
+		if params.APIKeyID != nil {
+			mut = mut.SetAPIKeyID(*params.APIKeyID)
+		} else if ctxAPIKey, ok := contexts.GetAPIKey(saveCtx); ok && ctxAPIKey != nil {
+			mut = mut.SetAPIKeyID(ctxAPIKey.ID)
 		}
-	}
-	if admissionErr != nil {
-		metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "write_failed", "usage_log")
-		return nil, nil
-	}
-	if managed && !admitted {
-		metrics.RecordManagedObservabilityAdmissionSkippedComponent(ctx, "capacity_pressure", "usage_log")
-		return nil, nil
+		if params.Usage.PromptTokensDetails != nil {
+			mut = mut.
+				SetPromptAudioTokens(params.Usage.PromptTokensDetails.AudioTokens).
+				SetPromptCachedTokens(params.Usage.PromptTokensDetails.CachedTokens).
+				SetPromptWriteCachedTokens(params.Usage.PromptTokensDetails.WriteCachedTokens).
+				SetPromptWriteCachedTokens5m(params.Usage.PromptTokensDetails.WriteCached5MinTokens).
+				SetPromptWriteCachedTokens1h(params.Usage.PromptTokensDetails.WriteCached1HourTokens)
+		}
+		if params.Usage.CompletionTokensDetails != nil {
+			mut = mut.
+				SetCompletionAudioTokens(params.Usage.CompletionTokensDetails.AudioTokens).
+				SetCompletionReasoningTokens(params.Usage.CompletionTokensDetails.ReasoningTokens).
+				SetCompletionAcceptedPredictionTokens(params.Usage.CompletionTokensDetails.AcceptedPredictionTokens).
+				SetCompletionRejectedPredictionTokens(params.Usage.CompletionTokensDetails.RejectedPredictionTokens)
+		}
+		if priceReferenceID != "" {
+			mut = mut.SetCostPriceReferenceID(priceReferenceID)
+		}
+		return mut.Save(saveCtx)
 	}
 
-	mut = mut.
-		SetNillableTotalCost(totalCost).
-		SetCostItems(costItems)
-
-	if priceReferenceID != "" {
-		mut = mut.SetCostPriceReferenceID(priceReferenceID)
+	// Managed Usage rows, their parent mark and their conservative delta share
+	// the reconciliation state lock and one commit. This makes the GC projection
+	// the serialization authority while allowing the compact row to soft-overrun.
+	costBytes, _ := json.Marshal(costItems)
+	var usageLog *ent.UsageLog
+	managed, persistErr := s.SystemService.persistManagedObservabilityCore(
+		ctx,
+		"usage_log",
+		managedUsageLogCharge(params.ActualModelID, params.Format, priceReferenceID, len(costBytes)),
+		func(txCtx context.Context) error {
+			if lockErr := lockRequestGroup(txCtx, s.entFromContext(txCtx), params.RequestID); lockErr != nil {
+				return fmt.Errorf("%w: %w", errUsageLogMarkStage, lockErr)
+			}
+			return nil
+		},
+		func(txCtx context.Context, managed bool) error {
+			var saveErr error
+			usageLog, saveErr = saveUsageLog(txCtx)
+			if saveErr != nil {
+				return fmt.Errorf("%w: %w", errUsageLogInsertStage, saveErr)
+			}
+			if managed {
+				if s.afterManagedCoreInsertForTest != nil {
+					s.afterManagedCoreInsertForTest()
+				}
+				if _, markErr := s.entFromContext(txCtx).Request.UpdateOneID(params.RequestID).SetManagedObservability(true).Save(txCtx); markErr != nil {
+					return fmt.Errorf("%w: %w", errUsageLogMarkStage, markErr)
+				}
+			}
+			return nil
+		},
+	)
+	if persistErr == nil && ent.TxFromContext(ctx) == nil {
+		usageLog.Unwrap()
 	}
+	if persistErr != nil {
+		if errors.Is(persistErr, errUsageLogInsertStage) {
+			return nil, fmt.Errorf("failed to create usage log: %w", persistErr)
+		}
+		if !errors.Is(persistErr, errManagedCoreAccounting) && !errors.Is(persistErr, errUsageLogMarkStage) {
+			return nil, fmt.Errorf("failed to commit usage log: %w", persistErr)
+		}
+		if ent.TxFromContext(ctx) != nil {
+			return nil, fmt.Errorf("managed usage-log stage failed inside caller transaction: %w", persistErr)
+		}
 
-	usageLog, err := mut.Save(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create usage log: %w", err)
+		component := "core_accounting:usage_log"
+		if errors.Is(persistErr, errUsageLogMarkStage) {
+			component = "usage_group_mark"
+		}
+		s.SystemService.RecordManagedObservabilityFailure(ctx, component, "failed")
+		log.Warn(ctx, "Managed usage-log transaction degraded; preserving the core usage row", log.Cause(persistErr))
+
+		var saveErr error
+		usageLog, saveErr = saveUsageLog(ctx)
+		if saveErr != nil {
+			return nil, fmt.Errorf("failed to create usage log after managed accounting degradation: %w", saveErr)
+		}
+		if managed {
+			if _, markErr := s.entFromContext(ctx).Request.UpdateOneID(params.RequestID).SetManagedObservability(true).Save(ctx); markErr != nil {
+				s.SystemService.RecordManagedObservabilityFailure(ctx, "usage_group_mark", "failed")
+				log.Warn(ctx, "Failed to mark degraded managed usage-log request group; core usage row was preserved", log.Cause(markErr))
+			}
+		}
 	}
 
 	if log.DebugEnabled(ctx) {

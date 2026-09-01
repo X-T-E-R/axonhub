@@ -144,6 +144,7 @@ func TestManagedCapacityPressureSkipsVariableEvidenceWhenRequestBodiesDisabled(t
 	}}, channel))
 	require.NoError(t, svc.UpdateRequestCompleted(ctx, req.ID, "external-request",
 		map[string]any{"response": strings.Repeat("y", 256<<10)}, nil))
+	pressureReason := client.ManagedObservabilityState.GetX(ctx, 1).LastError
 
 	usage, err := svc.UsageLogService.CreateUsageLog(ctx, CreateUsageLogParams{
 		RequestID: req.ID, ProjectID: req.ProjectID, ChannelID: channel.ID,
@@ -151,7 +152,10 @@ func TestManagedCapacityPressureSkipsVariableEvidenceWhenRequestBodiesDisabled(t
 		Source: usagelog.SourceAPI, Format: string(llm.APIFormatOpenAIChatCompletion),
 	})
 	require.NoError(t, err)
-	require.Nil(t, usage)
+	require.NotNil(t, usage)
+	require.Equal(t, int64(10), usage.PromptTokens)
+	require.Equal(t, int64(20), usage.CompletionTokens)
+	require.Equal(t, int64(30), usage.TotalTokens)
 
 	updatedReq := client.Request.GetX(ctx, req.ID)
 	updatedExecution := client.RequestExecution.GetX(ctx, execution.ID)
@@ -163,8 +167,11 @@ func TestManagedCapacityPressureSkipsVariableEvidenceWhenRequestBodiesDisabled(t
 	require.Empty(t, updatedExecution.ResponseChunks)
 	require.Contains(t, *updatedExecution.EvidenceDisposition.ResponseBody.FailureClass, "capacity_pressure")
 	require.Contains(t, *updatedExecution.EvidenceDisposition.ResponseChunks.FailureClass, "capacity_pressure")
-	require.Zero(t, client.UsageLog.Query().CountX(ctx))
-	require.True(t, client.ManagedObservabilityState.GetX(ctx, 1).UnderPressure)
+	require.Equal(t, 1, client.UsageLog.Query().CountX(ctx))
+	state := client.ManagedObservabilityState.GetX(ctx, 1)
+	require.True(t, state.UnderPressure)
+	require.Positive(t, state.ChargedBytes)
+	require.Equal(t, pressureReason, state.LastError)
 }
 
 func TestManagedObservabilityFailureIsVisibleWithoutFailingStatus(t *testing.T) {

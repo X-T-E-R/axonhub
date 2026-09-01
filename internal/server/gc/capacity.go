@@ -203,6 +203,9 @@ func (w *Worker) managedNonPayloadCharge(ctx context.Context, client *ent.Client
 }
 
 func (w *Worker) reconcileManagedState(ctx context.Context, hard int64) (*ent.ManagedObservabilityState, error) {
+	if w.beforeManagedReconcileForTest != nil {
+		w.beforeManagedReconcileForTest()
+	}
 	tx, err := w.Ent.Tx(ctx)
 	if err != nil {
 		return nil, err

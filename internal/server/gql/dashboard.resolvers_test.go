@@ -2,10 +2,122 @@ package gql
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/project"
+	"github.com/looplj/axonhub/internal/ent/request"
+	"github.com/looplj/axonhub/internal/ent/requestexecution"
+	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/server/biz"
 )
+
+func TestQueryResolver_ChannelSuccessRatesUsesParentFinalOutcome(t *testing.T) {
+	resolver, ctx, client := setupTestQueryResolver(t)
+	defer client.Close()
+	resolver.systemService = biz.NewSystemService(biz.SystemServiceParams{Ent: client})
+
+	createChannel := func(name string, status channel.Status) *ent.Channel {
+		t.Helper()
+		return client.Channel.Create().
+			SetName(name).
+			SetType(channel.TypeOpenai).
+			SetStatus(status).
+			SetCredentials(objects.ChannelCredentials{}).
+			SetSupportedModels([]string{"model"}).
+			SetDefaultTestModel("model").
+			SaveX(ctx)
+	}
+	highVolume := createChannel("High volume", channel.StatusEnabled)
+	finalDeleted := createChannel("Final deleted", channel.StatusDisabled)
+	attemptOnly := createChannel("Attempt only", channel.StatusEnabled)
+	proj := client.Project.Create().SetName("success-rate-project").SetStatus(project.StatusActive).SaveX(ctx)
+	now := time.Now().UTC()
+
+	createRequest := func(finalChannel *ent.Channel, status request.Status, createdAt time.Time) *ent.Request {
+		t.Helper()
+		builder := client.Request.Create().
+			SetProjectID(proj.ID).
+			SetModelID("model").
+			SetRequestBody(objects.JSONRawMessage(`{}`)).
+			SetStatus(status).
+			SetCreatedAt(createdAt)
+		if finalChannel != nil {
+			builder.SetChannelID(finalChannel.ID)
+		}
+		return builder.SaveX(ctx)
+	}
+	createExecution := func(parent *ent.Request, executionChannel *ent.Channel, status requestexecution.Status, createdAt time.Time) {
+		t.Helper()
+		client.RequestExecution.Create().
+			SetRequestID(parent.ID).
+			SetProjectID(proj.ID).
+			SetChannelID(executionChannel.ID).
+			SetModelID("model").
+			SetRequestBody(objects.JSONRawMessage(`{}`)).
+			SetStatus(status).
+			SetCreatedAt(createdAt).
+			SaveX(ctx)
+	}
+
+	// Several attempts, including a failed attempt on a different channel,
+	// still contribute one success to the parent's final channel.
+	retried := createRequest(finalDeleted, request.StatusCompleted, now)
+	createExecution(retried, attemptOnly, requestexecution.StatusFailed, now)
+	createExecution(retried, highVolume, requestexecution.StatusFailed, now)
+	createExecution(retried, finalDeleted, requestexecution.StatusCompleted, now)
+	createRequest(finalDeleted, request.StatusFailed, now)
+
+	for i := 0; i < 3; i++ {
+		createRequest(highVolume, request.StatusCompleted, now)
+	}
+	createRequest(highVolume, request.StatusFailed, now)
+	createRequest(highVolume, request.StatusPending, now)
+	createRequest(highVolume, request.StatusProcessing, now)
+	createRequest(highVolume, request.StatusCanceled, now)
+	createRequest(nil, request.StatusCompleted, now)
+
+	// Windowing follows the parent timestamp, not an execution attempt.
+	oldParent := createRequest(highVolume, request.StatusCompleted, now.Add(-48*time.Hour))
+	createExecution(oldParent, highVolume, requestexecution.StatusCompleted, now)
+	createExecution(retried, finalDeleted, requestexecution.StatusCompleted, now.Add(-48*time.Hour))
+
+	require.NoError(t, client.Channel.DeleteOne(finalDeleted).Exec(ctx))
+
+	rates, err := resolver.ChannelSuccessRates(ctx, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, rates, 2)
+	require.Equal(t, highVolume.ID, rates[0].ChannelID.ID)
+	require.Equal(t, 3, rates[0].SuccessCount)
+	require.Equal(t, 1, rates[0].FailedCount)
+	require.Equal(t, 4, rates[0].TotalCount)
+	require.InDelta(t, 75, rates[0].SuccessRate, 0.001)
+	require.Equal(t, finalDeleted.ID, rates[1].ChannelID.ID)
+	require.Equal(t, "Final deleted", rates[1].ChannelName)
+	require.True(t, rates[1].ChannelDisabled)
+	require.Equal(t, 1, rates[1].SuccessCount)
+	require.Equal(t, 1, rates[1].FailedCount)
+	require.Equal(t, 2, rates[1].TotalCount)
+	for _, rate := range rates {
+		require.NotEqual(t, attemptOnly.ID, rate.ChannelID.ID)
+	}
+
+	allTime := "allTime"
+	allRates, err := resolver.ChannelSuccessRates(ctx, &allTime, nil)
+	require.NoError(t, err)
+	require.Len(t, allRates, 2)
+	require.Equal(t, 5, allRates[0].TotalCount)
+
+	limit := 1
+	limited, err := resolver.ChannelSuccessRates(ctx, nil, &limit)
+	require.NoError(t, err)
+	require.Len(t, limited, 1)
+	require.Equal(t, highVolume.ID, limited[0].ChannelID.ID)
+}
 
 // testStats is a test struct that implements the statsItem constraint
 type testStats struct {

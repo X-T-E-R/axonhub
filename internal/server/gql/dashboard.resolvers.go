@@ -22,7 +22,6 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
-	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/ent/schema/schematype"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/log"
@@ -884,9 +883,8 @@ func (r *queryResolver) TokenStats(ctx context.Context) (*TokenStats, error) {
 }
 
 // ChannelSuccessRates is the resolver for the channelSuccessRates field.
-// Note: Uses request_execution table for channel-level process tracking.
-// This provides success/failure rates per channel, suitable for monitoring channel health.
-// For result-only channel statistics, use RequestStatsByChannel instead.
+// Uses each parent Request's final status and channel so retries and failovers
+// contribute exactly one terminal outcome.
 func (r *queryResolver) ChannelSuccessRates(ctx context.Context, timeWindow *string, limit *int) ([]*ChannelSuccessRate, error) {
 	ctx = authz.WithScopeDecision(ctx, scopes.ScopeReadDashboard)
 
@@ -903,34 +901,35 @@ func (r *queryResolver) ChannelSuccessRates(ctx context.Context, timeWindow *str
 		limitCount = *limit
 	}
 
-	type channelExecutionStats struct {
+	type channelRequestStats struct {
 		ChannelID    int `json:"channel_id"`
 		SuccessCount int `json:"success_count"`
 		FailedCount  int `json:"failed_count"`
 	}
 
-	var results []channelExecutionStats
+	var results []channelRequestStats
 
-	// Step 1: Get success/failure counts from request_execution
-	err := r.client.RequestExecution.Query().
+	query := r.client.Request.Query().Where(
+		request.ChannelIDNotNil(),
+		request.StatusIn(request.StatusCompleted, request.StatusFailed),
+	)
+	if applyFilter {
+		query.Where(request.CreatedAtGTE(since))
+	}
+
+	// Count only final parent outcomes. Execution attempts are deliberately not
+	// joined because a request may retry or fail over across several channels.
+	err := query.
 		Modify(func(s *sql.Selector) {
 			s.Select(
-				requestexecution.FieldChannelID,
+				request.FieldChannelID,
 				sql.As("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)", "success_count"),
 				sql.As("SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)", "failed_count"),
-			).
-				Where(sql.NotNull(requestexecution.FieldChannelID))
-
-			// Apply time filter
-			if applyFilter {
-				s.Where(sql.GTE(s.C(requestexecution.FieldCreatedAt), since))
-			}
-
-			s.GroupBy(requestexecution.FieldChannelID)
+			).GroupBy(request.FieldChannelID)
 		}).
 		Scan(ctx, &results)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get channel execution stats: %w", err)
+		return nil, fmt.Errorf("failed to get channel request stats: %w", err)
 	}
 
 	if len(results) == 0 {

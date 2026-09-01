@@ -17,7 +17,7 @@ AxonHub 现将请求日志骨架行与大型请求体字节分离。这是增量
 
 启用容量模式后，即使父级和执行级请求体捕获都关闭，主数据库中的 Request/RequestExecution 请求组仍标记为托管。容量核算由保守的载荷计费、实际驻留数据库的响应/请求头/响应块 JSON 大小和骨架固定余量组成，明确白名单仅包括托管 Requests、RequestExecutions、其载荷、关联 Trace/Thread 诊断行和 Usage Logs；非主外部对象字节不属于此数据库容量预算。清理先淘汰载荷字节并保留摘要/长度/处置原因；只有仍无法达到低水位时，才通过现有完整性检查删除完整的终态托管请求组及其 Usage 行。绝不会选择账户、API 密钥、项目、路由、供应商、渠道或系统配置。先处理成功请求组，再处理包含失败证据的请求组；只要父级或任一子执行仍为 pending/processing，该组即为活动组，即使父级元数据矛盾地显示为终态，也不会被选择。PostgreSQL 工作实例竞争同一个非等待会话 advisory lock，并通过专用连接在保留期清理、容量清理和普通 VACUUM 全程持有。SQLite/MySQL 的所有者保证明确仅限单进程。
 
-容量压力采用 fail-open：供应商转发与请求/执行骨架状态转换继续可用，但新的主数据库请求体、请求头、响应体、响应块和 Usage Logs 可能跳过接纳。结构化 `managed_observability_*` 信号、`managed_observability_failures_total{component,reason}` 指标以及单例 `managed_observability_states.last_error` 的组件值共同描述接纳、所有者锁、解锁和清理降级。公开健康状态会报告该组件，但仍保持健康；不得仅因容量压力就让健康/存活检查失败。
+容量压力采用 fail-open：供应商转发、请求/执行骨架状态转换和紧凑的 Usage Log 统计继续写入。Usage Log 的保守计费可以让已计费总量暂时超过硬水位；AxonHub 会保持压力状态并触发清理，在容量恢复前拒绝后续可选的主数据库请求体、请求头、响应体和响应块。Usage 计费或托管请求组标记失败会记录为托管可观测性降级信号，但不会丢弃已经保存的 Usage Log；若数据库错误直接阻止 Usage Log 插入，调用方仍会收到错误。结构化 `managed_observability_*` 信号、`managed_observability_failures_total{component,reason}` 指标以及单例 `managed_observability_states.last_error` 的组件值共同描述接纳、所有者锁、解锁、计费和清理降级。公开健康状态会报告该组件，但仍保持健康；不得仅因容量压力就让健康/存活检查失败。
 
 运行时自动迁移明确使用 `WithForeignKeys(false)`，所以 Ent 声明的 cascade/set-null 边不是生命周期权威。保留期和容量删除会在同一个应用事务中显式删除请求拥有的载荷目录行并核对计费字节；旧版内联请求组沿用同一删除路径，不要求存在载荷行。
 

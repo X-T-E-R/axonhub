@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -57,10 +58,16 @@ func (s *SystemService) ManagedObservabilityStatus(ctx context.Context) (*Manage
 
 const managedPayloadFixedChargeBytes int64 = 4096
 
+const managedUsageLogFixedChargeBytes int64 = 4 << 10
+
 func managedPayloadCharge(byteLength int64) int64 {
 	// A 75% variable margin plus a page covers row/index/TOAST bookkeeping and
 	// deliberately overstates steady-state live allocation for capacity gates.
 	return byteLength + (3*byteLength)/4 + managedPayloadFixedChargeBytes
+}
+
+func managedUsageLogCharge(modelID, format, priceReferenceID string, costItemsBytes int) int64 {
+	return managedUsageLogFixedChargeBytes + int64(len(modelID)+len(format)+len(priceReferenceID)+costItemsBytes)
 }
 
 type managedPayloadResult struct {
@@ -170,6 +177,66 @@ func (s *SystemService) AdmitManagedObservabilityEvidence(ctx context.Context, c
 		s.RecordManagedObservabilityFailure(ctx, "admission_lock:"+component, "failed")
 	}
 	return managed, admitted, err
+}
+
+var errManagedCoreAccounting = errors.New("managed observability core accounting failed")
+
+// persistManagedObservabilityCore serializes a compact core-row insert with
+// the state lock used by reconciliation. The callback, managed-group mark and
+// conservative delta commit together, so a fresh database projection cannot
+// observe or overwrite a partial accounting stage.
+func (s *SystemService) persistManagedObservabilityCore(
+	ctx context.Context,
+	component string,
+	charge int64,
+	lockManagedGroup func(context.Context) error,
+	persist func(context.Context, bool) error,
+) (managed bool, err error) {
+	if charge < 0 {
+		charge = 0
+	}
+	entered := false
+	err = s.RunInTransaction(ctx, func(txCtx context.Context) error {
+		entered = true
+		policy, loadErr := s.StoragePolicy(txCtx)
+		if loadErr != nil {
+			return fmt.Errorf("%w: load capacity policy: %w", errManagedCoreAccounting, loadErr)
+		}
+		hard, _, enabled := capacityBytes(policy)
+		if !enabled {
+			return persist(txCtx, false)
+		}
+		managed = true
+
+		client := s.entFromContext(txCtx)
+		if lockManagedGroup != nil {
+			if lockErr := lockManagedGroup(txCtx); lockErr != nil {
+				return lockErr
+			}
+		}
+		state, stateErr := ensureManagedState(txCtx, client)
+		if stateErr != nil {
+			return fmt.Errorf("%w: %w", errManagedCoreAccounting, stateErr)
+		}
+		if persistErr := persist(txCtx, true); persistErr != nil {
+			return persistErr
+		}
+		update := client.ManagedObservabilityState.UpdateOneID(1).AddChargedBytes(charge)
+		if state.ChargedBytes+charge > hard {
+			update.SetUnderPressure(true)
+			if state.LastError != "capacity_reconciliation_pending" {
+				update.SetLastError("capacity_hard_limit:" + component)
+			}
+		}
+		if _, updateErr := update.Save(txCtx); updateErr != nil {
+			return fmt.Errorf("%w: account %s: %w", errManagedCoreAccounting, component, updateErr)
+		}
+		return nil
+	})
+	if err != nil && !entered {
+		err = fmt.Errorf("%w: start managed core transaction: %w", errManagedCoreAccounting, err)
+	}
+	return managed, err
 }
 
 func supportsRowLock(client *ent.Client) bool {

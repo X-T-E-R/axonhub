@@ -13,13 +13,16 @@ import (
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
+	entchannel "github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
+	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/llm"
 )
 
 func capacityTestWorker(t *testing.T) (*Worker, *ent.Client, context.Context, *biz.SystemService, *ent.Project) {
@@ -130,6 +133,102 @@ func TestManagedCapacityFallsBackToExplicitRequestUsageAllowlist(t *testing.T) {
 	state := client.ManagedObservabilityState.GetX(ctx, 1)
 	require.False(t, state.UnderPressure)
 	require.LessOrEqual(t, state.ChargedBytes, int64(2)<<20)
+}
+
+func TestManagedUsageLogCommitSerializesFreshReconciliationProjection(t *testing.T) {
+	worker, client, ctx, system, proj := capacityTestWorker(t)
+	defer client.Close()
+	sqlDriver, ok := worker.sqlDriver()
+	require.True(t, ok)
+	// A single SQLite connection makes the transaction boundary a deterministic
+	// stand-in for the state-row lock used by PostgreSQL/MySQL.
+	sqlDriver.DB().SetMaxOpenConns(1)
+
+	require.NoError(t, system.SetStoragePolicy(ctx, &biz.StoragePolicy{
+		StoreRequestBody:            true,
+		StoreResponseBody:           true,
+		ManagedObservabilityHardMiB: lo.ToPtr(2),
+		ManagedObservabilityLowMiB:  lo.ToPtr(1),
+	}))
+	client.ManagedObservabilityState.UpdateOneID(1).
+		SetChargedBytes(0).
+		SetUnderPressure(false).
+		ClearLastError().
+		ExecX(ctx)
+
+	channel := client.Channel.Create().
+		SetType(entchannel.TypeOpenai).
+		SetName("serialized-usage-channel").
+		SetCredentials(objects.ChannelCredentials{}).
+		SetSupportedModels([]string{"model"}).
+		SetDefaultTestModel("model").
+		SaveX(ctx)
+	parent := client.Request.Create().
+		SetProjectID(proj.ID).
+		SetChannelID(channel.ID).
+		SetModelID("model").
+		SetRequestBody(objects.JSONRawMessage(`{}`)).
+		SetStatus(request.StatusCompleted).
+		SaveX(ctx)
+	usageService := biz.NewUsageLogService(client, system, biz.NewChannelServiceForTest(client))
+
+	coreReady := make(chan struct{})
+	releaseCore := make(chan struct{})
+	usageService.SetAfterManagedCoreInsertHookForTest(func() {
+		close(coreReady)
+		<-releaseCore
+	})
+	callbackCount := 0
+	usageService.OnUsageLogCreated = func() { callbackCount++ }
+
+	type usageResult struct {
+		row *ent.UsageLog
+		err error
+	}
+	usageDone := make(chan usageResult, 1)
+	go func() {
+		row, err := usageService.CreateUsageLog(ctx, biz.CreateUsageLogParams{
+			RequestID: parent.ID, ProjectID: proj.ID, ChannelID: channel.ID,
+			ActualModelID: "model", Usage: &llm.Usage{PromptTokens: 10, CompletionTokens: 20, TotalTokens: 30},
+			Source: usagelog.SourceAPI, Format: "openai/chat_completions",
+		})
+		usageDone <- usageResult{row: row, err: err}
+	}()
+	<-coreReady
+
+	reconcileStarted := make(chan struct{})
+	worker.beforeManagedReconcileForTest = func() { close(reconcileStarted) }
+	type reconcileResult struct {
+		state *ent.ManagedObservabilityState
+		err   error
+	}
+	reconcileDone := make(chan reconcileResult, 1)
+	go func() {
+		state, err := worker.reconcileManagedState(ctx, 2<<20)
+		reconcileDone <- reconcileResult{state: state, err: err}
+	}()
+	<-reconcileStarted
+	select {
+	case result := <-reconcileDone:
+		t.Fatalf("reconciliation observed an uncommitted managed UsageLog: state=%v err=%v", result.state, result.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseCore)
+	created := <-usageDone
+	require.NoError(t, created.err)
+	require.NotNil(t, created.row)
+	require.Equal(t, int64(30), created.row.TotalTokens)
+	reconciled := <-reconcileDone
+	require.NoError(t, reconciled.err)
+
+	expectedCharge, err := worker.managedNonPayloadCharge(ctx, client)
+	require.NoError(t, err)
+	require.Equal(t, expectedCharge, reconciled.state.ChargedBytes)
+	require.Equal(t, expectedCharge, client.ManagedObservabilityState.GetX(ctx, 1).ChargedBytes)
+	require.Equal(t, 1, client.UsageLog.Query().CountX(ctx))
+	require.True(t, client.Request.GetX(ctx, parent.ID).ManagedObservability)
+	require.Equal(t, 1, callbackCount)
 }
 
 func TestManagedCapacityExcludesTerminalParentWithActiveExecution(t *testing.T) {
