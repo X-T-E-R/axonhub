@@ -29,6 +29,9 @@ type StreamLivenessAttempt struct {
 	// only after the downstream terminal grace expires. This keeps a later
 	// provider error authoritative when it arrives during the grace window.
 	ConfirmSemanticCompletion func() bool
+	// RecordClientTerminalFlushed records the point after the official terminal
+	// frame has been written and flushed to the downstream client.
+	RecordClientTerminalFlushed func()
 }
 
 type StreamSemanticStatus uint8
@@ -154,7 +157,7 @@ func streamLivenessAttemptFromState(state *PersistenceState) StreamLivenessAttem
 }
 
 func (m *streamLivenessMiddleware) OnOutboundRawStream(
-	_ context.Context,
+	ctx context.Context,
 	stream streams.Stream[*httpclient.StreamEvent],
 ) (streams.Stream[*httpclient.StreamEvent], error) {
 	if !m.downstreamWantsStream() {
@@ -172,6 +175,11 @@ func (m *streamLivenessMiddleware) OnOutboundRawStream(
 	}
 	attempt.ConfirmSemanticCompletion = func() bool {
 		return m.state != nil && m.state.confirmStreamCompletion()
+	}
+	attempt.RecordClientTerminalFlushed = func() {
+		if m.state != nil {
+			m.state.recordStreamLifecycle(ctx, "client_terminal_flushed")
+		}
 	}
 	m.observer.OnUpstreamResponseHeaders(attempt)
 

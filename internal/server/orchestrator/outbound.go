@@ -88,10 +88,10 @@ func (ts *OutboundPersistentStream) Current() *httpclient.StreamEvent {
 		// Check if this is a terminal event, which indicates the stream completed successfully.
 		// For Chat Completions API this is the raw [DONE] event; for Responses API this is
 		// response.completed; for Anthropic Messages API this is message_stop.
-		if isTerminalStreamEvent(event) {
+		if terminalStreamStatusForFormat(event, ts.transformer.APIFormat()) == streamTerminalCompleted {
 			ts.streamCompleted = true
-			ts.state.StreamCompleted = true
-		} else if status := terminalStreamStatus(event); status != streamTerminalNone {
+			ts.state.markStreamCompleted()
+		} else if status := terminalStreamStatusForFormat(event, ts.transformer.APIFormat()); status != streamTerminalNone {
 			ts.providerStatus = status
 			ts.state.recordProviderTerminalStatus(status)
 		}
@@ -111,6 +111,8 @@ func (ts *OutboundPersistentStream) Close() error {
 
 	ts.closed = true
 	ctx := ts.ctx
+	ts.state.recordStreamLifecycle(ctx, "execution_persist_start")
+	defer ts.state.recordStreamLifecycle(ctx, "execution_persist_end")
 
 	streamCompleted := ts.streamCompleted || ts.state.isStreamCompletionConfirmed()
 	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", streamCompleted))
@@ -168,7 +170,7 @@ func (ts *OutboundPersistentStream) Close() error {
 			log.Debug(ctx, "Stream has valid complete response without terminal event, treating as completed")
 			ts.streamCompleted = true
 			streamCompleted = true
-			ts.state.StreamCompleted = true
+			ts.state.markStreamCompleted()
 		}
 	} else {
 		ts.logFinalizationDecision(ctx, "no_outbound_chunks_to_aggregate", streamErr, ctxErr, false, nil)
@@ -633,10 +635,13 @@ func (p *PersistentOutboundTransformer) HasMoreChannels() bool {
 // Must be called before every retry to prevent goroutine leaks and data races on
 // state.RawStreamErrRef.
 func (p *PersistentOutboundTransformer) resetPassThroughStreamState() {
-	if p.state.RawStreamCancel != nil {
+	if p.state.RawStreamAttempt != nil {
+		p.state.RawStreamAttempt.stopAndWait()
+		p.state.RawStreamAttempt = nil
+	} else if p.state.RawStreamCancel != nil {
 		p.state.RawStreamCancel()
-		p.state.RawStreamCancel = nil
 	}
+	p.state.RawStreamCancel = nil
 
 	p.state.RawStreamCh = nil
 	p.state.RawStreamErrRef = nil
@@ -753,13 +758,13 @@ func (p *PersistentOutboundTransformer) PrepareForRetry(ctx context.Context) err
 		p.state.FailurePolicyRoutingChanged = false
 	}
 
+	// Cancel any in-flight pass-through stream goroutine from the previous attempt
+	// and join both fan-out branches before replacing attempt-correlated state.
+	p.resetPassThroughStreamState()
+
 	// Reset request execution for the same channel.
 	p.state.RequestExec = nil
 	p.state.PassThroughApplied = false
-
-	// Cancel any in-flight pass-through stream goroutine from the previous attempt
-	// so it exits promptly and releases its upstream HTTP connection.
-	p.resetPassThroughStreamState()
 
 	// If there's another model in the list, advance to it.
 	if p.state.CurrentModelIndex+1 < len(candidate.Models) {

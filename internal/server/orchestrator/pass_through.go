@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
 	entchannel "github.com/looplj/axonhub/internal/ent/channel"
@@ -404,6 +405,75 @@ func applyPassThroughResponse(outbound *PersistentOutboundTransformer, systemSer
 	})
 }
 
+type passThroughAttempt struct {
+	cancel       context.CancelFunc
+	producerDone chan error
+
+	mu        sync.Mutex
+	drainDone chan error
+}
+
+func newPassThroughAttempt(cancel context.CancelFunc) *passThroughAttempt {
+	return &passThroughAttempt{cancel: cancel, producerDone: make(chan error, 1)}
+}
+
+func passThroughErrorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func (a *passThroughAttempt) setDrain(done chan error) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.drainDone = done
+	a.mu.Unlock()
+}
+
+func (a *passThroughAttempt) stopAndWait() {
+	if a == nil {
+		return
+	}
+	if a.cancel != nil {
+		a.cancel()
+	}
+	<-a.producerDone
+	a.mu.Lock()
+	drainDone := a.drainDone
+	a.mu.Unlock()
+	if drainDone != nil {
+		<-drainDone
+	}
+}
+
+func providerStreamTerminal(apiFormat llm.APIFormat, event *httpclient.StreamEvent) bool {
+	if event == nil {
+		return false
+	}
+	eventType := event.Type
+	if eventType == "" {
+		eventType = gjson.GetBytes(event.Data, "type").String()
+	}
+	switch apiFormat {
+	case llm.APIFormatOpenAIResponse:
+		switch eventType {
+		case "response.completed", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+			return true
+		default:
+			return false
+		}
+	case llm.APIFormatAnthropicMessage:
+		return eventType == "message_stop"
+	case llm.APIFormatOpenAIChatCompletion, llm.APIFormatOpenAICompletion:
+		return strings.TrimSpace(string(event.Data)) == "[DONE]"
+	default:
+		return false
+	}
+}
+
 // captureRawProviderStream fans out raw provider stream events to both the pipeline
 // (for transforms and LLM middlewares like connection tracking, performance recording)
 // and a pass-through channel. The pipeline receives events via pipelineCh, while
@@ -439,6 +509,9 @@ func captureRawProviderStream(outbound *PersistentOutboundTransformer, systemSer
 			})
 		}
 		outbound.state.RawStreamCancel = closeStream
+		attempt := newPassThroughAttempt(closeStream)
+		outbound.state.RawStreamAttempt = attempt
+		apiFormat := llm.APIFormat(outbound.state.RawProviderRequest.APIFormat)
 
 		go func() {
 			defer func() {
@@ -452,6 +525,8 @@ func captureRawProviderStream(outbound *PersistentOutboundTransformer, systemSer
 					rawStreamErr = stream.Err()
 				}
 
+				attempt.producerDone <- rawStreamErr
+				close(attempt.producerDone)
 				close(pipelineCh)
 				close(rawStreamCh)
 			}()
@@ -474,6 +549,12 @@ func captureRawProviderStream(outbound *PersistentOutboundTransformer, systemSer
 				}
 
 				event := stream.Current()
+				terminal := providerStreamTerminal(apiFormat, event)
+				if terminal {
+					outbound.state.recordStreamLifecycle(ctx, "raw_terminal_received",
+						log.String("terminal_type", event.Type),
+						log.String("api_format", string(apiFormat)))
+				}
 				// Use blocking sends so events are not silently dropped when a
 				// consumer is slower than the upstream provider. Bail out on
 				// attempt cancellation (retry) or request cancellation to avoid
@@ -493,6 +574,9 @@ func captureRawProviderStream(outbound *PersistentOutboundTransformer, systemSer
 					log.Debug(ctx, "context canceled while sending pass-through event",
 						log.String("channel", channel.Name))
 
+					return
+				}
+				if terminal {
 					return
 				}
 			}
@@ -520,6 +604,7 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 		// state.RawStreamErrRef, this stream still reads from the correct variable.
 		errRef := outbound.state.RawStreamErrRef
 		cancel := outbound.state.RawStreamCancel
+		attempt := outbound.state.RawStreamAttempt
 
 		channel := outbound.GetCurrentChannel()
 
@@ -527,12 +612,31 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 			log.String("channel", channel.Name),
 		)
 
+		drainDone := make(chan error, 1)
+		if attempt != nil {
+			attempt.setDrain(drainDone)
+		}
 		go func() {
+			outbound.state.recordStreamLifecycle(ctx, "pass_through_drain_start")
+			var drainErr error
+			defer func() {
+				if cause := recover(); cause != nil {
+					drainErr = fmt.Errorf("pass-through drain panic: %v", cause)
+					log.Warn(ctx, "pass-through drain goroutine panicked, recovering",
+						log.Any("panic", cause), log.String("channel", channel.Name))
+				}
+				outbound.state.recordStreamLifecycle(ctx, "pass_through_drain_end",
+					log.String("error", passThroughErrorString(drainErr)))
+				drainDone <- drainErr
+				close(drainDone)
+			}()
 			for stream.Next() {
 				_ = stream.Current()
 			}
-
-			stream.Close()
+			drainErr = stream.Err()
+			if closeErr := stream.Close(); drainErr == nil {
+				drainErr = closeErr
+			}
 		}()
 
 		return &passThroughChannelStream{ctx: ctx, ch: rawCh, errRef: errRef, cancel: cancel}, nil

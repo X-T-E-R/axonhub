@@ -111,6 +111,7 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 			handlers.sseHeartbeatFormat,
 			streaming,
 		)
+		liveness.responsesAPI = genericReq.APIFormat == string(llm.APIFormatOpenAIResponse)
 		if requestedChoices := int(gjson.GetBytes(genericReq.Body, "n").Int()); requestedChoices > 1 {
 			liveness.expectedChoices = requestedChoices
 		}
@@ -259,6 +260,10 @@ func writeSSEStreamWithoutHeartbeat(
 		return
 	}
 
+	terminalTracker := newSSESemanticTerminalTracker(heartbeatFormat)
+	if liveness != nil && liveness.responsesAPI {
+		terminalTracker.protocol = sseWireProtocolOpenAIResponses
+	}
 	for {
 		if !stream.Next() {
 			streamErr := stream.Err()
@@ -308,9 +313,11 @@ func writeSSEStreamWithoutHeartbeat(
 		if liveness != nil {
 			liveness.ledger.recordWrite(false)
 		}
+		terminalTracker.observe(cur)
 
-		if isTerminalSSEEvent(cur, heartbeatFormat) {
+		if terminalTracker.isOfficialTerminal(cur) {
 			if liveness != nil {
+				liveness.clientTerminalFlushed()
 				if orchestrator.ClassifyStreamSemanticTerminal(cur) == orchestrator.StreamSemanticSucceeded {
 					liveness.confirmSemanticSuccess()
 				}
@@ -382,6 +389,9 @@ func writeSSEStreamWithHeartbeat(
 	var terminalC <-chan time.Time
 	var semanticC <-chan struct{}
 	terminalTracker := newSSESemanticTerminalTracker(heartbeatFormat)
+	if liveness != nil && liveness.responsesAPI {
+		terminalTracker.protocol = sseWireProtocolOpenAIResponses
+	}
 	semanticObserved := false
 	if liveness != nil {
 		semanticC = liveness.semanticSuccessSignal()
@@ -431,7 +441,7 @@ func writeSSEStreamWithHeartbeat(
 			}
 			terminalTracker.observe(cur)
 
-			if isTerminalSSEEvent(cur, heartbeatFormat) {
+			if terminalTracker.isOfficialTerminal(cur) {
 				if heartbeatTimer != nil {
 					stopTimer(heartbeatTimer)
 				}
@@ -441,6 +451,7 @@ func writeSSEStreamWithHeartbeat(
 					terminalC = nil
 				}
 				if liveness != nil {
+					liveness.clientTerminalFlushed()
 					if orchestrator.ClassifyStreamSemanticTerminal(cur) == orchestrator.StreamSemanticSucceeded {
 						liveness.confirmSemanticSuccess()
 					}
@@ -654,6 +665,29 @@ type sseSemanticTerminalTracker struct {
 	response       map[string]any
 	completedItems map[int]any
 	lastSequence   int64
+}
+
+func (t *sseSemanticTerminalTracker) isOfficialTerminal(event *httpclient.StreamEvent) bool {
+	if event == nil {
+		return false
+	}
+	typeName := event.Type
+	if typeName == "" {
+		typeName = gjson.GetBytes(event.Data, "type").String()
+	}
+	switch t.protocol {
+	case sseWireProtocolOpenAIResponses:
+		switch typeName {
+		case "response.completed", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+			return true
+		default:
+			return false
+		}
+	case sseWireProtocolAnthropic:
+		return typeName == "message_stop"
+	default:
+		return bytes.Equal(bytes.TrimSpace(event.Data), []byte("[DONE]"))
+	}
 }
 
 func newSSESemanticTerminalTracker(format sseHeartbeatFormat) *sseSemanticTerminalTracker {

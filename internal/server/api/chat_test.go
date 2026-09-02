@@ -436,6 +436,48 @@ func TestWriteSSEStream_ResponsesCanceledIsTerminal(t *testing.T) {
 	require.NotContains(t, w.Body.String(), "must not be written")
 }
 
+func TestSSELiveness_ResponsesUsageOnlyTerminalIsNotSemanticSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI, true)
+	session.responsesAPI = true
+	session.OnRawSSE(&httpclient.StreamEvent{Type: "response.completed", Data: []byte(
+		`{"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}`,
+	)})
+	finishReason := "stop"
+	content := "content"
+	session.OnTransformableEvent(&llm.Response{
+		Object: "chat.completion.chunk",
+		Choices: []llm.Choice{{
+			Index: 0, Delta: &llm.Message{}, FinishReason: &finishReason,
+		}},
+	})
+
+	select {
+	case <-session.semanticSuccessSignal():
+		t.Fatal("usage-only Responses terminal signaled semantic success")
+	default:
+	}
+
+	session.OnTransformableEvent(&llm.Response{
+		Object: "chat.completion.chunk",
+		Choices: []llm.Choice{{Index: 0, Delta: &llm.Message{
+			Content: llm.MessageContent{Content: &content},
+		}}},
+	})
+	session.OnTransformableEvent(&llm.Response{
+		Object: "chat.completion.chunk",
+		Choices: []llm.Choice{{
+			Index: 0, Delta: &llm.Message{}, FinishReason: &finishReason,
+		}},
+	})
+	select {
+	case <-session.semanticSuccessSignal():
+	default:
+		t.Fatal("Responses content followed by terminal did not signal semantic success")
+	}
+}
+
 func TestWriteSSEStream_AnthropicHeartbeat(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

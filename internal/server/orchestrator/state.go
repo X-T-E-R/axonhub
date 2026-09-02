@@ -3,8 +3,10 @@ package orchestrator
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -88,6 +90,9 @@ type PersistenceState struct {
 	// captureRawProviderStream. Must be called in PrepareForRetry and NextChannel so the
 	// abandoned goroutine exits promptly and releases its upstream HTTP connection.
 	RawStreamCancel context.CancelFunc
+	// RawStreamAttempt owns every goroutine created for the current pass-through
+	// provider attempt. Retry waits for it before replacing attempt-local state.
+	RawStreamAttempt *passThroughAttempt
 
 	// PassThroughApplied records whether the inbound request body was substituted during pass-through.
 	PassThroughApplied bool
@@ -98,6 +103,45 @@ type PersistenceState struct {
 	deferredExecutionFailurePersisted bool
 	streamCompletionConfirmed         bool
 	semanticInterruptStarted          bool
+	lifecycleStarted                  time.Time
+	lifecycleSequence                 uint64
+}
+
+func (s *PersistenceState) recordStreamLifecycle(ctx context.Context, phase string, fields ...log.Field) {
+	if s == nil {
+		return
+	}
+
+	s.deferredFailureMu.Lock()
+	if s.lifecycleStarted.IsZero() {
+		s.lifecycleStarted = time.Now()
+	}
+	s.lifecycleSequence++
+	sequence := s.lifecycleSequence
+	elapsed := time.Since(s.lifecycleStarted)
+	requestID := 0
+	if s.Request != nil {
+		requestID = s.Request.ID
+	}
+	executionID := 0
+	if s.RequestExec != nil {
+		executionID = s.RequestExec.ID
+	}
+	attempt := s.CurrentCandidateIndex
+	modelAttempt := s.CurrentModelIndex
+	logFields := []log.Field{
+		log.String("phase", phase),
+		log.Int64("lifecycle_sequence", int64(sequence)),
+		log.Int64("lifecycle_elapsed_us", elapsed.Microseconds()),
+		log.Int("request_id", requestID),
+		log.Int("request_execution_id", executionID),
+		log.Int("candidate_attempt", attempt),
+		log.Int("model_attempt", modelAttempt),
+	}
+	logFields = append(logFields, fields...)
+	// Keep emission under the ledger lock so log order matches sequence order.
+	log.Info(ctx, "stream lifecycle", logFields...)
+	s.deferredFailureMu.Unlock()
 }
 
 // reserveRawStreamFailure linearizes a genuine raw read failure against the
@@ -142,6 +186,15 @@ func (s *PersistenceState) confirmStreamCompletion() bool {
 	s.StreamCompleted = true
 	s.streamCompletionConfirmed = true
 	return true
+}
+
+func (s *PersistenceState) markStreamCompleted() {
+	if s == nil {
+		return
+	}
+	s.deferredFailureMu.Lock()
+	s.StreamCompleted = true
+	s.deferredFailureMu.Unlock()
 }
 
 func (s *PersistenceState) beginSemanticCompletionInterrupt() bool {

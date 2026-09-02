@@ -236,16 +236,19 @@ type sseLivenessSession struct {
 	semanticOnce    sync.Once
 	confirmOnce     sync.Once
 
-	mu                        sync.Mutex
-	effective                 SSEKeepAliveConfig
-	interrupt                 *sseStreamInterrupt
-	confirmSemanticCompletion func() bool
-	confirmAccepted           bool
-	semanticResponse          *llm.Response
-	semanticChoices           map[int]struct{}
-	expectedChoices           int
-	terminalGrace             time.Duration
-	committed                 atomic.Bool
+	mu                          sync.Mutex
+	effective                   SSEKeepAliveConfig
+	interrupt                   *sseStreamInterrupt
+	confirmSemanticCompletion   func() bool
+	recordClientTerminalFlushed func()
+	confirmAccepted             bool
+	semanticResponse            *llm.Response
+	semanticChoices             map[int]struct{}
+	expectedChoices             int
+	terminalGrace               time.Duration
+	committed                   atomic.Bool
+	responsesAPI                bool
+	responsesSemanticContent    bool
 }
 
 const defaultSSETerminalGrace = 250 * time.Millisecond
@@ -301,8 +304,21 @@ func (s *sseLivenessSession) OnUpstreamResponseHeaders(attempt orchestrator.Stre
 	s.mu.Lock()
 	s.interrupt = &sseStreamInterrupt{fn: attempt.Interrupt}
 	s.confirmSemanticCompletion = attempt.ConfirmSemanticCompletion
+	s.recordClientTerminalFlushed = attempt.RecordClientTerminalFlushed
 	s.mu.Unlock()
 	s.applyAttemptKeepAlive(attempt)
+}
+
+func (s *sseLivenessSession) clientTerminalFlushed() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	record := s.recordClientTerminalFlushed
+	s.mu.Unlock()
+	if record != nil {
+		record()
+	}
 }
 
 func (s *sseLivenessSession) applyAttemptKeepAlive(attempt orchestrator.StreamLivenessAttempt) {
@@ -320,6 +336,12 @@ func (s *sseLivenessSession) applyAttemptKeepAlive(attempt orchestrator.StreamLi
 
 func (s *sseLivenessSession) OnRawSSE(event *httpclient.StreamEvent) {
 	s.ledger.recordFirstRawSSE()
+	// Responses raw lifecycle terminals are transport facts, not semantic
+	// success. The transformed stream below records success only after it has
+	// observed supported content.
+	if s.responsesAPI {
+		return
+	}
 	if orchestrator.ClassifyStreamSemanticTerminal(event) != orchestrator.StreamSemanticSucceeded {
 		return
 	}
@@ -337,6 +359,18 @@ func (s *sseLivenessSession) OnRawSSE(event *httpclient.StreamEvent) {
 
 func (s *sseLivenessSession) OnTransformableEvent(response *llm.Response) {
 	s.ledger.recordFirstTransformableEvent()
+	if s.responsesAPI {
+		hasContent := responseHasSemanticContent(response)
+		s.mu.Lock()
+		if hasContent {
+			s.responsesSemanticContent = true
+		}
+		semanticContentSeen := s.responsesSemanticContent
+		s.mu.Unlock()
+		if !semanticContentSeen {
+			return
+		}
+	}
 	if orchestrator.ClassifyLLMStreamSemanticTerminal(response) == orchestrator.StreamSemanticSucceeded {
 		indices := make([]int, 0, len(response.Choices))
 		for _, choice := range response.Choices {
@@ -344,6 +378,31 @@ func (s *sseLivenessSession) OnTransformableEvent(response *llm.Response) {
 		}
 		s.recordSemanticChoices(indices, response)
 	}
+}
+
+func responseHasSemanticContent(response *llm.Response) bool {
+	if response == nil || response == llm.DoneResponse || response.Object == "[DONE]" {
+		return false
+	}
+	for _, choice := range response.Choices {
+		for _, message := range []*llm.Message{choice.Delta, choice.Message} {
+			if message == nil {
+				continue
+			}
+			if message.Content.Content != nil && *message.Content.Content != "" {
+				return true
+			}
+			if len(message.Content.MultipleContent) > 0 || len(message.ToolCalls) > 0 || message.Refusal != "" {
+				return true
+			}
+			if (message.ReasoningContent != nil && *message.ReasoningContent != "") ||
+				(message.Reasoning != nil && *message.Reasoning != "") ||
+				(message.ReasoningSignature != nil && *message.ReasoningSignature != "") || message.Audio != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *sseLivenessSession) OnUpstreamError(err error) {

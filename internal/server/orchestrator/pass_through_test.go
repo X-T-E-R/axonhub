@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
@@ -719,6 +720,221 @@ type blockingStream struct {
 	closed    chan struct{}
 	startOnce sync.Once
 	closeOnce sync.Once
+}
+
+type terminalThenBlockedStream struct {
+	event      *httpclient.StreamEvent
+	closed     chan struct{}
+	closeOnce  sync.Once
+	reads      int
+	secondRead chan struct{}
+}
+
+func newTerminalThenBlockedStream(event *httpclient.StreamEvent) *terminalThenBlockedStream {
+	return &terminalThenBlockedStream{event: event, closed: make(chan struct{}), secondRead: make(chan struct{})}
+}
+
+func (s *terminalThenBlockedStream) Next() bool {
+	s.reads++
+	if s.reads == 1 {
+		return true
+	}
+	close(s.secondRead)
+	<-s.closed
+	return false
+}
+
+func (s *terminalThenBlockedStream) Current() *httpclient.StreamEvent { return s.event }
+func (s *terminalThenBlockedStream) Err() error                       { return nil }
+func (s *terminalThenBlockedStream) Close() error {
+	s.closeOnce.Do(func() { close(s.closed) })
+	return nil
+}
+
+func TestCaptureRawProviderStream_OfficialTerminalStopsBeforeBlockedTail(t *testing.T) {
+	channel := &biz.Channel{Channel: &ent.Channel{ID: 1, Name: "test", Settings: &objects.ChannelSettings{
+		PassThroughBody: lo.ToPtr(true),
+	}}}
+	terminal := &httpclient.StreamEvent{Type: "response.completed", Data: json.RawMessage(
+		`{"type":"response.completed","response":{"status":"completed","output":[]}}`,
+	)}
+	state := &PersistenceState{
+		CurrentCandidate:      &ChannelModelsCandidate{Channel: channel},
+		OriginalRequestStream: lo.ToPtr(true),
+		LlmRequest:            &llm.Request{APIFormat: llm.APIFormatOpenAIResponse, Stream: lo.ToPtr(true)},
+		RawProviderRequest:    &httpclient.Request{APIFormat: string(llm.APIFormatOpenAIResponse)},
+	}
+	outbound := &PersistentOutboundTransformer{
+		wrapped: &mockTransformer{apiFormat: llm.APIFormatOpenAIResponse},
+		state:   state,
+	}
+	source := newTerminalThenBlockedStream(terminal)
+	pipelineStream, err := captureRawProviderStream(outbound, nil).OnOutboundRawStream(t.Context(), source)
+	require.NoError(t, err)
+
+	require.True(t, pipelineStream.Next())
+	require.Same(t, terminal, pipelineStream.Current())
+	require.False(t, pipelineStream.Next())
+	raw, ok := <-state.RawStreamCh
+	require.True(t, ok)
+	require.Same(t, terminal, raw)
+	_, ok = <-state.RawStreamCh
+	require.False(t, ok)
+
+	select {
+	case <-source.closed:
+	default:
+		t.Fatal("provider decoder was not closed after official terminal")
+	}
+	select {
+	case <-source.secondRead:
+		t.Fatal("capture waited for provider tail after official terminal")
+	default:
+	}
+}
+
+func TestProviderStreamTerminal_IsFormatAware(t *testing.T) {
+	responsesDone := &httpclient.StreamEvent{Data: []byte("[DONE]")}
+	require.False(t, providerStreamTerminal(llm.APIFormatOpenAIResponse, responsesDone))
+	require.True(t, providerStreamTerminal(llm.APIFormatOpenAIChatCompletion, responsesDone))
+	require.True(t, providerStreamTerminal(llm.APIFormatAnthropicMessage,
+		&httpclient.StreamEvent{Type: "message_stop", Data: []byte(`{"type":"message_stop"}`)}))
+	require.False(t, providerStreamTerminal(llm.APIFormatOpenAIResponse,
+		&httpclient.StreamEvent{Type: "response.done", Data: []byte(`{"type":"response.done"}`)}))
+}
+
+type closeSignalStream struct {
+	streams.Stream[*httpclient.StreamEvent]
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (s *closeSignalStream) Close() error {
+	err := s.Stream.Close()
+	s.once.Do(func() { close(s.closed) })
+	return err
+}
+
+func TestPassThroughStream_OfficialTerminalClosesTransformedDrainWithoutProviderEOF(t *testing.T) {
+	channel := &biz.Channel{Channel: &ent.Channel{ID: 1, Name: "test", Settings: &objects.ChannelSettings{
+		PassThroughBody: lo.ToPtr(true),
+	}}}
+	terminal := &httpclient.StreamEvent{Type: "response.completed", Data: []byte(
+		`{"type":"response.completed","response":{"status":"completed","output":[]}}`,
+	)}
+	state := &PersistenceState{
+		CurrentCandidate:      &ChannelModelsCandidate{Channel: channel},
+		OriginalRequestStream: lo.ToPtr(true),
+		LlmRequest:            &llm.Request{APIFormat: llm.APIFormatOpenAIResponse, Stream: lo.ToPtr(true)},
+		RawProviderRequest:    &httpclient.Request{APIFormat: string(llm.APIFormatOpenAIResponse)},
+	}
+	outbound := &PersistentOutboundTransformer{
+		wrapped: &mockTransformer{apiFormat: llm.APIFormatOpenAIResponse},
+		state:   state,
+	}
+	source := newTerminalThenBlockedStream(terminal)
+	pipelineStream, err := captureRawProviderStream(outbound, nil).OnOutboundRawStream(t.Context(), source)
+	require.NoError(t, err)
+	transformed := &closeSignalStream{Stream: pipelineStream, closed: make(chan struct{})}
+	clientStream, err := applyPassThroughStream(outbound, nil).OnInboundRawStream(t.Context(), transformed)
+	require.NoError(t, err)
+
+	require.True(t, clientStream.Next())
+	require.Same(t, terminal, clientStream.Current())
+	require.False(t, clientStream.Next())
+	select {
+	case <-transformed.closed:
+	case <-time.After(time.Second):
+		t.Fatal("transformed drain did not close after official terminal")
+	}
+	select {
+	case <-source.secondRead:
+		t.Fatal("provider tail was read after official terminal")
+	default:
+	}
+}
+
+func TestPassThroughStream_CancellationTerminalClosesBothBranchesWithoutProviderEOF(t *testing.T) {
+	for _, terminalType := range []string{"response.cancelled", "response.canceled"} {
+		t.Run(terminalType, func(t *testing.T) {
+			channel := &biz.Channel{Channel: &ent.Channel{ID: 1, Name: "test", Settings: &objects.ChannelSettings{
+				PassThroughBody: lo.ToPtr(true),
+			}}}
+			terminal := &httpclient.StreamEvent{Type: terminalType, Data: []byte(
+				fmt.Sprintf(`{"type":%q,"response":{"status":"canceled","output":[]}}`, terminalType),
+			)}
+			state := &PersistenceState{
+				CurrentCandidate:      &ChannelModelsCandidate{Channel: channel},
+				OriginalRequestStream: lo.ToPtr(true),
+				LlmRequest:            &llm.Request{APIFormat: llm.APIFormatOpenAIResponse, Stream: lo.ToPtr(true)},
+				RawProviderRequest:    &httpclient.Request{APIFormat: string(llm.APIFormatOpenAIResponse)},
+			}
+			outbound := &PersistentOutboundTransformer{
+				wrapped: &mockTransformer{apiFormat: llm.APIFormatOpenAIResponse},
+				state:   state,
+			}
+			source := newTerminalThenBlockedStream(terminal)
+			pipelineStream, err := captureRawProviderStream(outbound, nil).OnOutboundRawStream(t.Context(), source)
+			require.NoError(t, err)
+			transformed := &closeSignalStream{Stream: pipelineStream, closed: make(chan struct{})}
+			clientStream, err := applyPassThroughStream(outbound, nil).OnInboundRawStream(t.Context(), transformed)
+			require.NoError(t, err)
+
+			require.True(t, clientStream.Next())
+			require.Same(t, terminal, clientStream.Current())
+			require.False(t, clientStream.Next())
+			select {
+			case <-transformed.closed:
+			case <-time.After(time.Second):
+				t.Fatal("transformed drain did not close after cancellation terminal")
+			}
+			select {
+			case <-source.secondRead:
+				t.Fatal("provider tail was read after cancellation terminal")
+			default:
+			}
+		})
+	}
+}
+
+func TestResetPassThroughStreamState_WaitsForProducerAndDrainHandoff(t *testing.T) {
+	cancelCalled := make(chan struct{})
+	attempt := &passThroughAttempt{
+		cancel:       func() { close(cancelCalled) },
+		producerDone: make(chan error, 1),
+		drainDone:    make(chan error, 1),
+	}
+	state := &PersistenceState{
+		RawStreamAttempt: attempt,
+		RawStreamCh:      make(chan *httpclient.StreamEvent),
+		RawStreamErrRef:  new(error),
+	}
+	outbound := &PersistentOutboundTransformer{state: state}
+	resetDone := make(chan struct{})
+	go func() {
+		outbound.resetPassThroughStreamState()
+		close(resetDone)
+	}()
+
+	<-cancelCalled
+	select {
+	case <-resetDone:
+		t.Fatal("reset returned before producer exit")
+	default:
+	}
+	attempt.producerDone <- nil
+	close(attempt.producerDone)
+	select {
+	case <-resetDone:
+		t.Fatal("reset returned before drain exit")
+	default:
+	}
+	attempt.drainDone <- nil
+	close(attempt.drainDone)
+	<-resetDone
+	require.Nil(t, state.RawStreamAttempt)
+	require.Nil(t, state.RawStreamCh)
+	require.Nil(t, state.RawStreamErrRef)
 }
 
 func newBlockingStream() *blockingStream {

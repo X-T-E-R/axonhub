@@ -76,11 +76,15 @@ func (ts *InboundPersistentStream) Current() *httpclient.StreamEvent {
 		// For raw binary audio chunks (TTS stream_format=audio), persist only a size
 		// summary to avoid buffering the full audio payload in memory.
 		ts.responseChunks = append(ts.responseChunks, httpclient.SummarizeBinaryChunk(event))
-		status := terminalStreamStatus(event)
+		apiFormat := llm.APIFormat("")
+		if ts.state != nil && ts.state.LlmRequest != nil {
+			apiFormat = ts.state.LlmRequest.APIFormat
+		}
+		status := terminalStreamStatusForFormat(event, apiFormat)
 		switch status {
 		case streamTerminalCompleted:
 			ts.streamCompleted = true
-			ts.state.StreamCompleted = true
+			ts.state.markStreamCompleted()
 		case streamTerminalFailed, streamTerminalIncomplete, streamTerminalCanceled:
 			ts.providerStatus = status
 			ts.state.recordProviderTerminalStatus(status)
@@ -107,10 +111,17 @@ const (
 )
 
 func terminalStreamStatus(event *httpclient.StreamEvent) streamTerminalStatus {
+	return terminalStreamStatusForFormat(event, "")
+}
+
+func terminalStreamStatusForFormat(event *httpclient.StreamEvent, apiFormat llm.APIFormat) streamTerminalStatus {
 	if event == nil {
 		return streamTerminalNone
 	}
 	if bytes.Equal(event.Data, llm.DoneStreamEvent.Data) {
+		if apiFormat == llm.APIFormatOpenAIResponse || apiFormat == llm.APIFormatAnthropicMessage {
+			return streamTerminalNone
+		}
 		return streamTerminalCompleted
 	}
 
@@ -120,12 +131,24 @@ func terminalStreamStatus(event *httpclient.StreamEvent) streamTerminalStatus {
 	}
 	switch eventType {
 	case "response.failed":
+		if apiFormat != "" && apiFormat != llm.APIFormatOpenAIResponse {
+			return streamTerminalNone
+		}
 		return streamTerminalFailed
 	case "response.incomplete":
+		if apiFormat != "" && apiFormat != llm.APIFormatOpenAIResponse {
+			return streamTerminalNone
+		}
 		return streamTerminalIncomplete
 	case "response.cancelled", "response.canceled":
+		if apiFormat != "" && apiFormat != llm.APIFormatOpenAIResponse {
+			return streamTerminalNone
+		}
 		return streamTerminalCanceled
 	case "response.completed":
+		if apiFormat != "" && apiFormat != llm.APIFormatOpenAIResponse {
+			return streamTerminalNone
+		}
 		switch gjson.GetBytes(event.Data, "response.status").String() {
 		case "failed":
 			return streamTerminalFailed
@@ -137,6 +160,9 @@ func terminalStreamStatus(event *httpclient.StreamEvent) streamTerminalStatus {
 			return streamTerminalCompleted
 		}
 	case "message_stop", "speech.audio.done", "transcript.text.done", httpclient.BinaryStreamDoneEventType:
+		if eventType == "message_stop" && apiFormat != "" && apiFormat != llm.APIFormatAnthropicMessage {
+			return streamTerminalNone
+		}
 		return streamTerminalCompleted
 	}
 
@@ -179,7 +205,11 @@ func (ts *InboundPersistentStream) Close() error {
 	// The wrapped transformed stream owns RequestExecution finalization. Close
 	// it before persisting the parent Request so the parent cannot become
 	// terminal while its current execution is still processing.
+	ts.state.recordStreamLifecycle(ctx, "stream_close_start")
 	closeErr := ts.stream.Close()
+	ts.state.recordStreamLifecycle(ctx, "stream_close_end")
+	ts.state.recordStreamLifecycle(ctx, "parent_persist_start")
+	defer ts.state.recordStreamLifecycle(ctx, "parent_persist_end")
 
 	streamCompleted := ts.streamCompleted || ts.state.isStreamCompletionConfirmed()
 	log.Debug(ctx, "Closing persistent stream", log.Int("chunk_count", len(ts.responseChunks)), log.Bool("received_done", streamCompleted))
@@ -243,7 +273,7 @@ func (ts *InboundPersistentStream) Close() error {
 			log.Debug(ctx, "Stream has valid complete response without terminal event, treating as completed")
 			ts.streamCompleted = true
 			streamCompleted = true
-			ts.state.StreamCompleted = true
+			ts.state.markStreamCompleted()
 		}
 	}
 
