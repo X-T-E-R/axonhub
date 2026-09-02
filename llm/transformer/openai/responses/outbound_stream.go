@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -48,6 +49,7 @@ type responsesOutboundStream struct {
 
 	// Track whether the response completed successfully
 	responseCompleted bool
+	doneEmitted       bool
 }
 
 // outboundStreamState holds the state for a streaming session.
@@ -74,6 +76,10 @@ type outboundStreamState struct {
 	// Transformer metadata tracking
 	transformerMetadata        map[string]any
 	transformerMetadataEmitted bool
+	semanticItems              map[string]semanticItemChannels
+	terminalItems              map[string][]byte
+	terminalEventType          StreamEventType
+	terminalEvent              []byte
 }
 
 func newResponsesOutboundStream(stream streams.Stream[*httpclient.StreamEvent]) *responsesOutboundStream {
@@ -86,8 +92,220 @@ func newResponsesOutboundStream(stream streams.Stream[*httpclient.StreamEvent]) 
 			toolCallPayloadSent:              make(map[string]bool),
 			pendingReasoningEncryptedContent: make(map[string]*string),
 			transformerMetadata:              make(map[string]any),
+			semanticItems:                    make(map[string]semanticItemChannels),
+			terminalItems:                    make(map[string][]byte),
 		},
 	}
+}
+
+func knownResponsesStreamEventType(eventType StreamEventType) bool {
+	switch eventType {
+	case StreamEventTypeError,
+		StreamEventTypeResponseCreated, StreamEventTypeResponseInProgress,
+		StreamEventTypeResponseCompleted, StreamEventTypeResponseQueued,
+		StreamEventTypeResponseFailed, StreamEventTypeResponseCancelled, StreamEventTypeResponseCanceled,
+		StreamEventTypeResponseIncomplete,
+		StreamEventTypeOutputItemAdded, StreamEventTypeOutputItemDone,
+		StreamEventTypeContentPartAdded, StreamEventTypeContentPartDone,
+		StreamEventTypeOutputTextDelta, StreamEventTypeOutputTextDone,
+		StreamEventTypeFunctionCallArgumentsDelta, StreamEventTypeFunctionCallArgumentsDone,
+		StreamEventTypeCustomToolCallInputDelta, StreamEventTypeCustomToolCallInputDone,
+		StreamEventTypeReasoningSummaryPartAdded, StreamEventTypeReasoningSummaryPartDone,
+		StreamEventTypeReasoningSummaryTextDelta, StreamEventTypeReasoningSummaryTextDone,
+		StreamEventTypeReasoningTextDelta, StreamEventTypeReasoningTextDone,
+		StreamEventTypeImageGenerationGenerating, StreamEventTypeImageGenerationInProgress,
+		StreamEventTypeImageGenerationPartialImage, StreamEventTypeImageGenerationCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func responseItemKey(item *Item, outputIndex int) string {
+	if item != nil && item.ID != "" {
+		return "id:" + item.ID
+	}
+	return fmt.Sprintf("index:%d", outputIndex)
+}
+
+type semanticItemChannels uint8
+
+const (
+	semanticText semanticItemChannels = 1 << iota
+	semanticRefusal
+	semanticReasoning
+	semanticReasoningSignature
+	semanticImage
+	semanticAnnotations
+)
+
+func (s *responsesOutboundStream) markSemanticItem(itemID *string, outputIndex int, channels semanticItemChannels) {
+	key := fmt.Sprintf("index:%d", outputIndex)
+	if itemID != nil && *itemID != "" {
+		key = "id:" + *itemID
+	}
+	s.state.semanticItems[key] |= channels
+}
+
+func canonicalResponsesTerminalType(eventType StreamEventType) StreamEventType {
+	if eventType == StreamEventTypeResponseCanceled {
+		return StreamEventTypeResponseCancelled
+	}
+	return eventType
+}
+
+func terminalEventFingerprint(data []byte) []byte {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return bytes.TrimSpace(data)
+	}
+	delete(payload, "type")
+	normalized, err := json.Marshal(payload)
+	if err != nil {
+		return bytes.TrimSpace(data)
+	}
+	return normalized
+}
+
+func (s *responsesOutboundStream) acceptTerminalEvent(eventType StreamEventType, data []byte) (bool, error) {
+	eventType = canonicalResponsesTerminalType(eventType)
+	fingerprint := terminalEventFingerprint(data)
+	if s.state.terminalEventType == "" {
+		s.state.terminalEventType = eventType
+		s.state.terminalEvent = append([]byte(nil), fingerprint...)
+		return true, nil
+	}
+	if s.state.terminalEventType == eventType && bytes.Equal(s.state.terminalEvent, fingerprint) {
+		return false, nil
+	}
+	return false, fmt.Errorf("%w: conflicting responses terminal %s after %s",
+		transformer.ErrToolCallIntegrity, eventType, s.state.terminalEventType)
+}
+
+func (s *responsesOutboundStream) acceptTerminalItem(item *Item, outputIndex int) (bool, error) {
+	key := responseItemKey(item, outputIndex)
+	normalized, err := json.Marshal(item)
+	if err != nil {
+		return false, err
+	}
+	if prior, exists := s.state.terminalItems[key]; exists {
+		if bytes.Equal(prior, normalized) {
+			return false, nil
+		}
+		return false, fmt.Errorf("%w: conflicting terminal snapshot for %s", transformer.ErrToolCallIntegrity, key)
+	}
+	s.state.terminalItems[key] = normalized
+	return true, nil
+}
+
+func messageHasTerminalSemantic(msg llm.Message) bool {
+	return msg.Content.Content != nil || len(msg.Content.MultipleContent) > 0 || msg.Refusal != "" ||
+		msg.ReasoningContent != nil || msg.ReasoningSignature != nil || len(msg.Annotations) > 0
+}
+
+func messageSemanticChannels(msg llm.Message) semanticItemChannels {
+	var channels semanticItemChannels
+	if msg.Content.Content != nil {
+		channels |= semanticText
+	}
+	for _, part := range msg.Content.MultipleContent {
+		switch part.Type {
+		case "image_url":
+			channels |= semanticImage
+		default:
+			channels |= semanticText
+		}
+	}
+	if msg.Refusal != "" {
+		channels |= semanticRefusal
+	}
+	if msg.ReasoningContent != nil {
+		channels |= semanticReasoning
+	}
+	if msg.ReasoningSignature != nil {
+		channels |= semanticReasoningSignature
+	}
+	if len(msg.Annotations) > 0 {
+		channels |= semanticAnnotations
+	}
+	return channels
+}
+
+func suppressMessageChannels(msg *llm.Message, emitted semanticItemChannels) {
+	if emitted&semanticText != 0 {
+		msg.Content.Content = nil
+	}
+	if len(msg.Content.MultipleContent) > 0 {
+		kept := msg.Content.MultipleContent[:0]
+		for _, part := range msg.Content.MultipleContent {
+			isImage := part.Type == "image_url"
+			if (isImage && emitted&semanticImage != 0) || (!isImage && emitted&semanticText != 0) {
+				continue
+			}
+			kept = append(kept, part)
+		}
+		msg.Content.MultipleContent = kept
+	}
+	if emitted&semanticRefusal != 0 {
+		msg.Refusal = ""
+	}
+	if emitted&semanticReasoning != 0 {
+		msg.ReasoningContent = nil
+	}
+	if emitted&semanticReasoningSignature != 0 {
+		msg.ReasoningSignature = nil
+	}
+	if emitted&semanticAnnotations != 0 {
+		msg.Annotations = nil
+	}
+}
+
+func (s *responsesOutboundStream) recoverTerminalItem(item *Item, outputIndex int) error {
+	if item == nil {
+		return nil
+	}
+	switch item.Type {
+	case "message", "output_text", "reasoning", "image_generation_call":
+	default:
+		return nil
+	}
+	accepted, err := s.acceptTerminalItem(item, outputIndex)
+	if err != nil || !accepted {
+		return err
+	}
+	terminalItem := *item
+	if terminalItem.Type == "reasoning" {
+		if (terminalItem.EncryptedContent == nil || *terminalItem.EncryptedContent == "") && terminalItem.ID != "" {
+			terminalItem.EncryptedContent = s.state.pendingReasoningEncryptedContent[terminalItem.ID]
+		}
+		delete(s.state.pendingReasoningEncryptedContent, terminalItem.ID)
+	}
+	msg := convertOutputToMessage([]Item{terminalItem}, s.state.transformerMetadata)
+	msg.Role = ""
+	key := responseItemKey(item, outputIndex)
+	suppressMessageChannels(&msg, s.state.semanticItems[key])
+	if !messageHasTerminalSemantic(msg) {
+		return nil
+	}
+	response := &llm.Response{
+		Object:             "chat.completion.chunk",
+		ID:                 s.state.responseID,
+		Model:              s.state.responseModel,
+		Created:            s.state.created,
+		PreviousResponseID: s.state.previousResponseID,
+		Choices:            []llm.Choice{{Index: 0, Delta: &msg}},
+	}
+	if terminalItem.Type == "reasoning" && terminalItem.ID != "" {
+		response.TransformerMetadata = map[string]any{
+			responsesReasoningItemTransformerMetadataKey: map[string]any{"id": terminalItem.ID, "done": true},
+		}
+	} else if len(s.state.transformerMetadata) > 0 {
+		response.TransformerMetadata = s.state.transformerMetadata
+		s.state.transformerMetadataEmitted = true
+	}
+	s.enqueue(response)
+	s.state.semanticItems[key] |= messageSemanticChannels(msg)
+	return nil
 }
 
 func (s *responsesOutboundStream) enqueue(resp *llm.Response) {
@@ -502,7 +720,10 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 
 	// Handle [DONE] marker
 	if string(event.Data) == "[DONE]" {
-		s.enqueue(llm.DoneResponse)
+		if !s.doneEmitted {
+			s.doneEmitted = true
+			s.enqueue(llm.DoneResponse)
+		}
 		return nil
 	}
 
@@ -512,6 +733,34 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 	err := json.Unmarshal(event.Data, &streamEvent)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal responses api stream event: %w", err)
+	}
+	if streamEvent.Type == "" {
+		outerType := StreamEventType(event.Type)
+		if knownResponsesStreamEventType(outerType) {
+			streamEvent.Type = outerType
+		}
+	}
+	if streamEvent.Type == StreamEventTypeResponseCompleted ||
+		streamEvent.Type == StreamEventTypeResponseFailed ||
+		streamEvent.Type == StreamEventTypeResponseIncomplete ||
+		streamEvent.Type == StreamEventTypeResponseCancelled ||
+		streamEvent.Type == StreamEventTypeResponseCanceled {
+		accepted, terminalErr := s.acceptTerminalEvent(streamEvent.Type, event.Data)
+		if terminalErr != nil || !accepted {
+			return terminalErr
+		}
+	}
+	if streamEvent.Response != nil {
+		if streamEvent.Response.ID != "" {
+			s.state.responseID = streamEvent.Response.ID
+		}
+		if streamEvent.Response.Model != "" {
+			s.state.responseModel = streamEvent.Response.Model
+		}
+		if streamEvent.Response.CreatedAt != 0 {
+			s.state.created = streamEvent.Response.CreatedAt
+		}
+		s.state.previousResponseID = streamEvent.Response.PreviousResponseID
 	}
 
 	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
@@ -743,6 +992,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 
 	case StreamEventTypeOutputTextDelta:
 		// Text content delta
+		s.markSemanticItem(streamEvent.ItemID, streamEvent.OutputIndex, semanticText)
 		s.state.textContent.WriteString(streamEvent.Delta)
 
 		resp.Choices = []llm.Choice{
@@ -758,6 +1008,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 
 	case StreamEventTypeReasoningSummaryTextDelta, StreamEventTypeReasoningTextDelta:
 		// Reasoning content delta
+		s.markSemanticItem(streamEvent.ItemID, streamEvent.OutputIndex, semanticReasoning)
 		s.state.reasoningContent.WriteString(streamEvent.Delta)
 		itemID := lo.FromPtr(streamEvent.ItemID)
 		if itemID == "" {
@@ -790,6 +1041,10 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			return nil // Intentionally skip this event
 		}
 		if streamEvent.Item.Type == "function_call" {
+			accepted, err := s.acceptTerminalItem(streamEvent.Item, streamEvent.OutputIndex)
+			if err != nil || !accepted {
+				return err
+			}
 			itemID := streamEvent.Item.ID
 			if err := s.bufferFunctionCallSnapshot(
 				streamEvent.Item.CallID,
@@ -805,6 +1060,10 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			return nil
 		}
 		if streamEvent.Item.Type == "custom_tool_call" {
+			accepted, err := s.acceptTerminalItem(streamEvent.Item, streamEvent.OutputIndex)
+			if err != nil || !accepted {
+				return err
+			}
 			itemID := streamEvent.Item.ID
 			if itemID != "" && streamEvent.Item.CallID != "" {
 				s.state.itemToCallID[itemID] = streamEvent.Item.CallID
@@ -827,57 +1086,10 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			appendResponseWebSearchCallMetadata(s.state.transformerMetadata, *streamEvent.Item)
 			return nil // Intentionally skip this event
 		}
-		if streamEvent.Item.Type == "reasoning" {
-			if streamEvent.Item.ID == "" {
-				return nil // Intentionally skip this event
-			}
-
-			encryptedContent := shared.EncodeOpenAIEncryptedContent(streamEvent.Item.EncryptedContent)
-			if encryptedContent == nil || *encryptedContent == "" {
-				encryptedContent = s.state.pendingReasoningEncryptedContent[streamEvent.Item.ID]
-			}
-			delete(s.state.pendingReasoningEncryptedContent, streamEvent.Item.ID)
-			if encryptedContent == nil || *encryptedContent == "" {
-				return nil // Intentionally skip this event
-			}
-
-			resp.TransformerMetadata = map[string]any{
-				responsesReasoningItemTransformerMetadataKey: map[string]any{
-					"id":   streamEvent.Item.ID,
-					"done": true,
-				},
-			}
-			resp.Choices = []llm.Choice{
-				{
-					Index: 0,
-					Delta: &llm.Message{
-						ReasoningSignature: encryptedContent,
-					},
-				},
-			}
-			break
+		if err := s.recoverTerminalItem(streamEvent.Item, streamEvent.OutputIndex); err != nil {
+			return err
 		}
-		if streamEvent.Item.Type != "message" {
-			return nil // Intentionally skip this event
-		}
-
-		msg := convertOutputToMessage([]Item{*streamEvent.Item}, s.state.transformerMetadata)
-		if len(msg.Annotations) == 0 {
-			return nil // Intentionally skip this event
-		}
-		if len(s.state.transformerMetadata) > 0 {
-			resp.TransformerMetadata = s.state.transformerMetadata
-			s.state.transformerMetadataEmitted = true
-		}
-
-		resp.Choices = []llm.Choice{
-			{
-				Index: 0,
-				Delta: &llm.Message{
-					Annotations: msg.Annotations,
-				},
-			},
-		}
+		return nil
 
 	case StreamEventTypeContentPartDone,
 		StreamEventTypeReasoningSummaryPartAdded, StreamEventTypeReasoningSummaryPartDone:
@@ -893,6 +1105,16 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			for i := range streamEvent.Response.Output {
 				item := &streamEvent.Response.Output[i]
 				if item.Type != "function_call" && item.Type != "custom_tool_call" {
+					if err := s.recoverTerminalItem(item, i); err != nil {
+						return err
+					}
+					continue
+				}
+				accepted, err := s.acceptTerminalItem(item, i)
+				if err != nil {
+					return err
+				}
+				if !accepted {
 					continue
 				}
 				itemID := item.ID
@@ -1020,7 +1242,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			},
 		}
 
-	case StreamEventTypeResponseCancelled:
+	case StreamEventTypeResponseCancelled, StreamEventTypeResponseCanceled:
 		// Response cancelled
 		s.responseCompleted = true
 		finishReason := "cancelled"
@@ -1047,6 +1269,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		StreamEventTypeImageGenerationCompleted:
 		// Handle image generation events
 		if streamEvent.PartialImageB64 != "" {
+			s.markSemanticItem(streamEvent.ItemID, streamEvent.OutputIndex, semanticImage)
 			imageURL := xurl.BuildDataURL("image/png", streamEvent.PartialImageB64, true)
 			resp.Choices = []llm.Choice{
 				{

@@ -550,6 +550,8 @@ type Item struct {
 
 	// Text for output_text/input_text type.
 	Text *string `json:"text,omitempty"`
+	// Refusal for refusal content parts in message output snapshots.
+	Refusal *string `json:"refusal,omitempty"`
 
 	// Image generation fields
 

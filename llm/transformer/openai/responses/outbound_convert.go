@@ -670,6 +670,14 @@ func convertOutputToMessage(output []Item, transformerMetadata map[string]any) l
 			for _, contentItem := range outputItem.Content.Items {
 				if contentItem.Type == "output_text" {
 					annotations = appendOutputText(&textContent, &visibleTextRuneCount, annotations, contentItem)
+				} else if contentItem.Type == "refusal" && contentItem.Refusal != nil {
+					// Refusal is a separate semantic channel in the unified message.
+					// Preserve the first non-empty refusal from the terminal snapshot.
+					// Multiple refusal parts are joined in provider order below.
+					flushText()
+					contentParts = append(contentParts, llm.MessageContentPart{
+						Type: "refusal", Text: contentItem.Refusal,
+					})
 				}
 			}
 		case "output_text":
@@ -702,6 +710,9 @@ func convertOutputToMessage(output []Item, transformerMetadata map[string]any) l
 		case "reasoning":
 			for _, summary := range outputItem.Summary {
 				reasoningContent.WriteString(summary.Text)
+			}
+			for _, reasoning := range outputItem.ReasoningContent {
+				reasoningContent.WriteString(reasoning.Text)
 			}
 
 			if outputItem.EncryptedContent != nil && *outputItem.EncryptedContent != "" {
@@ -772,6 +783,14 @@ func convertOutputToMessage(output []Item, transformerMetadata map[string]any) l
 		ToolCalls:   toolCalls,
 		Annotations: annotations,
 	}
+	for _, part := range contentParts {
+		if part.Type == "refusal" && part.Text != nil {
+			msg.Refusal += *part.Text
+		}
+	}
+	contentParts = lo.Filter(contentParts, func(part llm.MessageContentPart, _ int) bool {
+		return part.Type != "refusal"
+	})
 
 	if reasoningContent.Len() > 0 {
 		msg.ReasoningContent = lo.ToPtr(reasoningContent.String())

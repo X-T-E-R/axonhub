@@ -16,6 +16,7 @@ const (
 	StreamEventTypeResponseQueued     StreamEventType = "response.queued"
 	StreamEventTypeResponseFailed     StreamEventType = "response.failed"
 	StreamEventTypeResponseCancelled  StreamEventType = "response.cancelled"
+	StreamEventTypeResponseCanceled   StreamEventType = "response.canceled"
 	StreamEventTypeResponseIncomplete StreamEventType = "response.incomplete"
 
 	// Output item events.

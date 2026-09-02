@@ -13,7 +13,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer"
 )
 
-func TestOutboundToolCallIntegrity_LatestTerminalSnapshotWins(t *testing.T) {
+func TestOutboundToolCallIntegrity_ConflictingTerminalSnapshotFails(t *testing.T) {
 	outbound, err := NewOutboundTransformer("https://api.openai.com", "test")
 	require.NoError(t, err)
 	events := []*httpclient.StreamEvent{
@@ -27,26 +27,8 @@ func TestOutboundToolCallIntegrity_LatestTerminalSnapshotWins(t *testing.T) {
 
 	stream, err := outbound.TransformStream(t.Context(), nil, streams.SliceStream(events))
 	require.NoError(t, err)
-	chunks, err := streams.All(stream)
-	require.NoError(t, err)
-
-	var names, arguments []string
-	for _, chunk := range chunks {
-		if chunk == llm.DoneResponse || len(chunk.Choices) == 0 ||
-			chunk.Choices[0].Delta == nil {
-			continue
-		}
-		for _, call := range chunk.Choices[0].Delta.ToolCalls {
-			if call.Function.Name != "" {
-				names = append(names, call.Function.Name)
-			}
-			if call.Function.Arguments != "" {
-				arguments = append(arguments, call.Function.Arguments)
-			}
-		}
-	}
-	require.Equal(t, []string{"spawn_agent"}, names)
-	require.Equal(t, []string{`{"task":"authoritative"}`}, arguments)
+	_, err = streams.All(stream)
+	require.ErrorIs(t, err, transformer.ErrToolCallIntegrity)
 }
 
 func TestOutboundToolCallIntegrity_CompletedEmptyArgumentsFail(t *testing.T) {
