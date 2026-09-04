@@ -48,6 +48,13 @@ func sanitizeResponseBody(body []byte, maxLen int) []byte {
 	return []byte(str)
 }
 
+func errorResponseBodyForStorage(body []byte) []byte {
+	if len(body) > httpclient.MaxErrorBodySize {
+		body = body[:httpclient.MaxErrorBodySize]
+	}
+	return append([]byte(nil), body...)
+}
+
 // persistRequestExecutionMiddleware ensures a request execution exists and handles error updates.
 type persistRequestExecutionMiddleware struct {
 	pipeline.DummyMiddleware
@@ -231,6 +238,8 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 	deferredStreamFailure := pipeline.IsDeferredStreamError(err)
 	requestContextErr := context.Cause(ctx)
 	err = terminalErrorCause(err, requestContextErr)
+	errorInfo := ExtractErrorInfo(err)
+	state.recordAttemptErrorInfo(errorInfo)
 
 	// Use context without cancellation to ensure persistence even if client canceled
 	persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
@@ -242,7 +251,7 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 		err,
 		requestContextErr,
 		ExtractErrorMessage(err),
-		ExtractErrorInfo(err),
+		errorInfo,
 		failureLatencyMetrics(state.Perf),
 	)
 	if updateErr != nil {
@@ -261,7 +270,8 @@ func ExtractErrorInfo(err error) *biz.ExecutionErrorInfo {
 	}
 
 	return &biz.ExecutionErrorInfo{
-		StatusCode: &httpErr.StatusCode,
+		StatusCode:   &httpErr.StatusCode,
+		ResponseBody: errorResponseBodyForStorage(httpErr.Body),
 	}
 }
 

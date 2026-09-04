@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -441,6 +442,167 @@ func TestRequestService_UpdateRequestExecutionCompletedCanEnableResponseBodyStor
 	require.NoError(t, err)
 	require.JSONEq(t, `{"answer":"hi"}`, string(updated.ResponseBody))
 	require.Equal(t, "persist", updated.EvidenceDisposition.ResponseBody.Intent)
+}
+
+func TestRequestService_FailedResponseBodyStoragePolicy(t *testing.T) {
+	tests := []struct {
+		name              string
+		storeResponseBody bool
+		channelOverride   *bool
+		wantRequestBody   bool
+		wantExecutionBody bool
+	}{
+		{
+			name:              "channel disable overrides global enable",
+			storeResponseBody: true,
+			channelOverride:   lo.ToPtr(false),
+			wantRequestBody:   true,
+			wantExecutionBody: false,
+		},
+		{
+			name:              "channel enable overrides global disable",
+			storeResponseBody: false,
+			channelOverride:   lo.ToPtr(true),
+			wantRequestBody:   false,
+			wantExecutionBody: true,
+		},
+		{
+			name:              "global and channel disabled",
+			storeResponseBody: false,
+			channelOverride:   lo.ToPtr(false),
+			wantRequestBody:   false,
+			wantExecutionBody: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+			defer client.Close()
+			require.NoError(t, svc.SystemService.SetStoragePolicy(ctx, &StoragePolicy{
+				StoreRequestBody:          true,
+				StoreExecutionRequestBody: lo.ToPtr(true),
+				StoreResponseBody:         tt.storeResponseBody,
+			}))
+
+			ctx = contexts.WithProjectID(ctx, proj.ID)
+			channel := createStorageTestChannel(t, ctx, client, &objects.ChannelSettings{
+				StoreExecutionResponseBody: tt.channelOverride,
+			})
+			requestBody := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"failure"}]}`)
+			req, err := svc.CreateRequest(ctx, &llm.Request{Model: "gpt-4o"}, &httpclient.Request{JSONBody: requestBody}, llm.APIFormatOpenAIChatCompletion)
+			require.NoError(t, err)
+			execution, err := svc.CreateRequestExecution(ctx, channel, "gpt-4o", req, httpclient.Request{JSONBody: requestBody}, llm.APIFormatOpenAIChatCompletion, false)
+			require.NoError(t, err)
+
+			statusCode := 400
+			errorBody := []byte(`{"error":{"message":"bad request"},"access_token":"synthetic-placeholder"}`)
+			errorInfo := &ExecutionErrorInfo{StatusCode: &statusCode, ResponseBody: errorBody}
+			require.NoError(t, svc.UpdateRequestExecutionStatusFromErrorDetails(ctx, execution.ID, errors.New("bad request"), nil, "bad request", errorInfo))
+			require.NoError(t, svc.UpdateRequestStatusFromErrorDetails(ctx, req.ID, errors.New("bad request"), nil, errorInfo))
+
+			storedRequest := client.Request.GetX(ctx, req.ID)
+			storedExecution := client.RequestExecution.GetX(ctx, execution.ID)
+			if tt.wantRequestBody {
+				require.Equal(t, errorBody, []byte(storedRequest.ResponseBody))
+				require.Equal(t, "stored", storedRequest.EvidenceDisposition.ResponseBody.Outcome)
+			} else {
+				require.Empty(t, storedRequest.ResponseBody)
+				require.Equal(t, "omit", storedRequest.EvidenceDisposition.ResponseBody.Intent)
+				require.Equal(t, "omitted", storedRequest.EvidenceDisposition.ResponseBody.Outcome)
+			}
+			if tt.wantExecutionBody {
+				require.Equal(t, errorBody, []byte(storedExecution.ResponseBody))
+				require.Equal(t, "stored", storedExecution.EvidenceDisposition.ResponseBody.Outcome)
+			} else {
+				require.Empty(t, storedExecution.ResponseBody)
+				require.Equal(t, "omit", storedExecution.EvidenceDisposition.ResponseBody.Intent)
+				require.Equal(t, "omitted", storedExecution.EvidenceDisposition.ResponseBody.Outcome)
+			}
+		})
+	}
+}
+
+func TestRequestService_FailedResponseBodyUsesExistingExternalStoragePaths(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+	dir := t.TempDir()
+	fsStorage := client.DataStorage.Create().
+		SetName("failed-response-evidence-fs").
+		SetDescription("failed response evidence").
+		SetType(datastorage.TypeFs).
+		SetStatus(datastorage.StatusActive).
+		SetSettings(&objects.DataStorageSettings{Directory: &dir}).
+		SaveX(ctx)
+	channel := createStorageTestChannel(t, ctx, client, &objects.ChannelSettings{
+		StoreExecutionResponseBody: lo.ToPtr(true),
+	})
+	req := client.Request.Create().
+		SetProjectID(proj.ID).
+		SetDataStorageID(fsStorage.ID).
+		SetModelID("gpt-4o").
+		SetRequestBody([]byte(`{}`)).
+		SetStatus(request.StatusProcessing).
+		SaveX(ctx)
+	execution := createStorageTestExecutionWithDataStorage(t, ctx, client, proj, req, channel, fsStorage.ID)
+
+	statusCode := 400
+	errorBody := []byte("{\n  \"error\": {\"message\": \"external bad request\"},\n  \"access_token\": \"synthetic-placeholder\"\n}\n")
+	errorInfo := &ExecutionErrorInfo{StatusCode: &statusCode, ResponseBody: errorBody}
+	require.NoError(t, svc.UpdateRequestExecutionStatusFromErrorDetails(ctx, execution.ID, errors.New("bad request"), nil, "bad request", errorInfo))
+	require.NoError(t, svc.UpdateRequestStatusFromErrorDetails(ctx, req.ID, errors.New("bad request"), nil, errorInfo))
+
+	storedRequest := client.Request.GetX(ctx, req.ID)
+	storedExecution := client.RequestExecution.GetX(ctx, execution.ID)
+	require.Empty(t, storedRequest.ResponseBody)
+	require.Empty(t, storedExecution.ResponseBody)
+	require.Equal(t, "external", storedRequest.EvidenceDisposition.ResponseBody.Location)
+	require.Equal(t, "stored", storedRequest.EvidenceDisposition.ResponseBody.Outcome)
+	require.Equal(t, "external", storedExecution.EvidenceDisposition.ResponseBody.Location)
+	require.Equal(t, "stored", storedExecution.EvidenceDisposition.ResponseBody.Outcome)
+	requestEvidence, err := svc.LoadResponseBodyEvidenceBounded(ctx, storedRequest, int64(len(errorBody)))
+	require.NoError(t, err)
+	require.Equal(t, errorBody, []byte(requestEvidence))
+	executionEvidence, err := svc.LoadRequestExecutionResponseBodyEvidenceBounded(ctx, storedExecution, int64(len(errorBody)))
+	require.NoError(t, err)
+	require.Equal(t, errorBody, []byte(executionEvidence))
+}
+
+func TestRequestService_FailedTextResponseBodyKeepsRawExternalBytes(t *testing.T) {
+	svc, client, ctx, proj := setupRequestExecutionStorageTest(t)
+	defer client.Close()
+	dir := t.TempDir()
+	fsStorage := client.DataStorage.Create().
+		SetName("failed-text-response-evidence-fs").
+		SetDescription("failed text response evidence").
+		SetType(datastorage.TypeFs).
+		SetStatus(datastorage.StatusActive).
+		SetSettings(&objects.DataStorageSettings{Directory: &dir}).
+		SaveX(ctx)
+	channel := createStorageTestChannel(t, ctx, client, &objects.ChannelSettings{
+		StoreExecutionResponseBody: lo.ToPtr(true),
+	})
+	req := client.Request.Create().
+		SetProjectID(proj.ID).
+		SetDataStorageID(fsStorage.ID).
+		SetModelID("gpt-4o").
+		SetRequestBody([]byte(`{}`)).
+		SetStatus(request.StatusProcessing).
+		SaveX(ctx)
+	execution := createStorageTestExecutionWithDataStorage(t, ctx, client, proj, req, channel, fsStorage.ID)
+
+	statusCode := 502
+	errorBody := []byte("upstream text failure: synthetic-placeholder\n")
+	errorInfo := &ExecutionErrorInfo{StatusCode: &statusCode, ResponseBody: errorBody}
+	require.NoError(t, svc.UpdateRequestExecutionStatusFromErrorDetails(ctx, execution.ID, errors.New("upstream text failure"), nil, "upstream text failure", errorInfo))
+	require.NoError(t, svc.UpdateRequestStatusFromErrorDetails(ctx, req.ID, errors.New("upstream text failure"), nil, errorInfo))
+
+	requestBytes, err := svc.DataStorageService.LoadData(ctx, fsStorage, GenerateResponseBodyKey(proj.ID, req.ID))
+	require.NoError(t, err)
+	require.Equal(t, errorBody, requestBytes)
+	executionBytes, err := svc.DataStorageService.LoadData(ctx, fsStorage, GenerateExecutionResponseBodyKey(proj.ID, req.ID, execution.ID))
+	require.NoError(t, err)
+	require.Equal(t, errorBody, executionBytes)
 }
 
 func TestRequestService_SaveRequestExecutionChunksHonorsChannelOverride(t *testing.T) {

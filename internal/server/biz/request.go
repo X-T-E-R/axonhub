@@ -152,6 +152,54 @@ func (s *RequestService) getExecutionChannelSettings(ctx context.Context, execut
 // _InvalidRequestBodyJSON returns a JSON object indicating invalid text.
 var _InvalidRequestBodyJSON = objects.JSONRawMessage(`{"message":"invalid text"}`)
 
+const (
+	failedResponsePersistenceTimeout           = 10 * time.Second
+	failedTerminalStatusSaveReserve            = time.Second
+	failedResponseEvidenceDeadlineFailureClass = "response_body_persistence_deadline_reserved"
+	failedResponseDatabaseJSONFailureClass     = "response_body_database_requires_json"
+)
+
+// failedResponsePersistenceContext ignores request cancellation while keeping
+// an existing persistence deadline. Direct callers without a deadline receive
+// the same bounded lifetime as orchestrator persistence callers.
+func failedResponsePersistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	detached := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		return context.WithDeadline(detached, deadline)
+	}
+	return context.WithTimeout(detached, failedResponsePersistenceTimeout)
+}
+
+// failedResponseEvidenceContext reserves the end of the caller-owned
+// persistence budget for the authoritative terminal database update.
+func failedResponseEvidenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if deadline, ok := ctx.Deadline(); ok {
+		return context.WithDeadline(ctx, deadline.Add(-failedTerminalStatusSaveReserve))
+	}
+	return context.WithCancel(ctx)
+}
+
+func failedResponseEvidenceDeadlineDisposition(current *objects.EvidenceDisposition, storeResponseBody bool) *objects.EvidenceDisposition {
+	disposition := cloneEvidenceDisposition(current)
+	if !storeResponseBody {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
+		return disposition
+	}
+
+	disposition.ResponseBody = unavailableResponseBodyDisposition(failedResponseEvidenceDeadlineFailureClass)
+	return disposition
+}
+
+func unavailableResponseBodyDisposition(failureClass string) objects.Disposition {
+	return objects.Disposition{
+		Intent:       "persist",
+		Location:     "none",
+		Outcome:      "unavailable",
+		CapturedAt:   time.Now().UTC(),
+		FailureClass: &failureClass,
+	}
+}
+
 // GenerateRequestBodyKey generates the storage key for request body.
 func GenerateRequestBodyKey(projectID, requestID int) string {
 	return fmt.Sprintf("/%d/requests/%d/request_body.json", projectID, requestID)
@@ -1044,6 +1092,26 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
 	responseBody any,
 	metrics *LatencyMetrics,
 ) error {
+	if status != request.StatusFailed {
+		return s.updateRequestStatusExternalIDAndResponseBody(ctx, ctx, requestID, status, externalId, responseBody, metrics)
+	}
+
+	persistenceCtx, cancelPersistence := failedResponsePersistenceContext(ctx)
+	defer cancelPersistence()
+	evidenceCtx, cancelEvidence := failedResponseEvidenceContext(persistenceCtx)
+	defer cancelEvidence()
+	return s.updateRequestStatusExternalIDAndResponseBody(evidenceCtx, persistenceCtx, requestID, status, externalId, responseBody, metrics)
+}
+
+func (s *RequestService) updateRequestStatusExternalIDAndResponseBody(
+	ctx context.Context,
+	saveCtx context.Context,
+	requestID int,
+	status request.Status,
+	externalId string,
+	responseBody any,
+	metrics *LatencyMetrics,
+) error {
 	// Decide whether to store the final response body
 	storeResponseBody := true
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
@@ -1105,8 +1173,11 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
 			return err
 		}
 
-		// Check if we should use external storage
-		if s.shouldUseExternalStorage(ctx, dataStorage) {
+		useExternalStorage := s.shouldUseExternalStorage(ctx, dataStorage)
+		responseBodyUnavailable := status == request.StatusFailed && !json.Valid(responseBodyBytes) && !useExternalStorage
+		if responseBodyUnavailable {
+			disposition.ResponseBody = unavailableResponseBodyDisposition(failedResponseDatabaseJSONFailureClass)
+		} else if useExternalStorage {
 			// Save to external storage
 			key := GenerateResponseBodyKey(req.ProjectID, requestID)
 
@@ -1136,9 +1207,9 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
 	}
 	upd = upd.SetEvidenceDisposition(disposition)
 
-	_, err = upd.Save(ctx)
+	_, err = upd.Save(saveCtx)
 	if err != nil {
-		if requestTerminalUpdateWasNoop(ctx, client, requestID, err) {
+		if requestTerminalUpdateWasNoop(saveCtx, client, requestID, err) {
 			return nil
 		}
 
@@ -1147,6 +1218,66 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
 	}
 
 	return nil
+}
+
+func (s *RequestService) applyExecutionResponseBodyStorage(
+	ctx context.Context,
+	execution *ent.RequestExecution,
+	responseBody any,
+	channel *Channel,
+	failOpenInvalidJSON bool,
+	upd *ent.RequestExecutionUpdateOne,
+) (bool, error) {
+	disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+	if !s.shouldStoreExecutionResponseBody(ctx, execution, channel) {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
+		upd.SetEvidenceDisposition(disposition)
+		return false, nil
+	}
+
+	responseBodyBytes, err := xjson.Marshal(responseBody)
+	if err != nil {
+		return false, err
+	}
+
+	var dataStorage *ent.DataStorage
+	if execution.DataStorageID != 0 {
+		dataStorage, err = s.entFromContext(ctx).DataStorage.Get(ctx, execution.DataStorageID)
+		if err != nil {
+			log.Warn(ctx, "Failed to get data storage", log.Cause(err))
+		}
+	}
+
+	if s.shouldUseExternalStorage(ctx, dataStorage) {
+		key := GenerateExecutionResponseBodyKey(execution.ProjectID, execution.RequestID, execution.ID)
+		disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
+		if err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes); err != nil {
+			log.Error(ctx, "Failed to save execution response body to external storage", log.Cause(err))
+			failureClass := "external_write_failed"
+			disposition.ResponseBody.Outcome = "writeFailed"
+			disposition.ResponseBody.FailureClass = &failureClass
+		}
+		upd.SetEvidenceDisposition(disposition)
+		return false, nil
+	}
+	if failOpenInvalidJSON && !json.Valid(responseBodyBytes) {
+		disposition.ResponseBody = unavailableResponseBodyDisposition(failedResponseDatabaseJSONFailureClass)
+		upd.SetEvidenceDisposition(disposition)
+		return false, nil
+	}
+
+	managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "execution_response_body", int64(len(responseBodyBytes)))
+	if managed {
+		upd.SetManagedObservability(true)
+	}
+	if admitted {
+		upd.SetResponseBody(responseBodyBytes)
+		disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
+	} else {
+		disposition.ResponseBody = managedEvidenceSkippedDisposition("execution_response_body", writeFailed)
+	}
+	upd.SetEvidenceDisposition(disposition)
+	return managed, nil
 }
 
 // UpdateRequestExecutionCompleted updates request execution status to completed with response body.
@@ -1182,16 +1313,6 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 		return nil
 	}
 
-	// Get data storage if set
-	var dataStorage *ent.DataStorage
-	if execution.DataStorageID != 0 {
-		dataStorage, err = client.DataStorage.Get(ctx, execution.DataStorageID)
-		if err != nil {
-			log.Warn(ctx, "Failed to get data storage", log.Cause(err))
-		}
-	}
-	storeResponseBody := s.shouldStoreExecutionResponseBody(ctx, execution, channel)
-
 	upd := client.RequestExecution.UpdateOneID(executionID).
 		Where(requestexecution.StatusIn(
 			requestexecution.StatusPending,
@@ -1199,9 +1320,6 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 		)).
 		SetStatus(requestexecution.StatusCompleted).
 		SetExternalID(externalId)
-	disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
-	managedEvidence := false
-
 	// Set latency metrics if provided
 	if metrics != nil {
 		if metrics.LatencyMs != nil {
@@ -1217,42 +1335,10 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 		}
 	}
 
-	if storeResponseBody {
-		responseBodyBytes, err := xjson.Marshal(responseBody)
-		if err != nil {
-			return err
-		}
-
-		// Check if we should use external storage
-		if s.shouldUseExternalStorage(ctx, dataStorage) {
-			// Save to external storage
-			key := GenerateExecutionResponseBodyKey(execution.ProjectID, execution.RequestID, executionID)
-
-			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
-			err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes)
-			if err != nil {
-				log.Error(ctx, "Failed to save execution response body to external storage", log.Cause(err))
-				failureClass := "external_write_failed"
-				disposition.ResponseBody.Outcome = "writeFailed"
-				disposition.ResponseBody.FailureClass = &failureClass
-			}
-		} else {
-			managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "execution_response_body", int64(len(responseBodyBytes)))
-			if managed {
-				managedEvidence = true
-				upd = upd.SetManagedObservability(true)
-			}
-			if admitted {
-				upd = upd.SetResponseBody(responseBodyBytes)
-				disposition.ResponseBody = evidenceDisposition("persist", "database", "stored", nil, nil)
-			} else {
-				disposition.ResponseBody = managedEvidenceSkippedDisposition("execution_response_body", writeFailed)
-			}
-		}
-	} else {
-		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
+	managedEvidence, err := s.applyExecutionResponseBodyStorage(ctx, execution, responseBody, channel, false, upd)
+	if err != nil {
+		return err
 	}
-	upd = upd.SetEvidenceDisposition(disposition)
 
 	_, err = upd.Save(ctx)
 	if err != nil {
@@ -1333,7 +1419,8 @@ func (s *RequestService) UpdateRequestExecutionCanceled(
 
 // ExecutionErrorInfo holds error details for a failed request execution.
 type ExecutionErrorInfo struct {
-	StatusCode *int
+	StatusCode   *int
+	ResponseBody []byte
 }
 
 // UpdateRequestExecutionFailed updates request execution status to failed with error message and optional error details.
@@ -1399,6 +1486,21 @@ func (s *RequestService) updateRequestExecutionStatus(
 	client := s.entFromContext(ctx)
 
 	upd := client.RequestExecution.UpdateOneID(executionID).SetStatus(status)
+	var (
+		execution       *ent.RequestExecution
+		managedEvidence bool
+	)
+	hasResponseEvidence := errorInfo != nil && len(errorInfo.ResponseBody) > 0
+	saveCtx := ctx
+	evidenceCtx := ctx
+	cancelPersistence := func() {}
+	cancelEvidence := func() {}
+	if hasResponseEvidence {
+		saveCtx, cancelPersistence = failedResponsePersistenceContext(ctx)
+		evidenceCtx, cancelEvidence = failedResponseEvidenceContext(saveCtx)
+	}
+	defer cancelPersistence()
+	defer cancelEvidence()
 	active := requestexecution.StatusIn(
 		requestexecution.StatusPending,
 		requestexecution.StatusProcessing,
@@ -1427,15 +1529,57 @@ func (s *RequestService) updateRequestExecutionStatus(
 	if metrics != nil && metrics.LatencyMs != nil {
 		upd = upd.SetMetricsLatencyMs(*metrics.LatencyMs)
 	}
+	if hasResponseEvidence {
+		evidenceDeadlineReserved := evidenceCtx.Err() != nil
+		loadCtx := evidenceCtx
+		if evidenceDeadlineReserved {
+			loadCtx = saveCtx
+		}
+		var loadErr error
+		execution, loadErr = client.RequestExecution.Get(loadCtx, executionID)
+		if loadErr != nil && !evidenceDeadlineReserved && saveCtx.Err() == nil &&
+			(errors.Is(loadErr, context.Canceled) || errors.Is(loadErr, context.DeadlineExceeded)) {
+			execution, loadErr = client.RequestExecution.Get(saveCtx, executionID)
+			evidenceDeadlineReserved = loadErr == nil
+		}
+		if loadErr != nil {
+			log.Warn(ctx, "Failed to prepare execution error response evidence; persisting terminal status without it",
+				log.Int("execution_id", executionID), log.Cause(loadErr))
+		} else {
+			canReplaceTerminal := status == requestexecution.StatusFailed && causalFailure &&
+				(execution.Status == requestexecution.StatusCompleted ||
+					(execution.Status == requestexecution.StatusFailed &&
+						execution.ErrorMessage == context.Canceled.Error() && execution.ResponseStatusCode == nil))
+			if isTerminalRequestExecutionStatus(execution.Status) && !canReplaceTerminal {
+				return nil
+			}
+			if evidenceDeadlineReserved {
+				storeResponseBody := s.shouldStoreExecutionResponseBody(saveCtx, execution, nil)
+				upd.SetEvidenceDisposition(failedResponseEvidenceDeadlineDisposition(execution.EvidenceDisposition, storeResponseBody))
+			} else {
+				managedEvidence, loadErr = s.applyExecutionResponseBodyStorage(evidenceCtx, execution, errorInfo.ResponseBody, nil, true, upd)
+				if loadErr != nil {
+					log.Warn(ctx, "Failed to prepare execution error response evidence; persisting terminal status without it",
+						log.Int("execution_id", executionID), log.Cause(loadErr))
+				}
+			}
+		}
+	}
 
-	_, err := upd.Save(ctx)
+	_, err := upd.Save(saveCtx)
 	if err != nil {
-		if requestExecutionTerminalUpdateWasNoop(ctx, client, executionID, err) {
+		if requestExecutionTerminalUpdateWasNoop(saveCtx, client, executionID, err) {
 			return nil
 		}
 
 		log.Error(ctx, "Failed to update request execution status", log.Cause(err), log.Any("status", status))
 		return err
+	}
+	if managedEvidence && execution != nil {
+		if _, markErr := client.Request.UpdateOneID(execution.RequestID).SetManagedObservability(true).Save(saveCtx); markErr != nil {
+			s.SystemService.RecordManagedObservabilityFailure(saveCtx, "execution_response_group_mark", "failed")
+			log.Warn(saveCtx, "Failed to mark managed execution error response request group", log.Cause(markErr))
+		}
 	}
 
 	return nil
@@ -1895,6 +2039,50 @@ func (s *RequestService) updateRequestStatus(
 	return nil
 }
 
+func (s *RequestService) updateRequestStatusForUnavailableResponseEvidence(
+	ctx context.Context,
+	requestID int,
+	causalFailure bool,
+) error {
+	client := s.entFromContext(ctx)
+	req, err := client.Request.Get(ctx, requestID)
+	if err != nil {
+		log.Warn(ctx, "Failed to load request for unavailable response evidence; persisting terminal status without disposition",
+			log.Int("request_id", requestID), log.Cause(err))
+		return s.updateRequestStatus(ctx, requestID, request.StatusFailed, causalFailure)
+	}
+	canReplaceTerminal := causalFailure && req.Status == request.StatusCompleted
+	if isTerminalRequestStatus(req.Status) && !canReplaceTerminal {
+		return nil
+	}
+
+	storeResponseBody := true
+	if policy, policyErr := s.SystemService.StoragePolicy(ctx); policyErr == nil {
+		storeResponseBody = policy.StoreResponseBody
+	} else {
+		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(policyErr))
+	}
+	disposition := failedResponseEvidenceDeadlineDisposition(req.EvidenceDisposition, storeResponseBody)
+	upd := client.Request.UpdateOneID(requestID).
+		SetStatus(request.StatusFailed).
+		SetEvidenceDisposition(disposition)
+	active := request.StatusIn(request.StatusPending, request.StatusProcessing)
+	if causalFailure {
+		upd = upd.Where(request.Or(active, request.StatusEQ(request.StatusCompleted)))
+	} else {
+		upd = upd.Where(active)
+	}
+
+	_, err = upd.Save(ctx)
+	if err != nil {
+		if requestTerminalUpdateWasNoop(ctx, client, requestID, err) {
+			return nil
+		}
+		return fmt.Errorf("failed to update request status with unavailable response evidence: %w", err)
+	}
+	return nil
+}
+
 func requestTerminalUpdateWasNoop(
 	ctx context.Context,
 	client *ent.Client,
@@ -1926,8 +2114,48 @@ func (s *RequestService) UpdateRequestStatusFromError(
 	rawErr error,
 	requestContextErr error,
 ) error {
+	return s.UpdateRequestStatusFromErrorDetails(ctx, requestID, rawErr, requestContextErr, nil)
+}
+
+// UpdateRequestStatusFromErrorDetails stores final HTTP error evidence while
+// preserving the existing causal status classification.
+func (s *RequestService) UpdateRequestStatusFromErrorDetails(
+	ctx context.Context,
+	requestID int,
+	rawErr error,
+	requestContextErr error,
+	errorInfo *ExecutionErrorInfo,
+) error {
 	if isCallerCancellation(rawErr, requestContextErr) {
 		return s.updateRequestStatus(ctx, requestID, request.StatusCanceled, false)
+	}
+	if errorInfo != nil && len(errorInfo.ResponseBody) > 0 {
+		persistenceCtx, cancelPersistence := failedResponsePersistenceContext(ctx)
+		defer cancelPersistence()
+		evidenceCtx, cancelEvidence := failedResponseEvidenceContext(persistenceCtx)
+		defer cancelEvidence()
+		causalFailure := !errors.Is(rawErr, context.Canceled)
+		if evidenceCtx.Err() != nil {
+			return s.updateRequestStatusForUnavailableResponseEvidence(persistenceCtx, requestID, causalFailure)
+		}
+		req, err := s.entFromContext(evidenceCtx).Request.Get(evidenceCtx, requestID)
+		if err != nil {
+			if persistenceCtx.Err() == nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+				return s.updateRequestStatusForUnavailableResponseEvidence(persistenceCtx, requestID, causalFailure)
+			}
+			log.Warn(ctx, "Failed to prepare request error response evidence; persisting terminal status without it",
+				log.Int("request_id", requestID), log.Cause(err))
+			return s.updateRequestStatus(persistenceCtx, requestID, request.StatusFailed, causalFailure)
+		}
+		return s.updateRequestStatusExternalIDAndResponseBody(
+			evidenceCtx,
+			persistenceCtx,
+			requestID,
+			request.StatusFailed,
+			req.ExternalID,
+			errorInfo.ResponseBody,
+			nil,
+		)
 	}
 
 	return s.updateRequestStatus(

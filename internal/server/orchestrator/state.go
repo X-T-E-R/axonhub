@@ -99,6 +99,7 @@ type PersistenceState struct {
 
 	deferredFailureMu                 sync.Mutex
 	deferredStreamError               error
+	attemptErrorInfo                  *biz.ExecutionErrorInfo
 	deferredRequestFailurePersisted   bool
 	deferredExecutionFailurePersisted bool
 	streamCompletionConfirmed         bool
@@ -248,11 +249,43 @@ func (s *PersistenceState) resetStreamTerminalState() {
 	s.StreamCompleted = false
 	s.providerTerminalStatus = streamTerminalNone
 	s.deferredStreamError = nil
+	s.attemptErrorInfo = nil
 	s.deferredRequestFailurePersisted = false
 	s.deferredExecutionFailurePersisted = false
 	s.streamCompletionConfirmed = false
 	s.semanticInterruptStarted = false
 	s.deferredFailureMu.Unlock()
+}
+
+func cloneExecutionErrorInfo(info *biz.ExecutionErrorInfo) *biz.ExecutionErrorInfo {
+	if info == nil {
+		return nil
+	}
+	cloned := *info
+	if info.StatusCode != nil {
+		statusCode := *info.StatusCode
+		cloned.StatusCode = &statusCode
+	}
+	cloned.ResponseBody = append(cloned.ResponseBody[:0:0], info.ResponseBody...)
+	return &cloned
+}
+
+func (s *PersistenceState) recordAttemptErrorInfo(info *biz.ExecutionErrorInfo) {
+	if s == nil {
+		return
+	}
+	s.deferredFailureMu.Lock()
+	s.attemptErrorInfo = cloneExecutionErrorInfo(info)
+	s.deferredFailureMu.Unlock()
+}
+
+func (s *PersistenceState) currentAttemptErrorInfo() *biz.ExecutionErrorInfo {
+	if s == nil {
+		return nil
+	}
+	s.deferredFailureMu.Lock()
+	defer s.deferredFailureMu.Unlock()
+	return cloneExecutionErrorInfo(s.attemptErrorInfo)
 }
 
 func (s *PersistenceState) providerTerminalOutcome() streamTerminalStatus {

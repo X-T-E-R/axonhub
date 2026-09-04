@@ -48,11 +48,12 @@ func (m *persistRequestMiddleware) OnOutboundRawError(ctx context.Context, err e
 	persisted := false
 	if state.Request != nil {
 		persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-		updateErr := state.RequestService.UpdateRequestStatusFromError(
+		updateErr := state.RequestService.UpdateRequestStatusFromErrorDetails(
 			persistCtx,
 			state.Request.ID,
 			causalErr,
 			requestContextCause,
+			state.currentAttemptErrorInfo(),
 		)
 		if updateErr != nil {
 			log.Warn(persistCtx, "Failed to update request terminal stream status", log.Cause(updateErr))

@@ -368,11 +368,12 @@ func (processor *ChatCompletionOrchestrator) process(
 
 		// Update the main request status based on error
 		if request := outbound.GetRequest(); request != nil {
-			if updateErr := processor.RequestService.UpdateRequestStatusFromError(
+			if updateErr := processor.RequestService.UpdateRequestStatusFromErrorDetails(
 				persistCtx,
 				request.ID,
 				causalErr,
 				requestContextErr,
+				state.currentAttemptErrorInfo(),
 			); updateErr != nil {
 				log.Warn(persistCtx, "Failed to update request status from error", log.Cause(updateErr))
 			}
