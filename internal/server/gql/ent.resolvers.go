@@ -299,7 +299,11 @@ func (r *queryResolver) Node(ctx context.Context, id objects.GUID) (ent.Noder, e
 		return nil, fmt.Errorf("unknown node type: %s", id.Type)
 	}
 
-	return r.client.Noder(ctx, id.ID, ent.WithFixedNodeType(typ))
+	node, err := r.client.Noder(ctx, id.ID, ent.WithFixedNodeType(typ))
+	if err != nil {
+		return nil, err
+	}
+	return r.hydrateExactRequestEvidenceMetadata(ctx, node)
 }
 
 // Nodes is the resolver for the nodes field.
@@ -621,7 +625,7 @@ func (r *requestResolver) DataStorageID(ctx context.Context, obj *ent.Request) (
 
 // RequestBody is the resolver for the requestBody field.
 func (r *requestResolver) RequestBody(ctx context.Context, obj *ent.Request) (objects.JSONRawMessage, error) {
-	value, err := r.requestService.LoadRequestBody(ctx, obj)
+	value, err := r.loadRequestBody(ctx, obj)
 	if err != nil {
 		log.Error(ctx, "Failed to load request body", log.Cause(err), log.Int("request_id", obj.ID))
 		return nil, fmt.Errorf("failed to load request body: %w", err)
@@ -632,7 +636,7 @@ func (r *requestResolver) RequestBody(ctx context.Context, obj *ent.Request) (ob
 
 // ResponseBody is the resolver for the responseBody field.
 func (r *requestResolver) ResponseBody(ctx context.Context, obj *ent.Request) (objects.JSONRawMessage, error) {
-	value, err := r.requestService.LoadResponseBody(ctx, obj)
+	value, err := r.loadResponseBody(ctx, obj)
 	if err != nil {
 		log.Error(ctx, "Failed to load request response body", log.Cause(err), log.Int("request_id", obj.ID))
 		return nil, fmt.Errorf("failed to load response body: %w", err)
@@ -724,7 +728,7 @@ func (r *requestExecutionResolver) DataStorageID(ctx context.Context, obj *ent.R
 
 // RequestBody is the resolver for the requestBody field.
 func (r *requestExecutionResolver) RequestBody(ctx context.Context, obj *ent.RequestExecution) (objects.JSONRawMessage, error) {
-	value, err := r.requestService.LoadRequestExecutionRequestBody(ctx, obj)
+	value, err := r.loadRequestBody(ctx, obj)
 	if err != nil {
 		log.Error(ctx, "Failed to load execution request body", log.Cause(err), log.Int("request_execution_id", obj.ID))
 		return nil, fmt.Errorf("failed to load request body: %w", err)
@@ -735,7 +739,7 @@ func (r *requestExecutionResolver) RequestBody(ctx context.Context, obj *ent.Req
 
 // ResponseBody is the resolver for the responseBody field.
 func (r *requestExecutionResolver) ResponseBody(ctx context.Context, obj *ent.RequestExecution) (objects.JSONRawMessage, error) {
-	value, err := r.requestService.LoadRequestExecutionResponseBody(ctx, obj)
+	value, err := r.loadResponseBody(ctx, obj)
 	if err != nil {
 		log.Error(ctx, "Failed to load execution response body", log.Cause(err), log.Int("request_execution_id", obj.ID))
 		return nil, fmt.Errorf("failed to load response body: %w", err)
