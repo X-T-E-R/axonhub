@@ -1,0 +1,267 @@
+name: Publish failed evidence image
+
+on:
+  push:
+    tags:
+      - "xter-image-failed-evidence-d192ad090"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/x-t-e-r/axonhub
+  SOURCE_COMMIT: d192ad090f1511dfb06b74581d02433ad9614de2
+  VERSION: failed-evidence-d192ad090
+  WORKFLOW_FILE: .github/workflows/publish-failed-evidence-image.yml
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      source_commit: ${{ steps.verify.outputs.source_commit }}
+
+    steps:
+      - name: Checkout tagged workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify immutable source boundary
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected_ref="refs/tags/xter-image-failed-evidence-d192ad090"
+          [[ "${GITHUB_REF}" == "${expected_ref}" ]]
+          [[ "$(git rev-parse HEAD)" == "${GITHUB_SHA}" ]]
+
+          read -r -a lineage <<< "$(git rev-list --parents -n 1 HEAD)"
+          [[ ${#lineage[@]} -eq 2 ]]
+          parent_commit="${lineage[1]}"
+          [[ "${parent_commit}" == "${SOURCE_COMMIT}" ]]
+
+          mapfile -t changed_files < <(git diff --no-renames --name-only "${parent_commit}" HEAD --)
+          [[ ${#changed_files[@]} -eq 1 ]]
+          [[ "${changed_files[0]}" == "${WORKFLOW_FILE}" ]]
+
+          echo "source_commit=${parent_commit}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout exact product source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify.outputs.source_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Write build version
+        run: echo "${VERSION}" > internal/build/VERSION
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push architecture image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ghcr.io/x-t-e-r/axonhub:staging-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/X-T-E-R/axonhub
+            org.opencontainers.image.revision=${{ needs.verify.outputs.source_commit }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.title=AxonHub failed request evidence
+            org.opencontainers.image.description=AxonHub image with failed response persistence and authorized admin detail access
+          cache-from: type=gha,scope=failed-evidence-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=failed-evidence-${{ matrix.arch }}
+          provenance: false
+          sbom: false
+
+      - name: Record architecture digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="${{ steps.build.outputs.digest }}"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p "${RUNNER_TEMP}/digests"
+          printf '%s\n' "${digest}" > "${RUNNER_TEMP}/digests/${{ matrix.arch }}"
+
+      - name: Upload architecture digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-evidence-digest-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download architecture digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: failed-evidence-digest-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and verify multi-arch image
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          amd64_digest="$(cat "${RUNNER_TEMP}/digests/amd64")"
+          arm64_digest="$(cat "${RUNNER_TEMP}/digests/arm64")"
+          for digest in "${amd64_digest}" "${arm64_digest}"; do
+            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          done
+
+          pinned="${IMAGE_NAME}:${VERSION}"
+          latest="${IMAGE_NAME}:latest"
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.source=https://github.com/X-T-E-R/axonhub" \
+            --annotation "index:org.opencontainers.image.revision=${SOURCE_COMMIT}" \
+            --annotation "index:org.opencontainers.image.version=${VERSION}" \
+            --annotation "manifest-descriptor:org.opencontainers.image.source=https://github.com/X-T-E-R/axonhub" \
+            --annotation "manifest-descriptor:org.opencontainers.image.revision=${SOURCE_COMMIT}" \
+            --annotation "manifest-descriptor:org.opencontainers.image.version=${VERSION}" \
+            --tag "${pinned}" \
+            --tag "${latest}" \
+            "${IMAGE_NAME}@${amd64_digest}" \
+            "${IMAGE_NAME}@${arm64_digest}"
+
+          resolve_digest() {
+            local ref="$1"
+            local digest=""
+            for _ in $(seq 1 12); do
+              digest="$(docker buildx imagetools inspect "${ref}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+              [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] && break
+              sleep 5
+            done
+            printf '%s\n' "${digest}"
+          }
+
+          index_digest="$(resolve_digest "${pinned}")"
+          latest_digest="$(resolve_digest "${latest}")"
+          [[ "${index_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${latest_digest}" == "${index_digest}" ]]
+
+          docker buildx imagetools inspect --raw "${pinned}" > index.json
+          jq -e \
+            --arg amd64 "${amd64_digest}" \
+            --arg arm64 "${arm64_digest}" \
+            --arg source "https://github.com/X-T-E-R/axonhub" \
+            --arg revision "${SOURCE_COMMIT}" \
+            --arg version "${VERSION}" '
+            .mediaType == "application/vnd.oci.image.index.v1+json" and
+            .annotations["org.opencontainers.image.source"] == $source and
+            .annotations["org.opencontainers.image.revision"] == $revision and
+            .annotations["org.opencontainers.image.version"] == $version and
+            ([.manifests[] | select(.digest == $amd64 and .platform.os == "linux" and .platform.architecture == "amd64")] | length == 1) and
+            ([.manifests[] | select(.digest == $arm64 and .platform.os == "linux" and .platform.architecture == "arm64")] | length == 1)
+          ' index.json >/dev/null
+
+          for entry in "amd64:${amd64_digest}" "arm64:${arm64_digest}"; do
+            arch="${entry%%:*}"
+            manifest_digest="${entry#*:}"
+            docker buildx imagetools inspect "${IMAGE_NAME}@${manifest_digest}" --format '{{json .Image}}' > "${arch}.json"
+            jq -e \
+              --arg source "https://github.com/X-T-E-R/axonhub" \
+              --arg revision "${SOURCE_COMMIT}" \
+              --arg version "${VERSION}" \
+              '.config.Labels["org.opencontainers.image.source"] == $source and
+               .config.Labels["org.opencontainers.image.revision"] == $revision and
+               .config.Labels["org.opencontainers.image.version"] == $version' \
+              "${arch}.json" >/dev/null
+          done
+
+          echo "digest=${index_digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Smoke amd64 image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_ref="${IMAGE_NAME}@${{ steps.publish.outputs.digest }}"
+          container="axonhub-failed-evidence-${GITHUB_RUN_ID}"
+          health="${RUNNER_TEMP}/health.json"
+          system="${RUNNER_TEMP}/system.json"
+          cleanup() {
+            rc=$?
+            trap - EXIT
+            if (( rc != 0 )); then docker logs "${container}" 2>/dev/null || true; fi
+            docker rm --force "${container}" >/dev/null 2>&1 || true
+            exit "${rc}"
+          }
+          trap cleanup EXIT
+
+          docker pull --platform linux/amd64 "${image_ref}"
+          docker run --detach \
+            --name "${container}" \
+            --publish 127.0.0.1:18090:8090 \
+            --env AXONHUB_DB_DIALECT=sqlite3 \
+            --env 'AXONHUB_DB_DSN=file:/tmp/axonhub-smoke.db?cache=shared&_fk=1&_pragma=journal_mode(WAL)' \
+            --env AXONHUB_LOG_OUTPUT=stdio \
+            "${image_ref}" >/dev/null
+
+          healthy=false
+          for _ in $(seq 1 90); do
+            [[ "$(docker inspect "${container}" --format '{{.State.Running}}' 2>/dev/null || true)" == "true" ]]
+            if curl --fail --silent --show-error --max-time 2 http://127.0.0.1:18090/health --output "${health}"; then
+              jq -e --arg expected "${VERSION}" '.status == "healthy" and .version == $expected' "${health}" >/dev/null
+              healthy=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "${healthy}" == "true" ]]
+          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:18090/admin/system/status --output "${system}"
+          jq -e '.isInitialized | type == "boolean"' "${system}" >/dev/null
+
+          {
+            echo '### Published images'
+            echo "- \`${IMAGE_NAME}:${VERSION}\`"
+            echo "- \`${IMAGE_NAME}:latest\`"
+            echo "- Source: \`${SOURCE_COMMIT}\`"
+            echo "- Digest: \`${{ steps.publish.outputs.digest }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
