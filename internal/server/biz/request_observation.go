@@ -169,10 +169,23 @@ func detachedObservationContext(ctx context.Context) context.Context {
 	if snapshot.hasChannelAPIKey {
 		base = contexts.WithChannelAPIKey(base, snapshot.channelAPIKey)
 	}
-	for _, key := range []any{requestObservationCreatedAtKey{}, requestObservationBodyInfoKey{}, requestObservationResponseBodyInfoKey{}, requestObservationIDKey{}, requestObservationProfilesKey{}, observationPendingUsageKey{}} {
-		if value := ctx.Value(key); value != nil {
-			base = context.WithValue(base, key, value)
-		}
+	if value := ctx.Value(requestObservationCreatedAtKey{}); value != nil {
+		base = context.WithValue(base, requestObservationCreatedAtKey{}, value)
+	}
+	if value := ctx.Value(requestObservationBodyInfoKey{}); value != nil {
+		base = context.WithValue(base, requestObservationBodyInfoKey{}, value)
+	}
+	if value := ctx.Value(requestObservationResponseBodyInfoKey{}); value != nil {
+		base = context.WithValue(base, requestObservationResponseBodyInfoKey{}, value)
+	}
+	if value := ctx.Value(requestObservationIDKey{}); value != nil {
+		base = context.WithValue(base, requestObservationIDKey{}, value)
+	}
+	if value := ctx.Value(requestObservationProfilesKey{}); value != nil {
+		base = context.WithValue(base, requestObservationProfilesKey{}, value)
+	}
+	if value := ctx.Value(observationPendingUsageKey{}); value != nil {
+		base = context.WithValue(base, observationPendingUsageKey{}, value)
 	}
 	return base
 }
@@ -626,7 +639,7 @@ func observationErrorInfoBytes(info *ExecutionErrorInfo) int64 {
 	if info == nil {
 		return 0
 	}
-	var size int64 = int64(len(info.ResponseBody))
+	size := int64(len(info.ResponseBody))
 	if info.StatusCode != nil {
 		size += 8
 	}

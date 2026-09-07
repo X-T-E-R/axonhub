@@ -2,11 +2,12 @@ package biz
 
 import (
 	"context"
-	"entgo.io/ent/dialect"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"entgo.io/ent/dialect"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
@@ -93,19 +94,25 @@ type observationJob struct {
 	usage *observationPendingUsage
 }
 
-type observationContextKey struct{}
-type observationPolicyContextKey struct{}
-type observationPersistenceKey struct{}
-type observationPersistenceContext struct {
-	writer   *ForwardingObservationWriter
-	finished <-chan struct{}
-}
+type (
+	observationContextKey         struct{}
+	observationPolicyContextKey   struct{}
+	observationPersistenceKey     struct{}
+	observationPersistenceContext struct {
+		writer   *ForwardingObservationWriter
+		finished <-chan struct{}
+	}
+)
 
-const observationUsageReservationBytes int64 = 8192
-const observationTerminalReservationBytes int64 = 16384
+const (
+	observationUsageReservationBytes    int64 = 8192
+	observationTerminalReservationBytes int64 = 16384
+)
 
-var errObservationParentUnavailable = errors.New("observation parent was not admitted")
-var errObservationQueueUnavailable = errors.New("forwarding observation queue unavailable or full")
+var (
+	errObservationParentUnavailable = errors.New("observation parent was not admitted")
+	errObservationQueueUnavailable  = errors.New("forwarding observation queue unavailable or full")
+)
 
 // An observation scope owns its local-to-database ID map. Only the single
 // persistence worker accesses ids; forwarding entities are never mutated by it.
@@ -366,7 +373,8 @@ func BindLiveObservation(ctx context.Context, localID int, registry *LiveStreamR
 		return func() { registry.UnregisterRequest(actual) }
 	}
 	if actual, ok := s.boundIDs.Load(localID); ok {
-		s.liveCleanup = append(s.liveCleanup, bind(actual.(int)))
+		actualID := actual.(int) //nolint:forcetypeassert // bindID stores only integer IDs in boundIDs.
+		s.liveCleanup = append(s.liveCleanup, bind(actualID))
 	} else {
 		if s.liveBindings == nil {
 			s.liveBindings = make(map[int]func(int) func())

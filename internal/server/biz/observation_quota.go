@@ -7,18 +7,21 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect"
-	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/shopspring/decimal"
+
+	"github.com/looplj/axonhub/internal/ent/usagelog"
 )
 
-type observationPendingUsageKey struct{}
-type observationPendingUsage struct {
-	apiKeyID  int
-	createdAt time.Time
-	tokens    int64
-	cost      *float64
-	requestID atomic.Int64
-}
+type (
+	observationPendingUsageKey struct{}
+	observationPendingUsage    struct {
+		apiKeyID  int
+		createdAt time.Time
+		tokens    int64
+		cost      *float64
+		requestID atomic.Int64
+	}
+)
 
 // A pending record is captured before opening the database snapshot and stays
 // alive even if the worker removes it meanwhile. The worker publishes requestID
@@ -45,7 +48,7 @@ func (s *QuotaService) accountedUsage(ctx context.Context, apiKeyID int, window 
 		if err != nil {
 			return QuotaUsage{}, err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		reader = &QuotaService{ent: tx.Client(), system: s.system}
 	}
 	count, err := reader.requestCount(ctx, apiKeyID, window)

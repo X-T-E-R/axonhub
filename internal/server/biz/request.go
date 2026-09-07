@@ -283,28 +283,10 @@ func (s *RequestService) createRequest(
 		storeRequestBody = false
 	}
 
-	var (
-		requestBodyBytes    objects.JSONRawMessage = []byte("{}")
-		requestHeadersBytes objects.JSONRawMessage = []byte("{}")
-	)
-
-	if storeRequestBody {
-		if len(httpRequest.JSONBody) > 0 {
-			requestBodyBytes = httpRequest.JSONBody
-		} else {
-			b, err := xjson.Marshal(httpRequest.Body)
-			if err != nil {
-				log.Error(ctx, "Failed to serialize request body", log.Cause(err))
-				return nil, err
-			}
-
-			requestBodyBytes = b
-		}
-
-		if httpRequest != nil && len(httpRequest.Headers) > 0 {
-			requestHeadersBytes, _ = xjson.Marshal(httpclient.MaskSensitiveHeaders(httpRequest.Headers))
-		}
-	} // else keep nil -> stored as JSON null
+	requestBodyBytes, requestHeadersBytes, err := serializeObservationRequest(ctx, httpRequest, storeRequestBody)
+	if err != nil {
+		return nil, err
+	}
 
 	isStream := false
 	if llmRequest.Stream != nil {
@@ -350,7 +332,8 @@ func (s *RequestService) createRequest(
 	} else {
 		mut = mut.SetCreatedAt(now)
 	}
-	disposition := &objects.EvidenceDisposition{Version: 1,
+	disposition := &objects.EvidenceDisposition{
+		Version:        1,
 		RequestBody:    objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now},
 		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
@@ -397,21 +380,7 @@ func (s *RequestService) createRequest(
 	}
 
 	if apiKey, ok := observationAPIKey(ctx); ok && apiKey != nil {
-		mut = mut.SetAPIKeyID(apiKey.ID)
-		profilesBytes, hashErr := canonicalJSON(apiKey.Profiles)
-		if hashErr == nil {
-			sum := sha256.Sum256(profilesBytes)
-			mut = mut.SetRoutingContext(&objects.RoutingContext{
-				Version:                 1,
-				APIKeyID:                apiKey.ID,
-				APIKeyType:              apiKey.Type.String(),
-				ProvisioningSource:      "native",
-				ProfileMode:             "inline",
-				EffectiveProfiles:       apiKey.Profiles,
-				EffectiveProfilesSHA256: hex.EncodeToString(sum[:]),
-				RequestedModelID:        llmRequest.Model,
-			})
-		}
+		mut = setObservationRequestRouting(mut, apiKey, llmRequest.Model)
 	}
 
 	if trace, ok := observationTrace(ctx); ok && trace != nil {
@@ -443,6 +412,48 @@ func (s *RequestService) createRequest(
 	}
 
 	return s.finishCreatedRequestBody(ctx, req, dataStorage, requestBodyBytes, useExternalStorage, useManagedStorage, managedReservation, disposition)
+}
+
+func setObservationRequestRouting(mut *ent.RequestCreate, apiKey *ent.APIKey, modelID string) *ent.RequestCreate {
+	mut = mut.SetAPIKeyID(apiKey.ID)
+	profilesBytes, hashErr := canonicalJSON(apiKey.Profiles)
+	if hashErr == nil {
+		sum := sha256.Sum256(profilesBytes)
+		mut = mut.SetRoutingContext(&objects.RoutingContext{
+			Version:                 1,
+			APIKeyID:                apiKey.ID,
+			APIKeyType:              apiKey.Type.String(),
+			ProvisioningSource:      "native",
+			ProfileMode:             "inline",
+			EffectiveProfiles:       apiKey.Profiles,
+			EffectiveProfilesSHA256: hex.EncodeToString(sum[:]),
+			RequestedModelID:        modelID,
+		})
+	}
+	return mut
+}
+
+func serializeObservationRequest(ctx context.Context, httpRequest *httpclient.Request, storeRequestBody bool) (objects.JSONRawMessage, objects.JSONRawMessage, error) {
+	var (
+		requestBodyBytes    objects.JSONRawMessage = []byte("{}")
+		requestHeadersBytes objects.JSONRawMessage = []byte("{}")
+	)
+	if storeRequestBody {
+		if len(httpRequest.JSONBody) > 0 {
+			requestBodyBytes = httpRequest.JSONBody
+		} else {
+			b, err := xjson.Marshal(httpRequest.Body)
+			if err != nil {
+				log.Error(ctx, "Failed to serialize request body", log.Cause(err))
+				return nil, nil, err
+			}
+			requestBodyBytes = b
+		}
+		if httpRequest != nil && len(httpRequest.Headers) > 0 {
+			requestHeadersBytes, _ = xjson.Marshal(httpclient.MaskSensitiveHeaders(httpRequest.Headers))
+		}
+	}
+	return requestBodyBytes, requestHeadersBytes, nil
 }
 
 func (s *RequestService) finishCreatedRequestBody(ctx context.Context, req *ent.Request, dataStorage *ent.DataStorage, requestBodyBytes objects.JSONRawMessage, useExternalStorage, useManagedStorage bool, managedReservation *managedRequestBodyReservation, disposition *objects.EvidenceDisposition) (*ent.Request, error) {
@@ -645,7 +656,8 @@ func (s *RequestService) createRequestExecution(
 	} else {
 		mut = mut.SetCreatedAt(now)
 	}
-	disposition := &objects.EvidenceDisposition{Version: 1,
+	disposition := &objects.EvidenceDisposition{
+		Version:        1,
 		RequestBody:    objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now},
 		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},

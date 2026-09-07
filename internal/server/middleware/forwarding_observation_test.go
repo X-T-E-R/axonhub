@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
@@ -17,7 +19,6 @@ import (
 	"github.com/looplj/axonhub/internal/ent/hook"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/tracing"
-	"github.com/stretchr/testify/require"
 )
 
 func TestForwardingObservationThreadTraceBarrier(t *testing.T) {
@@ -60,8 +61,8 @@ func TestForwardingObservationThreadTraceBarrier(t *testing.T) {
 		c.Data(http.StatusOK, "text/event-stream", []byte("data: [DONE]\n\n"))
 	})
 	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(contexts.WithProjectID(ctx, project.ID))
-	req.Header.Set("AH-Thread-Id", "isolated-thread")
-	req.Header.Set("AH-Trace-Id", "isolated-trace")
+	req.Header.Set("Ah-Thread-Id", "isolated-thread")
+	req.Header.Set("Ah-Trace-Id", "isolated-trace")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 	response := recorder.Result()

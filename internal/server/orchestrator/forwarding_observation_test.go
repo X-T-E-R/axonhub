@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	entsql "entgo.io/ent/dialect/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +9,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
+
+	entsql "entgo.io/ent/dialect/sql"
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/enttest"
@@ -21,8 +25,6 @@ import (
 	serverdb "github.com/looplj/axonhub/internal/server/db"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
-	"github.com/samber/lo"
-	"github.com/stretchr/testify/require"
 )
 
 type observationBarrierExecutor struct {

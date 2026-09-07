@@ -2,12 +2,15 @@ package biz
 
 import (
 	"context"
-	"entgo.io/ent/dialect"
 	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"entgo.io/ent/dialect"
+	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
@@ -18,8 +21,6 @@ import (
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
-	"github.com/samber/lo"
-	"github.com/stretchr/testify/require"
 )
 
 func TestForwardingObservationBoundedReservationAndCancellation(t *testing.T) {
@@ -90,6 +91,7 @@ func TestForwardingObservationDoesNotRetainPipelineContext(t *testing.T) {
 
 type observationReplicaTrap struct {
 	dialect.Driver
+
 	reads atomic.Int32
 }
 
@@ -181,6 +183,7 @@ func TestForwardingObservationQuotaFreshnessRecovers(t *testing.T) {
 
 type observationBlockedObjectStore struct {
 	boundedObjectStoreFake
+
 	entered chan struct{}
 	release chan struct{}
 	once    atomic.Bool

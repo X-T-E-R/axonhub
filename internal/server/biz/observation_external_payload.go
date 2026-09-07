@@ -11,16 +11,20 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect"
-	entsql "entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
+
+	entsql "entgo.io/ent/dialect/sql"
+
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/objects"
 )
 
-var errObservationPayloadQueued = errors.New("external observation persistence queued")
-var errObservationCompletionPending = errors.New("external observation result queue is full")
+var (
+	errObservationPayloadQueued     = errors.New("external observation persistence queued")
+	errObservationCompletionPending = errors.New("external observation result queue is full")
+)
 
 const observationExternalPending = "async_external_pending"
 
@@ -50,7 +54,8 @@ func (s *DataStorageService) deferExternalObservation(ctx context.Context, ds *e
 	}
 	target, err := parseObservationPayloadTarget(key)
 	if err != nil {
-		return false, nil
+		// Unrecognized keys keep the caller's synchronous storage path.
+		return false, nil //nolint:nilerr // Parsing only determines eligibility for deferred observation.
 	}
 	target.storageID = ds.ID
 	settings, err := json.Marshal(ds.Settings)
@@ -75,7 +80,7 @@ func (s *DataStorageService) deferExternalObservation(ctx context.Context, ds *e
 				return s.finishExternalObservation(coreCtx, target, key, outcome, failureClass)
 			})
 			if err != nil {
-				return fmt.Errorf("%w: %v", errObservationCompletionPending, err)
+				return fmt.Errorf("%w: %w", errObservationCompletionPending, err)
 			}
 			return nil
 		}
@@ -92,12 +97,13 @@ func (s *DataStorageService) deferExternalObservation(ctx context.Context, ds *e
 			return err
 		}
 		enabled := policy.StoreResponseBody
-		if target.part == "requestBody" {
+		switch target.part {
+		case "requestBody":
 			enabled = policy.StoreRequestBody
 			if target.executionID != 0 && policy.StoreExecutionRequestBody != nil {
 				enabled = *policy.StoreExecutionRequestBody
 			}
-		} else if target.part == "responseChunks" {
+		case "responseChunks":
 			enabled = policy.StoreChunks
 		}
 		if target.executionID != 0 {

@@ -326,10 +326,12 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 	})
 }
 
-type observationUsageTimeKey struct{}
-type observationUsageCostKey struct{}
-type observationUsageCost struct {
-	items       []objects.CostItem
-	total       *float64
-	referenceID string
-}
+type (
+	observationUsageTimeKey struct{}
+	observationUsageCostKey struct{}
+	observationUsageCost    struct {
+		items       []objects.CostItem
+		total       *float64
+		referenceID string
+	}
+)

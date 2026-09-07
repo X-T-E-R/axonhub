@@ -2,7 +2,7 @@ package biz
 
 import (
 	"context"
-	stdsql "database/sql"
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -11,14 +11,17 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect"
-	entsql "entgo.io/ent/dialect/sql"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/looplj/axonhub/internal/authz"
-	"github.com/looplj/axonhub/internal/ent"
-	"github.com/looplj/axonhub/internal/ent/migrate"
 	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	entsql "entgo.io/ent/dialect/sql"
+
+	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/migrate"
 )
 
 func TestAccountedUsagePostgresCommitAfterSnapshot(t *testing.T) {
@@ -26,7 +29,7 @@ func TestAccountedUsagePostgresCommitAfterSnapshot(t *testing.T) {
 	if dsn == "" || os.Getenv("AXONHUB_TEST_PG_DISPOSABLE") != "1" {
 		t.Skip("requires disposable PostgreSQL")
 	}
-	db, err := stdsql.Open("pgx", dsn)
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	client := ent.NewClient(ent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	defer client.Close()
