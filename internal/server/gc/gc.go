@@ -75,9 +75,13 @@ type Worker struct {
 
 	// beforeCandidateDelete is a deterministic test barrier. Production workers
 	// leave it nil. Eligibility is always revalidated and locked after this hook.
-	beforeCandidateDelete         func(resource string, id int)
-	beforeStaleReconcile          func(executionID int)
-	beforeManagedReconcileForTest func()
+	beforeCandidateDelete          func(resource string, id int)
+	beforeStaleReconcile           func(executionID int)
+	beforeManagedReconcileForTest  func()
+	afterManagedSnapshotForTest    func()
+	afterManagedScanForTest        func()
+	afterManagedPublishLockForTest func()
+	afterManagedFinishLockForTest  func()
 }
 
 type Params struct {
@@ -702,6 +706,10 @@ func (w *Worker) deleteExecutionCandidate(ctx context.Context, executionID int, 
 		return false, nil
 	}
 
+	charged, err := managedDeletionCharge(txCtx, txClient, "execution", exec.ID)
+	if err != nil {
+		return false, err
+	}
 	if err := w.cleanupExecutionExternalStorage(txCtx, exec, cache); err != nil {
 		return false, err
 	}
@@ -718,10 +726,14 @@ func (w *Worker) deleteExecutionCandidate(ctx context.Context, executionID int, 
 	if err := lockedRequest.restore(txCtx, txClient, true); err != nil {
 		return false, err
 	}
+	if err := adjustManagedNonPayloadCharge(txCtx, txClient, -charged); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("failed to commit request execution %d cleanup: %w", exec.ID, err)
 	}
 	committed = true
+	recordManagedReclaimed(ctx, charged)
 
 	return true, nil
 }
@@ -747,6 +759,10 @@ func (w *Worker) deleteRequestCandidate(ctx context.Context, requestID int, cuto
 		return false, err
 	}
 	req := lockedRequest.row
+	charged, err := managedDeletionCharge(txCtx, txClient, "request", req.ID)
+	if err != nil {
+		return false, err
+	}
 	if err := w.cleanupRequestExternalStorage(txCtx, req, cache); err != nil {
 		return false, err
 	}
@@ -760,13 +776,37 @@ func (w *Worker) deleteRequestCandidate(ctx context.Context, requestID int, cuto
 	if err := cleanupDeletedRequestManagedPayloads(txCtx, txClient, payloadCandidates); err != nil {
 		return false, fmt.Errorf("failed to cleanup managed payloads after request %d: %w", req.ID, err)
 	}
+	if charged > 0 && lockedRequest.owners.traceID != 0 {
+		referenced, err := txClient.Trace.Query().Where(trace.IDEQ(lockedRequest.owners.traceID),
+			trace.HasRequestsWith(request.ManagedObservabilityEQ(true))).Exist(txCtx)
+		if err != nil {
+			return false, err
+		}
+		if !referenced {
+			charged += managedTraceChargeBytes
+		}
+		if lockedRequest.owners.threadID != 0 {
+			referenced, err = txClient.Thread.Query().Where(thread.IDEQ(lockedRequest.owners.threadID),
+				thread.HasTracesWith(trace.HasRequestsWith(request.ManagedObservabilityEQ(true)))).Exist(txCtx)
+			if err != nil {
+				return false, err
+			}
+			if !referenced {
+				charged += managedThreadChargeBytes
+			}
+		}
+	}
 	if err := lockedRequest.restore(txCtx, txClient, false); err != nil {
+		return false, err
+	}
+	if err := adjustManagedNonPayloadCharge(txCtx, txClient, -charged); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("failed to commit request %d cleanup: %w", req.ID, err)
 	}
 	committed = true
+	recordManagedReclaimed(ctx, charged)
 
 	return true, nil
 }
@@ -1191,6 +1231,10 @@ func (w *Worker) deleteUsageLogCandidate(ctx context.Context, usageLogID int, cu
 	if err != nil || !eligible {
 		return false, err
 	}
+	charged, err := managedDeletionCharge(txCtx, client, "usage", row.ID)
+	if err != nil {
+		return false, err
+	}
 
 	count, err := client.UsageLog.Delete().Where(
 		usagelog.IDEQ(row.ID),
@@ -1211,10 +1255,14 @@ func (w *Worker) deleteUsageLogCandidate(ctx context.Context, usageLogID int, cu
 	if err := owners.restore(txCtx, client, true, true); err != nil {
 		return false, err
 	}
+	if err := adjustManagedNonPayloadCharge(txCtx, client, -charged); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("failed to commit usage log %d cleanup: %w", row.ID, err)
 	}
 	committed = true
+	recordManagedReclaimed(ctx, charged)
 
 	return true, nil
 }

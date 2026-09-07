@@ -274,10 +274,11 @@ var schemaGraph = func() *sqlgraph.Schema {
 		},
 		Type: "ManagedObservabilityState",
 		Fields: map[string]*sqlgraph.FieldSpec{
-			managedobservabilitystate.FieldChargedBytes:  {Type: field.TypeInt64, Column: managedobservabilitystate.FieldChargedBytes},
-			managedobservabilitystate.FieldUnderPressure: {Type: field.TypeBool, Column: managedobservabilitystate.FieldUnderPressure},
-			managedobservabilitystate.FieldLastError:     {Type: field.TypeString, Column: managedobservabilitystate.FieldLastError},
-			managedobservabilitystate.FieldUpdatedAt:     {Type: field.TypeTime, Column: managedobservabilitystate.FieldUpdatedAt},
+			managedobservabilitystate.FieldChargedBytes:   {Type: field.TypeInt64, Column: managedobservabilitystate.FieldChargedBytes},
+			managedobservabilitystate.FieldLedgerRevision: {Type: field.TypeInt64, Column: managedobservabilitystate.FieldLedgerRevision},
+			managedobservabilitystate.FieldUnderPressure:  {Type: field.TypeBool, Column: managedobservabilitystate.FieldUnderPressure},
+			managedobservabilitystate.FieldLastError:      {Type: field.TypeString, Column: managedobservabilitystate.FieldLastError},
+			managedobservabilitystate.FieldUpdatedAt:      {Type: field.TypeTime, Column: managedobservabilitystate.FieldUpdatedAt},
 		},
 	}
 	graph.Nodes[10] = &sqlgraph.Node{
@@ -2736,6 +2737,11 @@ func (f *ManagedObservabilityStateFilter) WhereID(p entql.IntP) {
 // WhereChargedBytes applies the entql int64 predicate on the charged_bytes field.
 func (f *ManagedObservabilityStateFilter) WhereChargedBytes(p entql.Int64P) {
 	f.Where(p.Field(managedobservabilitystate.FieldChargedBytes))
+}
+
+// WhereLedgerRevision applies the entql int64 predicate on the ledger_revision field.
+func (f *ManagedObservabilityStateFilter) WhereLedgerRevision(p entql.Int64P) {
+	f.Where(p.Field(managedobservabilitystate.FieldLedgerRevision))
 }
 
 // WhereUnderPressure applies the entql bool predicate on the under_pressure field.

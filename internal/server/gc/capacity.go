@@ -2,8 +2,11 @@ package gc
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"entgo.io/ent/dialect"
@@ -26,6 +29,96 @@ import (
 
 const managedObservabilityGCAdvisoryKey int64 = 0x41584f4e4f425347 // "AXONOBSG"
 
+const managedCapacityRoundTimeout = 45 * time.Second
+
+var errManagedCapacityPolicyChanged = errors.New("managed observability capacity policy changed")
+
+type managedCapacityCheckKey struct{}
+type managedPolicyClientKey struct{}
+type managedSnapshotKey struct{}
+type managedReclaimedKey struct{}
+
+func managedRequestCharge(row *ent.Request) int64 {
+	charged := managedRequestSkeletonChargeBytes + int64(len(row.RequestHeaders)+len(row.ResponseBody))
+	charged += jsonSize(row.ResponseChunks) + jsonSize(row.EvidenceDisposition) + jsonSize(row.RoutingContext)
+	if row.ContentStorageKey != nil {
+		charged += int64(len(*row.ContentStorageKey))
+	}
+	return charged
+}
+
+func managedExecutionCharge(row *ent.RequestExecution) int64 {
+	return managedExecutionSkeletonChargeBytes + int64(len(row.RequestHeaders)+len(row.ResponseBody)) +
+		jsonSize(row.ResponseChunks) + jsonSize(row.EvidenceDisposition) + int64(len(row.ErrorMessage)+len(row.RequestURL))
+}
+
+func managedUsageCharge(row *ent.UsageLog) int64 {
+	return managedUsageLogChargeBytes + int64(len(row.ModelID)+len(row.Format)+len(row.CostPriceReferenceID)) + jsonSize(row.CostItems)
+}
+
+// Only capacity rounds establish a complete starting projection. Their delete
+// transactions debit locked rows and report committed reclamation to the batch.
+// Ordinary retention keeps its existing eventual-projection accounting contract.
+func managedDeletionCharge(ctx context.Context, client *ent.Client, resource string, id int) (int64, error) {
+	if _, ok := ctx.Value(managedReclaimedKey{}).(*int64); !ok {
+		return 0, nil
+	}
+	lock := func(s *entsql.Selector) {
+		if client.Driver().Dialect() != dialect.SQLite {
+			s.ForUpdate()
+		}
+	}
+	switch resource {
+	case "request":
+		row, err := client.Request.Query().Where(request.IDEQ(id)).Select(request.FieldManagedObservability,
+			request.FieldRequestHeaders, request.FieldResponseBody, request.FieldResponseChunks,
+			request.FieldEvidenceDisposition, request.FieldRoutingContext, request.FieldContentStorageKey).Modify(lock).Only(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if row.ManagedObservability {
+			return managedRequestCharge(row), nil
+		}
+	case "execution":
+		row, err := client.RequestExecution.Query().Where(requestexecution.IDEQ(id)).Select(requestexecution.FieldManagedObservability,
+			requestexecution.FieldRequestHeaders, requestexecution.FieldResponseBody, requestexecution.FieldResponseChunks,
+			requestexecution.FieldEvidenceDisposition, requestexecution.FieldErrorMessage, requestexecution.FieldRequestURL).Modify(lock).Only(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if row.ManagedObservability {
+			return managedExecutionCharge(row), nil
+		}
+	case "usage":
+		row, err := client.UsageLog.Query().Where(usagelog.IDEQ(id), usagelog.HasRequestWith(request.ManagedObservabilityEQ(true))).
+			Select(usagelog.FieldModelID, usagelog.FieldFormat, usagelog.FieldCostItems, usagelog.FieldCostPriceReferenceID).Modify(lock).Only(ctx)
+		if ent.IsNotFound(err) {
+			return 0, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		return managedUsageCharge(row), nil
+	}
+	return 0, nil
+}
+
+func recordManagedReclaimed(ctx context.Context, charged int64) {
+	if reclaimed, ok := ctx.Value(managedReclaimedKey{}).(*int64); ok {
+		*reclaimed += charged
+	}
+}
+
+func checkManagedCapacity(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if check, ok := ctx.Value(managedCapacityCheckKey{}).(func(context.Context) error); ok {
+		return check(ctx)
+	}
+	return nil
+}
+
 const (
 	managedRequestSkeletonChargeBytes   int64 = 64 << 10
 	managedExecutionSkeletonChargeBytes int64 = 64 << 10
@@ -46,7 +139,7 @@ func (w *Worker) recordManagedObservabilityFailure(ctx context.Context, componen
 // database-coordinated owner. Failure to acquire ownership is an observability
 // skip, never a forwarding/readiness failure.
 func (w *Worker) runCleanup(ctx context.Context, manual bool, manualDays map[string]int) {
-	acquired, err := w.withGCOwnership(ctx, func() { w.runCleanupOwned(ctx, manual, manualDays) })
+	acquired, err := w.withGCOwnership(ctx, func(ownerCtx context.Context) { w.runCleanupOwned(ownerCtx, manual, manualDays) })
 	if err != nil {
 		w.recordManagedObservabilityFailure(ctx, "gc_owner_lock", "failed")
 		log.Error(ctx, "GC ownership check failed; cleanup will retry later",
@@ -68,16 +161,30 @@ func (w *Worker) sqlDriver() (*entsql.Driver, bool) {
 	return sqlDriver, ok
 }
 
-func (w *Worker) withGCOwnership(ctx context.Context, fn func()) (bool, error) {
+func (w *Worker) withGCOwnership(ctx context.Context, fn func(context.Context)) (bool, error) {
 	driver, ok := w.sqlDriver()
-	if !ok || driver.Dialect() != dialect.Postgres {
+	if !ok || driver.Dialect() == dialect.SQLite {
 		// SQLite/MySQL retain compatibility with an explicit single-process
 		// bound. Only PostgreSQL is claimed to coordinate independent instances.
 		if !w.capacityMu.TryLock() {
 			return false, nil
 		}
 		defer w.capacityMu.Unlock()
-		fn()
+		fn(ctx)
+		return true, nil
+	}
+	if driver.Dialect() != dialect.Postgres {
+		if !w.capacityMu.TryLock() {
+			return false, nil
+		}
+		defer w.capacityMu.Unlock()
+		conn, err := driver.DB().Conn(ctx)
+		if err != nil {
+			return false, err
+		}
+		defer conn.Close()
+		policyClient := ent.NewClient(ent.Driver(entsql.NewDriver(driver.Dialect(), entsql.Conn{ExecQuerier: conn})))
+		fn(context.WithValue(ctx, managedPolicyClientKey{}, policyClient))
 		return true, nil
 	}
 
@@ -101,7 +208,10 @@ func (w *Worker) withGCOwnership(ctx context.Context, fn func()) (bool, error) {
 				log.String("signal", "managed_observability_gc_unlock_unconfirmed"), log.Cause(err))
 		}
 	}()
-	fn()
+	// Reuse the already reserved owner connection for live policy reads while
+	// the scan uses the other connection. A two-connection pool is sufficient.
+	policyClient := ent.NewClient(ent.Driver(entsql.NewDriver(dialect.Postgres, entsql.Conn{ExecQuerier: conn})))
+	fn(context.WithValue(ctx, managedPolicyClientKey{}, policyClient))
 	return true, nil
 }
 
@@ -130,6 +240,9 @@ func (w *Worker) managedNonPayloadCharge(ctx context.Context, client *ent.Client
 	var charged int64
 	lastID := 0
 	for {
+		if err := checkManagedCapacity(ctx); err != nil {
+			return 0, err
+		}
 		rows, err := client.Request.Query().Where(request.ManagedObservabilityEQ(true), request.IDGT(lastID)).
 			Select(request.FieldID, request.FieldRequestHeaders, request.FieldResponseBody, request.FieldResponseChunks,
 				request.FieldEvidenceDisposition, request.FieldRoutingContext, request.FieldContentStorageKey).
@@ -141,17 +254,16 @@ func (w *Worker) managedNonPayloadCharge(ctx context.Context, client *ent.Client
 			break
 		}
 		for _, row := range rows {
-			charged += managedRequestSkeletonChargeBytes + int64(len(row.RequestHeaders)+len(row.ResponseBody))
-			charged += jsonSize(row.ResponseChunks) + jsonSize(row.EvidenceDisposition) + jsonSize(row.RoutingContext)
-			if row.ContentStorageKey != nil {
-				charged += int64(len(*row.ContentStorageKey))
-			}
+			charged += managedRequestCharge(row)
 		}
 		lastID = rows[len(rows)-1].ID
 	}
 
 	lastID = 0
 	for {
+		if err := checkManagedCapacity(ctx); err != nil {
+			return 0, err
+		}
 		rows, err := client.RequestExecution.Query().Where(requestexecution.ManagedObservabilityEQ(true), requestexecution.IDGT(lastID)).
 			Select(requestexecution.FieldID, requestexecution.FieldRequestHeaders, requestexecution.FieldResponseBody,
 				requestexecution.FieldResponseChunks, requestexecution.FieldEvidenceDisposition,
@@ -164,15 +276,16 @@ func (w *Worker) managedNonPayloadCharge(ctx context.Context, client *ent.Client
 			break
 		}
 		for _, row := range rows {
-			charged += managedExecutionSkeletonChargeBytes + int64(len(row.RequestHeaders)+len(row.ResponseBody))
-			charged += jsonSize(row.ResponseChunks) + jsonSize(row.EvidenceDisposition)
-			charged += int64(len(row.ErrorMessage) + len(row.RequestURL))
+			charged += managedExecutionCharge(row)
 		}
 		lastID = rows[len(rows)-1].ID
 	}
 
 	lastID = 0
 	for {
+		if err := checkManagedCapacity(ctx); err != nil {
+			return 0, err
+		}
 		rows, err := client.UsageLog.Query().Where(
 			usagelog.IDGT(lastID),
 			usagelog.HasRequestWith(request.ManagedObservabilityEQ(true)),
@@ -185,13 +298,19 @@ func (w *Worker) managedNonPayloadCharge(ctx context.Context, client *ent.Client
 			break
 		}
 		for _, row := range rows {
-			charged += managedUsageLogChargeBytes + int64(len(row.ModelID)+len(row.Format)+len(row.CostPriceReferenceID)) + jsonSize(row.CostItems)
+			charged += managedUsageCharge(row)
 		}
 		lastID = rows[len(rows)-1].ID
 	}
 
+	if err := checkManagedCapacity(ctx); err != nil {
+		return 0, err
+	}
 	traceCount, err := client.Trace.Query().Where(trace.HasRequestsWith(request.ManagedObservabilityEQ(true))).Count(ctx)
 	if err != nil {
+		return 0, err
+	}
+	if err := checkManagedCapacity(ctx); err != nil {
 		return 0, err
 	}
 	threadCount, err := client.Thread.Query().Where(thread.HasTracesWith(trace.HasRequestsWith(request.ManagedObservabilityEQ(true)))).Count(ctx)
@@ -206,7 +325,17 @@ func (w *Worker) reconcileManagedState(ctx context.Context, hard int64) (*ent.Ma
 	if w.beforeManagedReconcileForTest != nil {
 		w.beforeManagedReconcileForTest()
 	}
-	tx, err := w.Ent.Tx(ctx)
+	// Initialize outside the read snapshot. Never hold the shared admission
+	// row lock while scanning evidence: a scan can take minutes on a large DB.
+	if err := w.Ent.ManagedObservabilityState.Create().SetID(1).SetChargedBytes(0).
+		OnConflictColumns(managedobservabilitystate.FieldID).Ignore().Exec(ctx); err != nil {
+		return nil, err
+	}
+	opts := &sql.TxOptions{ReadOnly: true}
+	if w.Ent.Driver().Dialect() == dialect.Postgres || w.Ent.Driver().Dialect() == dialect.MySQL {
+		opts.Isolation = sql.LevelRepeatableRead
+	}
+	tx, err := w.Ent.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -217,44 +346,96 @@ func (w *Worker) reconcileManagedState(ctx context.Context, hard int64) (*ent.Ma
 		}
 	}()
 	client := tx.Client()
-	txCtx := ent.NewContext(ent.NewTxContext(ctx, tx), client)
-	if err := client.ManagedObservabilityState.Create().SetID(1).SetChargedBytes(0).
-		OnConflictColumns(managedobservabilitystate.FieldID).Ignore().Exec(txCtx); err != nil {
-		return nil, err
-	}
+	txCtx := context.WithValue(ent.NewContext(ent.NewTxContext(ctx, tx), client), managedSnapshotKey{}, true)
 	stateQuery := client.ManagedObservabilityState.Query().Where(managedobservabilitystate.IDEQ(1))
-	if client.Driver().Dialect() == dialect.Postgres || client.Driver().Dialect() == dialect.MySQL {
-		stateQuery.Modify(func(selector *entsql.Selector) { selector.ForUpdate() })
-	}
 	state, err := stateQuery.Only(txCtx)
 	if err != nil {
 		return nil, err
 	}
-	payloads, err := client.ObservabilityPayload.Query().Select(observabilitypayload.FieldChargedBytes).All(txCtx)
-	if err != nil {
-		return nil, fmt.Errorf("list managed observability payload charges: %w", err)
+	if w.afterManagedSnapshotForTest != nil {
+		w.afterManagedSnapshotForTest()
 	}
 	var charged int64
-	for _, payload := range payloads {
-		charged += payload.ChargedBytes
+	lastID := 0
+	for {
+		if err := checkManagedCapacity(txCtx); err != nil {
+			return nil, err
+		}
+		payloads, err := client.ObservabilityPayload.Query().Where(observabilitypayload.IDGT(lastID)).
+			Select(observabilitypayload.FieldID, observabilitypayload.FieldChargedBytes).
+			Order(ent.Asc(observabilitypayload.FieldID)).Limit(w.getBatchSize()).All(txCtx)
+		if err != nil {
+			return nil, fmt.Errorf("list managed observability payload charges: %w", err)
+		}
+		if len(payloads) == 0 {
+			break
+		}
+		for _, payload := range payloads {
+			charged += payload.ChargedBytes
+		}
+		lastID = payloads[len(payloads)-1].ID
 	}
 	nonPayloadCharge, err := w.managedNonPayloadCharge(txCtx, client)
 	if err != nil {
 		return nil, fmt.Errorf("charge managed observability skeletons: %w", err)
 	}
 	charged += nonPayloadCharge
-	state, err = client.ManagedObservabilityState.UpdateOneID(1).
-		SetChargedBytes(charged).
-		SetUnderPressure(state.UnderPressure || charged > hard).
-		Save(txCtx)
-	if err != nil {
-		return nil, fmt.Errorf("reconcile managed observability state: %w", err)
-	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	committed = true
-	return state, nil
+	if w.afterManagedScanForTest != nil {
+		w.afterManagedScanForTest()
+	}
+	if err := checkManagedCapacity(ctx); err != nil {
+		return nil, err
+	}
+	// Apply a correction, not an absolute replacement. All increments/decrements
+	// committed since the snapshot survive this atomic update.
+	publish, err := w.Ent.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer publish.Rollback()
+	query := publish.ManagedObservabilityState.Query().Where(managedobservabilitystate.IDEQ(1))
+	if w.Ent.Driver().Dialect() == dialect.Postgres || w.Ent.Driver().Dialect() == dialect.MySQL {
+		query.Modify(func(selector *entsql.Selector) { selector.ForUpdate() })
+	}
+	current, err := query.Only(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if w.afterManagedPublishLockForTest != nil {
+		w.afterManagedPublishLockForTest()
+	}
+	// Recheck after acquiring the short publication lock, so a policy disable
+	// that already cleared pressure cannot be overwritten by this old round.
+	if err := checkManagedCapacity(ent.NewContext(ent.NewTxContext(ctx, publish), publish.Client())); err != nil {
+		return nil, err
+	}
+	// A refunded reservation may have been present in the snapshot ledger
+	// without a persisted evidence row. Do not apply that correction twice
+	// below the non-negative accounting boundary.
+	correction := charged - state.ChargedBytes
+	changed := current.LedgerRevision != state.LedgerRevision
+	if correction < 0 && changed {
+		// A concurrent refund may remove a reservation which was already absent
+		// from the projected rows. Retain conservative drift rather than debit it
+		// twice; an uncontended projection can retire that drift later.
+		correction = 0
+	}
+	update := publish.ManagedObservabilityState.UpdateOneID(1).AddChargedBytes(correction)
+	if current.ChargedBytes+correction > hard {
+		update.SetUnderPressure(true)
+	}
+	result, err := update.Save(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := publish.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (w *Worker) finishManagedCapacityState(ctx context.Context, low int64) (*ent.ManagedObservabilityState, error) {
@@ -276,6 +457,12 @@ func (w *Worker) finishManagedCapacityState(ctx context.Context, low int64) (*en
 	}
 	state, err := query.Only(txCtx)
 	if err != nil {
+		return nil, err
+	}
+	if w.afterManagedFinishLockForTest != nil {
+		w.afterManagedFinishLockForTest()
+	}
+	if err := checkManagedCapacity(txCtx); err != nil {
 		return nil, err
 	}
 	update := client.ManagedObservabilityState.UpdateOneID(1)
@@ -316,10 +503,10 @@ func (w *Worker) capacityCandidates(ctx context.Context) ([]*ent.ObservabilityPa
 			request.Not(request.HasExecutionsWith(requestexecution.StatusEQ(requestexecution.StatusFailed))),
 		),
 	)).All(ctx)
-	if err != nil || len(payloads) > 0 {
+	if err != nil || len(payloads) == w.getBatchSize() {
 		return payloads, err
 	}
-	return selectMetadata(w.Ent.ObservabilityPayload.Query().Where(
+	fallback := selectMetadata(w.Ent.ObservabilityPayload.Query().Where(
 		observabilitypayload.HasRequestWith(
 			request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
 			request.Not(request.HasExecutionsWith(requestexecution.StatusIn(
@@ -327,7 +514,16 @@ func (w *Worker) capacityCandidates(ctx context.Context) ([]*ent.ObservabilityPa
 				requestexecution.StatusProcessing,
 			))),
 		),
-	)).All(ctx)
+	)).Limit(w.getBatchSize() - len(payloads))
+	if len(payloads) > 0 {
+		ids := make([]int, 0, len(payloads))
+		for _, payload := range payloads {
+			ids = append(ids, payload.ID)
+		}
+		fallback.Where(observabilitypayload.IDNotIn(ids...))
+	}
+	remaining, err := fallback.All(ctx)
+	return append(payloads, remaining...), err
 }
 
 func evictedDisposition(current *objects.EvidenceDisposition) *objects.EvidenceDisposition {
@@ -531,14 +727,20 @@ func (w *Worker) managedRequestGroupCandidates(ctx context.Context) ([]int, erro
 		request.StatusIn(request.StatusCompleted, request.StatusCanceled),
 		request.Not(request.HasExecutionsWith(requestexecution.StatusEQ(requestexecution.StatusFailed))),
 	)
-	ids, err := w.Ent.Request.Query().Where(lowValue...).Order(ent.Asc(request.FieldCreatedAt), ent.Asc(request.FieldID)).Limit(1).IDs(ctx)
-	if err != nil || len(ids) > 0 {
+	ids, err := w.Ent.Request.Query().Where(lowValue...).Order(ent.Asc(request.FieldCreatedAt), ent.Asc(request.FieldID)).Limit(w.getBatchSize()).IDs(ctx)
+	if err != nil || len(ids) == w.getBatchSize() {
 		return ids, err
 	}
-	return w.Ent.Request.Query().Where(base...).Order(ent.Asc(request.FieldCreatedAt), ent.Asc(request.FieldID)).Limit(1).IDs(ctx)
+	fallback := w.Ent.Request.Query().Where(base...).Order(ent.Asc(request.FieldCreatedAt), ent.Asc(request.FieldID)).Limit(w.getBatchSize() - len(ids))
+	if len(ids) > 0 {
+		fallback.Where(request.IDNotIn(ids...))
+	}
+	remaining, err := fallback.IDs(ctx)
+	return append(ids, remaining...), err
 }
 
-func (w *Worker) cleanupManagedRequestGroupsBatch(ctx context.Context) (int, error) {
+func (w *Worker) cleanupManagedRequestGroupsBatch(ctx context.Context, target int64, reclaimed *int64) (int, error) {
+	ctx = context.WithValue(ctx, managedReclaimedKey{}, reclaimed)
 	ids, err := w.managedRequestGroupCandidates(ctx)
 	if err != nil || len(ids) == 0 {
 		return 0, err
@@ -547,11 +749,33 @@ func (w *Worker) cleanupManagedRequestGroupsBatch(ctx context.Context) (int, err
 	cache := make(map[int]*ent.DataStorage)
 	deletedGroups := 0
 	for _, requestID := range ids {
+		if *reclaimed >= target {
+			break
+		}
+		if err := checkManagedCapacity(ctx); err != nil {
+			return deletedGroups, err
+		}
+		if w.beforeCandidateDelete != nil {
+			w.beforeCandidateDelete("capacity_request_group", requestID)
+		}
+		eligible, err := w.Ent.Request.Query().Where(request.IDEQ(requestID),
+			request.StatusIn(request.StatusCompleted, request.StatusFailed, request.StatusCanceled),
+			request.Not(request.HasExecutionsWith(requestexecution.StatusIn(requestexecution.StatusPending, requestexecution.StatusProcessing))),
+		).Exist(ctx)
+		if err != nil {
+			return deletedGroups, err
+		}
+		if !eligible {
+			continue
+		}
 		usageIDs, err := w.Ent.UsageLog.Query().Where(usagelog.RequestIDEQ(requestID)).IDs(ctx)
 		if err != nil {
 			return deletedGroups, err
 		}
 		for _, usageID := range usageIDs {
+			if err := checkManagedCapacity(ctx); err != nil {
+				return deletedGroups, err
+			}
 			if _, err := w.deleteUsageLogCandidate(ctx, usageID, cutoff); err != nil {
 				return deletedGroups, err
 			}
@@ -561,6 +785,9 @@ func (w *Worker) cleanupManagedRequestGroupsBatch(ctx context.Context) (int, err
 			return deletedGroups, err
 		}
 		for _, executionID := range executionIDs {
+			if err := checkManagedCapacity(ctx); err != nil {
+				return deletedGroups, err
+			}
 			if _, err := w.deleteExecutionCandidate(ctx, executionID, cutoff, cache); err != nil {
 				return deletedGroups, err
 			}
@@ -576,10 +803,40 @@ func (w *Worker) cleanupManagedRequestGroupsBatch(ctx context.Context) (int, err
 	return deletedGroups, nil
 }
 
-func (w *Worker) cleanupManagedCapacity(ctx context.Context, policy *biz.StoragePolicy) error {
+func (w *Worker) cleanupManagedCapacity(ctx context.Context, policy *biz.StoragePolicy) (result error) {
 	hard, low, enabled := managedCapacity(policy)
 	if !enabled {
 		return nil
+	}
+	policyCtx := ctx
+	ctx = context.WithValue(ctx, managedCapacityCheckKey{}, func(checkCtx context.Context) error {
+		// Keep the current phase's deadline/cancellation while reading outside
+		// a scan snapshot. Only replace the transaction/client routing values.
+		readCtx := ent.NewContext(ent.NewTxContext(checkCtx, nil), ent.FromContext(policyCtx))
+		snapshot, _ := checkCtx.Value(managedSnapshotKey{}).(bool)
+		if w.Ent.Driver().Dialect() == dialect.SQLite || (ent.TxFromContext(checkCtx) != nil && !snapshot) {
+			// SQLite permits only one writer and commonly uses a single pooled
+			// connection. Reuse its transaction, then check fresh after commit.
+			readCtx = checkCtx
+		} else if policyClient, ok := policyCtx.Value(managedPolicyClientKey{}).(*ent.Client); ok {
+			readCtx = ent.NewContext(readCtx, policyClient)
+		}
+		current, err := w.SystemService.StoragePolicyFresh(readCtx)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(current, policy) {
+			return errManagedCapacityPolicyChanged
+		}
+		return nil
+	})
+	defer func() {
+		if errors.Is(result, errManagedCapacityPolicyChanged) {
+			result = nil
+		}
+	}()
+	if err := checkManagedCapacity(ctx); err != nil {
+		return err
 	}
 	state, err := w.reconcileManagedState(ctx, hard)
 	if err != nil {
@@ -590,48 +847,69 @@ func (w *Worker) cleanupManagedCapacity(ctx context.Context, policy *biz.Storage
 	}
 	charged := state.ChargedBytes
 	var evicted int
+	var deletedGroups int
 	var reclaimed int64
-	for charged > low {
-		candidates, err := w.capacityCandidates(ctx)
-		if err != nil {
-			return fmt.Errorf("list managed observability capacity candidates: %w", err)
-		}
-		if len(candidates) == 0 {
-			break
-		}
-		batchReclaimed := int64(0)
-		for _, candidate := range candidates {
-			if charged <= low {
-				break
-			}
-			bytes, err := w.evictManagedPayload(ctx, candidate.ID)
+	var nonPayloadReclaimed int64
+	// The mutation phase is time- and batch-bounded. Complete read-only scans
+	// remain cancelable at every page but are not restarted merely because their
+	// total duration exceeds the mutation budget.
+	mutationErr := func() error {
+		ctx, cancel := context.WithTimeout(ctx, managedCapacityRoundTimeout)
+		defer cancel()
+		if charged > low {
+			candidates, err := w.capacityCandidates(ctx)
 			if err != nil {
-				return fmt.Errorf("evict managed observability payload %d: %w", candidate.ID, err)
+				return fmt.Errorf("list managed observability capacity candidates: %w", err)
 			}
-			if bytes > 0 {
-				charged -= bytes
-				reclaimed += bytes
-				batchReclaimed += bytes
-				evicted++
+			for _, candidate := range candidates {
+				if charged <= low {
+					break
+				}
+				if err := checkManagedCapacity(ctx); err != nil {
+					return err
+				}
+				bytes, err := w.evictManagedPayload(ctx, candidate.ID)
+				if err != nil {
+					return fmt.Errorf("evict managed observability payload %d: %w", candidate.ID, err)
+				}
+				if bytes > 0 {
+					charged -= bytes
+					reclaimed += bytes
+					evicted++
+				}
 			}
 		}
-		if batchReclaimed == 0 {
-			break
+		if charged > low {
+			// Prefer another scheduled payload batch over deleting whole groups
+			// while evictable payloads still remain.
+			remaining, err := w.capacityCandidates(ctx)
+			if err != nil {
+				return err
+			}
+			if len(remaining) > 0 {
+				return nil
+			}
+			deletedGroups, err = w.cleanupManagedRequestGroupsBatch(ctx, charged-low, &nonPayloadReclaimed)
+			if err != nil {
+				return fmt.Errorf("cleanup managed observability request groups: %w", err)
+			}
 		}
+		return nil
+	}()
+	if mutationErr != nil && (!errors.Is(mutationErr, context.DeadlineExceeded) || ctx.Err() != nil) {
+		return mutationErr
 	}
-	for charged > low {
-		deletedGroups, err := w.cleanupManagedRequestGroupsBatch(ctx)
-		if err != nil {
-			return fmt.Errorf("cleanup managed observability request groups: %w", err)
-		}
-		if deletedGroups == 0 {
-			break
-		}
+	reclaimed += nonPayloadReclaimed
+	if deletedGroups > 0 || evicted > 0 || nonPayloadReclaimed > 0 {
+		// One complete post-mutation projection, never a per-group full scan.
 		state, err = w.reconcileManagedState(ctx, hard)
 		if err != nil {
 			return err
 		}
 		charged = state.ChargedBytes
+	}
+	if err := checkManagedCapacity(ctx); err != nil {
+		return err
 	}
 	finalState, err := w.finishManagedCapacityState(ctx, low)
 	if err != nil {

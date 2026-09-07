@@ -397,6 +397,8 @@ func init() {
 	datastorageDescPrimary := datastorageFields[2].Descriptor()
 	// datastorage.DefaultPrimary holds the default value on creation for the primary field.
 	datastorage.DefaultPrimary = datastorageDescPrimary.Default.(bool)
+	managedobservabilitystateHooks := schema.ManagedObservabilityState{}.Hooks()
+	managedobservabilitystate.Hooks[0] = managedobservabilitystateHooks[0]
 	managedobservabilitystateFields := schema.ManagedObservabilityState{}.Fields()
 	_ = managedobservabilitystateFields
 	// managedobservabilitystateDescChargedBytes is the schema descriptor for charged_bytes field.
@@ -405,16 +407,22 @@ func init() {
 	managedobservabilitystate.DefaultChargedBytes = managedobservabilitystateDescChargedBytes.Default.(int64)
 	// managedobservabilitystate.ChargedBytesValidator is a validator for the "charged_bytes" field. It is called by the builders before save.
 	managedobservabilitystate.ChargedBytesValidator = managedobservabilitystateDescChargedBytes.Validators[0].(func(int64) error)
+	// managedobservabilitystateDescLedgerRevision is the schema descriptor for ledger_revision field.
+	managedobservabilitystateDescLedgerRevision := managedobservabilitystateFields[2].Descriptor()
+	// managedobservabilitystate.DefaultLedgerRevision holds the default value on creation for the ledger_revision field.
+	managedobservabilitystate.DefaultLedgerRevision = managedobservabilitystateDescLedgerRevision.Default.(int64)
+	// managedobservabilitystate.LedgerRevisionValidator is a validator for the "ledger_revision" field. It is called by the builders before save.
+	managedobservabilitystate.LedgerRevisionValidator = managedobservabilitystateDescLedgerRevision.Validators[0].(func(int64) error)
 	// managedobservabilitystateDescUnderPressure is the schema descriptor for under_pressure field.
-	managedobservabilitystateDescUnderPressure := managedobservabilitystateFields[2].Descriptor()
+	managedobservabilitystateDescUnderPressure := managedobservabilitystateFields[3].Descriptor()
 	// managedobservabilitystate.DefaultUnderPressure holds the default value on creation for the under_pressure field.
 	managedobservabilitystate.DefaultUnderPressure = managedobservabilitystateDescUnderPressure.Default.(bool)
 	// managedobservabilitystateDescLastError is the schema descriptor for last_error field.
-	managedobservabilitystateDescLastError := managedobservabilitystateFields[3].Descriptor()
+	managedobservabilitystateDescLastError := managedobservabilitystateFields[4].Descriptor()
 	// managedobservabilitystate.DefaultLastError holds the default value on creation for the last_error field.
 	managedobservabilitystate.DefaultLastError = managedobservabilitystateDescLastError.Default.(string)
 	// managedobservabilitystateDescUpdatedAt is the schema descriptor for updated_at field.
-	managedobservabilitystateDescUpdatedAt := managedobservabilitystateFields[4].Descriptor()
+	managedobservabilitystateDescUpdatedAt := managedobservabilitystateFields[5].Descriptor()
 	// managedobservabilitystate.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	managedobservabilitystate.DefaultUpdatedAt = managedobservabilitystateDescUpdatedAt.Default.(func() time.Time)
 	// managedobservabilitystate.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

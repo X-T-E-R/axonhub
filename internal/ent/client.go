@@ -2052,7 +2052,8 @@ func (c *ManagedObservabilityStateClient) GetX(ctx context.Context, id int) *Man
 
 // Hooks returns the client hooks.
 func (c *ManagedObservabilityStateClient) Hooks() []Hook {
-	return c.hooks.ManagedObservabilityState
+	hooks := c.hooks.ManagedObservabilityState
+	return append(hooks[:len(hooks):len(hooks)], managedobservabilitystate.Hooks[:]...)
 }
 
 // Interceptors returns the client interceptors.

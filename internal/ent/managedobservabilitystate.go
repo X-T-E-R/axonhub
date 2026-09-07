@@ -19,6 +19,8 @@ type ManagedObservabilityState struct {
 	ID int `json:"id,omitempty"`
 	// ChargedBytes holds the value of the "charged_bytes" field.
 	ChargedBytes int64 `json:"charged_bytes,omitempty"`
+	// LedgerRevision holds the value of the "ledger_revision" field.
+	LedgerRevision int64 `json:"ledger_revision,omitempty"`
 	// UnderPressure holds the value of the "under_pressure" field.
 	UnderPressure bool `json:"under_pressure,omitempty"`
 	// LastError holds the value of the "last_error" field.
@@ -35,7 +37,7 @@ func (*ManagedObservabilityState) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case managedobservabilitystate.FieldUnderPressure:
 			values[i] = new(sql.NullBool)
-		case managedobservabilitystate.FieldID, managedobservabilitystate.FieldChargedBytes:
+		case managedobservabilitystate.FieldID, managedobservabilitystate.FieldChargedBytes, managedobservabilitystate.FieldLedgerRevision:
 			values[i] = new(sql.NullInt64)
 		case managedobservabilitystate.FieldLastError:
 			values[i] = new(sql.NullString)
@@ -67,6 +69,12 @@ func (_m *ManagedObservabilityState) assignValues(columns []string, values []any
 				return fmt.Errorf("unexpected type %T for field charged_bytes", values[i])
 			} else if value.Valid {
 				_m.ChargedBytes = value.Int64
+			}
+		case managedobservabilitystate.FieldLedgerRevision:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field ledger_revision", values[i])
+			} else if value.Valid {
+				_m.LedgerRevision = value.Int64
 			}
 		case managedobservabilitystate.FieldUnderPressure:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -124,6 +132,9 @@ func (_m *ManagedObservabilityState) String() string {
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
 	builder.WriteString("charged_bytes=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ChargedBytes))
+	builder.WriteString(", ")
+	builder.WriteString("ledger_revision=")
+	builder.WriteString(fmt.Sprintf("%v", _m.LedgerRevision))
 	builder.WriteString(", ")
 	builder.WriteString("under_pressure=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UnderPressure))

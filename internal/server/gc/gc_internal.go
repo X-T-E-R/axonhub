@@ -20,7 +20,7 @@ func (w *Worker) runAutomaticCapacityCleanup(ctx context.Context) {
 	ctx = ent.NewContext(ctx, w.Ent)
 	ctx = schematype.SkipSoftDelete(ctx)
 	ctx = serverdb.WithPrimary(ctx)
-	policy, err := w.SystemService.StoragePolicy(ctx)
+	policy, err := w.SystemService.StoragePolicyFresh(ctx)
 	if err != nil {
 		w.recordManagedObservabilityFailure(ctx, "capacity_policy", "load_failed")
 		log.Error(ctx, "Managed observability capacity policy unavailable; retrying later",
@@ -28,8 +28,8 @@ func (w *Worker) runAutomaticCapacityCleanup(ctx context.Context) {
 		return
 	}
 	var cleanupErr error
-	acquired, ownerErr := w.withGCOwnership(ctx, func() {
-		cleanupErr = w.cleanupManagedCapacity(ctx, policy)
+	acquired, ownerErr := w.withGCOwnership(ctx, func(ownerCtx context.Context) {
+		cleanupErr = w.cleanupManagedCapacity(ownerCtx, policy)
 	})
 	if ownerErr != nil {
 		w.recordManagedObservabilityFailure(ctx, "gc_owner_lock", "failed")

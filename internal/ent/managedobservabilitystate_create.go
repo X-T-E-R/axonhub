@@ -36,6 +36,20 @@ func (_c *ManagedObservabilityStateCreate) SetNillableChargedBytes(v *int64) *Ma
 	return _c
 }
 
+// SetLedgerRevision sets the "ledger_revision" field.
+func (_c *ManagedObservabilityStateCreate) SetLedgerRevision(v int64) *ManagedObservabilityStateCreate {
+	_c.mutation.SetLedgerRevision(v)
+	return _c
+}
+
+// SetNillableLedgerRevision sets the "ledger_revision" field if the given value is not nil.
+func (_c *ManagedObservabilityStateCreate) SetNillableLedgerRevision(v *int64) *ManagedObservabilityStateCreate {
+	if v != nil {
+		_c.SetLedgerRevision(*v)
+	}
+	return _c
+}
+
 // SetUnderPressure sets the "under_pressure" field.
 func (_c *ManagedObservabilityStateCreate) SetUnderPressure(v bool) *ManagedObservabilityStateCreate {
 	_c.mutation.SetUnderPressure(v)
@@ -99,7 +113,9 @@ func (_c *ManagedObservabilityStateCreate) Mutation() *ManagedObservabilityState
 
 // Save creates the ManagedObservabilityState in the database.
 func (_c *ManagedObservabilityStateCreate) Save(ctx context.Context) (*ManagedObservabilityState, error) {
-	_c.defaults()
+	if err := _c.defaults(); err != nil {
+		return nil, err
+	}
 	return withHooks(ctx, _c.sqlSave, _c.mutation, _c.hooks)
 }
 
@@ -126,10 +142,14 @@ func (_c *ManagedObservabilityStateCreate) ExecX(ctx context.Context) {
 }
 
 // defaults sets the default values of the builder before save.
-func (_c *ManagedObservabilityStateCreate) defaults() {
+func (_c *ManagedObservabilityStateCreate) defaults() error {
 	if _, ok := _c.mutation.ChargedBytes(); !ok {
 		v := managedobservabilitystate.DefaultChargedBytes
 		_c.mutation.SetChargedBytes(v)
+	}
+	if _, ok := _c.mutation.LedgerRevision(); !ok {
+		v := managedobservabilitystate.DefaultLedgerRevision
+		_c.mutation.SetLedgerRevision(v)
 	}
 	if _, ok := _c.mutation.UnderPressure(); !ok {
 		v := managedobservabilitystate.DefaultUnderPressure
@@ -140,6 +160,9 @@ func (_c *ManagedObservabilityStateCreate) defaults() {
 		_c.mutation.SetLastError(v)
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
+		if managedobservabilitystate.DefaultUpdatedAt == nil {
+			return fmt.Errorf("ent: uninitialized managedobservabilitystate.DefaultUpdatedAt (forgotten import ent/runtime?)")
+		}
 		v := managedobservabilitystate.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
@@ -147,6 +170,7 @@ func (_c *ManagedObservabilityStateCreate) defaults() {
 		v := managedobservabilitystate.DefaultID
 		_c.mutation.SetID(v)
 	}
+	return nil
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -157,6 +181,14 @@ func (_c *ManagedObservabilityStateCreate) check() error {
 	if v, ok := _c.mutation.ChargedBytes(); ok {
 		if err := managedobservabilitystate.ChargedBytesValidator(v); err != nil {
 			return &ValidationError{Name: "charged_bytes", err: fmt.Errorf(`ent: validator failed for field "ManagedObservabilityState.charged_bytes": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.LedgerRevision(); !ok {
+		return &ValidationError{Name: "ledger_revision", err: errors.New(`ent: missing required field "ManagedObservabilityState.ledger_revision"`)}
+	}
+	if v, ok := _c.mutation.LedgerRevision(); ok {
+		if err := managedobservabilitystate.LedgerRevisionValidator(v); err != nil {
+			return &ValidationError{Name: "ledger_revision", err: fmt.Errorf(`ent: validator failed for field "ManagedObservabilityState.ledger_revision": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.UnderPressure(); !ok {
@@ -201,6 +233,10 @@ func (_c *ManagedObservabilityStateCreate) createSpec() (*ManagedObservabilitySt
 	if value, ok := _c.mutation.ChargedBytes(); ok {
 		_spec.SetField(managedobservabilitystate.FieldChargedBytes, field.TypeInt64, value)
 		_node.ChargedBytes = value
+	}
+	if value, ok := _c.mutation.LedgerRevision(); ok {
+		_spec.SetField(managedobservabilitystate.FieldLedgerRevision, field.TypeInt64, value)
+		_node.LedgerRevision = value
 	}
 	if value, ok := _c.mutation.UnderPressure(); ok {
 		_spec.SetField(managedobservabilitystate.FieldUnderPressure, field.TypeBool, value)
@@ -281,6 +317,24 @@ func (u *ManagedObservabilityStateUpsert) UpdateChargedBytes() *ManagedObservabi
 // AddChargedBytes adds v to the "charged_bytes" field.
 func (u *ManagedObservabilityStateUpsert) AddChargedBytes(v int64) *ManagedObservabilityStateUpsert {
 	u.Add(managedobservabilitystate.FieldChargedBytes, v)
+	return u
+}
+
+// SetLedgerRevision sets the "ledger_revision" field.
+func (u *ManagedObservabilityStateUpsert) SetLedgerRevision(v int64) *ManagedObservabilityStateUpsert {
+	u.Set(managedobservabilitystate.FieldLedgerRevision, v)
+	return u
+}
+
+// UpdateLedgerRevision sets the "ledger_revision" field to the value that was provided on create.
+func (u *ManagedObservabilityStateUpsert) UpdateLedgerRevision() *ManagedObservabilityStateUpsert {
+	u.SetExcluded(managedobservabilitystate.FieldLedgerRevision)
+	return u
+}
+
+// AddLedgerRevision adds v to the "ledger_revision" field.
+func (u *ManagedObservabilityStateUpsert) AddLedgerRevision(v int64) *ManagedObservabilityStateUpsert {
+	u.Add(managedobservabilitystate.FieldLedgerRevision, v)
 	return u
 }
 
@@ -392,6 +446,27 @@ func (u *ManagedObservabilityStateUpsertOne) AddChargedBytes(v int64) *ManagedOb
 func (u *ManagedObservabilityStateUpsertOne) UpdateChargedBytes() *ManagedObservabilityStateUpsertOne {
 	return u.Update(func(s *ManagedObservabilityStateUpsert) {
 		s.UpdateChargedBytes()
+	})
+}
+
+// SetLedgerRevision sets the "ledger_revision" field.
+func (u *ManagedObservabilityStateUpsertOne) SetLedgerRevision(v int64) *ManagedObservabilityStateUpsertOne {
+	return u.Update(func(s *ManagedObservabilityStateUpsert) {
+		s.SetLedgerRevision(v)
+	})
+}
+
+// AddLedgerRevision adds v to the "ledger_revision" field.
+func (u *ManagedObservabilityStateUpsertOne) AddLedgerRevision(v int64) *ManagedObservabilityStateUpsertOne {
+	return u.Update(func(s *ManagedObservabilityStateUpsert) {
+		s.AddLedgerRevision(v)
+	})
+}
+
+// UpdateLedgerRevision sets the "ledger_revision" field to the value that was provided on create.
+func (u *ManagedObservabilityStateUpsertOne) UpdateLedgerRevision() *ManagedObservabilityStateUpsertOne {
+	return u.Update(func(s *ManagedObservabilityStateUpsert) {
+		s.UpdateLedgerRevision()
 	})
 }
 
@@ -676,6 +751,27 @@ func (u *ManagedObservabilityStateUpsertBulk) AddChargedBytes(v int64) *ManagedO
 func (u *ManagedObservabilityStateUpsertBulk) UpdateChargedBytes() *ManagedObservabilityStateUpsertBulk {
 	return u.Update(func(s *ManagedObservabilityStateUpsert) {
 		s.UpdateChargedBytes()
+	})
+}
+
+// SetLedgerRevision sets the "ledger_revision" field.
+func (u *ManagedObservabilityStateUpsertBulk) SetLedgerRevision(v int64) *ManagedObservabilityStateUpsertBulk {
+	return u.Update(func(s *ManagedObservabilityStateUpsert) {
+		s.SetLedgerRevision(v)
+	})
+}
+
+// AddLedgerRevision adds v to the "ledger_revision" field.
+func (u *ManagedObservabilityStateUpsertBulk) AddLedgerRevision(v int64) *ManagedObservabilityStateUpsertBulk {
+	return u.Update(func(s *ManagedObservabilityStateUpsert) {
+		s.AddLedgerRevision(v)
+	})
+}
+
+// UpdateLedgerRevision sets the "ledger_revision" field to the value that was provided on create.
+func (u *ManagedObservabilityStateUpsertBulk) UpdateLedgerRevision() *ManagedObservabilityStateUpsertBulk {
+	return u.Update(func(s *ManagedObservabilityStateUpsert) {
+		s.UpdateLedgerRevision()
 	})
 }
 

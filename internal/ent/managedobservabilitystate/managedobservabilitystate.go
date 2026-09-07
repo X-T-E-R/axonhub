@@ -5,6 +5,7 @@ package managedobservabilitystate
 import (
 	"time"
 
+	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 )
 
@@ -15,6 +16,8 @@ const (
 	FieldID = "id"
 	// FieldChargedBytes holds the string denoting the charged_bytes field in the database.
 	FieldChargedBytes = "charged_bytes"
+	// FieldLedgerRevision holds the string denoting the ledger_revision field in the database.
+	FieldLedgerRevision = "ledger_revision"
 	// FieldUnderPressure holds the string denoting the under_pressure field in the database.
 	FieldUnderPressure = "under_pressure"
 	// FieldLastError holds the string denoting the last_error field in the database.
@@ -29,6 +32,7 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldChargedBytes,
+	FieldLedgerRevision,
 	FieldUnderPressure,
 	FieldLastError,
 	FieldUpdatedAt,
@@ -44,11 +48,21 @@ func ValidColumn(column string) bool {
 	return false
 }
 
+// Note that the variables below are initialized by the runtime
+// package on the initialization of the application. Therefore,
+// it should be imported in the main as follows:
+//
+//	import _ "github.com/looplj/axonhub/internal/ent/runtime"
 var (
+	Hooks [1]ent.Hook
 	// DefaultChargedBytes holds the default value on creation for the "charged_bytes" field.
 	DefaultChargedBytes int64
 	// ChargedBytesValidator is a validator for the "charged_bytes" field. It is called by the builders before save.
 	ChargedBytesValidator func(int64) error
+	// DefaultLedgerRevision holds the default value on creation for the "ledger_revision" field.
+	DefaultLedgerRevision int64
+	// LedgerRevisionValidator is a validator for the "ledger_revision" field. It is called by the builders before save.
+	LedgerRevisionValidator func(int64) error
 	// DefaultUnderPressure holds the default value on creation for the "under_pressure" field.
 	DefaultUnderPressure bool
 	// DefaultLastError holds the default value on creation for the "last_error" field.
@@ -72,6 +86,11 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // ByChargedBytes orders the results by the charged_bytes field.
 func ByChargedBytes(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldChargedBytes, opts...).ToFunc()
+}
+
+// ByLedgerRevision orders the results by the ledger_revision field.
+func ByLedgerRevision(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLedgerRevision, opts...).ToFunc()
 }
 
 // ByUnderPressure orders the results by the under_pressure field.

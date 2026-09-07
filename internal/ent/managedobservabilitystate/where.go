@@ -59,6 +59,11 @@ func ChargedBytes(v int64) predicate.ManagedObservabilityState {
 	return predicate.ManagedObservabilityState(sql.FieldEQ(FieldChargedBytes, v))
 }
 
+// LedgerRevision applies equality check predicate on the "ledger_revision" field. It's identical to LedgerRevisionEQ.
+func LedgerRevision(v int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldEQ(FieldLedgerRevision, v))
+}
+
 // UnderPressure applies equality check predicate on the "under_pressure" field. It's identical to UnderPressureEQ.
 func UnderPressure(v bool) predicate.ManagedObservabilityState {
 	return predicate.ManagedObservabilityState(sql.FieldEQ(FieldUnderPressure, v))
@@ -112,6 +117,46 @@ func ChargedBytesLT(v int64) predicate.ManagedObservabilityState {
 // ChargedBytesLTE applies the LTE predicate on the "charged_bytes" field.
 func ChargedBytesLTE(v int64) predicate.ManagedObservabilityState {
 	return predicate.ManagedObservabilityState(sql.FieldLTE(FieldChargedBytes, v))
+}
+
+// LedgerRevisionEQ applies the EQ predicate on the "ledger_revision" field.
+func LedgerRevisionEQ(v int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldEQ(FieldLedgerRevision, v))
+}
+
+// LedgerRevisionNEQ applies the NEQ predicate on the "ledger_revision" field.
+func LedgerRevisionNEQ(v int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldNEQ(FieldLedgerRevision, v))
+}
+
+// LedgerRevisionIn applies the In predicate on the "ledger_revision" field.
+func LedgerRevisionIn(vs ...int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldIn(FieldLedgerRevision, vs...))
+}
+
+// LedgerRevisionNotIn applies the NotIn predicate on the "ledger_revision" field.
+func LedgerRevisionNotIn(vs ...int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldNotIn(FieldLedgerRevision, vs...))
+}
+
+// LedgerRevisionGT applies the GT predicate on the "ledger_revision" field.
+func LedgerRevisionGT(v int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldGT(FieldLedgerRevision, v))
+}
+
+// LedgerRevisionGTE applies the GTE predicate on the "ledger_revision" field.
+func LedgerRevisionGTE(v int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldGTE(FieldLedgerRevision, v))
+}
+
+// LedgerRevisionLT applies the LT predicate on the "ledger_revision" field.
+func LedgerRevisionLT(v int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldLT(FieldLedgerRevision, v))
+}
+
+// LedgerRevisionLTE applies the LTE predicate on the "ledger_revision" field.
+func LedgerRevisionLTE(v int64) predicate.ManagedObservabilityState {
+	return predicate.ManagedObservabilityState(sql.FieldLTE(FieldLedgerRevision, v))
 }
 
 // UnderPressureEQ applies the EQ predicate on the "under_pressure" field.

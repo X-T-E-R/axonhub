@@ -71,6 +71,7 @@ func TestManagedCapacityHysteresisAndFailurePriority(t *testing.T) {
 	successTwo, _ := addCapacityPayload(t, client, ctx, proj, request.StatusCanceled, 800*1024)
 	failed, failedPayload := addCapacityPayload(t, client, ctx, proj, request.StatusFailed, 800*1024)
 
+	require.NoError(t, worker.SystemService.SetStoragePolicy(ctx, policy))
 	require.NoError(t, worker.cleanupManagedCapacity(ctx, policy))
 	require.Zero(t, client.ObservabilityPayload.Query().Where(observabilitypayload.RequestIDIn(successOne.ID, successTwo.ID)).CountX(ctx))
 	require.True(t, client.ObservabilityPayload.Query().Where(observabilitypayload.IDEQ(failedPayload.ID)).ExistX(ctx))
@@ -99,7 +100,7 @@ func TestLocalGCOwnershipIsNonWaiting(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		acquired, err := worker.withGCOwnership(ctx, func() {
+		acquired, err := worker.withGCOwnership(ctx, func(context.Context) {
 			owners.Add(1)
 			close(entered)
 			<-release
@@ -108,7 +109,7 @@ func TestLocalGCOwnershipIsNonWaiting(t *testing.T) {
 		require.True(t, acquired)
 	}()
 	<-entered
-	acquired, err := worker.withGCOwnership(ctx, func() { owners.Add(1) })
+	acquired, err := worker.withGCOwnership(ctx, func(context.Context) { owners.Add(1) })
 	require.NoError(t, err)
 	require.False(t, acquired)
 	close(release)
@@ -126,6 +127,7 @@ func TestManagedCapacityFallsBackToExplicitRequestUsageAllowlist(t *testing.T) {
 		client.UsageLog.Create().SetRequestID(row.ID).SetProjectID(proj.ID).SetModelID("model").SaveX(ctx)
 	}
 	policy := &biz.StoragePolicy{ManagedObservabilityHardMiB: lo.ToPtr(3), ManagedObservabilityLowMiB: lo.ToPtr(2)}
+	require.NoError(t, worker.SystemService.SetStoragePolicy(ctx, policy))
 	require.NoError(t, worker.cleanupManagedCapacity(ctx, policy))
 	require.Equal(t, 1, client.Request.Query().CountX(ctx))
 	require.Equal(t, 1, client.UsageLog.Query().CountX(ctx), "usage rows are deleted only with their managed request group")
@@ -246,6 +248,7 @@ func TestManagedCapacityExcludesTerminalParentWithActiveExecution(t *testing.T) 
 	lowParent, _ := addCapacityPayload(t, client, ctx, proj, request.StatusCompleted, 800*1024)
 
 	policy := &biz.StoragePolicy{ManagedObservabilityHardMiB: lo.ToPtr(2), ManagedObservabilityLowMiB: lo.ToPtr(1)}
+	require.NoError(t, worker.SystemService.SetStoragePolicy(ctx, policy))
 	require.NoError(t, worker.cleanupManagedCapacity(ctx, policy))
 	require.True(t, client.ObservabilityPayload.Query().Where(observabilitypayload.IDEQ(activePayload.ID)).ExistX(ctx))
 	require.True(t, client.Request.Query().Where(request.IDEQ(activeParent.ID)).ExistX(ctx))

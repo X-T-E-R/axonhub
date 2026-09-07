@@ -50,6 +50,27 @@ func (_u *ManagedObservabilityStateUpdate) AddChargedBytes(v int64) *ManagedObse
 	return _u
 }
 
+// SetLedgerRevision sets the "ledger_revision" field.
+func (_u *ManagedObservabilityStateUpdate) SetLedgerRevision(v int64) *ManagedObservabilityStateUpdate {
+	_u.mutation.ResetLedgerRevision()
+	_u.mutation.SetLedgerRevision(v)
+	return _u
+}
+
+// SetNillableLedgerRevision sets the "ledger_revision" field if the given value is not nil.
+func (_u *ManagedObservabilityStateUpdate) SetNillableLedgerRevision(v *int64) *ManagedObservabilityStateUpdate {
+	if v != nil {
+		_u.SetLedgerRevision(*v)
+	}
+	return _u
+}
+
+// AddLedgerRevision adds value to the "ledger_revision" field.
+func (_u *ManagedObservabilityStateUpdate) AddLedgerRevision(v int64) *ManagedObservabilityStateUpdate {
+	_u.mutation.AddLedgerRevision(v)
+	return _u
+}
+
 // SetUnderPressure sets the "under_pressure" field.
 func (_u *ManagedObservabilityStateUpdate) SetUnderPressure(v bool) *ManagedObservabilityStateUpdate {
 	_u.mutation.SetUnderPressure(v)
@@ -97,7 +118,9 @@ func (_u *ManagedObservabilityStateUpdate) Mutation() *ManagedObservabilityState
 
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (_u *ManagedObservabilityStateUpdate) Save(ctx context.Context) (int, error) {
-	_u.defaults()
+	if err := _u.defaults(); err != nil {
+		return 0, err
+	}
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -124,11 +147,15 @@ func (_u *ManagedObservabilityStateUpdate) ExecX(ctx context.Context) {
 }
 
 // defaults sets the default values of the builder before save.
-func (_u *ManagedObservabilityStateUpdate) defaults() {
+func (_u *ManagedObservabilityStateUpdate) defaults() error {
 	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		if managedobservabilitystate.UpdateDefaultUpdatedAt == nil {
+			return fmt.Errorf("ent: uninitialized managedobservabilitystate.UpdateDefaultUpdatedAt (forgotten import ent/runtime?)")
+		}
 		v := managedobservabilitystate.UpdateDefaultUpdatedAt()
 		_u.mutation.SetUpdatedAt(v)
 	}
+	return nil
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -136,6 +163,11 @@ func (_u *ManagedObservabilityStateUpdate) check() error {
 	if v, ok := _u.mutation.ChargedBytes(); ok {
 		if err := managedobservabilitystate.ChargedBytesValidator(v); err != nil {
 			return &ValidationError{Name: "charged_bytes", err: fmt.Errorf(`ent: validator failed for field "ManagedObservabilityState.charged_bytes": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.LedgerRevision(); ok {
+		if err := managedobservabilitystate.LedgerRevisionValidator(v); err != nil {
+			return &ValidationError{Name: "ledger_revision", err: fmt.Errorf(`ent: validator failed for field "ManagedObservabilityState.ledger_revision": %w`, err)}
 		}
 	}
 	return nil
@@ -164,6 +196,12 @@ func (_u *ManagedObservabilityStateUpdate) sqlSave(ctx context.Context) (_node i
 	}
 	if value, ok := _u.mutation.AddedChargedBytes(); ok {
 		_spec.AddField(managedobservabilitystate.FieldChargedBytes, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.LedgerRevision(); ok {
+		_spec.SetField(managedobservabilitystate.FieldLedgerRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedLedgerRevision(); ok {
+		_spec.AddField(managedobservabilitystate.FieldLedgerRevision, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.UnderPressure(); ok {
 		_spec.SetField(managedobservabilitystate.FieldUnderPressure, field.TypeBool, value)
@@ -217,6 +255,27 @@ func (_u *ManagedObservabilityStateUpdateOne) SetNillableChargedBytes(v *int64) 
 // AddChargedBytes adds value to the "charged_bytes" field.
 func (_u *ManagedObservabilityStateUpdateOne) AddChargedBytes(v int64) *ManagedObservabilityStateUpdateOne {
 	_u.mutation.AddChargedBytes(v)
+	return _u
+}
+
+// SetLedgerRevision sets the "ledger_revision" field.
+func (_u *ManagedObservabilityStateUpdateOne) SetLedgerRevision(v int64) *ManagedObservabilityStateUpdateOne {
+	_u.mutation.ResetLedgerRevision()
+	_u.mutation.SetLedgerRevision(v)
+	return _u
+}
+
+// SetNillableLedgerRevision sets the "ledger_revision" field if the given value is not nil.
+func (_u *ManagedObservabilityStateUpdateOne) SetNillableLedgerRevision(v *int64) *ManagedObservabilityStateUpdateOne {
+	if v != nil {
+		_u.SetLedgerRevision(*v)
+	}
+	return _u
+}
+
+// AddLedgerRevision adds value to the "ledger_revision" field.
+func (_u *ManagedObservabilityStateUpdateOne) AddLedgerRevision(v int64) *ManagedObservabilityStateUpdateOne {
+	_u.mutation.AddLedgerRevision(v)
 	return _u
 }
 
@@ -280,7 +339,9 @@ func (_u *ManagedObservabilityStateUpdateOne) Select(field string, fields ...str
 
 // Save executes the query and returns the updated ManagedObservabilityState entity.
 func (_u *ManagedObservabilityStateUpdateOne) Save(ctx context.Context) (*ManagedObservabilityState, error) {
-	_u.defaults()
+	if err := _u.defaults(); err != nil {
+		return nil, err
+	}
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -307,11 +368,15 @@ func (_u *ManagedObservabilityStateUpdateOne) ExecX(ctx context.Context) {
 }
 
 // defaults sets the default values of the builder before save.
-func (_u *ManagedObservabilityStateUpdateOne) defaults() {
+func (_u *ManagedObservabilityStateUpdateOne) defaults() error {
 	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		if managedobservabilitystate.UpdateDefaultUpdatedAt == nil {
+			return fmt.Errorf("ent: uninitialized managedobservabilitystate.UpdateDefaultUpdatedAt (forgotten import ent/runtime?)")
+		}
 		v := managedobservabilitystate.UpdateDefaultUpdatedAt()
 		_u.mutation.SetUpdatedAt(v)
 	}
+	return nil
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -319,6 +384,11 @@ func (_u *ManagedObservabilityStateUpdateOne) check() error {
 	if v, ok := _u.mutation.ChargedBytes(); ok {
 		if err := managedobservabilitystate.ChargedBytesValidator(v); err != nil {
 			return &ValidationError{Name: "charged_bytes", err: fmt.Errorf(`ent: validator failed for field "ManagedObservabilityState.charged_bytes": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.LedgerRevision(); ok {
+		if err := managedobservabilitystate.LedgerRevisionValidator(v); err != nil {
+			return &ValidationError{Name: "ledger_revision", err: fmt.Errorf(`ent: validator failed for field "ManagedObservabilityState.ledger_revision": %w`, err)}
 		}
 	}
 	return nil
@@ -364,6 +434,12 @@ func (_u *ManagedObservabilityStateUpdateOne) sqlSave(ctx context.Context) (_nod
 	}
 	if value, ok := _u.mutation.AddedChargedBytes(); ok {
 		_spec.AddField(managedobservabilitystate.FieldChargedBytes, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.LedgerRevision(); ok {
+		_spec.SetField(managedobservabilitystate.FieldLedgerRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedLedgerRevision(); ok {
+		_spec.AddField(managedobservabilitystate.FieldLedgerRevision, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.UnderPressure(); ok {
 		_spec.SetField(managedobservabilitystate.FieldUnderPressure, field.TypeBool, value)

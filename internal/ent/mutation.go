@@ -10992,18 +10992,20 @@ func (m *DataStorageMutation) ResetEdge(name string) error {
 // ManagedObservabilityStateMutation represents an operation that mutates the ManagedObservabilityState nodes in the graph.
 type ManagedObservabilityStateMutation struct {
 	config
-	op               Op
-	typ              string
-	id               *int
-	charged_bytes    *int64
-	addcharged_bytes *int64
-	under_pressure   *bool
-	last_error       *string
-	updated_at       *time.Time
-	clearedFields    map[string]struct{}
-	done             bool
-	oldValue         func(context.Context) (*ManagedObservabilityState, error)
-	predicates       []predicate.ManagedObservabilityState
+	op                 Op
+	typ                string
+	id                 *int
+	charged_bytes      *int64
+	addcharged_bytes   *int64
+	ledger_revision    *int64
+	addledger_revision *int64
+	under_pressure     *bool
+	last_error         *string
+	updated_at         *time.Time
+	clearedFields      map[string]struct{}
+	done               bool
+	oldValue           func(context.Context) (*ManagedObservabilityState, error)
+	predicates         []predicate.ManagedObservabilityState
 }
 
 var _ ent.Mutation = (*ManagedObservabilityStateMutation)(nil)
@@ -11166,6 +11168,62 @@ func (m *ManagedObservabilityStateMutation) ResetChargedBytes() {
 	m.addcharged_bytes = nil
 }
 
+// SetLedgerRevision sets the "ledger_revision" field.
+func (m *ManagedObservabilityStateMutation) SetLedgerRevision(i int64) {
+	m.ledger_revision = &i
+	m.addledger_revision = nil
+}
+
+// LedgerRevision returns the value of the "ledger_revision" field in the mutation.
+func (m *ManagedObservabilityStateMutation) LedgerRevision() (r int64, exists bool) {
+	v := m.ledger_revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLedgerRevision returns the old "ledger_revision" field's value of the ManagedObservabilityState entity.
+// If the ManagedObservabilityState object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ManagedObservabilityStateMutation) OldLedgerRevision(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLedgerRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLedgerRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLedgerRevision: %w", err)
+	}
+	return oldValue.LedgerRevision, nil
+}
+
+// AddLedgerRevision adds i to the "ledger_revision" field.
+func (m *ManagedObservabilityStateMutation) AddLedgerRevision(i int64) {
+	if m.addledger_revision != nil {
+		*m.addledger_revision += i
+	} else {
+		m.addledger_revision = &i
+	}
+}
+
+// AddedLedgerRevision returns the value that was added to the "ledger_revision" field in this mutation.
+func (m *ManagedObservabilityStateMutation) AddedLedgerRevision() (r int64, exists bool) {
+	v := m.addledger_revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetLedgerRevision resets all changes to the "ledger_revision" field.
+func (m *ManagedObservabilityStateMutation) ResetLedgerRevision() {
+	m.ledger_revision = nil
+	m.addledger_revision = nil
+}
+
 // SetUnderPressure sets the "under_pressure" field.
 func (m *ManagedObservabilityStateMutation) SetUnderPressure(b bool) {
 	m.under_pressure = &b
@@ -11321,9 +11379,12 @@ func (m *ManagedObservabilityStateMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ManagedObservabilityStateMutation) Fields() []string {
-	fields := make([]string, 0, 4)
+	fields := make([]string, 0, 5)
 	if m.charged_bytes != nil {
 		fields = append(fields, managedobservabilitystate.FieldChargedBytes)
+	}
+	if m.ledger_revision != nil {
+		fields = append(fields, managedobservabilitystate.FieldLedgerRevision)
 	}
 	if m.under_pressure != nil {
 		fields = append(fields, managedobservabilitystate.FieldUnderPressure)
@@ -11344,6 +11405,8 @@ func (m *ManagedObservabilityStateMutation) Field(name string) (ent.Value, bool)
 	switch name {
 	case managedobservabilitystate.FieldChargedBytes:
 		return m.ChargedBytes()
+	case managedobservabilitystate.FieldLedgerRevision:
+		return m.LedgerRevision()
 	case managedobservabilitystate.FieldUnderPressure:
 		return m.UnderPressure()
 	case managedobservabilitystate.FieldLastError:
@@ -11361,6 +11424,8 @@ func (m *ManagedObservabilityStateMutation) OldField(ctx context.Context, name s
 	switch name {
 	case managedobservabilitystate.FieldChargedBytes:
 		return m.OldChargedBytes(ctx)
+	case managedobservabilitystate.FieldLedgerRevision:
+		return m.OldLedgerRevision(ctx)
 	case managedobservabilitystate.FieldUnderPressure:
 		return m.OldUnderPressure(ctx)
 	case managedobservabilitystate.FieldLastError:
@@ -11382,6 +11447,13 @@ func (m *ManagedObservabilityStateMutation) SetField(name string, value ent.Valu
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetChargedBytes(v)
+		return nil
+	case managedobservabilitystate.FieldLedgerRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLedgerRevision(v)
 		return nil
 	case managedobservabilitystate.FieldUnderPressure:
 		v, ok := value.(bool)
@@ -11415,6 +11487,9 @@ func (m *ManagedObservabilityStateMutation) AddedFields() []string {
 	if m.addcharged_bytes != nil {
 		fields = append(fields, managedobservabilitystate.FieldChargedBytes)
 	}
+	if m.addledger_revision != nil {
+		fields = append(fields, managedobservabilitystate.FieldLedgerRevision)
+	}
 	return fields
 }
 
@@ -11425,6 +11500,8 @@ func (m *ManagedObservabilityStateMutation) AddedField(name string) (ent.Value, 
 	switch name {
 	case managedobservabilitystate.FieldChargedBytes:
 		return m.AddedChargedBytes()
+	case managedobservabilitystate.FieldLedgerRevision:
+		return m.AddedLedgerRevision()
 	}
 	return nil, false
 }
@@ -11440,6 +11517,13 @@ func (m *ManagedObservabilityStateMutation) AddField(name string, value ent.Valu
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddChargedBytes(v)
+		return nil
+	case managedobservabilitystate.FieldLedgerRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLedgerRevision(v)
 		return nil
 	}
 	return fmt.Errorf("unknown ManagedObservabilityState numeric field %s", name)
@@ -11479,6 +11563,9 @@ func (m *ManagedObservabilityStateMutation) ResetField(name string) error {
 	switch name {
 	case managedobservabilitystate.FieldChargedBytes:
 		m.ResetChargedBytes()
+		return nil
+	case managedobservabilitystate.FieldLedgerRevision:
+		m.ResetLedgerRevision()
 		return nil
 	case managedobservabilitystate.FieldUnderPressure:
 		m.ResetUnderPressure()

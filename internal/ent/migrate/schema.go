@@ -355,6 +355,7 @@ var (
 	ManagedObservabilityStatesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "charged_bytes", Type: field.TypeInt64, Default: 0},
+		{Name: "ledger_revision", Type: field.TypeInt64, Default: 0},
 		{Name: "under_pressure", Type: field.TypeBool, Default: false},
 		{Name: "last_error", Type: field.TypeString, Nullable: true, Default: ""},
 		{Name: "updated_at", Type: field.TypeTime},

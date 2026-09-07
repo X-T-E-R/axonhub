@@ -113,8 +113,8 @@ func (f *postgresManagedFixture) createRequest(t *testing.T, body []byte) *ent.R
 func (f *postgresManagedFixture) cleanupOwned(t *testing.T, policy *biz.StoragePolicy) {
 	t.Helper()
 	var cleanupErr error
-	acquired, err := f.worker.withGCOwnership(f.ctx, func() {
-		cleanupErr = f.worker.cleanupManagedCapacity(f.ctx, policy)
+	acquired, err := f.worker.withGCOwnership(f.ctx, func(ownerCtx context.Context) {
+		cleanupErr = f.worker.cleanupManagedCapacity(ownerCtx, policy)
 	})
 	require.NoError(t, err)
 	require.True(t, acquired)
@@ -264,6 +264,14 @@ func TestManagedObservabilityPostgresApplicationContract(t *testing.T) {
 
 			f.cleanupOwned(t, policy)
 			state := f.client.ManagedObservabilityState.GetX(f.ctx, 1)
+			// Capacity work is bounded to one group per scheduled round. A
+			// previous cycle's small skeleton can precede the large new group.
+			for round := 0; state.UnderPressure && round < 3; round++ {
+				before := f.client.Request.Query().CountX(f.ctx)
+				f.cleanupOwned(t, policy)
+				require.Less(t, f.client.Request.Query().CountX(f.ctx), before, "bounded rounds must make deletion progress")
+				state = f.client.ManagedObservabilityState.GetX(f.ctx, 1)
+			}
 			require.False(t, state.UnderPressure)
 			require.LessOrEqual(t, state.ChargedBytes, int64(1<<20))
 			t.Logf("application cycle=%d charged_bytes=%d requests=%d payloads=%d", cycle, state.ChargedBytes,
@@ -285,7 +293,7 @@ func TestManagedObservabilityPostgresApplicationContract(t *testing.T) {
 		result := make(chan error, 1)
 		var once sync.Once
 		go func() {
-			acquired, lockErr := f.worker.withGCOwnership(f.ctx, func() {
+			acquired, lockErr := f.worker.withGCOwnership(f.ctx, func(context.Context) {
 				once.Do(func() { close(entered) })
 				<-release
 			})
@@ -295,7 +303,7 @@ func TestManagedObservabilityPostgresApplicationContract(t *testing.T) {
 			result <- lockErr
 		}()
 		<-entered
-		acquired, err := secondWorker.withGCOwnership(secondCtx, func() {})
+		acquired, err := secondWorker.withGCOwnership(secondCtx, func(context.Context) {})
 		require.NoError(t, err)
 		require.False(t, acquired)
 
@@ -307,7 +315,7 @@ func TestManagedObservabilityPostgresApplicationContract(t *testing.T) {
 		require.NoError(t, rawDB.QueryRowContext(f.ctx, `SELECT pg_terminate_backend($1)`, ownerPID).Scan(&terminated))
 		require.True(t, terminated)
 		require.Eventually(t, func() bool {
-			owned, ownerErr := secondWorker.withGCOwnership(secondCtx, func() {})
+			owned, ownerErr := secondWorker.withGCOwnership(secondCtx, func(context.Context) {})
 			return ownerErr == nil && owned
 		}, 5*time.Second, 100*time.Millisecond)
 		close(release)
