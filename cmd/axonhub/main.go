@@ -98,7 +98,7 @@ func startServer() {
 				},
 			})
 		}),
-		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService, requestBodyWriter *biz.ManagedRequestBodyWriter) {
+		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService, requestBodyWriter *biz.ManagedRequestBodyWriter, observationWriter *biz.ForwardingObservationWriter) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					if provider != nil {
@@ -119,6 +119,10 @@ func startServer() {
 				OnStart: func(ctx context.Context) error {
 					if err := requestBodyWriter.Start(ctx); err != nil {
 						return fmt.Errorf("start managed request-body writer: %w", err)
+					}
+					if err := observationWriter.Start(ctx); err != nil {
+						_ = requestBodyWriter.Stop(ctx)
+						return fmt.Errorf("start forwarding observation writer: %w", err)
 					}
 					// Run cleanup asynchronously with timeout to avoid blocking startup
 					go func() {
@@ -147,6 +151,10 @@ func startServer() {
 						log.Error(context.Background(), "server shutdown error:", log.Cause(err))
 					}
 
+					err = observationWriter.Stop(ctx)
+					if err != nil {
+						log.Error(context.Background(), "forwarding observation writer shutdown error:", log.Cause(err))
+					}
 					err = requestBodyWriter.Stop(ctx)
 					if err != nil {
 						log.Error(context.Background(), "managed request-body writer shutdown error:", log.Cause(err))

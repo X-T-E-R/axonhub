@@ -119,6 +119,9 @@ func (ts *OutboundPersistentStream) Close() error {
 
 	streamErr := ts.stream.Err()
 	ctxErr := ctx.Err()
+	// Release transport and channel admission before doing any aggregation or
+	// observation submission. The error snapshot above precedes our own close.
+	closeErr := ts.stream.Close()
 
 	if deferredErr, _, executionFailurePersisted := ts.state.deferredStreamFailure(); deferredErr != nil {
 		if executionFailurePersisted {
@@ -127,12 +130,12 @@ func (ts *OutboundPersistentStream) Close() error {
 			ts.persistTerminalStreamFailure(ctx, deferredErr)
 		}
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	if ts.providerStatus != streamTerminalNone {
 		ts.persistProviderTerminalStatus(ctx, ts.providerStatus)
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	// If we received the [DONE] event, treat the stream as successfully completed
@@ -144,7 +147,7 @@ func (ts *OutboundPersistentStream) Close() error {
 		log.Debug(ctx, "Stream completed successfully (received [DONE]), performing final persistence")
 		ts.persistResponseChunks(ctx)
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	// If there's an explicit stream error (not just context cancellation), treat as failure
@@ -154,7 +157,7 @@ func (ts *OutboundPersistentStream) Close() error {
 		ts.logFinalizationDecision(ctx, "explicit_stream_error", streamErr, ctxErr, false, nil)
 		ts.persistTerminalStreamFailure(ctx, streamErr)
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	var responseBody []byte
@@ -190,7 +193,7 @@ func (ts *OutboundPersistentStream) Close() error {
 
 		ts.persistTerminalStreamFailure(ctx, errToReport)
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	if !streamCompleted {
@@ -198,7 +201,7 @@ func (ts *OutboundPersistentStream) Close() error {
 		errToReport := errors.New("stream ended without terminal event or completed response")
 		ts.persistTerminalStreamFailure(ctx, errToReport)
 
-		return ts.stream.Close()
+		return closeErr
 	}
 
 	// Stream completed successfully - perform final persistence
@@ -215,7 +218,7 @@ func (ts *OutboundPersistentStream) Close() error {
 		ts.persistResponseChunks(ctx)
 	}
 
-	return ts.stream.Close()
+	return closeErr
 }
 
 func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Context, streamErr error) {

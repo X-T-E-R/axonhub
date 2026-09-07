@@ -60,6 +60,36 @@ type TraceService struct {
 // GetOrCreateTrace retrieves an existing trace by trace_id and project_id,
 // or creates a new one if it doesn't exist.
 func (s *TraceService) GetOrCreateTrace(ctx context.Context, projectID int, traceID string, threadID *int) (*ent.Trace, error) {
+	if scope := observationFromContext(ctx); scope != nil {
+		id := scope.newID()
+		capturedAt := time.Now().UTC()
+		var parentID *int
+		if threadID != nil {
+			parentID = lo.ToPtr(*threadID)
+		}
+		err := scope.submit(ctx, int64(len(traceID)), func(workerCtx context.Context) error {
+			if scope.ids[id] != 0 {
+				return nil
+			}
+			var resolvedParent *int
+			if parentID != nil {
+				actual, err := scope.resolve(*parentID)
+				if err != nil {
+					return err
+				}
+				resolvedParent = &actual
+			}
+			row, err := s.GetOrCreateTrace(withObservationCreatedAt(workerCtx, capturedAt), projectID, traceID, resolvedParent)
+			if err == nil {
+				scope.bindID(id, row.ID)
+			}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &ent.Trace{ID: id, ProjectID: projectID, TraceID: traceID, CreatedAt: capturedAt, UpdatedAt: capturedAt}, nil
+	}
 	client := s.entFromContext(ctx)
 	if client == nil {
 		return nil, fmt.Errorf("ent client not found in context")
@@ -83,7 +113,12 @@ func (s *TraceService) GetOrCreateTrace(ctx context.Context, projectID int, trac
 	}
 
 	// Trace not found, create new one
+	createdAt := time.Now().UTC()
+	if capturedAt, ok := observationCreatedAt(ctx); ok {
+		createdAt = capturedAt
+	}
 	newTrace, err := client.Trace.Create().
+		SetCreatedAt(createdAt).SetUpdatedAt(createdAt).
 		SetTraceID(traceID).
 		SetProjectID(projectID).
 		SetNillableThreadID(threadID).

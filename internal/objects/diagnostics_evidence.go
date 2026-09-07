@@ -22,6 +22,7 @@ type RoutingContext struct {
 // It contains metadata only and never duplicates evidence bytes.
 type EvidenceDisposition struct {
 	Version        int         `json:"version"`
+	ObservationID  string      `json:"observationId,omitempty"`
 	RequestBody    Disposition `json:"requestBody"`
 	ResponseBody   Disposition `json:"responseBody"`
 	ResponseChunks Disposition `json:"responseChunks"`

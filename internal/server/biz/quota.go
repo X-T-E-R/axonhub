@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -39,8 +40,9 @@ type QuotaResult struct {
 }
 
 type QuotaService struct {
-	ent    *ent.Client
-	system *SystemService
+	ent         *ent.Client
+	system      *SystemService
+	observation *ForwardingObservationWriter
 }
 
 func NewQuotaService(entClient *ent.Client, systemService *SystemService) *QuotaService {
@@ -51,6 +53,16 @@ func (s *QuotaService) CheckAPIKeyQuota(ctx context.Context, apiKeyID int, quota
 	if quota == nil {
 		return QuotaCheckResult{Allowed: true}, nil
 	}
+	if s.observation != nil {
+		w := s.observation
+		w.mu.Lock()
+		scope := observationFromContext(ctx)
+		unavailable := scope != nil && (!scope.reservedUsage || scope.reservedCore < 2)
+		w.mu.Unlock()
+		if unavailable {
+			return QuotaCheckResult{}, errors.New("quota accounting queue is full; retry after persistence recovers")
+		}
+	}
 
 	loc := s.system.TimeLocation(ctx)
 
@@ -59,13 +71,14 @@ func (s *QuotaService) CheckAPIKeyQuota(ctx context.Context, apiKeyID int, quota
 		return QuotaCheckResult{}, err
 	}
 
+	usage, err := authz.RunWithSystemBypass(ctx, "quota-accounted-usage", func(bypassCtx context.Context) (QuotaUsage, error) {
+		return s.accountedUsage(bypassCtx, apiKeyID, window)
+	})
+	if err != nil {
+		return QuotaCheckResult{}, err
+	}
 	if quota.Requests != nil {
-		reqCount, err := authz.RunWithSystemBypass(ctx, "quota-request-count", func(bypassCtx context.Context) (int64, error) {
-			return s.requestCount(bypassCtx, apiKeyID, window)
-		})
-		if err != nil {
-			return QuotaCheckResult{}, err
-		}
+		reqCount := usage.RequestCount
 
 		if reqCount >= *quota.Requests {
 			return QuotaCheckResult{
@@ -83,12 +96,7 @@ func (s *QuotaService) CheckAPIKeyQuota(ctx context.Context, apiKeyID int, quota
 		}, nil
 	}
 
-	usageAgg, err := authz.RunWithSystemBypass(ctx, "quota-usage-agg", func(bypassCtx context.Context) (usageAggResult, error) {
-		return s.usageAgg(bypassCtx, apiKeyID, window, quota.TotalTokens != nil, quota.Cost != nil)
-	})
-	if err != nil {
-		return QuotaCheckResult{}, err
-	}
+	usageAgg := usage
 
 	if quota.TotalTokens != nil && usageAgg.TotalTokens >= *quota.TotalTokens {
 		return QuotaCheckResult{
@@ -166,15 +174,8 @@ func (s *QuotaService) GetQuota(ctx context.Context, apiKeyID int, quota *object
 		return QuotaResult{}, err
 	}
 
-	reqCount, err := authz.RunWithSystemBypass(ctx, "quota-request-count", func(bypassCtx context.Context) (int64, error) {
-		return s.requestCount(bypassCtx, apiKeyID, window)
-	})
-	if err != nil {
-		return QuotaResult{}, err
-	}
-
-	usageAgg, err := authz.RunWithSystemBypass(ctx, "quota-usage-agg", func(bypassCtx context.Context) (usageAggResult, error) {
-		return s.usageAgg(bypassCtx, apiKeyID, window, true, true)
+	usage, err := authz.RunWithSystemBypass(ctx, "quota-accounted-usage", func(bypassCtx context.Context) (QuotaUsage, error) {
+		return s.accountedUsage(bypassCtx, apiKeyID, window)
 	})
 	if err != nil {
 		return QuotaResult{}, err
@@ -182,11 +183,7 @@ func (s *QuotaService) GetQuota(ctx context.Context, apiKeyID int, quota *object
 
 	return QuotaResult{
 		Window: window,
-		Usage: QuotaUsage{
-			RequestCount: reqCount,
-			TotalTokens:  usageAgg.TotalTokens,
-			TotalCost:    usageAgg.TotalCost,
-		},
+		Usage:  usage,
 	}, nil
 }
 

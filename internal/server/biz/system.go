@@ -770,8 +770,9 @@ type SystemService struct {
 	CacheConfig xcache.Config
 	Cache       xcache.Cache[ent.System]
 
-	mu           sync.RWMutex
-	timeLocation *time.Location
+	mu                sync.RWMutex
+	timeLocation      *time.Location
+	observationWriter *ForwardingObservationWriter
 }
 
 func (s *SystemService) IsInitialized(ctx context.Context) (bool, error) {
@@ -1063,6 +1064,15 @@ func (s *SystemService) setSystemValue(ctx context.Context, key, value string) e
 
 // StoragePolicy retrieves the storage policy configuration.
 func (s *SystemService) StoragePolicy(ctx context.Context) (*StoragePolicy, error) {
+	if policy, ok := ctx.Value(observationPolicyContextKey{}).(*StoragePolicy); ok && policy != nil {
+		return policy, nil
+	}
+	if scope := observationFromContext(ctx); scope != nil {
+		if policy := scope.writer.policy.Load(); policy != nil {
+			return policy, nil
+		}
+		return lo.ToPtr(defaultStoragePolicy), nil
+	}
 	value, err := s.getSystemValue(ctx, SystemKeyStoragePolicy)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -1143,6 +1153,12 @@ func (s *SystemService) SetStoragePolicy(ctx context.Context, policy *StoragePol
 
 	if err := s.setSystemValue(ctx, SystemKeyStoragePolicy, string(jsonBytes)); err != nil {
 		return err
+	}
+	if s.observationWriter != nil {
+		var snapshot StoragePolicy
+		if err := json.Unmarshal(jsonBytes, &snapshot); err == nil {
+			s.observationWriter.policy.Store(&snapshot)
+		}
 	}
 	client := s.entFromContext(ctx)
 	if policy.ManagedObservabilityHardMiB != nil {

@@ -59,10 +59,12 @@ func (m *livePreviewMiddleware) OnOutboundRawRequest(ctx context.Context, reques
 
 	if m.state.Request != nil && m.liveStreamRegistry.GetRequestBuffer(m.state.Request.ID) == nil {
 		m.liveStreamRegistry.RegisterRequest(m.state.Request.ID, chunkbuffer.New())
+		biz.BindLiveObservation(ctx, m.state.Request.ID, m.liveStreamRegistry, m.liveStreamRegistry.GetRequestBuffer(m.state.Request.ID), false)
 	}
 
 	if m.state.RequestExec != nil && m.liveStreamRegistry.GetExecutionBuffer(m.state.RequestExec.ID) == nil {
 		m.liveStreamRegistry.RegisterExecution(m.state.RequestExec.ID, chunkbuffer.New())
+		biz.BindLiveObservation(ctx, m.state.RequestExec.ID, m.liveStreamRegistry, m.liveStreamRegistry.GetExecutionBuffer(m.state.RequestExec.ID), true)
 	}
 
 	return request, nil

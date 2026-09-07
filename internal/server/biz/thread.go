@@ -3,6 +3,7 @@ package biz
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -30,6 +31,24 @@ func NewThreadService(ent *ent.Client, traceService *TraceService) *ThreadServic
 // GetOrCreateThread retrieves an existing thread by thread_id and project_id,
 // or creates a new one if it doesn't exist.
 func (s *ThreadService) GetOrCreateThread(ctx context.Context, projectID int, threadID string) (*ent.Thread, error) {
+	if scope := observationFromContext(ctx); scope != nil {
+		id := scope.newID()
+		capturedAt := time.Now().UTC()
+		err := scope.submit(ctx, int64(len(threadID)), func(workerCtx context.Context) error {
+			if scope.ids[id] != 0 {
+				return nil
+			}
+			row, err := s.GetOrCreateThread(withObservationCreatedAt(workerCtx, capturedAt), projectID, threadID)
+			if err == nil {
+				scope.bindID(id, row.ID)
+			}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &ent.Thread{ID: id, ProjectID: projectID, ThreadID: threadID, CreatedAt: capturedAt, UpdatedAt: capturedAt}, nil
+	}
 	client := s.entFromContext(ctx)
 	if client == nil {
 		return nil, fmt.Errorf("ent client not found in context")
@@ -53,7 +72,12 @@ func (s *ThreadService) GetOrCreateThread(ctx context.Context, projectID int, th
 	}
 
 	// Thread not found, create new one
+	createdAt := time.Now().UTC()
+	if capturedAt, ok := observationCreatedAt(ctx); ok {
+		createdAt = capturedAt
+	}
 	newThread, err := client.Thread.Create().
+		SetCreatedAt(createdAt).SetUpdatedAt(createdAt).
 		SetThreadID(threadID).
 		SetProjectID(projectID).
 		Save(ctx)

@@ -136,7 +136,7 @@ func NewManagedRequestBodyWriter(config ManagedRequestBodyWriterConfig, client *
 	close(idle)
 	return &ManagedRequestBodyWriter{
 		config:               config,
-		ent:                  client,
+		ent:                  observationPrimaryClient(client),
 		system:               system,
 		mu:                   sync.Mutex{},
 		started:              false,
@@ -356,6 +356,35 @@ func (w *ManagedRequestBodyWriter) beforePersistHook() func(context.Context) {
 }
 
 func (w *ManagedRequestBodyWriter) writeAttempt(ctx context.Context, target managedRequestBodyTarget, body []byte) (int, error) {
+	ctx = ent.NewContext(ctx, w.ent)
+	policy, err := w.system.StoragePolicyFresh(ctx)
+	if err != nil {
+		return 0, err
+	}
+	enabled := policy.StoreRequestBody
+	if target.kind == managedRequestBodyTargetExecution && policy.StoreExecutionRequestBody != nil {
+		enabled = *policy.StoreExecutionRequestBody
+	}
+	if target.kind == managedRequestBodyTargetExecution {
+		execution, loadErr := w.ent.RequestExecution.Get(ctx, target.targetID)
+		if ent.IsNotFound(loadErr) {
+			return 0, nil
+		}
+		if loadErr != nil {
+			return 0, loadErr
+		}
+		channel, loadErr := w.ent.Channel.Get(ctx, execution.ChannelID)
+		if loadErr != nil && !ent.IsNotFound(loadErr) {
+			return 0, loadErr
+		}
+		if channel != nil && channel.Settings != nil && channel.Settings.StoreExecutionRequestBody != nil {
+			enabled = *channel.Settings.StoreExecutionRequestBody
+		}
+	}
+	if !enabled {
+		w.markTerminalTargets([]managedRequestBodyTarget{target}, "omitted", "storage_disabled")
+		return 0, nil
+	}
 	pointer, exists, err := w.requestBodyPointer(ctx, target)
 	if err != nil {
 		return 0, err

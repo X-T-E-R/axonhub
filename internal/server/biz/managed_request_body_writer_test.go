@@ -97,7 +97,7 @@ func TestManagedRequestBodyWriterAttachUncertaintyReusesCharge(t *testing.T) {
 	require.Equal(t, payloads[0].ChargedBytes, client.ManagedObservabilityState.GetX(ctx, 1).ChargedBytes)
 }
 
-func TestManagedRequestBodyWriterPolicyCapturedAtAdmissionAndChannelPrecedence(t *testing.T) {
+func TestManagedRequestBodyWriterPolicyDisableRevokesQueuedBodyAndChannelPrecedence(t *testing.T) {
 	service, writer, client, ctx, _ := setupAsyncManagedRequestBodyTest(t, ManagedRequestBodyWriterConfig{})
 	defer client.Close()
 	entered := make(chan struct{})
@@ -132,7 +132,10 @@ func TestManagedRequestBodyWriterPolicyCapturedAtAdmissionAndChannelPrecedence(t
 
 	close(release)
 	stopManagedRequestBodyWriter(t, writer)
-	require.NotNil(t, client.Request.GetX(ctx, accepted.ID).RequestBodyPayloadID, "accepted work drains after policy is disabled")
+	revoked := client.Request.GetX(ctx, accepted.ID)
+	require.Nil(t, revoked.RequestBodyPayloadID, "queued optional body observes storage disable before writing")
+	require.Equal(t, "omitted", revoked.EvidenceDisposition.RequestBody.Outcome)
+	require.Equal(t, "storage_disabled", *revoked.EvidenceDisposition.RequestBody.FailureClass)
 	require.Nil(t, client.Request.GetX(ctx, omitted.ID).RequestBodyPayloadID)
 	require.NotNil(t, client.RequestExecution.GetX(ctx, executionEnabled.ID).RequestBodyPayloadID, "channel enable overrides global disable")
 	require.Nil(t, client.RequestExecution.GetX(ctx, executionDisabled.ID).RequestBodyPayloadID, "channel disable overrides inherited policy")

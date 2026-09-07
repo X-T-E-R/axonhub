@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/samber/lo"
 
@@ -120,7 +121,11 @@ func (s *UsageLogService) CreateUsageLog(ctx context.Context, params CreateUsage
 		priceReferenceID string
 	)
 
-	costItems, totalCost, priceReferenceID = s.computeUsageCost(ctx, params.ChannelID, params.ActualModelID, params.Usage)
+	if captured, ok := ctx.Value(observationUsageCostKey{}).(observationUsageCost); ok {
+		costItems, totalCost, priceReferenceID = captured.items, captured.total, captured.referenceID
+	} else {
+		costItems, totalCost, priceReferenceID = s.computeUsageCost(ctx, params.ChannelID, params.ActualModelID, params.Usage)
+	}
 
 	saveUsageLog := func(saveCtx context.Context) (*ent.UsageLog, error) {
 		client := s.entFromContext(saveCtx)
@@ -136,6 +141,9 @@ func (s *UsageLogService) CreateUsageLog(ctx context.Context, params CreateUsage
 			SetFormat(params.Format).
 			SetNillableTotalCost(totalCost).
 			SetCostItems(costItems)
+		if capturedAt, ok := saveCtx.Value(observationUsageTimeKey{}).(time.Time); ok {
+			mut.SetCreatedAt(capturedAt).SetUpdatedAt(capturedAt)
+		}
 
 		if params.APIKeyID != nil {
 			mut = mut.SetAPIKeyID(*params.APIKeyID)
@@ -255,6 +263,56 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 	if request == nil || usage == nil {
 		return nil, nil
 	}
+	if scope := observationFromContext(ctx); scope != nil {
+		if requestExec == nil {
+			return nil, errors.New("usage observation requires an execution")
+		}
+		// Freeze values before returning to the response/stream owner.
+		requestCopy := ent.Request{ID: request.ID, ProjectID: request.ProjectID, APIKeyID: request.APIKeyID, Source: request.Source, Format: request.Format}
+		executionCopy := ent.RequestExecution{ChannelID: requestExec.ChannelID, ModelID: requestExec.ModelID}
+		raw, err := json.Marshal(usage)
+		if err != nil {
+			return nil, err
+		}
+		var usageCopy llm.Usage
+		if err := json.Unmarshal(raw, &usageCopy); err != nil {
+			return nil, err
+		}
+		capturedAt := time.Now().UTC()
+		// Prices are already held in the enabled-channel memory snapshot. Freeze
+		// the cost now so a delayed write cannot reprice an earlier response.
+		items, total, reference := s.computeUsageCost(ctx, executionCopy.ChannelID, executionCopy.ModelID, &usageCopy)
+		cost := observationUsageCost{items: items, total: total, referenceID: reference}
+		pending := &observationPendingUsage{apiKeyID: requestCopy.APIKeyID, createdAt: capturedAt, tokens: usageCopy.TotalTokens, cost: total}
+		ctx = context.WithValue(ctx, observationPendingUsageKey{}, pending)
+		costBytes, err := json.Marshal(items)
+		if err != nil {
+			return nil, err
+		}
+		err = scope.submitUsage(ctx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
+			actualID, err := scope.resolve(requestCopy.ID)
+			if err != nil {
+				return err
+			}
+			// A retry after an ambiguous commit observes the already-created row;
+			pending.requestID.Store(int64(actualID))
+			// this process-owned queue is the sole writer for this request handle.
+			exists, err := s.entFromContext(workerCtx).UsageLog.Query().Where(usagelog.RequestIDEQ(actualID)).Exist(workerCtx)
+			if err != nil || exists {
+				if err == nil && s.OnUsageLogCreated != nil {
+					s.OnUsageLogCreated()
+				}
+				return err
+			}
+			persistedRequest := requestCopy
+			persistedRequest.ID = actualID
+			workerCtx = context.WithValue(workerCtx, observationUsageTimeKey{}, capturedAt)
+			workerCtx = context.WithValue(workerCtx, observationUsageCostKey{}, cost)
+			_, err = s.CreateUsageLogFromRequest(workerCtx, &persistedRequest, &executionCopy, &usageCopy)
+			return err
+		})
+		return nil, err
+	}
 
 	return s.CreateUsageLog(ctx, CreateUsageLogParams{
 		RequestID:     request.ID,
@@ -266,4 +324,12 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		Format:        request.Format,
 		APIKeyID:      lo.ToPtr(request.APIKeyID),
 	})
+}
+
+type observationUsageTimeKey struct{}
+type observationUsageCostKey struct{}
+type observationUsageCost struct {
+	items       []objects.CostItem
+	total       *float64
+	referenceID string
 }

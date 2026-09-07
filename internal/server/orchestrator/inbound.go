@@ -202,6 +202,7 @@ func (ts *InboundPersistentStream) Close() error {
 
 	ts.closed = true
 	ctx := ts.ctx
+	defer biz.EndForwardingObservation(ctx)
 	// The wrapped transformed stream owns RequestExecution finalization. Close
 	// it before persisting the parent Request so the parent cannot become
 	// terminal while its current execution is still processing.

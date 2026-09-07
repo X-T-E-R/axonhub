@@ -17,7 +17,6 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/looplj/axonhub/internal/authz"
-	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
@@ -39,6 +38,7 @@ type RequestService struct {
 	DataStorageService       *DataStorageService
 	LiveStreamRegistry       *LiveStreamRegistry
 	ManagedRequestBodyWriter *ManagedRequestBodyWriter
+	ObservationWriter        *ForwardingObservationWriter
 	channelCache             xcache.Cache[int]
 }
 
@@ -257,7 +257,7 @@ func GenerateExecutionRequestDirKey(projectID, requestID, executionID int) strin
 }
 
 // CreateRequest creates a new request record.
-func (s *RequestService) CreateRequest(
+func (s *RequestService) createRequest(
 	ctx context.Context,
 	llmRequest *llm.Request,
 	httpRequest *httpclient.Request,
@@ -267,7 +267,7 @@ func (s *RequestService) CreateRequest(
 	// If project ID is not found, use zero.
 	// It will be not prsent in the admin pages,
 	// e.g: test channel.
-	projectID, _ := contexts.GetProjectID(ctx)
+	projectID, _ := observationProjectID(ctx)
 
 	// Decide whether to store the original request body
 	storeRequestBody := true
@@ -277,6 +277,10 @@ func (s *RequestService) CreateRequest(
 		_, _, capacityManaged = capacityBytes(policy)
 	} else {
 		log.Warn(ctx, "Failed to get storage policy, defaulting to store request body", log.Cause(err))
+	}
+	observationBody := observationBodyInfoFromContext(ctx)
+	if observationBody != nil && observationBody.Unavailable {
+		storeRequestBody = false
 	}
 
 	var (
@@ -334,19 +338,30 @@ func (s *RequestService) CreateRequest(
 		SetProjectID(projectID).
 		SetModelID(llmRequest.Model).
 		SetFormat(string(format)).
-		SetSource(contexts.GetSourceOrDefault(ctx, request.SourceAPI)).
+		SetSource(observationSourceOrDefault(ctx, request.SourceAPI)).
 		SetStatus(request.StatusProcessing).
 		SetStream(isStream).
 		SetRequestHeaders(requestHeadersBytes).
 		SetManagedObservability(managedGroup)
 
-	now := time.Now().UTC()
+	now, capturedAt := observationCreatedAt(ctx)
+	if !capturedAt {
+		now = time.Now().UTC()
+	} else {
+		mut = mut.SetCreatedAt(now)
+	}
 	disposition := &objects.EvidenceDisposition{Version: 1,
 		RequestBody:    objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now},
 		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 	}
-	if !storeRequestBody {
+	if observationID := observationIDFromContext(ctx); observationID != "" {
+		disposition.ObservationID = observationID
+	}
+	if observationBody != nil && observationBody.Unavailable {
+		disposition.RequestBody = observationUnavailableBodyDisposition(observationBody, now)
+	}
+	if !storeRequestBody && (observationBody == nil || !observationBody.Unavailable) {
 		disposition.RequestBody = objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
 	} else if useManagedStorage && s.ManagedRequestBodyWriter != nil {
 		disposition.RequestBody = asyncManagedRequestBodyDisposition(requestBodyBytes, managedRejection, now)
@@ -381,7 +396,7 @@ func (s *RequestService) CreateRequest(
 		mut = mut.SetDataStorageID(dataStorage.ID)
 	}
 
-	if apiKey, ok := contexts.GetAPIKey(ctx); ok && apiKey != nil {
+	if apiKey, ok := observationAPIKey(ctx); ok && apiKey != nil {
 		mut = mut.SetAPIKeyID(apiKey.ID)
 		profilesBytes, hashErr := canonicalJSON(apiKey.Profiles)
 		if hashErr == nil {
@@ -399,13 +414,17 @@ func (s *RequestService) CreateRequest(
 		}
 	}
 
-	if trace, ok := contexts.GetTrace(ctx); ok && trace != nil {
+	if trace, ok := observationTrace(ctx); ok && trace != nil {
 		mut = mut.SetTraceID(trace.ID)
 	}
 
 	// Create request
 	req, err := mut.Save(ctx)
 	if err != nil {
+		if observationIDFromContext(ctx) != "" {
+			managedReservation.release()
+			return nil, err
+		}
 		if !useExternalStorage {
 			log.Warn(ctx, "Failed to save request body due to error, retrying with placeholder", log.Cause(err))
 
@@ -423,22 +442,26 @@ func (s *RequestService) CreateRequest(
 		}
 	}
 
+	return s.finishCreatedRequestBody(ctx, req, dataStorage, requestBodyBytes, useExternalStorage, useManagedStorage, managedReservation, disposition)
+}
+
+func (s *RequestService) finishCreatedRequestBody(ctx context.Context, req *ent.Request, dataStorage *ent.DataStorage, requestBodyBytes objects.JSONRawMessage, useExternalStorage, useManagedStorage bool, managedReservation *managedRequestBodyReservation, disposition *objects.EvidenceDisposition) (*ent.Request, error) {
+	client := s.entFromContext(ctx)
 	// Save request body to external storage if needed
 	if useExternalStorage {
-		key := GenerateRequestBodyKey(projectID, req.ID)
+		key := GenerateRequestBodyKey(req.ProjectID, req.ID)
 		disposition.RequestBody.StorageKey = &key
 
 		err := s.DataStorageService.SaveData(ctx, dataStorage, key, requestBodyBytes)
 		if err != nil {
-			log.Error(ctx, "Failed to save request body to external storage", log.Cause(err))
-			failureClass := "external_write_failed"
-			disposition.RequestBody.Outcome = "writeFailed"
-			disposition.RequestBody.FailureClass = &failureClass
+			externalObservationWriteFailure(&disposition.RequestBody, err)
 			// Continue anyway, don't fail the request creation
 		} else {
 			disposition.RequestBody.Outcome = "stored"
 		}
-		_, _ = client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		if err := client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Exec(ctx); err != nil && observationIDFromContext(ctx) != "" {
+			return nil, err
+		}
 		req.EvidenceDisposition = disposition
 	} else if useManagedStorage && s.ManagedRequestBodyWriter != nil {
 		if managedReservation != nil {
@@ -489,7 +512,9 @@ func (s *RequestService) CreateRequest(
 				s.discardUnreferencedManagedPayload(ctx, managed.payload.ID)
 			}
 		}
-		_, _ = client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		if err := client.Request.UpdateOneID(req.ID).SetEvidenceDisposition(disposition).Exec(ctx); err != nil && observationIDFromContext(ctx) != "" {
+			return nil, err
+		}
 		req.EvidenceDisposition = disposition
 	}
 
@@ -524,7 +549,7 @@ func canonicalJSON(value any) ([]byte, error) {
 }
 
 // CreateRequestExecution creates a new request execution record.
-func (s *RequestService) CreateRequestExecution(
+func (s *RequestService) createRequestExecution(
 	ctx context.Context,
 	channel *Channel,
 	modelID string,
@@ -534,6 +559,10 @@ func (s *RequestService) CreateRequestExecution(
 	passThroughApplied bool,
 ) (*ent.RequestExecution, error) {
 	storeRequestBody := s.shouldStoreExecutionRequestBody(ctx, channel)
+	observationBody := observationBodyInfoFromContext(ctx)
+	if observationBody != nil && observationBody.Unavailable {
+		storeRequestBody = false
+	}
 
 	var (
 		requestBodyBytes    objects.JSONRawMessage = []byte("{}")
@@ -610,14 +639,24 @@ func (s *RequestService) CreateRequestExecution(
 		SetRequestHeaders(requestHeadersBytes).
 		SetPassThroughApplied(passThroughApplied).
 		SetManagedObservability(managedGroup)
-	now := time.Now().UTC()
+	now, capturedAt := observationCreatedAt(ctx)
+	if !capturedAt {
+		now = time.Now().UTC()
+	} else {
+		mut = mut.SetCreatedAt(now)
+	}
 	disposition := &objects.EvidenceDisposition{Version: 1,
 		RequestBody:    objects.Disposition{Intent: "persist", Location: "database", Outcome: "stored", CapturedAt: now},
 		ResponseBody:   objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 		ResponseChunks: objects.Disposition{Intent: "notApplicable", Location: "none", Outcome: "omitted", CapturedAt: now},
 	}
-	if !storeRequestBody {
+	if observationID := observationIDFromContext(ctx); observationID != "" {
+		disposition.ObservationID = observationID
+	}
+	if !storeRequestBody && (observationBody == nil || !observationBody.Unavailable) {
 		disposition.RequestBody = objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
+	} else if observationBody != nil && observationBody.Unavailable {
+		disposition.RequestBody = observationUnavailableBodyDisposition(observationBody, now)
 	} else if useExternalStorage {
 		disposition.RequestBody.Location = "external"
 		if dataStorage != nil {
@@ -644,6 +683,10 @@ func (s *RequestService) CreateRequestExecution(
 
 	execution, err := mut.Save(ctx)
 	if err != nil {
+		if observationIDFromContext(ctx) != "" {
+			managedReservation.release()
+			return nil, err
+		}
 		if useExternalStorage {
 			managedReservation.release()
 			return nil, err
@@ -661,6 +704,11 @@ func (s *RequestService) CreateRequestExecution(
 		}
 	}
 
+	return s.finishCreatedExecutionBody(ctx, execution, request, dataStorage, requestBodyBytes, useExternalStorage, useManagedStorage, managedReservation, disposition)
+}
+
+func (s *RequestService) finishCreatedExecutionBody(ctx context.Context, execution *ent.RequestExecution, request *ent.Request, dataStorage *ent.DataStorage, requestBodyBytes objects.JSONRawMessage, useExternalStorage, useManagedStorage bool, managedReservation *managedRequestBodyReservation, disposition *objects.EvidenceDisposition) (*ent.RequestExecution, error) {
+	client := s.entFromContext(ctx)
 	// Save request body to external storage if needed
 	if useExternalStorage {
 		key := GenerateExecutionRequestBodyKey(request.ProjectID, request.ID, execution.ID)
@@ -668,15 +716,14 @@ func (s *RequestService) CreateRequestExecution(
 
 		err := s.DataStorageService.SaveData(ctx, dataStorage, key, requestBodyBytes)
 		if err != nil {
-			log.Error(ctx, "Failed to save execution request body to external storage", log.Cause(err))
-			failureClass := "external_write_failed"
-			disposition.RequestBody.Outcome = "writeFailed"
-			disposition.RequestBody.FailureClass = &failureClass
+			externalObservationWriteFailure(&disposition.RequestBody, err)
 			// Continue anyway, don't fail the execution creation
 		} else {
 			disposition.RequestBody.Outcome = "stored"
 		}
-		_, _ = client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Save(ctx)
+		if err := client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Exec(ctx); err != nil && observationIDFromContext(ctx) != "" {
+			return nil, err
+		}
 		execution.EvidenceDisposition = disposition
 	} else if useManagedStorage && s.ManagedRequestBodyWriter != nil {
 		if managedReservation != nil {
@@ -729,11 +776,13 @@ func (s *RequestService) CreateRequestExecution(
 			}
 		}
 		if execution.RequestBodyPayloadID == nil {
-			_, _ = client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Save(ctx)
+			if err := client.RequestExecution.UpdateOneID(execution.ID).SetEvidenceDisposition(disposition).Exec(ctx); err != nil && observationIDFromContext(ctx) != "" {
+				return nil, err
+			}
 			execution.EvidenceDisposition = disposition
 		}
 	}
-	if managedGroup && !request.ManagedObservability {
+	if execution.ManagedObservability && !request.ManagedObservability {
 		if _, err := client.Request.UpdateOneID(request.ID).SetManagedObservability(true).Save(ctx); err != nil {
 			log.Warn(ctx, "Failed to mark request group as managed observability",
 				log.Int("request_id", request.ID), log.Cause(err))
@@ -742,8 +791,8 @@ func (s *RequestService) CreateRequestExecution(
 		}
 	}
 
-	if selectedKeyMasked != "" {
-		if _, err := client.Request.UpdateOneID(request.ID).SetSelectedChannelAPIKeyMasked(selectedKeyMasked).Save(ctx); err != nil {
+	if selectedKeyMasked := execution.SelectedChannelAPIKeyMasked; selectedKeyMasked != nil && *selectedKeyMasked != "" {
+		if _, err := client.Request.UpdateOneID(request.ID).SetSelectedChannelAPIKeyMasked(*selectedKeyMasked).Save(ctx); err != nil {
 			log.Warn(ctx, "Failed to save selected channel API key mask on request", log.Cause(err), log.Int("request_id", request.ID))
 		}
 	}
@@ -752,7 +801,7 @@ func (s *RequestService) CreateRequestExecution(
 }
 
 func selectedChannelAPIKeyMasked(ctx context.Context, channel *Channel) string {
-	if key, ok := contexts.GetChannelAPIKey(ctx); ok && key != "" {
+	if key, ok := observationChannelAPIKey(ctx); ok && key != "" {
 		return objects.MaskChannelAPIKey(key)
 	}
 
@@ -852,7 +901,7 @@ type LatencyMetrics struct {
 }
 
 // UpdateRequestCompleted updates request status to completed with response body.
-func (s *RequestService) UpdateRequestCompleted(
+func (s *RequestService) updateRequestCompleted(
 	ctx context.Context,
 	requestID int,
 	externalId string,
@@ -909,7 +958,9 @@ func (s *RequestService) UpdateRequestCompleted(
 		}
 	}
 
-	if storeResponseBody {
+	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
+		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
+	} else if storeResponseBody {
 		responseBodyBytes, err := xjson.Marshal(responseBody)
 		if err != nil {
 			log.Error(ctx, "Failed to serialize response body", log.Cause(err))
@@ -924,10 +975,7 @@ func (s *RequestService) UpdateRequestCompleted(
 			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 			err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes)
 			if err != nil {
-				log.Error(ctx, "Failed to save response body to external storage", log.Cause(err))
-				failureClass := "external_write_failed"
-				disposition.ResponseBody.Outcome = "writeFailed"
-				disposition.ResponseBody.FailureClass = &failureClass
+				externalObservationWriteFailure(&disposition.ResponseBody, err)
 				// Continue anyway
 			}
 		} else {
@@ -967,7 +1015,7 @@ func (s *RequestService) UpdateRequestCompleted(
 // metadata placeholder, and the raw audio is saved to the request's external DataStorage
 // (when one is configured and non-primary), tracked via the content_storage_* fields,
 // mirroring how video artifacts are stored.
-func (s *RequestService) UpdateRequestCompletedWithAudio(
+func (s *RequestService) updateRequestCompletedWithAudio(
 	ctx context.Context,
 	requestID int,
 	externalId string,
@@ -1023,7 +1071,9 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 		}
 	}
 
-	if storeResponseBody {
+	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
+		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
+	} else if storeResponseBody {
 		responseBodyBytes, err := xjson.Marshal(responseBody)
 		if err != nil {
 			log.Error(ctx, "Failed to serialize response body", log.Cause(err))
@@ -1034,10 +1084,7 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 			key := GenerateResponseBodyKey(req.ProjectID, requestID)
 			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 			if err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes); err != nil {
-				log.Error(ctx, "Failed to save response body to external storage", log.Cause(err))
-				failureClass := "external_write_failed"
-				disposition.ResponseBody.Outcome = "writeFailed"
-				disposition.ResponseBody.FailureClass = &failureClass
+				externalObservationWriteFailure(&disposition.ResponseBody, err)
 			}
 		} else {
 			managed, admitted, writeFailed := s.admitManagedDatabaseEvidence(ctx, "request_response_body", int64(len(responseBodyBytes)))
@@ -1059,7 +1106,9 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 	if len(audio) > 0 && s.shouldUseExternalStorage(ctx, dataStorage) {
 		key := GenerateAudioKey(req.ProjectID, requestID, filename)
 		if err := s.DataStorageService.SaveData(ctx, dataStorage, key, audio); err != nil {
-			log.Error(ctx, "Failed to save audio to external storage", log.Cause(err))
+			if !errors.Is(err, errObservationPayloadQueued) {
+				log.Error(ctx, "Failed to save audio to external storage", log.Cause(err))
+			}
 		} else {
 			upd = upd.
 				SetContentSaved(true).
@@ -1084,7 +1133,7 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(
 
 // UpdateRequestStatusExternalIDAndResponseBody updates request status/external_id and optionally persists response body.
 // It is intended for non-pipeline async task flows where task status is polled later.
-func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(
+func (s *RequestService) updateRequestStatusExternalIDAndResponseBodyWithDeadline(
 	ctx context.Context,
 	requestID int,
 	status request.Status,
@@ -1166,7 +1215,9 @@ func (s *RequestService) updateRequestStatusExternalIDAndResponseBody(
 		}
 	}
 
-	if storeResponseBody {
+	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
+		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
+	} else if storeResponseBody {
 		responseBodyBytes, err := xjson.Marshal(responseBody)
 		if err != nil {
 			log.Error(ctx, "Failed to serialize response body", log.Cause(err))
@@ -1184,10 +1235,7 @@ func (s *RequestService) updateRequestStatusExternalIDAndResponseBody(
 			disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 			err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes)
 			if err != nil {
-				log.Error(ctx, "Failed to save response body to external storage", log.Cause(err))
-				failureClass := "external_write_failed"
-				disposition.ResponseBody.Outcome = "writeFailed"
-				disposition.ResponseBody.FailureClass = &failureClass
+				externalObservationWriteFailure(&disposition.ResponseBody, err)
 				// Continue anyway
 			}
 		} else {
@@ -1229,6 +1277,11 @@ func (s *RequestService) applyExecutionResponseBodyStorage(
 	upd *ent.RequestExecutionUpdateOne,
 ) (bool, error) {
 	disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
+		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
+		upd.SetEvidenceDisposition(disposition)
+		return false, nil
+	}
 	if !s.shouldStoreExecutionResponseBody(ctx, execution, channel) {
 		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 		upd.SetEvidenceDisposition(disposition)
@@ -1252,10 +1305,7 @@ func (s *RequestService) applyExecutionResponseBodyStorage(
 		key := GenerateExecutionResponseBodyKey(execution.ProjectID, execution.RequestID, execution.ID)
 		disposition.ResponseBody = evidenceDisposition("persist", "external", "stored", dataStorage, &key)
 		if err := s.DataStorageService.SaveData(ctx, dataStorage, key, responseBodyBytes); err != nil {
-			log.Error(ctx, "Failed to save execution response body to external storage", log.Cause(err))
-			failureClass := "external_write_failed"
-			disposition.ResponseBody.Outcome = "writeFailed"
-			disposition.ResponseBody.FailureClass = &failureClass
+			externalObservationWriteFailure(&disposition.ResponseBody, err)
 		}
 		upd.SetEvidenceDisposition(disposition)
 		return false, nil
@@ -1293,7 +1343,7 @@ func (s *RequestService) UpdateRequestExecutionCompleted(
 
 // UpdateRequestExecutionCompletedForChannel updates execution completion using
 // the selected channel's storage overrides when the caller already has it.
-func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
+func (s *RequestService) updateRequestExecutionCompletedForChannel(
 	ctx context.Context,
 	executionID int,
 	externalId string,
@@ -1363,7 +1413,7 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(
 // provider success when the diagnostic stream aggregator could not construct a
 // complete response body. Aggregation is an evidence concern and must not turn
 // a successfully forwarded execution into a channel/provider failure.
-func (s *RequestService) UpdateRequestExecutionCompletedWithAggregationIncomplete(
+func (s *RequestService) updateRequestExecutionCompletedWithAggregationIncomplete(
 	ctx context.Context,
 	executionID int,
 	metrics *LatencyMetrics,
@@ -1474,7 +1524,7 @@ func (s *RequestService) UpdateRequestExecutionStatus(
 // completion is provisional until the remaining response pipeline succeeds, so
 // a concrete later failure may replace completed. Failed and canceled are
 // otherwise terminal, and completion/cancellation cannot replace them.
-func (s *RequestService) updateRequestExecutionStatus(
+func (s *RequestService) updateRequestExecutionStatusSync(
 	ctx context.Context,
 	executionID int,
 	status requestexecution.Status,
@@ -1764,7 +1814,7 @@ func (s *RequestService) SaveRequestExecutionChunks(
 
 // SaveRequestExecutionChunksForChannel persists execution chunks using the
 // selected channel's storage override when the caller already has it.
-func (s *RequestService) SaveRequestExecutionChunksForChannel(
+func (s *RequestService) saveRequestExecutionChunksForChannel(
 	ctx context.Context,
 	executionID int,
 	chunks []*httpclient.StreamEvent,
@@ -1837,11 +1887,11 @@ func (s *RequestService) SaveRequestExecutionChunksForChannel(
 
 		err = s.DataStorageService.SaveData(ctx, dataStorage, key, allChunksBytes)
 		if err != nil {
-			failureClass := "external_write_failed"
-			disposition.ResponseChunks.Outcome = "writeFailed"
-			disposition.ResponseChunks.FailureClass = &failureClass
-			_, _ = client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition).Save(ctx)
-			return fmt.Errorf("failed to save chunks to external storage: %w", err)
+			externalObservationWriteFailure(&disposition.ResponseChunks, err)
+			if !isObservationPersistence(ctx) {
+				_, _ = client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition).Save(ctx)
+				return fmt.Errorf("failed to save chunks to external storage: %w", err)
+			}
 		}
 		_, err = client.RequestExecution.UpdateOneID(executionID).SetEvidenceDisposition(disposition).Save(ctx)
 		if err != nil {
@@ -1879,7 +1929,7 @@ func (s *RequestService) SaveRequestExecutionChunksForChannel(
 
 // SaveRequestChunks saves all response chunks to request at once.
 // Only stores chunks if the system StoreChunks setting is enabled.
-func (s *RequestService) SaveRequestChunks(
+func (s *RequestService) saveRequestChunks(
 	ctx context.Context,
 	requestID int,
 	chunks []*httpclient.StreamEvent,
@@ -1956,11 +2006,11 @@ func (s *RequestService) SaveRequestChunks(
 
 		err = s.DataStorageService.SaveData(ctx, dataStorage, key, allChunksBytes)
 		if err != nil {
-			failureClass := "external_write_failed"
-			disposition.ResponseChunks.Outcome = "writeFailed"
-			disposition.ResponseChunks.FailureClass = &failureClass
-			_, _ = client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition).Save(ctx)
-			return fmt.Errorf("failed to save chunks to external storage: %w", err)
+			externalObservationWriteFailure(&disposition.ResponseChunks, err)
+			if !isObservationPersistence(ctx) {
+				_, _ = client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition).Save(ctx)
+				return fmt.Errorf("failed to save chunks to external storage: %w", err)
+			}
 		}
 		_, err = client.Request.UpdateOneID(requestID).SetEvidenceDisposition(disposition).Save(ctx)
 		if err != nil {
@@ -2008,7 +2058,7 @@ func (s *RequestService) UpdateRequestStatus(ctx context.Context, requestID int,
 	return s.updateRequestStatus(ctx, requestID, status, status == request.StatusFailed)
 }
 
-func (s *RequestService) updateRequestStatus(
+func (s *RequestService) updateRequestStatusSync(
 	ctx context.Context,
 	requestID int,
 	status request.Status,
@@ -2119,7 +2169,7 @@ func (s *RequestService) UpdateRequestStatusFromError(
 
 // UpdateRequestStatusFromErrorDetails stores final HTTP error evidence while
 // preserving the existing causal status classification.
-func (s *RequestService) UpdateRequestStatusFromErrorDetails(
+func (s *RequestService) updateRequestStatusFromErrorDetails(
 	ctx context.Context,
 	requestID int,
 	rawErr error,
@@ -2230,7 +2280,7 @@ func (s *RequestService) ClearStaleProcessingOnStartup(ctx context.Context) erro
 }
 
 // UpdateRequestChannelID updates request with channel ID after channel selection.
-func (s *RequestService) UpdateRequestChannelID(ctx context.Context, requestID int, channelID int) error {
+func (s *RequestService) updateRequestChannelID(ctx context.Context, requestID int, channelID int) error {
 	client := s.entFromContext(ctx)
 
 	request, err := client.Request.UpdateOneID(requestID).
@@ -2736,6 +2786,47 @@ func (s *RequestService) GetTraceFirstSegment(ctx context.Context, traceID int) 
 // GetLastSuccessfulChannelID retrieves the last successful channel ID from a trace.
 // Returns 0 if no successful channel is found.
 func (s *RequestService) GetLastSuccessfulChannelID(ctx context.Context, traceID int) (int, error) {
+	if scope := observationFromContext(ctx); scope != nil {
+		cacheKey := observationStableLastChannelCacheKey(ctx)
+		if cacheKey == "" {
+			cacheKey = buildLastChannelCacheKey(traceID)
+		}
+		if channelID, err := s.channelCache.Get(ctx, cacheKey); err == nil {
+			return channelID, nil
+		}
+
+		queuedCtx := captureObservationContext(ctx)
+		payloadBytes := int64(64) + observationContextBytes(queuedCtx)
+		_ = scope.submit(queuedCtx, payloadBytes, func(workerCtx context.Context) error {
+			workerCtx = observationWorkerContext(workerCtx, scope)
+			resolvedTraceID, err := scope.resolve(traceID)
+			if err != nil {
+				return err
+			}
+			req, queryErr := s.entFromContext(workerCtx).Request.Query().
+				Where(
+					request.TraceIDEQ(resolvedTraceID),
+					request.StatusEQ(request.StatusCompleted),
+					request.ChannelIDNotNil(),
+				).
+				Order(ent.Desc(request.FieldCreatedAt)).
+				First(workerCtx)
+			if queryErr != nil {
+				if ent.IsNotFound(queryErr) {
+					_ = s.channelCache.Set(workerCtx, cacheKey, 0, store.WithExpiration(5*time.Second))
+					return nil
+				}
+				return fmt.Errorf("failed to query last successful request: %w", queryErr)
+			}
+			s.setLastSuccessfulChannelID(workerCtx, resolvedTraceID, req.ChannelID)
+			if stableKey := observationStableLastChannelCacheKey(workerCtx); stableKey != "" && stableKey != cacheKey {
+				_ = s.channelCache.Set(workerCtx, stableKey, req.ChannelID, store.WithExpiration(1*time.Minute))
+			}
+			return nil
+		})
+		return 0, nil
+	}
+
 	// Try cache first
 	cacheKey := buildLastChannelCacheKey(traceID)
 	if channelID, err := s.channelCache.Get(ctx, cacheKey); err == nil {
@@ -2771,6 +2862,9 @@ func (s *RequestService) GetLastSuccessfulChannelID(ctx context.Context, traceID
 func (s *RequestService) setLastSuccessfulChannelID(ctx context.Context, traceID, channelID int) {
 	cacheKey := buildLastChannelCacheKey(traceID)
 	_ = s.channelCache.Set(ctx, cacheKey, channelID, store.WithExpiration(1*time.Minute))
+	if stableKey := observationStableLastChannelCacheKey(ctx); stableKey != "" && stableKey != cacheKey {
+		_ = s.channelCache.Set(ctx, stableKey, channelID, store.WithExpiration(1*time.Minute))
+	}
 }
 
 func buildLastChannelCacheKey(traceID int) string {

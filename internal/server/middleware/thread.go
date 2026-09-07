@@ -20,6 +20,8 @@ func WithThread(config tracing.Config, threadService *biz.ThreadService) gin.Han
 	}
 
 	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(threadService.ForwardingObservationContext(c.Request.Context()))
+		defer biz.EndForwardingObservation(c.Request.Context())
 		threadID := c.GetHeader(threadHeader)
 		if threadID == "" {
 			c.Next()

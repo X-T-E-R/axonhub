@@ -190,6 +190,13 @@ func (processor *ChatCompletionOrchestrator) process(
 	// The context is system bypassed to allow the orchestrator to access the system settings.
 	ctx = authz.WithSystemBypass(ctx, "process-chat-completion")
 	ctx = contexts.EnsureContainer(ctx)
+	ctx = processor.RequestService.ForwardingObservationContext(ctx)
+	streamOwnsObservation := false
+	defer func() {
+		if !streamOwnsObservation {
+			biz.EndForwardingObservation(ctx)
+		}
+	}()
 
 	apiKey, _ := contexts.GetAPIKey(ctx)
 
@@ -384,6 +391,7 @@ func (processor *ChatCompletionOrchestrator) process(
 
 	// Return result based on stream type
 	if result.Stream {
+		streamOwnsObservation = true
 		return ChatCompletionResult{
 			ChatCompletion:       nil,
 			ChatCompletionStream: result.EventStream,

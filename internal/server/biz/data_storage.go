@@ -580,6 +580,11 @@ func (s *DataStorageService) GetFileSystem(ctx context.Context, ds *ent.DataStor
 
 // SaveData saves data to the specified data storage.
 func (s *DataStorageService) SaveData(ctx context.Context, ds *ent.DataStorage, key string, data []byte) error {
+	if ds.Type != datastorage.TypeDatabase {
+		if handled, err := s.deferExternalObservation(ctx, ds, key, data); handled {
+			return err
+		}
+	}
 	switch ds.Type {
 	case datastorage.TypeDatabase:
 		return nil
