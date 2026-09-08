@@ -59,10 +59,10 @@ func TestObservationAdmissionConcurrentLifecycles(t *testing.T) {
 				require.NoError(t, w.Start(base))
 				channel := createStorageTestChannel(t, base, client, nil)
 				const concurrent = 18
-				contextsForRequests := make([]context.Context, concurrent)
-				for i := range concurrent {
-					contextsForRequests[i] = w.WithScope(contexts.WithProjectID(base, project.ID))
-				}
+				projectCtx := contexts.WithProjectID(base, project.ID)
+				contextsForRequests := lo.Times(concurrent, func(int) context.Context {
+					return w.WithScope(projectCtx)
+				})
 				release := make(chan struct{})
 				var releaseOnce sync.Once
 				unblock := func() { releaseOnce.Do(func() { close(release) }) }
