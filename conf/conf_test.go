@@ -98,3 +98,35 @@ server:
 		t.Fatal("loadConfig() should reject a non-positive SSE keep-alive interval")
 	}
 }
+
+func TestWriterItemLimitDefaultsAndOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config string
+		want   int
+	}{
+		{"default", "", 0},
+		{"explicit-zero", "managed_request_body_writer:\n  max_items: 0\n", 0},
+		{"explicit-limit", "managed_request_body_writer:\n  max_items: 64\n", 64},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _, err := loadConfig(writeTestConfig(t, tc.config))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.ManagedRequestBodyWriter.MaxItems; got != tc.want {
+				t.Fatalf("MaxItems = %d, want %d", got, tc.want)
+			}
+		})
+	}
+	t.Run("environment", func(t *testing.T) {
+		t.Setenv("AXONHUB_MANAGED_REQUEST_BODY_WRITER_MAX_ITEMS", "7")
+		cfg, _, err := loadConfig(writeTestConfig(t, ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ManagedRequestBodyWriter.MaxItems != 7 {
+			t.Fatal("environment item limit was lost")
+		}
+	})
+}

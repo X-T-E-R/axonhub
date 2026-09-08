@@ -91,7 +91,7 @@ db:
 # Managed primary-database request-body persistence
 managed_request_body_writer:
   workers: 1                  # Background workers for primary-database parent/execution request bodies
-  max_items: 64               # Maximum accepted request bodies waiting or being written
+  max_items: 0                # 0: 64 body jobs / 256 forwarding jobs; positive values limit each writer
   max_bytes_mib: 64           # Maximum total bytes held by accepted request bodies
   attempt_timeout: "2s"       # Independent deadline for each persistence attempt
   max_attempts: 3             # Attempts before leaving evidence unavailable

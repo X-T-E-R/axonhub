@@ -37,7 +37,8 @@ const (
 // ManagedRequestBodyWriterConfig bounds the process-owned queue used for
 // primary-database parent and execution request bodies.
 type ManagedRequestBodyWriterConfig struct {
-	Workers        int           `conf:"workers" yaml:"workers" json:"workers"`
+	Workers int `conf:"workers" yaml:"workers" json:"workers"`
+	// MaxItems <= 0 selects 64 body jobs or 256 forwarding lifecycle jobs.
 	MaxItems       int           `conf:"max_items" yaml:"max_items" json:"max_items"`
 	MaxBytesMiB    int           `conf:"max_bytes_mib" yaml:"max_bytes_mib" json:"max_bytes_mib"`
 	AttemptTimeout time.Duration `conf:"attempt_timeout" yaml:"attempt_timeout" json:"attempt_timeout"`

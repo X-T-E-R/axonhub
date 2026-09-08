@@ -63,13 +63,15 @@ func (b *ObservationStreamBuffer) Append(event *httpclient.StreamEvent) []*httpc
 	// for aggregation and its JSON representation before retaining the event.
 	size := observationStreamWorkingSetFactor * int64(len(event.Data)+len(event.Type)+len(event.LastEventID)+128)
 	limit := int64(b.writer.config.MaxBytesMiB) << 20
-	if !b.writer.started || b.writer.stopping || b.writer.bytes+size > limit {
+	if !b.writer.started || b.writer.stopping || b.writer.bytes+size > limit || b.writer.optionalBytes+size > b.writer.optionalByteLimit() {
 		b.writer.bytes -= b.bytes
+		b.writer.optionalBytes -= b.bytes
 		b.bytes, b.chunks, b.Unavailable = 0, nil, true
 		b.writer.mu.Unlock()
 		return nil
 	}
 	b.writer.bytes += size
+	b.writer.optionalBytes += size
 	ownedBytes, chunks := b.bytes+size, b.chunks
 	// This append owns the previous capture plus the new reservation until it
 	// publishes or discards them. Concurrent Close cannot return those bytes.
@@ -80,6 +82,7 @@ func (b *ObservationStreamBuffer) Append(event *httpclient.StreamEvent) []*httpc
 		if !published {
 			b.writer.mu.Lock()
 			b.writer.bytes -= ownedBytes
+			b.writer.optionalBytes -= ownedBytes
 			b.writer.mu.Unlock()
 		}
 	}()
@@ -101,6 +104,7 @@ func (b *ObservationStreamBuffer) Close() {
 	b.writer.mu.Lock()
 	defer b.writer.mu.Unlock()
 	b.writer.bytes -= b.bytes
+	b.writer.optionalBytes -= b.bytes
 	b.bytes, b.chunks = 0, nil
 	b.closed = true
 }

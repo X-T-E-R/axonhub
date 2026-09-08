@@ -307,7 +307,9 @@ func setDefaults(v *viper.Viper) {
 
 	// Managed request-body writer defaults
 	v.SetDefault("managed_request_body_writer.workers", 1)
-	v.SetDefault("managed_request_body_writer.max_items", 64)
+	// Zero selects each writer's default: 64 body jobs or 256 forwarding
+	// lifecycle jobs. An explicit positive limit applies to both writers.
+	v.SetDefault("managed_request_body_writer.max_items", 0)
 	v.SetDefault("managed_request_body_writer.max_bytes_mib", 64)
 	v.SetDefault("managed_request_body_writer.attempt_timeout", "2s")
 	v.SetDefault("managed_request_body_writer.max_attempts", 3)

@@ -18,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
+	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xjson"
 	"github.com/looplj/axonhub/internal/tracing"
@@ -449,6 +450,20 @@ func observationHTTPClientRequestBytes(req *httpclient.Request) int64 {
 	return size
 }
 
+func observationHTTPRequestPayloadBytes(req *httpclient.Request, info *requestObservationBodyInfo) int64 {
+	if info.Omitted || info.Unavailable {
+		return 0
+	}
+	size := int64(len(req.Body) + len(req.JSONBody))
+	for key, values := range req.Headers {
+		size += int64(len(key))
+		for _, value := range values {
+			size += int64(len(value))
+		}
+	}
+	return size
+}
+
 func cloneObservationRequest(req *ent.Request) *ent.Request {
 	if req == nil {
 		return &ent.Request{}
@@ -778,7 +793,7 @@ func (s *RequestService) CreateRequest(
 		queuedCtx = withInitialObservationChunks(queuedCtx, s.SystemService.StoragePolicyOrDefault(ctx).StoreChunks)
 	}
 	queuedCtx = context.WithValue(queuedCtx, requestObservationProfilesKey{}, true)
-	submitErr := scope.submitCorePayload(queuedCtx, localID, payloadBytes, func() int64 {
+	submitErr := scope.submitCorePayload(queuedCtx, localID, payloadBytes, observationHTTPRequestPayloadBytes(httpSnapshot, bodyInfo), func() int64 {
 		compactObservationHTTPClientRequest(httpSnapshot)
 		return observationHTTPClientRequestBytes(httpSnapshot) + observationContextBytes(ctx) + int64(len(llmSnapshot.Model)+len(llmSnapshot.ReasoningEffort)+len(format)+256)
 	}, func(workerCtx context.Context) error {
@@ -875,7 +890,7 @@ func (s *RequestService) CreateRequestExecution(
 	if requestSnapshot.Stream {
 		queuedCtx = withInitialObservationChunks(queuedCtx, s.shouldStoreExecutionStreamChunks(ctx, nil, channelSnapshot))
 	}
-	submitErr := scope.submitCorePayload(queuedCtx, localID, payloadBytes, func() int64 {
+	submitErr := scope.submitCorePayload(queuedCtx, localID, payloadBytes, observationHTTPRequestPayloadBytes(channelRequestSnapshot, bodyInfo), func() int64 {
 		compactObservationHTTPClientRequest(channelRequestSnapshot)
 		return observationHTTPClientRequestBytes(channelRequestSnapshot) + observationContextBytes(ctx) + observationChannelBytes(channelSnapshot) + int64(len(modelID)+len(format)+256)
 	}, func(workerCtx context.Context) error {
@@ -937,7 +952,7 @@ func (s *RequestService) UpdateRequestStatusFromErrorDetails(ctx context.Context
 	payloadBytes := int64(len(body)+64) + observationContextBytes(ctx)
 	body, info, payloadBytes := compactObservationResponseBody(scope, body, payloadBytes)
 	info.Omitted = !enabled
-	return scope.submitTerminalPayload(observationTerminalContext(ctx, time.Now().UTC(), info), requestID, payloadBytes, func() int64 {
+	return scope.submitTerminalPayload(observationTerminalContext(ctx, time.Now().UTC(), info), requestID, payloadBytes, int64(len(body)), func() int64 {
 		payloadBytes -= int64(len(body))
 		body = nil
 		info.Unavailable = true
@@ -976,7 +991,7 @@ func (s *RequestService) UpdateRequestCompleted(ctx context.Context, requestID i
 	responseSnapshot, responseInfo, payloadBytes := compactObservationResponseBody(scope, responseSnapshot, payloadBytes)
 	responseInfo.Omitted = !enabled
 	queuedCtx := observationTerminalContext(ctx, capturedAt, responseInfo)
-	return scope.submitTerminalPayload(queuedCtx, requestID, payloadBytes, func() int64 {
+	return scope.submitTerminalPayload(queuedCtx, requestID, payloadBytes, int64(len(responseSnapshot)), func() int64 {
 		payloadBytes -= int64(len(responseSnapshot))
 		responseSnapshot = nil
 		responseInfo.Unavailable = true
@@ -1014,7 +1029,7 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(ctx context.Context, re
 		audioSnapshot = nil
 		payloadBytes -= audioBytes
 	}
-	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), requestID, payloadBytes, func() int64 {
+	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), requestID, payloadBytes, int64(len(responseSnapshot)+len(audioSnapshot)), func() int64 {
 		payloadBytes -= int64(len(responseSnapshot) + len(audioSnapshot))
 		responseSnapshot, audioSnapshot = nil, nil
 		responseInfo.Unavailable = true
@@ -1048,7 +1063,7 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(ctx contex
 	capturedAt := time.Now().UTC()
 	responseSnapshot, responseInfo, payloadBytes := compactObservationResponseBody(scope, responseSnapshot, payloadBytes)
 	responseInfo.Omitted = !enabled
-	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), requestID, payloadBytes, func() int64 {
+	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), requestID, payloadBytes, int64(len(responseSnapshot)), func() int64 {
 		payloadBytes -= int64(len(responseSnapshot))
 		responseSnapshot = nil
 		responseInfo.Unavailable = true
@@ -1082,7 +1097,7 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(ctx context.C
 	capturedAt := time.Now().UTC()
 	responseSnapshot, responseInfo, payloadBytes := compactObservationResponseBody(scope, responseSnapshot, payloadBytes)
 	responseInfo.Omitted = !enabled
-	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), executionID, payloadBytes, func() int64 {
+	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), executionID, payloadBytes, int64(len(responseSnapshot)), func() int64 {
 		payloadBytes -= int64(len(responseSnapshot))
 		responseSnapshot = nil
 		responseInfo.Unavailable = true
@@ -1153,7 +1168,11 @@ func (s *RequestService) updateRequestExecutionStatus(ctx context.Context, execu
 		queuedCtx = context.WithValue(queuedCtx, requestObservationExecutionChannelKey{}, channel)
 		payloadBytes += observationChannelBytes(channel)
 	}
-	return scope.submitTerminalPayload(queuedCtx, executionID, payloadBytes, func() int64 {
+	optionalBytes := int64(0)
+	if errorInfoSnapshot != nil {
+		optionalBytes = int64(len(errorInfoSnapshot.ResponseBody))
+	}
+	return scope.submitTerminalPayload(queuedCtx, executionID, payloadBytes, optionalBytes, func() int64 {
 		if errorInfoSnapshot != nil {
 			payloadBytes -= int64(len(errorInfoSnapshot.ResponseBody))
 			errorInfoSnapshot.ResponseBody = nil
@@ -1236,7 +1255,7 @@ func (s *RequestService) saveObservationChunkDisposition(ctx context.Context, id
 	if info.Omitted {
 		disposition = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	}
-	return scope.submit(ctx, 128, func(workerCtx context.Context) error {
+	return scope.submitMetadata(ctx, 128, func(workerCtx context.Context) error {
 		resolvedID, err := scope.resolve(id)
 		if err != nil {
 			return err
@@ -1287,7 +1306,7 @@ func (s *RequestService) UpdateRequestChannelID(ctx context.Context, requestID i
 		return s.updateRequestChannelID(ctx, requestID, channelID)
 	}
 	payloadBytes := int64(64) + observationContextBytes(ctx)
-	return scope.submit(captureObservationContext(ctx), payloadBytes, func(workerCtx context.Context) error {
+	err := scope.submitMetadata(captureObservationContext(ctx), payloadBytes, func(workerCtx context.Context) error {
 		workerCtx = observationWorkerContext(workerCtx, scope)
 		resolvedID, resolveErr := scope.resolve(requestID)
 		if resolveErr != nil {
@@ -1295,4 +1314,9 @@ func (s *RequestService) UpdateRequestChannelID(ctx context.Context, requestID i
 		}
 		return s.updateRequestChannelID(workerCtx, resolvedID, channelID)
 	})
+	if errors.Is(err, errObservationQueueUnavailable) {
+		log.Warn(ctx, "Request channel observation was not admitted", log.Cause(err))
+		return nil
+	}
+	return err
 }

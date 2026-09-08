@@ -40,7 +40,7 @@ func TestObservationInFlightFreezeDoesNotHoldWriterLock(t *testing.T) {
 						finished <- fmt.Errorf("freeze panic: %v", cause)
 					}
 				}()
-				finished <- scope.submitCore(ctx, -2, 8<<20, func(context.Context) error {
+				finished <- scope.submitJob(ctx, 8<<20, 8<<20, "core", -2, func(context.Context) error {
 					if !frozen {
 						return errors.New("partially frozen job published")
 					}
@@ -135,6 +135,8 @@ func TestObservationInFlightFreezeDoesNotHoldWriterLock(t *testing.T) {
 			w.mu.Lock()
 			require.Zero(t, w.bytes)
 			require.Zero(t, w.items)
+			require.Zero(t, w.optionalBytes)
+			require.Zero(t, w.optionalItems)
 			w.mu.Unlock()
 			if outcome == "publish" {
 				select {
@@ -182,6 +184,8 @@ func TestObservationStreamAppendConcurrentCleanup(t *testing.T) {
 	require.Empty(t, buffer.chunks)
 	require.Zero(t, w.bytes)
 	require.Zero(t, w.items)
+	require.Zero(t, w.optionalBytes)
+	require.Zero(t, w.optionalItems)
 	buffer.Close()
 	require.Zero(t, w.bytes)
 }

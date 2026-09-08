@@ -71,6 +71,8 @@ type ForwardingObservationWriter struct {
 	jobs           chan observationJob
 	bytes          int64
 	items          int
+	optionalItems  int
+	optionalBytes  int64
 	started        bool
 	stopping       bool
 	idle           chan struct{}
@@ -88,10 +90,12 @@ type ForwardingObservationWriter struct {
 }
 
 type observationJob struct {
-	ctx   context.Context
-	bytes int64
-	run   func(context.Context) error
-	usage *observationPendingUsage
+	ctx           context.Context
+	bytes         int64
+	run           func(context.Context) error
+	usage         *observationPendingUsage
+	optionalItems int
+	optionalBytes int64
 }
 
 type (
@@ -134,8 +138,14 @@ type observationScope struct {
 }
 
 func NewForwardingObservationWriter(config ManagedRequestBodyWriterConfig) *ForwardingObservationWriter {
+	payloadConfig := config
+	// A forwarding scope reserves five lifecycle jobs before dispatch. The
+	// body writer's 64-job default only accommodates twelve such scopes.
+	if config.MaxItems <= 0 {
+		config.MaxItems = 256
+	}
 	w := newForwardingObservationLane(config)
-	w.payloadLane = newForwardingObservationLane(config)
+	w.payloadLane = newForwardingObservationLane(payloadConfig)
 	w.payloadLane.payloadOnly = true
 	return w
 }
@@ -221,6 +231,8 @@ func (w *ForwardingObservationWriter) abandonPending() {
 			w.items--
 			delete(w.pendingRecords, job.usage)
 			w.bytes -= job.bytes
+			w.optionalItems -= job.optionalItems
+			w.optionalBytes -= job.optionalBytes
 			metrics.RecordManagedObservabilityFailure(context.Background(), "forwarding_observation", "shutdown_abandoned")
 		default:
 			select {
@@ -241,6 +253,8 @@ func (w *ForwardingObservationWriter) run(job observationJob) {
 		w.items--
 		delete(w.pendingRecords, job.usage)
 		w.bytes -= job.bytes
+		w.optionalItems -= job.optionalItems
+		w.optionalBytes -= job.optionalBytes
 		if w.items == 0 {
 			close(w.idle)
 		}
@@ -404,15 +418,19 @@ func (s *observationScope) resolve(id int) (int, error) {
 }
 
 func (s *observationScope) submit(ctx context.Context, byteLength int64, run func(context.Context) error, freeze ...func()) error {
-	return s.submitJob(ctx, byteLength, "", 0, run, freeze...)
+	return s.submitJob(ctx, byteLength, 0, "", 0, run, freeze...)
+}
+
+func (s *observationScope) submitMetadata(ctx context.Context, byteLength int64, run func(context.Context) error) error {
+	return s.submitJob(ctx, byteLength, 0, "metadata", 0, run)
 }
 
 func (s *observationScope) submitCore(ctx context.Context, id int, byteLength int64, run func(context.Context) error, freeze ...func()) error {
-	return s.submitJob(ctx, byteLength, "core", id, run, freeze...)
+	return s.submitJob(ctx, byteLength, 0, "core", id, run, freeze...)
 }
 
-func (s *observationScope) submitCorePayload(ctx context.Context, id int, byteLength int64, compact func() int64, run func(context.Context) error, freeze func()) error {
-	if err := s.submitCore(ctx, id, byteLength, run, freeze); err == nil {
+func (s *observationScope) submitCorePayload(ctx context.Context, id int, byteLength, optionalBytes int64, compact func() int64, run func(context.Context) error, freeze func()) error {
+	if err := s.submitJob(ctx, byteLength, optionalBytes, "core", id, run, freeze); err == nil {
 		return nil
 	}
 	byteLength = compact()
@@ -425,17 +443,17 @@ func (s *observationScope) submitCorePayload(ctx context.Context, id int, byteLe
 }
 
 func (s *observationScope) submitUsage(ctx context.Context, byteLength int64, run func(context.Context) error) error {
-	return s.submitJob(ctx, byteLength, "usage", 0, run)
+	return s.submitJob(ctx, byteLength, 0, "usage", 0, run)
 }
 
 func (s *observationScope) submitTerminal(ctx context.Context, id int, byteLength int64, run func(context.Context) error) error {
-	return s.submitJob(ctx, byteLength, "terminal", id, run)
+	return s.submitJob(ctx, byteLength, 0, "terminal", id, run)
 }
 
 // Failed admission has not published the callback. Compact only optional bytes
 // at that boundary, then consume the terminal credit reserved with the core.
-func (s *observationScope) submitTerminalPayload(ctx context.Context, id int, byteLength int64, compact func() int64, run func(context.Context) error, freeze ...func()) error {
-	if err := s.submitJob(ctx, byteLength, "terminal", id, run, freeze...); err == nil {
+func (s *observationScope) submitTerminalPayload(ctx context.Context, id int, byteLength, optionalBytes int64, compact func() int64, run func(context.Context) error, freeze ...func()) error {
+	if err := s.submitJob(ctx, byteLength, optionalBytes, "terminal", id, run, freeze...); err == nil {
 		return nil
 	}
 	byteLength = compact()
@@ -447,7 +465,7 @@ func (s *observationScope) submitTerminalPayload(ctx context.Context, id int, by
 	return s.submitTerminal(ctx, id, byteLength, run)
 }
 
-func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind string, id int, run func(context.Context) error, freeze ...func()) error {
+func (s *observationScope) submitJob(ctx context.Context, byteLength, optionalBytes int64, kind string, id int, run func(context.Context) error, freeze ...func()) error {
 	w := s.writer
 	// Only the request-creation core snapshot needs routing profiles. In
 	// particular, reserved terminal/usage credits must not carry them again.
@@ -483,7 +501,20 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind
 		w.mu.Unlock()
 		return nil
 	}
-	if !w.started || w.stopping || s.ended || w.items+additionalItems > w.config.MaxItems || byteLength > int64(w.config.MaxBytesMiB)<<20 || w.bytes+additionalBytes > int64(w.config.MaxBytesMiB)<<20 {
+	optionalItems := 0
+	if w.payloadOnly {
+		optionalBytes = 0
+	} else if kind == "" {
+		optionalItems = 1
+		optionalBytes = byteLength
+	}
+	// Lifecycle callers identify actual optional bodies/headers/audio. Routing
+	// profiles and other required metadata remain subject to the total bound,
+	// never the optional pool, regardless of their size.
+	// The default keeps the original 64 optional jobs, with 192 slots left
+	// for five-credit lifecycles and their compact metadata patches.
+	optionalFull := optionalItems > 0 && w.optionalItems+optionalItems > max(1, w.config.MaxItems/4) || optionalBytes > 0 && w.optionalBytes+optionalBytes > w.optionalByteLimit()
+	if !w.started || w.stopping || s.ended || optionalFull || w.items+additionalItems > w.config.MaxItems || byteLength > int64(w.config.MaxBytesMiB)<<20 || w.bytes+additionalBytes > int64(w.config.MaxBytesMiB)<<20 {
 		w.mu.Unlock()
 		metrics.RecordManagedObservabilityAdmissionSkippedComponent(context.Background(), "async_capacity", "forwarding_observation")
 		return errObservationQueueUnavailable
@@ -493,12 +524,17 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind
 	}
 	w.items += additionalItems
 	w.bytes += additionalBytes
+	w.optionalItems += optionalItems
+	w.optionalBytes += optionalBytes
 	if reserved && core {
 		s.reservedCore--
 		s.reservedTerminal--
 	}
 	if core {
 		s.terminalCredits[id] = true
+		// A scope initially rejected at capacity can admit a core later. Stop
+		// must also own the terminal credit allocated by that late admission.
+		w.scopes[s] = struct{}{}
 	}
 	if terminal && reserved {
 		delete(s.terminalCredits, id)
@@ -530,6 +566,8 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind
 			w.mu.Lock()
 			w.items--
 			w.bytes -= byteLength
+			w.optionalItems -= optionalItems
+			w.optionalBytes -= optionalBytes
 			delete(w.pendingRecords, pending)
 			if w.items == 0 {
 				close(w.idle)
@@ -548,9 +586,19 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind
 	// Remove only the submission marker; keep captured authorization/project
 	// values. The callback must invoke synchronous service methods on this context.
 	ctx = context.WithValue(context.WithoutCancel(ctx), observationContextKey{}, (*observationScope)(nil))
-	w.jobs <- observationJob{ctx: ctx, bytes: byteLength, run: run, usage: pending}
+	w.jobs <- observationJob{ctx: ctx, bytes: byteLength, run: run, usage: pending, optionalItems: optionalItems, optionalBytes: optionalBytes}
 	published = true
 	return nil
+}
+
+func (w *ForwardingObservationWriter) optionalByteLimit() int64 {
+	limit := int64(w.config.MaxBytesMiB) << 20
+	// A five-slot scope reserves two core jobs, usage, and two terminals.
+	// Keep that metadata allowance per group of slots (rounding up), capped
+	// at a quarter of small byte budgets. The existing total bound still holds.
+	scopes := (int64(w.config.MaxItems) + 4) / 5
+	reservationBytes := 2*4096 + observationUsageReservationBytes + 2*observationTerminalReservationBytes
+	return limit - min(limit/4, scopes*reservationBytes)
 }
 
 func EndForwardingObservation(ctx context.Context) {
