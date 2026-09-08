@@ -105,9 +105,7 @@ func TestObservationLargeRequestMemory(t *testing.T) {
 			results := make(chan *ent.Request, 3)
 			errors := make(chan error, 3)
 			for range 3 {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					defer func() {
 						if cause := recover(); cause != nil {
 							errors <- fmt.Errorf("capture panic: %v", cause)
@@ -119,7 +117,7 @@ func TestObservationLargeRequestMemory(t *testing.T) {
 						return
 					}
 					results <- req
-				}()
+				})
 			}
 			wg.Wait()
 			close(results)
