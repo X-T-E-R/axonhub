@@ -66,7 +66,7 @@ func (s *DataStorageService) deferExternalObservation(ctx context.Context, ds *e
 	if err := json.Unmarshal(settings, &storage.Settings); err != nil {
 		return true, err
 	}
-	payload := bytes.Clone(data)
+	payload := data
 	lane := owner.writer.payloadLane
 	scope := &observationScope{writer: lane}
 	ctx = context.WithValue(ctx, observationPersistenceKey{}, observationPersistenceContext{})
@@ -148,7 +148,7 @@ func (s *DataStorageService) deferExternalObservation(ctx context.Context, ds *e
 		}
 		terminalOutcome = "stored"
 		return finish(terminalOutcome, "")
-	})
+	}, func() { payload = bytes.Clone(payload) })
 	if err != nil {
 		return true, err
 	}

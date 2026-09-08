@@ -132,6 +132,9 @@ func (s *RequestService) shouldStoreExecutionStreamChunks(ctx context.Context, e
 }
 
 func (s *RequestService) getExecutionChannelSettings(ctx context.Context, execution *ent.RequestExecution, channel *Channel) *objects.ChannelSettings {
+	if channel == nil {
+		channel, _ = ctx.Value(requestObservationExecutionChannelKey{}).(*Channel)
+	}
 	if channel != nil && channel.Channel != nil && channel.ID != 0 && channel.Settings != nil {
 		return channel.Settings
 	}
@@ -279,7 +282,7 @@ func (s *RequestService) createRequest(
 		log.Warn(ctx, "Failed to get storage policy, defaulting to store request body", log.Cause(err))
 	}
 	observationBody := observationBodyInfoFromContext(ctx)
-	if observationBody != nil && observationBody.Unavailable {
+	if observationBody != nil && (observationBody.Unavailable || observationBody.Omitted) {
 		storeRequestBody = false
 	}
 
@@ -341,6 +344,7 @@ func (s *RequestService) createRequest(
 	if observationID := observationIDFromContext(ctx); observationID != "" {
 		disposition.ObservationID = observationID
 	}
+	applyObservationChunksInfo(ctx, disposition)
 	if observationBody != nil && observationBody.Unavailable {
 		disposition.RequestBody = observationUnavailableBodyDisposition(observationBody, now)
 	}
@@ -571,7 +575,7 @@ func (s *RequestService) createRequestExecution(
 ) (*ent.RequestExecution, error) {
 	storeRequestBody := s.shouldStoreExecutionRequestBody(ctx, channel)
 	observationBody := observationBodyInfoFromContext(ctx)
-	if observationBody != nil && observationBody.Unavailable {
+	if observationBody != nil && (observationBody.Unavailable || observationBody.Omitted) {
 		storeRequestBody = false
 	}
 
@@ -665,6 +669,7 @@ func (s *RequestService) createRequestExecution(
 	if observationID := observationIDFromContext(ctx); observationID != "" {
 		disposition.ObservationID = observationID
 	}
+	applyObservationChunksInfo(ctx, disposition)
 	if !storeRequestBody && (observationBody == nil || !observationBody.Unavailable) {
 		disposition.RequestBody = objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
 	} else if observationBody != nil && observationBody.Unavailable {
@@ -970,8 +975,11 @@ func (s *RequestService) updateRequestCompleted(
 		}
 	}
 
+	applyObservationChunksInfo(ctx, disposition)
 	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
 		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
+	} else if responseInfo != nil && responseInfo.Omitted {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	} else if storeResponseBody {
 		responseBodyBytes, err := xjson.Marshal(responseBody)
 		if err != nil {
@@ -1083,8 +1091,11 @@ func (s *RequestService) updateRequestCompletedWithAudio(
 		}
 	}
 
+	applyObservationChunksInfo(ctx, disposition)
 	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
 		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
+	} else if responseInfo != nil && responseInfo.Omitted {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	} else if storeResponseBody {
 		responseBodyBytes, err := xjson.Marshal(responseBody)
 		if err != nil {
@@ -1227,8 +1238,11 @@ func (s *RequestService) updateRequestStatusExternalIDAndResponseBody(
 		}
 	}
 
+	applyObservationChunksInfo(ctx, disposition)
 	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
 		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
+	} else if responseInfo != nil && responseInfo.Omitted {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	} else if storeResponseBody {
 		responseBodyBytes, err := xjson.Marshal(responseBody)
 		if err != nil {
@@ -1289,6 +1303,12 @@ func (s *RequestService) applyExecutionResponseBodyStorage(
 	upd *ent.RequestExecutionUpdateOne,
 ) (bool, error) {
 	disposition := cloneEvidenceDisposition(execution.EvidenceDisposition)
+	applyObservationChunksInfo(ctx, disposition)
+	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Omitted {
+		disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
+		upd.SetEvidenceDisposition(disposition)
+		return false, nil
+	}
 	if responseInfo := observationResponseBodyInfoFromContext(ctx); responseInfo != nil && responseInfo.Unavailable {
 		disposition.ResponseBody = observationUnavailableBodyDisposition(responseInfo, observationCapturedAt(ctx))
 		upd.SetEvidenceDisposition(disposition)
@@ -1552,7 +1572,7 @@ func (s *RequestService) updateRequestExecutionStatusSync(
 		execution       *ent.RequestExecution
 		managedEvidence bool
 	)
-	hasResponseEvidence := errorInfo != nil && len(errorInfo.ResponseBody) > 0
+	hasResponseEvidence := errorInfo != nil && (len(errorInfo.ResponseBody) > 0 || observationResponseBodyInfoFromContext(ctx) != nil)
 	saveCtx := ctx
 	evidenceCtx := ctx
 	cancelPersistence := func() {}
@@ -2125,6 +2145,13 @@ func (s *RequestService) updateRequestStatusForUnavailableResponseEvidence(
 		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(policyErr))
 	}
 	disposition := failedResponseEvidenceDeadlineDisposition(req.EvidenceDisposition, storeResponseBody)
+	if info := observationResponseBodyInfoFromContext(ctx); info != nil {
+		if info.Omitted {
+			disposition.ResponseBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
+		} else if info.Unavailable {
+			disposition.ResponseBody = observationUnavailableBodyDisposition(info, observationCapturedAt(ctx))
+		}
+	}
 	upd := client.Request.UpdateOneID(requestID).
 		SetStatus(request.StatusFailed).
 		SetEvidenceDisposition(disposition)

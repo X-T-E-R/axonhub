@@ -117,19 +117,20 @@ var (
 // An observation scope owns its local-to-database ID map. Only the single
 // persistence worker accesses ids; forwarding entities are never mutated by it.
 type observationScope struct {
-	writer           *ForwardingObservationWriter
-	ids              map[int]int
-	reservedCore     int
-	reservedTerminal int
-	terminalCredits  map[int]bool
-	reservedUsage    bool
-	usageSubmitted   bool
-	ended            bool
-	liveMu           sync.Mutex
-	liveClosed       bool
-	liveBindings     map[int]func(int) func()
-	liveCleanup      []func()
-	boundIDs         sync.Map
+	writer            *ForwardingObservationWriter
+	ids               map[int]int
+	reservedCore      int
+	reservedTerminal  int
+	terminalCredits   map[int]bool
+	executionChannels map[int]*Channel
+	reservedUsage     bool
+	usageSubmitted    bool
+	ended             bool
+	liveMu            sync.Mutex
+	liveClosed        bool
+	liveBindings      map[int]func(int) func()
+	liveCleanup       []func()
+	boundIDs          sync.Map
 }
 
 func NewForwardingObservationWriter(config ManagedRequestBodyWriterConfig) *ForwardingObservationWriter {
@@ -343,6 +344,15 @@ func observationFromContext(ctx context.Context) *observationScope {
 
 func (s *observationScope) newID() int { return -int(s.writer.nextID.Add(1)) }
 
+func (s *observationScope) executionChannel(id int, channel *Channel) *Channel {
+	if channel != nil {
+		return channel
+	}
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	return s.executionChannels[id]
+}
+
 func (s *observationScope) bindID(id, actual int) {
 	s.ids[id] = actual
 	s.liveMu.Lock()
@@ -393,12 +403,25 @@ func (s *observationScope) resolve(id int) (int, error) {
 	return 0, errObservationParentUnavailable
 }
 
-func (s *observationScope) submit(ctx context.Context, byteLength int64, run func(context.Context) error) error {
-	return s.submitJob(ctx, byteLength, "", 0, run)
+func (s *observationScope) submit(ctx context.Context, byteLength int64, run func(context.Context) error, freeze ...func()) error {
+	return s.submitJob(ctx, byteLength, "", 0, run, freeze...)
 }
 
-func (s *observationScope) submitCore(ctx context.Context, id int, byteLength int64, run func(context.Context) error) error {
-	return s.submitJob(ctx, byteLength, "core", id, run)
+func (s *observationScope) submitCore(ctx context.Context, id int, byteLength int64, run func(context.Context) error, freeze ...func()) error {
+	return s.submitJob(ctx, byteLength, "core", id, run, freeze...)
+}
+
+func (s *observationScope) submitCorePayload(ctx context.Context, id int, byteLength int64, compact func() int64, run func(context.Context) error, freeze func()) error {
+	if err := s.submitCore(ctx, id, byteLength, run, freeze); err == nil {
+		return nil
+	}
+	byteLength = compact()
+	if info := observationBodyInfoFromContext(ctx); info != nil {
+		copy := *info
+		copy.Unavailable = !copy.Omitted
+		ctx = withObservationBodyInfo(ctx, &copy)
+	}
+	return s.submitCore(ctx, id, byteLength, run)
 }
 
 func (s *observationScope) submitUsage(ctx context.Context, byteLength int64, run func(context.Context) error) error {
@@ -411,20 +434,20 @@ func (s *observationScope) submitTerminal(ctx context.Context, id int, byteLengt
 
 // Failed admission has not published the callback. Compact only optional bytes
 // at that boundary, then consume the terminal credit reserved with the core.
-func (s *observationScope) submitTerminalPayload(ctx context.Context, id int, byteLength int64, compact func() int64, run func(context.Context) error) error {
-	if err := s.submitTerminal(ctx, id, byteLength, run); err == nil {
+func (s *observationScope) submitTerminalPayload(ctx context.Context, id int, byteLength int64, compact func() int64, run func(context.Context) error, freeze ...func()) error {
+	if err := s.submitJob(ctx, byteLength, "terminal", id, run, freeze...); err == nil {
 		return nil
 	}
 	byteLength = compact()
 	if info := observationResponseBodyInfoFromContext(ctx); info != nil {
 		copy := *info
-		copy.Unavailable = true
+		copy.Unavailable = !copy.Omitted
 		ctx = withObservationResponseBodyInfo(ctx, &copy)
 	}
 	return s.submitTerminal(ctx, id, byteLength, run)
 }
 
-func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind string, id int, run func(context.Context) error) error {
+func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind string, id int, run func(context.Context) error, freeze ...func()) error {
 	w := s.writer
 	// Only the request-creation core snapshot needs routing profiles. In
 	// particular, reserved terminal/usage credits must not carry them again.
@@ -439,7 +462,6 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind
 	// Fixed metadata/closure overhead is charged even for empty payloads.
 	byteLength += 4096
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	core, usage, terminal := kind == "core", kind == "usage", kind == "terminal"
 	reserved := core && s.reservedCore > 0 || usage && s.reservedUsage || terminal && s.terminalCredits[id]
 	additionalItems, additionalBytes := 1, byteLength
@@ -458,9 +480,11 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind
 		additionalBytes += observationTerminalReservationBytes
 	}
 	if usage && s.usageSubmitted {
+		w.mu.Unlock()
 		return nil
 	}
-	if !w.started || w.stopping || w.items+additionalItems > w.config.MaxItems || byteLength > int64(w.config.MaxBytesMiB)<<20 || w.bytes+additionalBytes > int64(w.config.MaxBytesMiB)<<20 {
+	if !w.started || w.stopping || s.ended || w.items+additionalItems > w.config.MaxItems || byteLength > int64(w.config.MaxBytesMiB)<<20 || w.bytes+additionalBytes > int64(w.config.MaxBytesMiB)<<20 {
+		w.mu.Unlock()
 		metrics.RecordManagedObservabilityAdmissionSkippedComponent(context.Background(), "async_capacity", "forwarding_observation")
 		return errObservationQueueUnavailable
 	}
@@ -495,10 +519,37 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength int64, kind
 		}
 		w.pendingRecords[pending] = struct{}{}
 	}
+	w.mu.Unlock()
+
+	// The in-flight job now owns one item and byteLength bytes independently of
+	// the scope's remaining credits. End/Stop may reclaim credits or queued jobs,
+	// but only this owner can release an unpublished capture, after freezing ends.
+	published := false
+	defer func() {
+		if !published {
+			w.mu.Lock()
+			w.items--
+			w.bytes -= byteLength
+			delete(w.pendingRecords, pending)
+			if w.items == 0 {
+				close(w.idle)
+			}
+			w.mu.Unlock()
+		}
+	}()
+	for _, capture := range freeze {
+		capture()
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopping || s.ended {
+		return errObservationQueueUnavailable
+	}
 	// Remove only the submission marker; keep captured authorization/project
 	// values. The callback must invoke synchronous service methods on this context.
 	ctx = context.WithValue(context.WithoutCancel(ctx), observationContextKey{}, (*observationScope)(nil))
 	w.jobs <- observationJob{ctx: ctx, bytes: byteLength, run: run, usage: pending}
+	published = true
 	return nil
 }
 

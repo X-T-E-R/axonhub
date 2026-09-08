@@ -32,6 +32,8 @@ type InboundPersistentStream struct {
 	transformer     transformer.Inbound
 	perf            *biz.PerformanceRecord
 	responseChunks  []*httpclient.StreamEvent
+	observation     *biz.ObservationStreamBuffer
+	streamMeta      llm.ResponseMeta
 	closed          bool
 	state           *PersistenceState
 	streamCompleted bool
@@ -61,6 +63,7 @@ func NewInboundPersistentStream(
 		responseChunks: make([]*httpclient.StreamEvent, 0),
 		closed:         false,
 		state:          state,
+		observation:    requestService.NewObservationStreamBuffer(ctx, nil, false),
 	}
 
 	return s
@@ -75,7 +78,17 @@ func (ts *InboundPersistentStream) Current() *httpclient.StreamEvent {
 	if event != nil {
 		// For raw binary audio chunks (TTS stream_format=audio), persist only a size
 		// summary to avoid buffering the full audio payload in memory.
-		ts.responseChunks = append(ts.responseChunks, httpclient.SummarizeBinaryChunk(event))
+		if ts.observation != nil {
+			if event.Type == "speech.audio.done" || event.Type == httpclient.BinaryStreamDoneEventType {
+				ts.streamMeta.ID = llm.SpeechStreamResponseID
+			}
+			ts.responseChunks = ts.observation.Append(httpclient.SummarizeBinaryChunk(event))
+			if ClassifyStreamSemanticTerminal(event) == StreamSemanticSucceeded {
+				ts.streamMeta.Completed = true
+			}
+		} else {
+			ts.responseChunks = append(ts.responseChunks, httpclient.SummarizeBinaryChunk(event))
+		}
 		apiFormat := llm.APIFormat("")
 		if ts.state != nil && ts.state.LlmRequest != nil {
 			apiFormat = ts.state.LlmRequest.APIFormat
@@ -201,7 +214,9 @@ func (ts *InboundPersistentStream) Close() error {
 	}
 
 	ts.closed = true
-	ctx := ts.ctx
+	defer ts.observation.Close()
+	defer func() { ts.responseChunks = nil }()
+	ctx := ts.observation.Context(ts.ctx)
 	defer biz.EndForwardingObservation(ctx)
 	// The wrapped transformed stream owns RequestExecution finalization. Close
 	// it before persisting the parent Request so the parent cannot become
@@ -268,6 +283,10 @@ func (ts *InboundPersistentStream) Close() error {
 	var meta llm.ResponseMeta
 	var aggErr error
 
+	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) && ts.streamMeta.Completed {
+		streamCompleted = true
+		ts.state.markStreamCompleted()
+	}
 	if len(ts.responseChunks) > 0 && !streamCompleted {
 		responseBody, meta, aggErr = ts.transformer.AggregateStreamChunks(context.WithoutCancel(ctx), ts.responseChunks)
 		if aggErr == nil && meta.ID != "" && len(responseBody) > 0 && isCompletedAggregated(responseBody, meta) {
@@ -366,6 +385,10 @@ func (ts *InboundPersistentStream) persistTerminalStreamFailureChunks(ctx contex
 }
 
 func (ts *InboundPersistentStream) persistResponseChunks(ctx context.Context) {
+	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) {
+		ts._persistResponse(ctx, nil, ts.streamMeta)
+		return
+	}
 	defer func() {
 		if cause := recover(); cause != nil {
 			log.Warn(ctx, "Failed to persist inbound response chunks", log.Any("cause", cause))
@@ -446,6 +469,13 @@ func (p *PersistentInboundTransformer) TransformResponse(ctx context.Context, re
 }
 
 func (p *PersistentInboundTransformer) TransformStream(ctx context.Context, stream streams.Stream[*llm.Response]) (streams.Stream[*httpclient.StreamEvent], error) {
+	var meta llm.ResponseMeta
+	stream = streams.Map(stream, func(response *llm.Response) *llm.Response {
+		if response != nil && response.ID != "" {
+			meta.ID = response.ID
+		}
+		return response
+	})
 	channelStream, err := p.wrapped.TransformStream(ctx, stream)
 	if err != nil {
 		return nil, err
@@ -462,7 +492,12 @@ func (p *PersistentInboundTransformer) TransformStream(ctx context.Context, stre
 		p.state,
 	)
 
-	return persistentStream, nil
+	return streams.Map(persistentStream, func(event *httpclient.StreamEvent) *httpclient.StreamEvent {
+		if meta.ID != "" {
+			persistentStream.streamMeta.ID = meta.ID
+		}
+		return event
+	}), nil
 }
 
 func (p *PersistentInboundTransformer) AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent) ([]byte, llm.ResponseMeta, error) {

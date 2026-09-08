@@ -35,12 +35,17 @@ type requestObservationBodyInfoKey struct{}
 
 type requestObservationResponseBodyInfoKey struct{}
 
+type requestObservationChunksInfoKey struct{}
+
+type requestObservationExecutionChannelKey struct{}
+
 type requestObservationIDKey struct{}
 
 type requestObservationProfilesKey struct{}
 
 type requestObservationBodyInfo struct {
 	Unavailable bool
+	Omitted     bool
 	ByteLength  int64
 	SHA256      string
 }
@@ -178,6 +183,12 @@ func detachedObservationContext(ctx context.Context) context.Context {
 	if value := ctx.Value(requestObservationResponseBodyInfoKey{}); value != nil {
 		base = context.WithValue(base, requestObservationResponseBodyInfoKey{}, value)
 	}
+	if value := ctx.Value(requestObservationChunksInfoKey{}); value != nil {
+		base = context.WithValue(base, requestObservationChunksInfoKey{}, value)
+	}
+	if value := ctx.Value(requestObservationExecutionChannelKey{}); value != nil {
+		base = context.WithValue(base, requestObservationExecutionChannelKey{}, value)
+	}
 	if value := ctx.Value(requestObservationIDKey{}); value != nil {
 		base = context.WithValue(base, requestObservationIDKey{}, value)
 	}
@@ -310,6 +321,29 @@ func cloneObservationHTTPClientRequest(req *httpclient.Request) *httpclient.Requ
 	}
 }
 
+// Borrow only the canonical body until queue admission. The returned metadata
+// never references transport readers, callbacks, or a second body representation.
+func observationHTTPRequest(req *httpclient.Request, enabled bool) (*httpclient.Request, *requestObservationBodyInfo) {
+	if req == nil {
+		return &httpclient.Request{}, &requestObservationBodyInfo{Omitted: !enabled}
+	}
+	metadata := *req
+	metadata.Body, metadata.JSONBody, metadata.Headers = nil, nil, nil
+	snapshot := cloneObservationHTTPClientRequest(&metadata)
+	info := &requestObservationBodyInfo{Omitted: !enabled}
+	if enabled {
+		snapshot.JSONBody = observationRequestBodyBytes(req)
+		snapshot.Headers = req.Headers
+		info = observationBodyInfo(req)
+	}
+	return snapshot, info
+}
+
+func freezeObservationHTTPRequest(req *httpclient.Request) {
+	req.JSONBody = bytes.Clone(req.JSONBody)
+	req.Headers = cloneObservationHTTPHeaders(req.Headers)
+}
+
 func observationRequestBodyBytes(req *httpclient.Request) []byte {
 	if req == nil {
 		return nil
@@ -342,6 +376,9 @@ func observationCapturedAt(ctx context.Context) time.Time {
 
 func observationTerminalContext(ctx context.Context, capturedAt time.Time, responseInfo *requestObservationBodyInfo) context.Context {
 	ctx = withObservationCreatedAt(captureObservationContext(ctx), capturedAt)
+	if existing := observationResponseBodyInfoFromContext(ctx); existing != nil && (existing.Omitted || existing.Unavailable) {
+		return ctx
+	}
 	return withObservationResponseBodyInfo(ctx, responseInfo)
 }
 
@@ -533,7 +570,7 @@ func observationStreamChunksBytes(chunks []*httpclient.StreamEvent) int64 {
 			continue
 		}
 		size += int64(len(chunk.LastEventID) + len(chunk.Type) + len(chunk.Data))
-		size += int64(8)
+		size += int64(128) // Event allocation and slice capacity, including small/empty frames.
 	}
 	return size
 }
@@ -615,24 +652,55 @@ func forwardingUnavailableEvidenceDisposition(capturedAt time.Time) *objects.Evi
 	}
 }
 
-func observationHeaderJSON(req *httpclient.Request) objects.JSONRawMessage {
-	if req == nil || len(req.Headers) == 0 {
-		return []byte("{}")
-	}
-	masked := httpclient.MaskSensitiveHeaders(req.Headers)
-	encoded, err := json.Marshal(masked)
-	if err != nil {
-		return []byte("{}")
-	}
-	return encoded
+func withInitialObservationChunks(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, requestObservationChunksInfoKey{}, &requestObservationBodyInfo{Omitted: !enabled, Unavailable: enabled})
 }
 
-func snapshotObservationValue(value any) ([]byte, error) {
-	encoded, err := xjson.Marshal(value)
-	if err != nil {
-		return nil, err
+func applyObservationChunksInfo(ctx context.Context, disposition *objects.EvidenceDisposition) {
+	if info, _ := ctx.Value(requestObservationChunksInfoKey{}).(*requestObservationBodyInfo); info != nil {
+		if info.Omitted {
+			disposition.ResponseChunks = evidenceDisposition("omit", "none", "omitted", nil, nil)
+		} else if info.Unavailable {
+			disposition.ResponseChunks = observationUnavailableBodyDisposition(nil, observationCapturedAt(ctx))
+		}
 	}
-	return bytes.Clone(encoded), nil
+}
+
+func observationResponseValue(value any, enabled bool) ([]byte, error) {
+	if !enabled {
+		return nil, nil
+	}
+	// The forwarding path supplies raw bytes. Keep them borrowed until admission;
+	// objects.JSONRawMessage must bypass json.Marshal's validating copy as well.
+	switch body := value.(type) {
+	case objects.JSONRawMessage:
+		return observationRawJSON(body)
+	case json.RawMessage:
+		return observationRawJSON(body)
+	default:
+		return xjson.Marshal(value)
+	}
+}
+
+func observationRawJSON(body []byte) ([]byte, error) {
+	if body == nil {
+		return []byte("null"), nil
+	}
+	if !json.Valid(body) {
+		return nil, errors.New("invalid JSON response observation")
+	}
+	return body, nil
+}
+
+func freezeObservationValue(value any, encoded []byte) []byte {
+	switch value.(type) {
+	case []byte, objects.JSONRawMessage, json.RawMessage:
+		return bytes.Clone(encoded)
+	default:
+		// Marshaling structured values or converting strings already created
+		// owned bytes; do not create a second serialized representation.
+		return encoded
+	}
 }
 
 func observationErrorInfoBytes(info *ExecutionErrorInfo) int64 {
@@ -661,11 +729,10 @@ func (s *RequestService) CreateRequest(
 
 	capturedAt := time.Now().UTC()
 	llmSnapshot := cloneObservationLLMRequest(llmRequest)
-	httpSnapshot := cloneObservationHTTPClientRequest(httpRequest)
-	bodyInfo := observationBodyInfo(httpSnapshot)
+	httpSnapshot, bodyInfo := observationHTTPRequest(httpRequest, s.SystemService.StoragePolicyOrDefault(ctx).StoreRequestBody)
 	payloadBytes := observationHTTPClientRequestBytes(httpSnapshot) + observationContextBytes(ctx) + int64(len(llmSnapshot.Model)+len(llmSnapshot.ReasoningEffort)+len(format)+256)
 	if !observationPayloadFits(scope, payloadBytes) {
-		bodyInfo.Unavailable = true
+		bodyInfo.Unavailable = !bodyInfo.Omitted
 		compactObservationHTTPClientRequest(httpSnapshot)
 		payloadBytes = observationHTTPClientRequestBytes(httpSnapshot) + observationContextBytes(ctx) + int64(len(llmSnapshot.Model)+len(llmSnapshot.ReasoningEffort)+len(format)+256)
 	}
@@ -694,21 +761,27 @@ func (s *RequestService) CreateRequest(
 		ModelID:             llmSnapshot.Model,
 		ReasoningEffort:     llmSnapshot.ReasoningEffort,
 		Format:              string(format),
-		RequestHeaders:      observationHeaderJSON(httpSnapshot),
-		RequestBody:         bytes.Clone(observationRequestBodyBytes(httpSnapshot)),
+		RequestHeaders:      []byte("{}"),
+		RequestBody:         []byte("{}"),
 		Status:              request.StatusProcessing,
 		Stream:              stream,
 		ClientIP:            httpSnapshot.ClientIP,
 		EvidenceDisposition: forwardingUnavailableEvidenceDisposition(capturedAt),
 	}
 	synthetic.EvidenceDisposition.ObservationID = observationID
-	if bodyInfo.Unavailable {
-		synthetic.RequestBody = []byte("{}")
+	if bodyInfo.Omitted {
+		synthetic.EvidenceDisposition.RequestBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	}
 
 	queuedCtx := withObservationID(withObservationBodyInfo(withObservationCreatedAt(captureObservationContext(ctx), capturedAt), bodyInfo), observationID)
+	if stream {
+		queuedCtx = withInitialObservationChunks(queuedCtx, s.SystemService.StoragePolicyOrDefault(ctx).StoreChunks)
+	}
 	queuedCtx = context.WithValue(queuedCtx, requestObservationProfilesKey{}, true)
-	submitErr := scope.submitCore(queuedCtx, localID, payloadBytes, func(workerCtx context.Context) error {
+	submitErr := scope.submitCorePayload(queuedCtx, localID, payloadBytes, func() int64 {
+		compactObservationHTTPClientRequest(httpSnapshot)
+		return observationHTTPClientRequestBytes(httpSnapshot) + observationContextBytes(ctx) + int64(len(llmSnapshot.Model)+len(llmSnapshot.ReasoningEffort)+len(format)+256)
+	}, func(workerCtx context.Context) error {
 		if _, exists := scope.ids[localID]; exists {
 			return nil
 		}
@@ -732,7 +805,7 @@ func (s *RequestService) CreateRequest(
 		}
 		scope.bindID(localID, persisted.ID)
 		return nil
-	})
+	}, func() { freezeObservationHTTPRequest(httpSnapshot) })
 	if submitErr != nil && observationAPIKeyHasActiveQuota(queuedCtx) {
 		return nil, errors.New("quota accounting observation admission unavailable")
 	}
@@ -759,11 +832,10 @@ func (s *RequestService) CreateRequestExecution(
 	capturedAt := time.Now().UTC()
 	requestSnapshot := cloneObservationRequest(requestEntity)
 	channelSnapshot := cloneObservationChannel(channel)
-	channelRequestSnapshot := cloneObservationHTTPClientRequest(&channelRequest)
-	bodyInfo := observationBodyInfo(channelRequestSnapshot)
+	channelRequestSnapshot, bodyInfo := observationHTTPRequest(&channelRequest, s.shouldStoreExecutionRequestBody(ctx, channelSnapshot))
 	payloadBytes := observationHTTPClientRequestBytes(channelRequestSnapshot) + observationContextBytes(ctx) + observationChannelBytes(channelSnapshot) + int64(len(modelID)+len(format)+256)
 	if !observationPayloadFits(scope, payloadBytes) {
-		bodyInfo.Unavailable = true
+		bodyInfo.Unavailable = !bodyInfo.Omitted
 		compactObservationHTTPClientRequest(channelRequestSnapshot)
 		payloadBytes = observationHTTPClientRequestBytes(channelRequestSnapshot) + observationContextBytes(ctx) + observationChannelBytes(channelSnapshot) + int64(len(modelID)+len(format)+256)
 	}
@@ -780,21 +852,33 @@ func (s *RequestService) CreateRequestExecution(
 		DataStorageID:       requestSnapshot.DataStorageID,
 		ModelID:             modelID,
 		Format:              string(format),
-		RequestBody:         bytes.Clone(observationRequestBodyBytes(channelRequestSnapshot)),
-		RequestHeaders:      observationHeaderJSON(channelRequestSnapshot),
+		RequestBody:         []byte("{}"),
+		RequestHeaders:      []byte("{}"),
 		Status:              requestexecution.StatusProcessing,
 		Stream:              requestSnapshot.Stream,
 		RequestURL:          channelRequestSnapshot.URL,
 		PassThroughApplied:  passThroughApplied,
 		EvidenceDisposition: forwardingUnavailableEvidenceDisposition(capturedAt),
 	}
+	scope.writer.mu.Lock()
+	if scope.executionChannels == nil {
+		scope.executionChannels = make(map[int]*Channel)
+	}
+	scope.executionChannels[localID] = channelSnapshot
+	scope.writer.mu.Unlock()
 	synthetic.EvidenceDisposition.ObservationID = observationID
-	if bodyInfo.Unavailable {
-		synthetic.RequestBody = []byte("{}")
+	if bodyInfo.Omitted {
+		synthetic.EvidenceDisposition.RequestBody = evidenceDisposition("omit", "none", "omitted", nil, nil)
 	}
 
 	queuedCtx := withObservationID(withObservationBodyInfo(withObservationCreatedAt(captureObservationContext(ctx), capturedAt), bodyInfo), observationID)
-	submitErr := scope.submitCore(queuedCtx, localID, payloadBytes, func(workerCtx context.Context) error {
+	if requestSnapshot.Stream {
+		queuedCtx = withInitialObservationChunks(queuedCtx, s.shouldStoreExecutionStreamChunks(ctx, nil, channelSnapshot))
+	}
+	submitErr := scope.submitCorePayload(queuedCtx, localID, payloadBytes, func() int64 {
+		compactObservationHTTPClientRequest(channelRequestSnapshot)
+		return observationHTTPClientRequestBytes(channelRequestSnapshot) + observationContextBytes(ctx) + observationChannelBytes(channelSnapshot) + int64(len(modelID)+len(format)+256)
+	}, func(workerCtx context.Context) error {
 		if _, exists := scope.ids[localID]; exists {
 			return nil
 		}
@@ -827,7 +911,7 @@ func (s *RequestService) CreateRequestExecution(
 		}
 		scope.bindID(localID, persisted.ID)
 		return nil
-	})
+	}, func() { freezeObservationHTTPRequest(channelRequestSnapshot) })
 	if submitErr != nil && observationAPIKeyHasActiveQuota(queuedCtx) {
 		return nil, errors.New("quota accounting observation admission unavailable")
 	}
@@ -848,9 +932,11 @@ func (s *RequestService) UpdateRequestStatusFromErrorDetails(ctx context.Context
 	if errorInfo == nil || len(errorInfo.ResponseBody) == 0 {
 		return s.updateRequestStatus(ctx, requestID, request.StatusFailed, causalFailure)
 	}
-	body := bytes.Clone(errorInfo.ResponseBody)
+	enabled := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
+	body, _ := observationResponseValue(errorInfo.ResponseBody, enabled)
 	payloadBytes := int64(len(body)+64) + observationContextBytes(ctx)
 	body, info, payloadBytes := compactObservationResponseBody(scope, body, payloadBytes)
+	info.Omitted = !enabled
 	return scope.submitTerminalPayload(observationTerminalContext(ctx, time.Now().UTC(), info), requestID, payloadBytes, func() int64 {
 		payloadBytes -= int64(len(body))
 		body = nil
@@ -862,7 +948,7 @@ func (s *RequestService) UpdateRequestStatusFromErrorDetails(ctx context.Context
 		if err != nil {
 			return err
 		}
-		if frozenInfo := observationResponseBodyInfoFromContext(workerCtx); frozenInfo != nil && frozenInfo.Unavailable {
+		if frozenInfo := observationResponseBodyInfoFromContext(workerCtx); frozenInfo != nil && (frozenInfo.Unavailable || frozenInfo.Omitted) {
 			return s.updateRequestStatusForUnavailableResponseEvidence(workerCtx, id, causalFailure)
 		}
 		frozenErr := errors.New("forwarding failed")
@@ -870,7 +956,7 @@ func (s *RequestService) UpdateRequestStatusFromErrorDetails(ctx context.Context
 			frozenErr = context.Canceled
 		}
 		return s.updateRequestStatusFromErrorDetails(workerCtx, id, frozenErr, nil, &ExecutionErrorInfo{ResponseBody: body})
-	})
+	}, func() { body = bytes.Clone(body) })
 }
 
 // UpdateRequestCompleted persists completion through the scoped writer.
@@ -879,7 +965,8 @@ func (s *RequestService) UpdateRequestCompleted(ctx context.Context, requestID i
 	if scope == nil {
 		return s.updateRequestCompleted(ctx, requestID, externalID, responseBody, metrics)
 	}
-	responseSnapshot, err := snapshotObservationValue(responseBody)
+	enabled := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
+	responseSnapshot, err := observationResponseValue(responseBody, enabled)
 	if err != nil {
 		return err
 	}
@@ -887,6 +974,7 @@ func (s *RequestService) UpdateRequestCompleted(ctx context.Context, requestID i
 	payloadBytes := int64(len(responseSnapshot)+len(externalID)+64) + observationContextBytes(ctx)
 	capturedAt := time.Now().UTC()
 	responseSnapshot, responseInfo, payloadBytes := compactObservationResponseBody(scope, responseSnapshot, payloadBytes)
+	responseInfo.Omitted = !enabled
 	queuedCtx := observationTerminalContext(ctx, capturedAt, responseInfo)
 	return scope.submitTerminalPayload(queuedCtx, requestID, payloadBytes, func() int64 {
 		payloadBytes -= int64(len(responseSnapshot))
@@ -900,7 +988,7 @@ func (s *RequestService) UpdateRequestCompleted(ctx context.Context, requestID i
 			return resolveErr
 		}
 		return s.updateRequestCompleted(workerCtx, resolvedID, externalID, responseSnapshot, metricsSnapshot)
-	})
+	}, func() { responseSnapshot = freezeObservationValue(responseBody, responseSnapshot) })
 }
 
 // UpdateRequestCompletedWithAudio persists completion and the frozen audio bytes.
@@ -909,16 +997,19 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(ctx context.Context, re
 	if scope == nil {
 		return s.updateRequestCompletedWithAudio(ctx, requestID, externalID, responseBody, audio, filename, metrics)
 	}
-	responseSnapshot, err := snapshotObservationValue(responseBody)
+	enabled := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
+	responseSnapshot, err := observationResponseValue(responseBody, enabled)
 	if err != nil {
 		return err
 	}
-	audioSnapshot := bytes.Clone(audio)
+	// Audio artifact storage is independent of response-body metadata policy.
+	audioSnapshot := audio
 	metricsSnapshot := cloneObservationMetrics(metrics)
 	payloadBytes := int64(len(responseSnapshot)+len(audioSnapshot)+len(externalID)+len(filename)+64) + observationContextBytes(ctx)
 	capturedAt := time.Now().UTC()
 	audioBytes := int64(len(audioSnapshot))
 	responseSnapshot, responseInfo, payloadBytes := compactObservationResponseBody(scope, responseSnapshot, payloadBytes)
+	responseInfo.Omitted = !enabled
 	if responseInfo.Unavailable {
 		audioSnapshot = nil
 		payloadBytes -= audioBytes
@@ -935,6 +1026,9 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(ctx context.Context, re
 			return resolveErr
 		}
 		return s.updateRequestCompletedWithAudio(workerCtx, resolvedID, externalID, responseSnapshot, audioSnapshot, filename, metricsSnapshot)
+	}, func() {
+		responseSnapshot = freezeObservationValue(responseBody, responseSnapshot)
+		audioSnapshot = bytes.Clone(audioSnapshot)
 	})
 }
 
@@ -944,7 +1038,8 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(ctx contex
 	if scope == nil {
 		return s.updateRequestStatusExternalIDAndResponseBodyWithDeadline(ctx, requestID, status, externalID, responseBody, metrics)
 	}
-	responseSnapshot, err := snapshotObservationValue(responseBody)
+	enabled := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
+	responseSnapshot, err := observationResponseValue(responseBody, enabled)
 	if err != nil {
 		return err
 	}
@@ -952,6 +1047,7 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(ctx contex
 	payloadBytes := int64(len(responseSnapshot)+len(externalID)+64) + observationContextBytes(ctx)
 	capturedAt := time.Now().UTC()
 	responseSnapshot, responseInfo, payloadBytes := compactObservationResponseBody(scope, responseSnapshot, payloadBytes)
+	responseInfo.Omitted = !enabled
 	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), requestID, payloadBytes, func() int64 {
 		payloadBytes -= int64(len(responseSnapshot))
 		responseSnapshot = nil
@@ -964,7 +1060,7 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(ctx contex
 			return resolveErr
 		}
 		return s.updateRequestStatusExternalIDAndResponseBodyWithDeadline(workerCtx, resolvedID, status, externalID, responseSnapshot, metricsSnapshot)
-	})
+	}, func() { responseSnapshot = freezeObservationValue(responseBody, responseSnapshot) })
 }
 
 // UpdateRequestExecutionCompletedForChannel persists execution completion with
@@ -974,7 +1070,9 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(ctx context.C
 	if scope == nil {
 		return s.updateRequestExecutionCompletedForChannel(ctx, executionID, externalID, responseBody, metrics, channel)
 	}
-	responseSnapshot, err := snapshotObservationValue(responseBody)
+	channel = scope.executionChannel(executionID, channel)
+	enabled := s.shouldStoreExecutionResponseBody(ctx, nil, channel)
+	responseSnapshot, err := observationResponseValue(responseBody, enabled)
 	if err != nil {
 		return err
 	}
@@ -983,6 +1081,7 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(ctx context.C
 	payloadBytes := int64(len(responseSnapshot)+len(externalID)+64) + observationContextBytes(ctx) + observationChannelBytes(channelSnapshot)
 	capturedAt := time.Now().UTC()
 	responseSnapshot, responseInfo, payloadBytes := compactObservationResponseBody(scope, responseSnapshot, payloadBytes)
+	responseInfo.Omitted = !enabled
 	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), executionID, payloadBytes, func() int64 {
 		payloadBytes -= int64(len(responseSnapshot))
 		responseSnapshot = nil
@@ -995,7 +1094,7 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(ctx context.C
 			return resolveErr
 		}
 		return s.updateRequestExecutionCompletedForChannel(workerCtx, resolvedID, externalID, responseSnapshot, metricsSnapshot, channelSnapshot)
-	})
+	}, func() { responseSnapshot = freezeObservationValue(responseBody, responseSnapshot) })
 }
 
 // UpdateRequestExecutionCompletedWithAggregationIncomplete persists the
@@ -1025,7 +1124,17 @@ func (s *RequestService) updateRequestExecutionStatus(ctx context.Context, execu
 	if scope == nil {
 		return s.updateRequestExecutionStatusSync(ctx, executionID, status, errorMsg, errorInfo, causalFailure, metrics)
 	}
-	errorInfoSnapshot := cloneObservationErrorInfo(errorInfo)
+	channel := scope.executionChannel(executionID, nil)
+	enabled := s.shouldStoreExecutionResponseBody(ctx, nil, channel)
+	var errorInfoSnapshot *ExecutionErrorInfo
+	if errorInfo != nil {
+		metadata := *errorInfo
+		metadata.ResponseBody = nil
+		errorInfoSnapshot = cloneObservationErrorInfo(&metadata)
+		if enabled {
+			errorInfoSnapshot.ResponseBody = errorInfo.ResponseBody
+		}
+	}
 	metricsSnapshot := cloneObservationMetrics(metrics)
 	payloadBytes := int64(len(errorMsg)+64) + observationErrorInfoBytes(errorInfoSnapshot) + observationContextBytes(ctx)
 	capturedAt := time.Now().UTC()
@@ -1033,12 +1142,18 @@ func (s *RequestService) updateRequestExecutionStatus(ctx context.Context, execu
 	if errorInfoSnapshot != nil {
 		compactedBody, bodyInfo, compactedPayload := compactObservationResponseBody(scope, errorInfoSnapshot.ResponseBody, payloadBytes)
 		responseInfo = bodyInfo
+		responseInfo.Omitted = !enabled
 		if responseInfo.Unavailable {
 			errorInfoSnapshot.ResponseBody = compactedBody
 			payloadBytes = compactedPayload
 		}
 	}
-	return scope.submitTerminalPayload(observationTerminalContext(ctx, capturedAt, responseInfo), executionID, payloadBytes, func() int64 {
+	queuedCtx := observationTerminalContext(ctx, capturedAt, responseInfo)
+	if channel != nil {
+		queuedCtx = context.WithValue(queuedCtx, requestObservationExecutionChannelKey{}, channel)
+		payloadBytes += observationChannelBytes(channel)
+	}
+	return scope.submitTerminalPayload(queuedCtx, executionID, payloadBytes, func() int64 {
 		if errorInfoSnapshot != nil {
 			payloadBytes -= int64(len(errorInfoSnapshot.ResponseBody))
 			errorInfoSnapshot.ResponseBody = nil
@@ -1052,19 +1167,30 @@ func (s *RequestService) updateRequestExecutionStatus(ctx context.Context, execu
 			return resolveErr
 		}
 		return s.updateRequestExecutionStatusSync(workerCtx, resolvedID, status, errorMsg, errorInfoSnapshot, causalFailure, metricsSnapshot)
+	}, func() {
+		if errorInfoSnapshot != nil {
+			errorInfoSnapshot.ResponseBody = bytes.Clone(errorInfoSnapshot.ResponseBody)
+		}
 	})
 }
 
 // SaveRequestExecutionChunksForChannel queues a frozen chunk set.
 func (s *RequestService) SaveRequestExecutionChunksForChannel(ctx context.Context, executionID int, chunks []*httpclient.StreamEvent, channel *Channel) error {
-	if len(chunks) == 0 {
-		return nil
-	}
 	scope := observationFromContext(ctx)
 	if scope == nil {
 		return s.saveRequestExecutionChunksForChannel(ctx, executionID, chunks, channel)
 	}
-	chunksSnapshot := cloneObservationStreamChunks(chunks)
+	channel = scope.executionChannel(executionID, channel)
+	if info, _ := ctx.Value(requestObservationChunksInfoKey{}).(*requestObservationBodyInfo); info != nil {
+		return s.saveObservationChunkDisposition(ctx, executionID, true, info)
+	}
+	if !s.shouldStoreExecutionStreamChunks(ctx, nil, channel) {
+		return s.saveObservationChunkDisposition(ctx, executionID, true, &requestObservationBodyInfo{Omitted: true})
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+	chunksSnapshot := chunks
 	channelSnapshot := cloneObservationChannel(channel)
 	payloadBytes := observationStreamChunksBytes(chunksSnapshot) + observationContextBytes(ctx) + observationChannelBytes(channelSnapshot) + 64
 	return scope.submit(captureObservationContext(ctx), payloadBytes, func(workerCtx context.Context) error {
@@ -1074,19 +1200,25 @@ func (s *RequestService) SaveRequestExecutionChunksForChannel(ctx context.Contex
 			return resolveErr
 		}
 		return s.saveRequestExecutionChunksForChannel(workerCtx, resolvedID, chunksSnapshot, channelSnapshot)
-	})
+	}, func() { chunksSnapshot = cloneObservationStreamChunks(chunksSnapshot) })
 }
 
 // SaveRequestChunks queues a frozen request chunk set.
 func (s *RequestService) SaveRequestChunks(ctx context.Context, requestID int, chunks []*httpclient.StreamEvent) error {
-	if len(chunks) == 0 {
-		return nil
-	}
 	scope := observationFromContext(ctx)
 	if scope == nil {
 		return s.saveRequestChunks(ctx, requestID, chunks)
 	}
-	chunksSnapshot := cloneObservationStreamChunks(chunks)
+	if info, _ := ctx.Value(requestObservationChunksInfoKey{}).(*requestObservationBodyInfo); info != nil {
+		return s.saveObservationChunkDisposition(ctx, requestID, false, info)
+	}
+	if !s.SystemService.StoragePolicyOrDefault(ctx).StoreChunks {
+		return s.saveObservationChunkDisposition(ctx, requestID, false, &requestObservationBodyInfo{Omitted: true})
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+	chunksSnapshot := chunks
 	payloadBytes := observationStreamChunksBytes(chunksSnapshot) + observationContextBytes(ctx) + 64
 	return scope.submit(captureObservationContext(ctx), payloadBytes, func(workerCtx context.Context) error {
 		workerCtx = observationWorkerContext(workerCtx, scope)
@@ -1095,6 +1227,37 @@ func (s *RequestService) SaveRequestChunks(ctx context.Context, requestID int, c
 			return resolveErr
 		}
 		return s.saveRequestChunks(workerCtx, resolvedID, chunksSnapshot)
+	}, func() { chunksSnapshot = cloneObservationStreamChunks(chunksSnapshot) })
+}
+
+func (s *RequestService) saveObservationChunkDisposition(ctx context.Context, id int, execution bool, info *requestObservationBodyInfo) error {
+	scope := observationFromContext(ctx)
+	disposition := observationUnavailableBodyDisposition(nil, time.Now().UTC())
+	if info.Omitted {
+		disposition = evidenceDisposition("omit", "none", "omitted", nil, nil)
+	}
+	return scope.submit(ctx, 128, func(workerCtx context.Context) error {
+		resolvedID, err := scope.resolve(id)
+		if err != nil {
+			return err
+		}
+		client := s.entFromContext(workerCtx)
+		if execution {
+			entity, err := client.RequestExecution.Get(workerCtx, resolvedID)
+			if err != nil {
+				return err
+			}
+			evidence := cloneEvidenceDisposition(entity.EvidenceDisposition)
+			evidence.ResponseChunks = disposition
+			return client.RequestExecution.UpdateOneID(resolvedID).SetEvidenceDisposition(evidence).Exec(workerCtx)
+		}
+		entity, err := client.Request.Get(workerCtx, resolvedID)
+		if err != nil {
+			return err
+		}
+		evidence := cloneEvidenceDisposition(entity.EvidenceDisposition)
+		evidence.ResponseChunks = disposition
+		return client.Request.UpdateOneID(resolvedID).SetEvidenceDisposition(evidence).Exec(workerCtx)
 	})
 }
 

@@ -39,6 +39,10 @@ type OutboundPersistentStream struct {
 	transformer     transformer.Outbound
 	perf            *biz.PerformanceRecord
 	responseChunks  []*httpclient.StreamEvent
+	observation     *biz.ObservationStreamBuffer
+	streamMeta      llm.ResponseMeta
+	usageMeta       streamObservationMeta
+	channel         *biz.Channel
 	closed          bool
 	state           *PersistenceState
 	streamCompleted bool
@@ -58,6 +62,10 @@ func NewOutboundPersistentStream(
 	perf *biz.PerformanceRecord,
 	state *PersistenceState,
 ) *OutboundPersistentStream {
+	var channel *biz.Channel
+	if state != nil && state.CurrentCandidate != nil {
+		channel = state.CurrentCandidate.Channel
+	}
 	s := &OutboundPersistentStream{
 		ctx:             ctx,
 		stream:          stream,
@@ -70,6 +78,8 @@ func NewOutboundPersistentStream(
 		responseChunks:  make([]*httpclient.StreamEvent, 0),
 		closed:          false,
 		state:           state,
+		channel:         channel,
+		observation:     requestService.NewObservationStreamBuffer(ctx, channel, true),
 	}
 
 	return s
@@ -84,7 +94,18 @@ func (ts *OutboundPersistentStream) Current() *httpclient.StreamEvent {
 	if event != nil {
 		// For raw binary audio chunks (TTS stream_format=audio), persist only a size
 		// summary to avoid buffering the full audio payload in memory.
-		ts.responseChunks = append(ts.responseChunks, httpclient.SummarizeBinaryChunk(event))
+		if ts.observation != nil {
+			ts.usageMeta.observe(event)
+			if event.Type == "speech.audio.done" || event.Type == httpclient.BinaryStreamDoneEventType {
+				ts.streamMeta.ID = llm.SpeechStreamResponseID
+			}
+			ts.responseChunks = ts.observation.Append(httpclient.SummarizeBinaryChunk(event))
+			if ClassifyStreamSemanticTerminal(event) == StreamSemanticSucceeded {
+				ts.streamMeta.Completed = true
+			}
+		} else {
+			ts.responseChunks = append(ts.responseChunks, httpclient.SummarizeBinaryChunk(event))
+		}
 		// Check if this is a terminal event, which indicates the stream completed successfully.
 		// For Chat Completions API this is the raw [DONE] event; for Responses API this is
 		// response.completed; for Anthropic Messages API this is message_stop.
@@ -110,7 +131,9 @@ func (ts *OutboundPersistentStream) Close() error {
 	}
 
 	ts.closed = true
-	ctx := ts.ctx
+	defer ts.observation.Close()
+	defer func() { ts.responseChunks = nil }()
+	ctx := ts.observation.Context(ts.ctx)
 	ts.state.recordStreamLifecycle(ctx, "execution_persist_start")
 	defer ts.state.recordStreamLifecycle(ctx, "execution_persist_end")
 
@@ -164,6 +187,10 @@ func (ts *OutboundPersistentStream) Close() error {
 	var meta llm.ResponseMeta
 	var aggErr error
 	aggregatedCompleted := false
+	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) && ts.streamMeta.Completed {
+		streamCompleted = true
+		ts.state.markStreamCompleted()
+	}
 
 	if len(ts.responseChunks) > 0 {
 		responseBody, meta, aggErr = ts.transformer.AggregateStreamChunks(context.WithoutCancel(ctx), ts.state.RawProviderRequest, ts.responseChunks)
@@ -276,10 +303,7 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailureChunks(ctx conte
 		return
 	}
 
-	var channel *biz.Channel
-	if ts.state != nil && ts.state.CurrentCandidate != nil {
-		channel = ts.state.CurrentCandidate.Channel
-	}
+	channel := ts.channel
 
 	chunksCtx, cancelChunks := xcontext.DetachWithTimeout(ctx, 10*time.Second)
 	defer cancelChunks()
@@ -315,6 +339,20 @@ func (ts *OutboundPersistentStream) logFinalizationDecision(ctx context.Context,
 }
 
 func (ts *OutboundPersistentStream) persistResponseChunks(ctx context.Context) {
+	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) {
+		if chunks := ts.usageMeta.chunks(); len(chunks) > 0 {
+			if _, meta, err := ts.transformer.AggregateStreamChunks(ctx, ts.state.RawProviderRequest, chunks); err == nil {
+				if meta.ID != "" {
+					ts.streamMeta.ID = meta.ID
+				}
+				if meta.Usage != nil {
+					ts.streamMeta.Usage = meta.Usage
+				}
+			}
+		}
+		ts.persistAggregatedResponse(ctx, nil, ts.streamMeta)
+		return
+	}
 	defer func() {
 		if cause := recover(); cause != nil {
 			log.Warn(ctx, "Failed to persist outbound response chunks", log.Any("cause", cause))
@@ -393,10 +431,7 @@ func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Contex
 		}
 	}
 
-	var channel *biz.Channel
-	if ts.state != nil && ts.state.CurrentCandidate != nil {
-		channel = ts.state.CurrentCandidate.Channel
-	}
+	channel := ts.channel
 
 	err := ts.RequestService.UpdateRequestExecutionCompletedForChannel(
 		ctx,
@@ -573,7 +608,21 @@ func (p *PersistentOutboundTransformer) TransformStream(ctx context.Context, req
 		p.state,
 	)
 
-	return p.wrapped.TransformStream(ctx, req, persistentStream)
+	streamed, err := p.wrapped.TransformStream(ctx, req, persistentStream)
+	if err != nil {
+		return nil, err
+	}
+	return streams.Map(streamed, func(response *llm.Response) *llm.Response {
+		if response != nil {
+			if response.ID != "" {
+				persistentStream.streamMeta.ID = response.ID
+			}
+			if response.Usage != nil {
+				persistentStream.streamMeta.Usage = response.Usage
+			}
+		}
+		return response
+	}), nil
 }
 
 func (p *PersistentOutboundTransformer) AggregateStreamChunks(

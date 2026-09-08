@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,10 +29,11 @@ import (
 )
 
 type observationBarrierExecutor struct {
-	entered <-chan struct{}
-	called  chan struct{}
-	retry   bool
-	calls   atomic.Int32
+	entered    <-chan struct{}
+	called     chan struct{}
+	retry      bool
+	calls      atomic.Int32
+	longStream bool
 }
 
 func (e *observationBarrierExecutor) Do(ctx context.Context, _ *httpclient.Request) (*httpclient.Response, error) {
@@ -58,17 +60,26 @@ func (e *observationBarrierExecutor) DoStream(ctx context.Context, _ *httpclient
 	if e.calls.Add(1) == 1 {
 		close(e.called)
 	}
-	return streams.SliceStream([]*httpclient.StreamEvent{
-		{Data: []byte(`{"id":"observation-test","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"ready"},"finish_reason":null}]}`)},
-		{Data: []byte(`{"id":"observation-test","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`)},
-		{Data: []byte(`[DONE]`)},
-	}), nil
+	content, count := "ready", 1
+	if e.longStream {
+		content, count = strings.Repeat("x", 1024), 20000
+	}
+	chunk := &httpclient.StreamEvent{Data: []byte(fmt.Sprintf(`{"id":"observation-test","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"%s"},"finish_reason":null}]}`, content))}
+	events := make([]*httpclient.StreamEvent, count, count+2)
+	for i := range events {
+		events[i] = chunk
+	}
+	events = append(events,
+		&httpclient.StreamEvent{Data: []byte(`{"id":"observation-test","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`)},
+		&httpclient.StreamEvent{Data: []byte(`[DONE]`)},
+	)
+	return streams.SliceStream(events), nil
 }
 
 func TestForwardingObservationCoreBarrier(t *testing.T) {
-	for _, tc := range []struct{ stream, postgres, retry bool }{{false, false, false}, {true, false, false}, {true, true, false}, {false, false, true}} {
+	for _, tc := range []struct{ stream, postgres, retry, disabled, longStream bool }{{false, false, false, false, false}, {true, false, false, false, false}, {true, true, false, false, false}, {false, false, true, false, false}, {true, false, false, true, false}, {true, false, false, false, true}, {true, false, false, true, true}} {
 		stream := tc.stream
-		t.Run(fmt.Sprintf("stream=%v/postgres=%v/retry=%v", stream, tc.postgres, tc.retry), func(t *testing.T) {
+		t.Run(fmt.Sprintf("stream=%v/postgres=%v/retry=%v/disabled=%v/long=%v", stream, tc.postgres, tc.retry, tc.disabled, tc.longStream), func(t *testing.T) {
 			var client *ent.Client
 			if tc.postgres {
 				dsn := os.Getenv("AXONHUB_TEST_PG_DSN")
@@ -85,8 +96,13 @@ func TestForwardingObservationCoreBarrier(t *testing.T) {
 			unlock := func() {}
 			releaseBarrier := func() { unlock(); close(release) }
 			defer releaseOnce.Do(releaseBarrier)
-			executor := &observationBarrierExecutor{entered: entered, called: make(chan struct{}), retry: tc.retry}
+			executor := &observationBarrierExecutor{entered: entered, called: make(chan struct{}), retry: tc.retry, longStream: tc.longStream}
 			orchestrator, ctx := setupAsyncManagedBodyOrchestrator(t, client, nil, executor)
+			if tc.disabled {
+				require.NoError(t, orchestrator.SystemService.SetStoragePolicy(ctx, &biz.StoragePolicy{}))
+			} else if tc.stream && !tc.postgres {
+				require.NoError(t, orchestrator.SystemService.SetStoragePolicy(ctx, &biz.StoragePolicy{StoreRequestBody: true, StoreResponseBody: true, StoreChunks: true}))
+			}
 			if tc.retry {
 				require.NoError(t, orchestrator.SystemService.SetRetryPolicy(ctx, &biz.RetryPolicy{Enabled: true, MaxSingleChannelRetries: 1, LoadBalancerStrategy: biz.LoadBalancerStrategyAdaptive}))
 			}
@@ -100,7 +116,7 @@ func TestForwardingObservationCoreBarrier(t *testing.T) {
 				// A real PG row lock is held for the entire forwarding proof.
 				close(entered)
 			}
-			writer := biz.NewForwardingObservationWriter(biz.ManagedRequestBodyWriterConfig{AttemptTimeout: 10 * time.Second})
+			writer := biz.NewForwardingObservationWriter(biz.ManagedRequestBodyWriterConfig{AttemptTimeout: 30 * time.Second})
 			old := orchestrator.RequestService
 			orchestrator.RequestService = biz.NewRequestServiceWithObservationWriter(client, orchestrator.SystemService, orchestrator.UsageLogService, old.DataStorageService, old.LiveStreamRegistry, nil, writer)
 			require.NoError(t, writer.Start(ctx))
@@ -143,12 +159,18 @@ func TestForwardingObservationCoreBarrier(t *testing.T) {
 				result, err := orchestrator.Process(ctx, buildTestRequest("gpt-4", "barrier", stream))
 				if err == nil && stream {
 					seen := false
+					count := 0
 					for result.ChatCompletionStream.Next() {
 						_ = result.ChatCompletionStream.Current()
+						count++
 						if !seen {
 							seen = true
 							close(first)
 						}
+					}
+					if tc.longStream && count < 20000 {
+						finished <- fmt.Errorf("forwarded only %d of 20000 content frames", count)
+						return
 					}
 					err = result.ChatCompletionStream.Close()
 					if err == nil {
@@ -172,7 +194,7 @@ func TestForwardingObservationCoreBarrier(t *testing.T) {
 			select {
 			case err := <-finished:
 				require.NoError(t, err)
-			case <-time.After(3 * time.Second):
+			case <-time.After(30 * time.Second):
 				t.Fatal("terminal/close waited on request INSERT")
 			}
 			inFlight, _ := limiter.Stats()
@@ -210,6 +232,22 @@ func TestForwardingObservationCoreBarrier(t *testing.T) {
 			usage := client.UsageLog.Query().OnlyX(ctx)
 			require.Equal(t, parent.ID, usage.RequestID)
 			require.Equal(t, int64(5), usage.TotalTokens)
+			if tc.disabled {
+				require.Equal(t, "omitted", parent.EvidenceDisposition.ResponseBody.Outcome)
+				require.Equal(t, "omitted", execution.EvidenceDisposition.ResponseBody.Outcome)
+				require.Equal(t, "omit", parent.EvidenceDisposition.ResponseChunks.Intent)
+				require.Equal(t, "omit", execution.EvidenceDisposition.ResponseChunks.Intent)
+			} else if tc.longStream {
+				require.Equal(t, "unavailable", parent.EvidenceDisposition.ResponseBody.Outcome)
+				require.Equal(t, "unavailable", execution.EvidenceDisposition.ResponseBody.Outcome)
+				require.Equal(t, "unavailable", parent.EvidenceDisposition.ResponseChunks.Outcome)
+				require.Equal(t, "unavailable", execution.EvidenceDisposition.ResponseChunks.Outcome)
+			} else if tc.stream && !tc.postgres {
+				require.Contains(t, string(parent.ResponseBody), "ready")
+				require.Contains(t, string(execution.ResponseBody), "ready")
+				require.NotEmpty(t, parent.ResponseChunks)
+				require.NotEmpty(t, execution.ResponseChunks)
+			}
 		})
 	}
 }
