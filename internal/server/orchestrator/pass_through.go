@@ -616,7 +616,10 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 		if attempt != nil {
 			attempt.setDrain(drainDone)
 		}
+		// The raw HTTP stream can finish before transformed persistence closes.
+		releaseObservation := biz.RetainForwardingObservation(ctx)
 		go func() {
+			defer releaseObservation()
 			outbound.state.recordStreamLifecycle(ctx, "pass_through_drain_start")
 			var drainErr error
 			defer func() {

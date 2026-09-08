@@ -14,6 +14,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -525,7 +526,11 @@ func (s *sseLivenessSession) awaitProcess(
 	// request after a downstream failure, the worker must close any late stream
 	// instead of depositing it into an unread result buffer.
 	outcomes := make(chan sseProcessOutcome)
+	// Acquire before scheduling: early downstream cancellation can unwind the
+	// HTTP middleware even before this worker starts processing the request.
+	releaseObservation := biz.RetainForwardingObservation(s.ctx)
 	go func() {
+		defer releaseObservation()
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				log.Error(s.ctx, "Panic while processing SSE request", log.Any("panic", recovered))
@@ -562,7 +567,13 @@ func (s *sseLivenessSession) awaitProcess(
 		}
 	}()
 
+	outcomeReceived := false
 	defer func() {
+		// A writer panic also abandons the unbuffered handoff. Once received,
+		// the handler owns the stream and the worker must not close it again.
+		if !outcomeReceived {
+			s.abandon()
+		}
 		if timer != nil {
 			stopTimer(timer)
 		}
@@ -571,6 +582,7 @@ func (s *sseLivenessSession) awaitProcess(
 	for {
 		select {
 		case outcome := <-outcomes:
+			outcomeReceived = true
 			if reason, canceled := closeReasonFromContext(s.ctx); canceled {
 				if outcome.result.ChatCompletionStream != nil {
 					_ = outcome.result.ChatCompletionStream.Close()

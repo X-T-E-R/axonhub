@@ -129,6 +129,8 @@ type observationScope struct {
 	executionChannels map[int]*Channel
 	reservedUsage     bool
 	usageSubmitted    bool
+	retained          int
+	endRequested      bool
 	ended             bool
 	liveMu            sync.Mutex
 	liveClosed        bool
@@ -204,10 +206,18 @@ func (w *ForwardingObservationWriter) Start(ctx context.Context) error {
 }
 
 func (w *ForwardingObservationWriter) abandonPending() {
+	var abandoned []*observationScope
+	defer func() {
+		for _, scope := range abandoned {
+			scope.closeLive()
+		}
+	}()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.stopping = true
 	for scope := range w.scopes {
+		scope.ended = true
+		abandoned = append(abandoned, scope)
 		reserved := scope.reservedCore
 		reservedBytes := int64(reserved) * 4096
 		if scope.reservedUsage {
@@ -601,12 +611,40 @@ func (w *ForwardingObservationWriter) optionalByteLimit() int64 {
 	return limit - min(limit/4, scopes*reservationBytes)
 }
 
-func EndForwardingObservation(ctx context.Context) {
+// RetainForwardingObservation keeps admission and live bindings available to an
+// asynchronous owner after the HTTP handler ends. Acquire before launching the
+// goroutine; release after its final persistence submissions. It does not wait
+// for the writer or reserve additional queue capacity.
+func RetainForwardingObservation(ctx context.Context) func() {
 	s := observationFromContext(ctx)
 	if s == nil {
-		return
+		return func() {}
 	}
+	w := s.writer
+	w.mu.Lock()
+	if s.ended || w.stopping {
+		w.mu.Unlock()
+		return func() {}
+	}
+	s.retained++
+	w.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			w.mu.Lock()
+			s.retained--
+			end := s.endRequested && s.retained == 0
+			w.mu.Unlock()
+			if end {
+				s.end()
+			}
+		})
+	}
+}
+
+func (s *observationScope) closeLive() {
 	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
 	if !s.liveClosed {
 		s.liveClosed = true
 		for _, cleanup := range s.liveCleanup {
@@ -615,11 +653,20 @@ func EndForwardingObservation(ctx context.Context) {
 		s.liveCleanup = nil
 		s.liveBindings = nil
 	}
-	s.liveMu.Unlock()
+}
+
+func EndForwardingObservation(ctx context.Context) {
+	if s := observationFromContext(ctx); s != nil {
+		s.end()
+	}
+}
+
+func (s *observationScope) end() {
 	w := s.writer
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	if s.ended {
+	s.endRequested = true
+	if s.ended || s.retained != 0 {
+		w.mu.Unlock()
 		return
 	}
 	s.ended = true
@@ -642,6 +689,8 @@ func EndForwardingObservation(ctx context.Context) {
 	if release > 0 && w.items == 0 {
 		close(w.idle)
 	}
+	w.mu.Unlock()
+	s.closeLive()
 }
 
 // Wait is an explicit diagnostic/test drain; forwarding never calls it.
