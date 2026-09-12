@@ -682,6 +682,9 @@ func (s *responsesInboundStream) handleToolCallSnapshots(toolCalls []llm.ToolCal
 		if tc.Function.Namespace != "" {
 			stored.Function.Namespace = tc.Function.Namespace
 		}
+		if tc.Function.EncryptedFunctionArgs != nil {
+			stored.Function.EncryptedFunctionArgs = tc.Function.EncryptedFunctionArgs
+		}
 		stored.Function.Arguments = tc.Function.Arguments
 	}
 
@@ -717,9 +720,10 @@ func (s *responsesInboundStream) initToolCall(tc llm.ToolCall) error {
 		Type:                   tc.Type,
 		ResponseCustomToolCall: tc.ResponseCustomToolCall,
 		Function: llm.FunctionCall{
-			Name:      tc.Function.Name,
-			Namespace: tc.Function.Namespace,
-			Arguments: "",
+			Name:                  tc.Function.Name,
+			Namespace:             tc.Function.Namespace,
+			EncryptedFunctionArgs: tc.Function.EncryptedFunctionArgs,
+			Arguments:             "",
 		},
 	}
 	if tc.ResponseCustomToolCall != nil {
@@ -756,12 +760,13 @@ func (s *responsesInboundStream) initToolCall(tc llm.ToolCall) error {
 
 	default:
 		item := &Item{
-			ID:        itemID,
-			Type:      "function_call",
-			Status:    lo.ToPtr("in_progress"),
-			CallID:    tc.ID,
-			Name:      tc.Function.Name,
-			Namespace: tc.Function.Namespace,
+			ID:                    itemID,
+			Type:                  "function_call",
+			Status:                lo.ToPtr("in_progress"),
+			CallID:                tc.ID,
+			Name:                  tc.Function.Name,
+			Namespace:             tc.Function.Namespace,
+			EncryptedFunctionArgs: tc.Function.EncryptedFunctionArgs,
 		}
 
 		err := s.enqueueEvent(&StreamEvent{
@@ -790,6 +795,9 @@ func (s *responsesInboundStream) handleFunctionCallDelta(tc llm.ToolCall) error 
 	}
 	if tc.Function.Namespace != "" {
 		stored.Function.Namespace = tc.Function.Namespace
+	}
+	if tc.Function.EncryptedFunctionArgs != nil {
+		stored.Function.EncryptedFunctionArgs = tc.Function.EncryptedFunctionArgs
 	}
 	stored.Function.Arguments += tc.Function.Arguments
 
@@ -1111,14 +1119,15 @@ func (s *responsesInboundStream) closeCurrentOutputItem() error {
 			}
 
 			item := Item{
-				ID:               itemID,
-				Type:             "function_call",
-				Status:           lo.ToPtr("completed"),
-				CallID:           tc.ID,
-				Name:             tc.Function.Name,
-				Namespace:        tc.Function.Namespace,
-				Arguments:        tc.Function.Arguments,
-				ArgumentsPresent: true,
+				ID:                    itemID,
+				Type:                  "function_call",
+				Status:                lo.ToPtr("completed"),
+				CallID:                tc.ID,
+				Name:                  tc.Function.Name,
+				Namespace:             tc.Function.Namespace,
+				EncryptedFunctionArgs: tc.Function.EncryptedFunctionArgs,
+				Arguments:             tc.Function.Arguments,
+				ArgumentsPresent:      true,
 			}
 
 			err = s.enqueueEvent(&StreamEvent{

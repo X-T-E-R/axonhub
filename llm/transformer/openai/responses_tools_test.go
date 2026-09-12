@@ -97,3 +97,22 @@ func TestResponsesToolBindingDoesNotInferToolsFromText(t *testing.T) {
 	require.Empty(t, resp.Choices[0].Message.ToolCalls)
 	require.Contains(t, *resp.Choices[0].Message.Content.Content, "DSML")
 }
+
+func TestResponsesToolBindingUniqueAliasesAndExactNames(t *testing.T) {
+	bindings := responsesToolBindings{"functions__exec": {Name: "exec", Namespace: "functions", Custom: true}}
+	call := llm.ToolCall{ID: "call", Function: llm.FunctionCall{Name: "exec", Arguments: `{"input":"text(1)"}`}}
+	restored, err := bindings.restore(call)
+	require.NoError(t, err)
+	require.Equal(t, "functions", restored.ResponseCustomToolCall.Namespace)
+	require.Equal(t, "text(1)", restored.ResponseCustomToolCall.Input)
+
+	bindings["editor__exec"] = responsesToolBinding{Name: "exec", Namespace: "editor", Custom: true}
+	_, err = bindings.restore(call)
+	require.ErrorContains(t, err, "ambiguous")
+
+	bindings["exec"] = responsesToolBinding{Name: "exec"}
+	restored, err = bindings.restore(call)
+	require.NoError(t, err)
+	require.Nil(t, restored.ResponseCustomToolCall, "an exact ordinary function must not be captured by a custom alias")
+	require.Equal(t, "exec", restored.Function.Name)
+}

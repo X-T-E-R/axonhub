@@ -42,15 +42,16 @@ type streamAggregator struct {
 
 // aggregatedItem holds the accumulated state for an output item.
 type aggregatedItem struct {
-	ID               string
-	Type             string
-	Status           string
-	Role             string
-	CallID           string
-	Name             string
-	Namespace        string
-	Arguments        *strings.Builder
-	EncryptedContent *string
+	ID                    string
+	Type                  string
+	Status                string
+	Role                  string
+	CallID                string
+	Name                  string
+	Namespace             string
+	EncryptedFunctionArgs []string
+	Arguments             *strings.Builder
+	EncryptedContent      *string
 
 	// For custom_tool_call type
 	Input *string
@@ -302,6 +303,7 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 			item.CallID = ev.Item.CallID
 			item.Name = ev.Item.Name
 			item.Namespace = ev.Item.Namespace
+			item.EncryptedFunctionArgs = ev.Item.EncryptedFunctionArgs
 			item.Arguments.WriteString(ev.Item.Arguments)
 			item.EncryptedContent = ev.Item.EncryptedContent
 			item.Input = ev.Item.Input
@@ -699,6 +701,9 @@ func (a *streamAggregator) applyOutputItemSnapshot(item *aggregatedItem, snapsho
 	if snapshot.Namespace != "" {
 		item.Namespace = snapshot.Namespace
 	}
+	if snapshot.EncryptedFunctionArgs != nil {
+		item.EncryptedFunctionArgs = snapshot.EncryptedFunctionArgs
+	}
 	if snapshot.EncryptedContent != nil {
 		item.EncryptedContent = snapshot.EncryptedContent
 	}
@@ -795,13 +800,14 @@ func (a *streamAggregator) buildResponse() *Response {
 
 			case "function_call":
 				output = append(output, Item{
-					ID:        item.ID,
-					Type:      item.Type,
-					Status:    lo.ToPtr(item.Status),
-					CallID:    item.CallID,
-					Name:      item.Name,
-					Namespace: item.Namespace,
-					Arguments: item.Arguments.String(),
+					ID:                    item.ID,
+					Type:                  item.Type,
+					Status:                lo.ToPtr(item.Status),
+					CallID:                item.CallID,
+					Name:                  item.Name,
+					Namespace:             item.Namespace,
+					EncryptedFunctionArgs: item.EncryptedFunctionArgs,
+					Arguments:             item.Arguments.String(),
 				})
 
 			case "custom_tool_call":

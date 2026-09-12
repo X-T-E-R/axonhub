@@ -348,6 +348,9 @@ func (s *Stop) UnmarshalJSON(data []byte) error {
 type Message struct {
 	// ID is the upstream message/item identifier when the provider exposes one.
 	ID string `json:"id,omitempty"`
+	// Original Codex agent envelope, retained only for native Responses
+	// forwarding. Other adapters use the rendered user Content instead.
+	ResponsesAgentMessage json.RawMessage `json:"-"`
 
 	// user, assistant, system, tool, developer
 	Role string `json:"role,omitempty"`

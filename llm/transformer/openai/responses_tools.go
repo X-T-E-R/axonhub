@@ -148,6 +148,15 @@ func lowerResponsesTools(src *llm.Request, dst *Request) (responsesToolBindings,
 			Type: "custom", Name: custom.Name, Description: custom.Description, Format: custom.Format,
 		}}, "", "", false)
 	}
+	// Exact top-level names must win over namespace shorthand, even when
+	// another tool has the same short name.
+	if len(bindings) > 0 {
+		for _, tool := range dst.Tools {
+			if _, ok := bindings[tool.Function.Name]; !ok {
+				bindings[tool.Function.Name] = responsesToolBinding{Name: tool.Function.Name}
+			}
+		}
+	}
 	for i, message := range src.Messages {
 		for j, call := range message.ToolCalls {
 			if call.ResponseCustomToolCall != nil {
@@ -158,10 +167,20 @@ func lowerResponsesTools(src *llm.Request, dst *Request) (responsesToolBindings,
 				if err != nil {
 					return nil, err
 				}
+				name := chatToolName(custom.Namespace, custom.Name)
+				_, resolved, _, err := bindings.resolve(name)
+				if err != nil {
+					return nil, err
+				}
 				dst.Messages[i].ToolCalls[j] = ToolCall{ID: custom.CallID, Type: "function", Index: call.Index,
-					Function: FunctionCall{Name: chatToolName(custom.Namespace, custom.Name), Arguments: string(args)}}
-			} else if call.Function.Namespace != "" {
-				dst.Messages[i].ToolCalls[j].Function.Name = call.Function.Namespace + "__" + call.Function.Name
+					Function: FunctionCall{Name: resolved, Arguments: string(args)}}
+			} else {
+				name := chatToolName(call.Function.Namespace, call.Function.Name)
+				_, resolved, _, err := bindings.resolve(name)
+				if err != nil {
+					return nil, err
+				}
+				dst.Messages[i].ToolCalls[j].Function.Name = resolved
 			}
 		}
 	}
@@ -170,7 +189,12 @@ func lowerResponsesTools(src *llm.Request, dst *Request) (responsesToolBindings,
 	}
 	if dst.ToolChoice != nil && dst.ToolChoice.NamedToolChoice != nil {
 		choice := dst.ToolChoice.NamedToolChoice
-		if binding, ok := bindings[choice.Function.Name]; ok && binding.Custom {
+		binding, name, ok, err := bindings.resolve(choice.Function.Name)
+		if err != nil {
+			return nil, err
+		}
+		choice.Function.Name = name
+		if ok && binding.Custom {
 			choice.Type = "function"
 		}
 	}
@@ -188,14 +212,46 @@ func responseBindings(req *httpclient.Request) responsesToolBindings {
 	return bindings
 }
 
+func (bindings responsesToolBindings) resolve(name string) (responsesToolBinding, string, bool, error) {
+	if binding, ok := bindings[name]; ok {
+		return binding, name, true, nil
+	}
+	var found responsesToolBinding
+	var wireName string
+	for wire, binding := range bindings {
+		if binding.Name != name {
+			continue
+		}
+		if wireName != "" {
+			return responsesToolBinding{}, name, false, fmt.Errorf("%w: ambiguous tool name %q", transformer.ErrToolCallIntegrity, name)
+		}
+		found, wireName = binding, wire
+	}
+	if wireName == "" {
+		return responsesToolBinding{}, name, false, nil
+	}
+	return found, wireName, true, nil
+}
+
 func (bindings responsesToolBindings) restore(call llm.ToolCall) (llm.ToolCall, error) {
-	binding, ok := bindings[call.Function.Name]
+	binding, _, ok, err := bindings.resolve(call.Function.Name)
+	if err != nil {
+		return call, err
+	}
 	if !ok {
 		return call, nil
 	}
 	if !binding.Custom {
 		call.Function.Name = binding.Name
 		call.Function.Namespace = binding.Namespace
+		if binding.Namespace == "collaboration" {
+			switch binding.Name {
+			case "spawn_agent", "send_message", "followup_task":
+				// Chat arguments are plaintext. Codex requires an explicit
+				// empty list to avoid wrapping the message as encrypted.
+				call.Function.EncryptedFunctionArgs = []string{}
+			}
+		}
 		return call, nil
 	}
 	var args map[string]json.RawMessage

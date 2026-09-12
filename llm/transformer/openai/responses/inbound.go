@@ -433,6 +433,22 @@ func convertReasoningWithFollowing(items []Item, startIdx int) (*llm.Message, in
 	for _, summary := range reasoningItem.Summary {
 		reasoningText.WriteString(summary.Text)
 	}
+	// Explicit reasoning text is richer than its summary. The encrypted
+	// signature remains separate and is never decoded as reasoning text.
+	var detail strings.Builder
+	for _, part := range reasoningItem.ReasoningContent {
+		detail.WriteString(part.Text)
+	}
+	if reasoningItem.Content != nil {
+		for _, part := range reasoningItem.Content.Items {
+			if (part.Type == "reasoning_text" || part.Type == "text") && part.Text != nil {
+				detail.WriteString(*part.Text)
+			}
+		}
+	}
+	if detail.Len() > 0 {
+		reasoningText = detail
+	}
 
 	if reasoningText.Len() > 0 {
 		msg.ReasoningContent = lo.ToPtr(reasoningText.String())
@@ -451,9 +467,10 @@ func convertReasoningWithFollowing(items []Item, startIdx int) (*llm.Message, in
 				ID:   nextItem.CallID,
 				Type: "function",
 				Function: llm.FunctionCall{
-					Name:      nextItem.Name,
-					Namespace: nextItem.Namespace,
-					Arguments: nextItem.Arguments,
+					Name:                  nextItem.Name,
+					Namespace:             nextItem.Namespace,
+					EncryptedFunctionArgs: nextItem.EncryptedFunctionArgs,
+					Arguments:             nextItem.Arguments,
 				},
 			})
 			consumed++
@@ -511,6 +528,17 @@ func convertItemToMessage(item *Item) (*llm.Message, error) {
 	}
 
 	switch item.Type {
+	case "agent_message":
+		raw, err := json.Marshal(item)
+		if err != nil {
+			return nil, err
+		}
+		return &llm.Message{
+			ID:                    item.ID,
+			Role:                  "user",
+			Content:               llm.MessageContent{Content: lo.ToPtr(renderAgentMessage(*item))},
+			ResponsesAgentMessage: raw,
+		}, nil
 	case "message", "input_text", "":
 		msg := &llm.Message{
 			ID:   item.ID,
@@ -557,9 +585,10 @@ func convertItemToMessage(item *Item) (*llm.Message, error) {
 					ID:   item.CallID,
 					Type: "function",
 					Function: llm.FunctionCall{
-						Name:      item.Name,
-						Namespace: item.Namespace,
-						Arguments: item.Arguments,
+						Name:                  item.Name,
+						Namespace:             item.Namespace,
+						EncryptedFunctionArgs: item.EncryptedFunctionArgs,
+						Arguments:             item.Arguments,
 					},
 				},
 			},
@@ -991,13 +1020,14 @@ func convertToResponsesAPIResponse(chatResp *llm.Response) *Response {
 					})
 				} else {
 					resp.Output = append(resp.Output, Item{
-						ID:        toolCall.ID,
-						Type:      "function_call",
-						CallID:    toolCall.ID,
-						Name:      toolCall.Function.Name,
-						Namespace: toolCall.Function.Namespace,
-						Arguments: toolCall.Function.Arguments,
-						Status:    lo.ToPtr("completed"),
+						ID:                    toolCall.ID,
+						Type:                  "function_call",
+						CallID:                toolCall.ID,
+						Name:                  toolCall.Function.Name,
+						Namespace:             toolCall.Function.Namespace,
+						EncryptedFunctionArgs: toolCall.Function.EncryptedFunctionArgs,
+						Arguments:             toolCall.Function.Arguments,
+						Status:                lo.ToPtr("completed"),
 					})
 				}
 			}

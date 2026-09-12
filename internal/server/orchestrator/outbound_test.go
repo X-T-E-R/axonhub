@@ -42,6 +42,14 @@ type mockTransformer struct {
 	aggregateCalls     int
 }
 
+type responsesCustomToolsMockTransformer struct {
+	mockTransformer
+}
+
+func (m *responsesCustomToolsMockTransformer) SupportsResponsesCustomTools() bool {
+	return true
+}
+
 func (m *mockTransformer) TransformRequest(ctx context.Context, req *llm.Request) (*httpclient.Request, error) {
 	body, err := json.Marshal(map[string]any{
 		"model":       req.Model,
@@ -1425,7 +1433,7 @@ func TestFilterResponseCustomToolMessagesForNonResponsesOutbound(t *testing.T) {
 	}
 
 	t.Run("filters when inbound is responses and outbound is not", func(t *testing.T) {
-		got := filterResponseCustomToolMessagesForNonResponsesOutbound(baseRequest, llm.APIFormatOpenAIChatCompletion)
+		got := filterResponseCustomToolMessagesForNonResponsesOutbound(baseRequest, &mockTransformer{apiFormat: llm.APIFormatOpenAIChatCompletion})
 		require.NotSame(t, baseRequest, got)
 		require.Len(t, got.Messages, 2)
 		require.Len(t, got.Messages[0].ToolCalls, 1)
@@ -1435,14 +1443,21 @@ func TestFilterResponseCustomToolMessagesForNonResponsesOutbound(t *testing.T) {
 	})
 
 	t.Run("does not filter when outbound is responses", func(t *testing.T) {
-		got := filterResponseCustomToolMessagesForNonResponsesOutbound(baseRequest, llm.APIFormatOpenAIResponse)
+		got := filterResponseCustomToolMessagesForNonResponsesOutbound(baseRequest, &mockTransformer{apiFormat: llm.APIFormatOpenAIResponse})
+		require.Same(t, baseRequest, got)
+	})
+
+	t.Run("does not filter when Chat outbound advertises support", func(t *testing.T) {
+		got := filterResponseCustomToolMessagesForNonResponsesOutbound(baseRequest, &responsesCustomToolsMockTransformer{
+			mockTransformer: mockTransformer{apiFormat: llm.APIFormatOpenAIChatCompletion},
+		})
 		require.Same(t, baseRequest, got)
 	})
 
 	t.Run("does not filter when inbound is not responses", func(t *testing.T) {
 		nonResponsesReq := *baseRequest
 		nonResponsesReq.APIFormat = llm.APIFormatOpenAIChatCompletion
-		got := filterResponseCustomToolMessagesForNonResponsesOutbound(&nonResponsesReq, llm.APIFormatOpenAIChatCompletion)
+		got := filterResponseCustomToolMessagesForNonResponsesOutbound(&nonResponsesReq, &mockTransformer{apiFormat: llm.APIFormatOpenAIChatCompletion})
 		require.Same(t, &nonResponsesReq, got)
 	})
 }

@@ -536,7 +536,7 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 
 	// Apply channel transform options to create a new request
 	llmRequest = applyTransformOptions(llmRequest, candidate.Channel.Settings)
-	llmRequest = filterResponseCustomToolMessagesForNonResponsesOutbound(llmRequest, p.wrapped.APIFormat())
+	llmRequest = filterResponseCustomToolMessagesForNonResponsesOutbound(llmRequest, p.wrapped)
 
 	if shouldForceStreamingForCandidate(candidate, llmRequest) {
 		streamPtr := lo.ToPtr(true)
@@ -559,13 +559,13 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 
 func filterResponseCustomToolMessagesForNonResponsesOutbound(
 	llmRequest *llm.Request,
-	outboundFormat llm.APIFormat,
+	outbound transformer.Outbound,
 ) *llm.Request {
 	if llmRequest == nil {
 		return nil
 	}
 
-	if !isResponsesFormat(llmRequest.APIFormat) || isResponsesFormat(outboundFormat) || !containsResponseCustomToolMessages(llmRequest.Messages) {
+	if !isResponsesFormat(llmRequest.APIFormat) || supportsResponsesCustomTools(outbound) || !containsResponseCustomToolMessages(llmRequest.Messages) {
 		return llmRequest
 	}
 
@@ -573,6 +573,19 @@ func filterResponseCustomToolMessagesForNonResponsesOutbound(
 	cloned.Messages = shared.FilterOutResponseCustomToolMessages(llmRequest.Messages)
 
 	return &cloned
+}
+
+func supportsResponsesCustomTools(outbound transformer.Outbound) bool {
+	if outbound == nil {
+		return false
+	}
+
+	if isResponsesFormat(outbound.APIFormat()) {
+		return true
+	}
+
+	capable, ok := outbound.(interface{ SupportsResponsesCustomTools() bool })
+	return ok && capable.SupportsResponsesCustomTools()
 }
 
 func isResponsesFormat(format llm.APIFormat) bool {

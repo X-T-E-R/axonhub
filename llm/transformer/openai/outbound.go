@@ -146,6 +146,12 @@ func (t *OutboundTransformer) APIFormat() llm.APIFormat {
 	return llm.APIFormatOpenAIChatCompletion
 }
 
+// SupportsResponsesCustomTools lets orchestration preserve histories that this
+// adapter can lower to Chat functions and restore to Responses custom calls.
+func (t *OutboundTransformer) SupportsResponsesCustomTools() bool {
+	return true
+}
+
 // TransformRequest transforms ChatCompletionRequest to Request.
 func (t *OutboundTransformer) TransformRequest(ctx context.Context, llmReq *llm.Request) (*httpclient.Request, error) {
 	if llmReq == nil {

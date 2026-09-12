@@ -150,6 +150,9 @@ func convertInputFromMessages(msgs []llm.Message, transformOptions llm.Transform
 
 // convertUserMessage converts a user message to Responses API Item format.
 func convertUserMessage(msg llm.Message) Item {
+	if item, ok := originalAgentMessage(msg); ok {
+		return item
+	}
 	var contentItems []Item
 
 	if msg.Content.Content != nil {
@@ -234,11 +237,12 @@ func convertAssistantMessage(msg llm.Message) []Item {
 			})
 		} else {
 			toolCallItems = append(toolCallItems, Item{
-				Type:      "function_call",
-				CallID:    tc.ID,
-				Name:      tc.Function.Name,
-				Namespace: tc.Function.Namespace,
-				Arguments: tc.Function.Arguments,
+				Type:                  "function_call",
+				CallID:                tc.ID,
+				Name:                  tc.Function.Name,
+				Namespace:             tc.Function.Namespace,
+				EncryptedFunctionArgs: tc.Function.EncryptedFunctionArgs,
+				Arguments:             tc.Function.Arguments,
 			})
 		}
 	}
@@ -688,9 +692,10 @@ func convertOutputToMessage(output []Item, transformerMetadata map[string]any) l
 				ID:   outputItem.CallID,
 				Type: "function",
 				Function: llm.FunctionCall{
-					Name:      outputItem.Name,
-					Namespace: outputItem.Namespace,
-					Arguments: outputItem.Arguments,
+					Name:                  outputItem.Name,
+					Namespace:             outputItem.Namespace,
+					EncryptedFunctionArgs: outputItem.EncryptedFunctionArgs,
+					Arguments:             outputItem.Arguments,
 				},
 			})
 		case "custom_tool_call":
