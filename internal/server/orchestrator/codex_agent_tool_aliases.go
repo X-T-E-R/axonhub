@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"strconv"
 	"sync"
 
@@ -127,6 +128,7 @@ func (s *codexAgentToolAliasState) getBinding() *codexAgentToolAliasBinding {
 
 type codexAgentToolAliasStream struct {
 	streams.Stream[*httpclient.StreamEvent]
+
 	binding *codexAgentToolAliasBinding
 	current *httpclient.StreamEvent
 }
@@ -323,9 +325,7 @@ func aliasCodexToolCatalog(rawCatalog any, aliasNamespace string, movedTools map
 
 		changed = true
 		aliasTool := make(map[string]any, len(tool))
-		for key, value := range tool {
-			aliasTool[key] = value
-		}
+		maps.Copy(aliasTool, tool)
 		aliasTool["name"] = aliasNamespace
 		aliasTool["tools"] = aliased
 
