@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
@@ -570,6 +571,9 @@ func (a *streamAggregator) processEvent(ev *StreamEvent) {
 
 				if ev.Item.EncryptedContent != nil {
 					item.EncryptedContent = ev.Item.EncryptedContent
+				}
+				if ev.Item.EncryptedFunctionArgs != nil {
+					item.EncryptedFunctionArgs = slices.Clone(ev.Item.EncryptedFunctionArgs)
 				}
 
 				if ev.Item.Result != nil {

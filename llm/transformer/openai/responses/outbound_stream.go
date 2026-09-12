@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
@@ -536,6 +537,7 @@ func (s *responsesOutboundStream) bufferFunctionCallSnapshot(
 	itemID *string,
 	name string,
 	namespace string,
+	encryptedFunctionArgs []string,
 	arguments string,
 	argumentsPresent bool,
 ) error {
@@ -572,6 +574,16 @@ func (s *responsesOutboundStream) bufferFunctionCallSnapshot(
 			transformer.ErrIncompleteToolCall,
 			toolCall.ID,
 		)
+	}
+	if encryptedFunctionArgs != nil &&
+		(toolCall.Function.EncryptedFunctionArgs == nil || !slices.Equal(toolCall.Function.EncryptedFunctionArgs, encryptedFunctionArgs)) {
+		toolCall.Function.EncryptedFunctionArgs = slices.Clone(encryptedFunctionArgs)
+		s.enqueue(s.newToolCallDelta(llm.ToolCall{
+			Index: s.state.toolCallIndex[toolCall.ID],
+			Function: llm.FunctionCall{
+				EncryptedFunctionArgs: slices.Clone(encryptedFunctionArgs),
+			},
+		}))
 	}
 	if argumentsPresent {
 		// Terminal payloads are authoritative snapshots. Keep the latest one
@@ -866,9 +878,10 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 				ID:   item.CallID,
 				Type: "function",
 				Function: llm.FunctionCall{
-					Name:      item.Name,
-					Namespace: item.Namespace,
-					Arguments: item.Arguments,
+					Name:                  item.Name,
+					Namespace:             item.Namespace,
+					EncryptedFunctionArgs: slices.Clone(item.EncryptedFunctionArgs),
+					Arguments:             item.Arguments,
 				},
 			}
 			// Map item.id to call_id for later lookup
@@ -885,8 +898,9 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 								Type:  "function",
 								Index: toolCallIdx,
 								Function: llm.FunctionCall{
-									Name:      item.Name,
-									Namespace: item.Namespace,
+									Name:                  item.Name,
+									Namespace:             item.Namespace,
+									EncryptedFunctionArgs: slices.Clone(item.EncryptedFunctionArgs),
 								},
 							},
 						},
@@ -959,6 +973,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			streamEvent.ItemID,
 			streamEvent.Name,
 			streamEvent.Namespace,
+			nil,
 			streamEvent.Arguments,
 			jsonFieldPresent(event.Data, "arguments"),
 		); err != nil {
@@ -1064,6 +1079,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 				&itemID,
 				streamEvent.Item.Name,
 				streamEvent.Item.Namespace,
+				streamEvent.Item.EncryptedFunctionArgs,
 				streamEvent.Item.Arguments,
 				jsonFieldPresent(event.Data, "item", "arguments"),
 			); err != nil {
@@ -1139,6 +1155,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 						&itemID,
 						item.Name,
 						item.Namespace,
+						item.EncryptedFunctionArgs,
 						item.Arguments,
 						responseOutputFieldPresent(event.Data, i, "arguments"),
 					); err != nil {

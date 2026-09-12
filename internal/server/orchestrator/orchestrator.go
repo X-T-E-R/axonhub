@@ -280,6 +280,7 @@ func (processor *ChatCompletionOrchestrator) process(
 	middlewares = append(middlewares, processor.Middlewares...)
 
 	inbound, outbound := NewPersistentTransformers(state, processor.Inbound)
+	codexAgentToolAliases := newCodexAgentToolAliasState(outbound)
 
 	// Add inbound middlewares (executed after inbound.TransformRequest)
 	middlewares = append(middlewares,
@@ -295,6 +296,10 @@ func (processor *ChatCompletionOrchestrator) process(
 		// response is saved when pass-through is enabled.
 		applyPassThroughResponse(outbound, processor.SystemService),
 		applyPassThroughStream(outbound, processor.SystemService),
+		// Restore Codex aliases only after the pipeline has selected transformed or
+		// pass-through output, leaving provider execution evidence untouched.
+		codexAgentToolAliases.responseMiddleware(),
+		codexAgentToolAliases.streamMiddleware(),
 		persistRequest(inbound),
 	)
 
@@ -306,6 +311,8 @@ func (processor *ChatCompletionOrchestrator) process(
 		// applyPassThroughBody runs before override operations so overrides can still modify the pass-through body.
 		applyPassThroughRequestBody(outbound, processor.SystemService),
 		applyOverrideRequestBody(outbound),
+		// Codex agent aliases must see the final request body and be persisted as sent.
+		codexAgentToolAliases.requestMiddleware(),
 		// applyUserAgentPassThrough runs before header overrides to set the initial
 		// User-Agent value (either from client pass-through or default "axonhub/1.0").
 		// This allows override headers to modify the User-Agent if configured.

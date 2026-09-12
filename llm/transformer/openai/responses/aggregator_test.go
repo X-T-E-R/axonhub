@@ -328,6 +328,29 @@ func TestStreamAggregator_ProgrammaticTerminalSnapshotsCarryFunctionArguments(t 
 	}
 }
 
+func TestStreamAggregator_OutputItemDoneUpdatesEncryptedFunctionArgs(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		marker string
+		want   []string
+	}{
+		{name: "explicit plaintext", marker: `[]`, want: []string{}},
+		{name: "encrypted message", marker: `["message"]`, want: []string{"message"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := aggregateResponseEvents(t,
+				`{"type":"response.output_item.added","output_index":0,"item":{"id":"item_marker","type":"function_call","call_id":"call_marker","name":"send_message","namespace":"gateway_collaboration","arguments":""}}`,
+				`{"type":"response.output_item.done","output_index":0,"item":{"id":"item_marker","type":"function_call","status":"completed","call_id":"call_marker","name":"send_message","namespace":"gateway_collaboration","arguments":"{}","encrypted_function_args":`+tc.marker+`}}`,
+				`{"type":"response.completed","response":{"id":"resp_marker","model":"gpt-test","status":"completed","output":[]}}`,
+			)
+
+			require.Len(t, response.Output, 1)
+			require.NotNil(t, response.Output[0].EncryptedFunctionArgs)
+			require.Equal(t, tc.want, response.Output[0].EncryptedFunctionArgs)
+		})
+	}
+}
+
 func TestAggregateStreamChunks_ExplicitUnknownIdentityDoesNotFallBackToOutputIndex(t *testing.T) {
 	response := aggregateResponseEvents(t,
 		`{"type":"response.output_item.added","output_index":0,"item":{"id":"item_a","type":"function_call","call_id":"call_a","name":"lookup","arguments":""}}`,

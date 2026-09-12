@@ -396,6 +396,8 @@
   "channels.dialogs.fields.transformOptions.forceArrayInputs.description": "Force the channel to accept array format for inputs",
   "channels.dialogs.fields.transformOptions.replaceDeveloperRoleWithSystem.label": "Replace developer role with system",
   "channels.dialogs.fields.transformOptions.replaceDeveloperRoleWithSystem.description": "Replace developer role with system before sending requests for channels that do not support the developer role",
+  "channels.dialogs.fields.transformOptions.codexAgentToolAliases.label": "Codex agent tool aliases",
+  "channels.dialogs.fields.transformOptions.codexAgentToolAliases.description": "Let Codex send sub-agent tasks through this Responses channel as plain-text arguments, then restore the tool names in responses. Off by default.",
   "channels.dialogs.fields.transformOptions.reasoningEffortMapping.label": "reasoning_effort mapping",
   "channels.dialogs.fields.transformOptions.reasoningEffortMapping.description": "Remap reasoning_effort before sending to the upstream. Each entry replaces the source value with the target value; unmatched values pass through. e.g. from \"xhigh\" to \"max\" for non-standard OpenAI-compatible channels that only accept max",
   "channels.dialogs.fields.transformOptions.reasoningEffortMapping.fromPlaceholder": "source effort (e.g. xhigh)",

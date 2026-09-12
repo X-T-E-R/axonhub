@@ -114,6 +114,10 @@ type TransformOptions struct {
 	// ReplaceDeveloperRoleWithSystem replaces developer role with system in messages for Bailian compatibility.
 	ReplaceDeveloperRoleWithSystem bool `json:"replaceDeveloperRoleWithSystem"`
 
+	// CodexAgentToolAliases presents Codex V2 collaboration message tools to the
+	// upstream Responses API under a plain-text-compatible namespace alias.
+	CodexAgentToolAliases bool `json:"codexAgentToolAliases"`
+
 	// ReasoningEffortMapping maps inbound reasoning_effort values to outbound ones for
 	// non-standard OpenAI-compatible providers. The first entry whose From matches the
 	// effort value wins; values not in the list pass through unchanged.
