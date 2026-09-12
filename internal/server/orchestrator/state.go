@@ -33,12 +33,28 @@ type PersistenceState struct {
 
 	// OriginalModel is the model after API key profile mapping, used for channel selection
 	OriginalModel string
-	RawRequest    *httpclient.Request
-	LlmRequest    *llm.Request
+	// RequestedModel is the public model name from the client, before API key mapping.
+	RequestedModel string
+	RawRequest     *httpclient.Request
+	LlmRequest     *llm.Request
 
 	// OriginalRequestStream stores the client's original stream intent before any
 	// candidate-specific forcing to provider-side streaming happens.
 	OriginalRequestStream *bool
+
+	// ReasoningBoundsActive records that the selected logical model has configured bounds.
+	ReasoningBoundsActive bool
+	// ReasoningBoundsEnforced records that the inbound effort was a standard level
+	// (or was omitted), so the bounds have an ordered meaning for this request.
+	ReasoningBoundsEnforced bool
+	// ReasoningBoundsChanged records that applying the bounds changed or supplied
+	// the logical effort. Numeric reasoning budgets are reconciled only then.
+	ReasoningBoundsChanged             bool
+	ReasoningBoundsEffort              string
+	ReasoningBoundsBudget              *int64
+	ReasoningBoundsExtraBody           []byte
+	ReasoningBoundsTransformerMetadata map[string]any
+	ReasoningWireSnapshot              *reasoningWireSnapshot
 
 	// Persistence state
 	Request     *ent.Request

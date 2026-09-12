@@ -128,8 +128,13 @@ export const modelAssociationSchema = z.object({
 });
 export type ModelAssociation = z.infer<typeof modelAssociationSchema>;
 
+export const reasoningEffortLevelSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'persistent']);
+export type ReasoningEffortLevel = z.infer<typeof reasoningEffortLevelSchema>;
+
 export const modelSettingsSchema = z.object({
   disableDeveloperSettingsInheritance: z.boolean().optional().default(false),
+  minReasoningEffort: reasoningEffortLevelSchema.or(z.literal('')).optional().default(''),
+  maxReasoningEffort: reasoningEffortLevelSchema.or(z.literal('')).optional().default(''),
   associations: z.array(modelAssociationSchema).optional().default([]),
 });
 export type ModelSettings = z.infer<typeof modelSettingsSchema>;

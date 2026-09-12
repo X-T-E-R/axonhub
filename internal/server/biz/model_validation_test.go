@@ -940,6 +940,34 @@ func TestModelService_ValidateModelSettings(t *testing.T) {
 	})
 }
 
+func TestValidateModelSettingsReasoningEffortBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		settings *objects.ModelSettings
+		wantErr  string
+	}{
+		{name: "unlimited", settings: &objects.ModelSettings{}},
+		{name: "valid range", settings: &objects.ModelSettings{MinReasoningEffort: "minimal", MaxReasoningEffort: "persistent"}},
+		{name: "equal bounds", settings: &objects.ModelSettings{MinReasoningEffort: "high", MaxReasoningEffort: "high"}},
+		{name: "unknown minimum", settings: &objects.ModelSettings{MinReasoningEffort: "custom"}, wantErr: `minimum reasoning effort "custom" is not a standard level`},
+		{name: "unknown maximum", settings: &objects.ModelSettings{MaxReasoningEffort: "extreme"}, wantErr: `maximum reasoning effort "extreme" is not a standard level`},
+		{name: "reversed range", settings: &objects.ModelSettings{MinReasoningEffort: "ultra", MaxReasoningEffort: "low"}, wantErr: `minimum reasoning effort "ultra" must not exceed maximum reasoning effort "low"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateModelSettings(tt.settings)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestModelService_CreateModel_WithRegexValidation(t *testing.T) {
 	client := enttest.Open(t, dialect.SQLite, "file:ent?mode=memory&_fk=0")
 	defer client.Close()

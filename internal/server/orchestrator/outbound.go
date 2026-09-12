@@ -519,6 +519,7 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 
 	candidate := p.state.ChannelModelsCandidates[p.state.CurrentCandidateIndex]
 	entry := candidate.Models[p.state.CurrentModelIndex]
+	restoreBoundedReasoningRequest(p.state, llmRequest)
 
 	p.state.CurrentCandidate = candidate
 	p.state.resetStreamTerminalState()
@@ -554,7 +555,10 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 		}
 	}
 
-	return p.wrapped.TransformRequest(ctx, llmRequest)
+	httpRequest, err := p.wrapped.TransformRequest(ctx, llmRequest)
+	restoreBoundedReasoningRequest(p.state, llmRequest)
+
+	return httpRequest, err
 }
 
 func filterResponseCustomToolMessagesForNonResponsesOutbound(

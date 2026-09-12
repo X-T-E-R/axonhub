@@ -24,11 +24,12 @@ import { useModelSettings, useUpdateModelSettings } from '@/features/system/data
 import { useModels } from '../context/models-context';
 import { useQueryModelChannelConnections, ModelAssociationInput, ModelChannelConnection } from '../data/models';
 import { useUpdateModel } from '../data/models';
-import { ModelAssociation } from '../data/schema';
+import { ModelAssociation, reasoningEffortLevelSchema, type ReasoningEffortLevel } from '../data/schema';
 import { toast } from 'sonner';
 import { ChannelModelsList } from './channel-models-list';
 
 const MAX_ASSOCIATION_PRIORITY = 10;
+const reasoningEffortLevels = reasoningEffortLevelSchema.options;
 
 const requestFormatConditionOptions = [
   'openai/chat_completions',
@@ -355,6 +356,8 @@ function validateWhenGroupList(value: FilterBuilderGroupListValue, ctx: z.Refine
 
 const associationFormSchema = z.object({
   disableDeveloperSettingsInheritance: z.boolean().default(false),
+  minReasoningEffort: reasoningEffortLevelSchema.or(z.literal('')).default(''),
+  maxReasoningEffort: reasoningEffortLevelSchema.or(z.literal('')).default(''),
   associations: z
     .array(
       z.object({
@@ -424,6 +427,15 @@ const associationFormSchema = z.object({
         }
       });
     }),
+}).superRefine((settings, ctx) => {
+  if (!settings.minReasoningEffort || !settings.maxReasoningEffort) return;
+  if (reasoningEffortLevels.indexOf(settings.minReasoningEffort) > reasoningEffortLevels.indexOf(settings.maxReasoningEffort)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Minimum reasoning effort cannot exceed maximum reasoning effort',
+      path: ['maxReasoningEffort'],
+    });
+  }
 });
 
 type AssociationFormData = z.infer<typeof associationFormSchema>;
@@ -752,6 +764,8 @@ export function ModelsAssociationDialog() {
     resolver: zodResolver(associationFormSchema) as Resolver<AssociationFormData>,
     defaultValues: {
       disableDeveloperSettingsInheritance: false,
+      minReasoningEffort: '',
+      maxReasoningEffort: '',
       associations: [],
     },
   });
@@ -829,6 +843,8 @@ export function ModelsAssociationDialog() {
       const associations = isDeveloperMode ? developerAssociations : currentRow?.settings?.associations || [];
       form.reset({
         disableDeveloperSettingsInheritance: isDeveloperMode ? false : currentRow?.settings?.disableDeveloperSettingsInheritance ?? false,
+        minReasoningEffort: isDeveloperMode ? '' : currentRow?.settings?.minReasoningEffort ?? '',
+        maxReasoningEffort: isDeveloperMode ? '' : currentRow?.settings?.maxReasoningEffort ?? '',
         associations: associations
           .filter((assoc) => !isDeveloperMode || assoc.type === 'channel_model' || assoc.type === 'channel_tags_model')
           .map((assoc) => modelAssociationToFormRow(assoc, isDeveloperMode)),
@@ -868,6 +884,8 @@ export function ModelsAssociationDialog() {
         input: {
           settings: {
             disableDeveloperSettingsInheritance: data.disableDeveloperSettingsInheritance ?? false,
+            minReasoningEffort: data.minReasoningEffort,
+            maxReasoningEffort: data.maxReasoningEffort,
             associations,
           },
         },
@@ -939,23 +957,62 @@ export function ModelsAssociationDialog() {
             </AlertDescription>
           </Alert>
           {!isDeveloperMode && (
-            <div className='mt-3 flex items-start justify-between gap-4 rounded-lg border px-4 py-3'>
-              <div className='space-y-1'>
-                <div className='text-sm font-medium'>{t('models.dialogs.association.disableDeveloperInheritance.label')}</div>
-                <p className='text-muted-foreground text-xs sm:text-sm'>
-                  {t('models.dialogs.association.disableDeveloperInheritance.description')}
-                </p>
+            <div className='mt-3 space-y-4 rounded-lg border px-4 py-3'>
+              <div className='flex items-start justify-between gap-4'>
+                <div className='space-y-1'>
+                  <div className='text-sm font-medium'>{t('models.dialogs.association.disableDeveloperInheritance.label')}</div>
+                  <p className='text-muted-foreground text-xs sm:text-sm'>
+                    {t('models.dialogs.association.disableDeveloperInheritance.description')}
+                  </p>
+                </div>
+                <Switch
+                  checked={disableDeveloperSettingsInheritance}
+                  onCheckedChange={(checked) =>
+                    form.setValue('disableDeveloperSettingsInheritance', checked, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }
+                  className='mt-0.5 shrink-0'
+                />
               </div>
-              <Switch
-                checked={disableDeveloperSettingsInheritance}
-                onCheckedChange={(checked) =>
-                  form.setValue('disableDeveloperSettingsInheritance', checked, {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  })
-                }
-                className='mt-0.5 shrink-0'
-              />
+              <div className='space-y-1'>
+                <div className='text-sm font-medium'>{t('models.dialogs.association.reasoningBounds.title')}</div>
+                <p className='text-muted-foreground text-xs sm:text-sm'>{t('models.dialogs.association.reasoningBounds.description')}</p>
+              </div>
+              <div className='grid gap-3 sm:grid-cols-2'>
+                {(['minReasoningEffort', 'maxReasoningEffort'] as const).map((name) => (
+                  <FormField
+                    key={name}
+                    control={form.control}
+                    name={name}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t(`models.dialogs.association.reasoningBounds.${name === 'minReasoningEffort' ? 'minimum' : 'maximum'}`)}
+                        </FormLabel>
+                        <Select
+                          value={field.value || 'unlimited'}
+                          onValueChange={(value) => field.onChange(value === 'unlimited' ? '' : (value as ReasoningEffortLevel))}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='unlimited'>{t('models.dialogs.association.reasoningBounds.unlimited')}</SelectItem>
+                            {reasoningEffortLevels.map((level) => (
+                              <SelectItem key={level} value={level}>{level}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </DialogHeader>

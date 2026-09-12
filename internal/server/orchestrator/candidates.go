@@ -24,10 +24,11 @@ import (
 
 // ChannelModelsCandidate represents a resolved channel and its matched model entries.
 type ChannelModelsCandidate struct {
-	Channel   *biz.Channel
-	Priority  int
-	Models    []biz.ChannelModelEntry
-	APIFormat string // selected endpoint API format for this candidate
+	Channel       *biz.Channel
+	Priority      int
+	Models        []biz.ChannelModelEntry
+	APIFormat     string // selected endpoint API format for this candidate
+	ModelSettings *objects.ModelSettings
 }
 
 // resolvedAssociationCandidate keeps the association-level metadata produced by
@@ -189,6 +190,9 @@ func (s *DefaultSelector) selectModelCandidates(ctx context.Context, req *llm.Re
 		}
 
 		return []*ChannelModelsCandidate{}, nil
+	}
+	for _, candidate := range candidates {
+		candidate.ModelSettings = model.Settings
 	}
 
 	if log.DebugEnabled(ctx) {

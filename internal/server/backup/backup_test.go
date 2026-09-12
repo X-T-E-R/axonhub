@@ -107,7 +107,9 @@ func createBackupTestModel(t *testing.T, client *ent.Client, ctx context.Context
 	}
 
 	settings := &objects.ModelSettings{
-		Associations: []*objects.ModelAssociation{},
+		MinReasoningEffort: "minimal",
+		MaxReasoningEffort: "ultra",
+		Associations:       []*objects.ModelAssociation{},
 	}
 
 	m, err := client.Model.Create().

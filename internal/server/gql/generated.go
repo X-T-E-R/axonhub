@@ -1185,6 +1185,8 @@ type ComplexityRoot struct {
 	ModelSettings struct {
 		Associations                        func(childComplexity int) int
 		DisableDeveloperSettingsInheritance func(childComplexity int) int
+		MaxReasoningEffort                  func(childComplexity int) int
+		MinReasoningEffort                  func(childComplexity int) int
 	}
 
 	ModelTokenUsageStats struct {
@@ -7001,6 +7003,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ModelSettings.DisableDeveloperSettingsInheritance(childComplexity), true
+	case "ModelSettings.maxReasoningEffort":
+		if e.complexity.ModelSettings.MaxReasoningEffort == nil {
+			break
+		}
+
+		return e.complexity.ModelSettings.MaxReasoningEffort(childComplexity), true
+	case "ModelSettings.minReasoningEffort":
+		if e.complexity.ModelSettings.MinReasoningEffort == nil {
+			break
+		}
+
+		return e.complexity.ModelSettings.MinReasoningEffort(childComplexity), true
 
 	case "ModelTokenUsageStats.cachedTokens":
 		if e.complexity.ModelTokenUsageStats.CachedTokens == nil {
@@ -36870,6 +36884,10 @@ func (ec *executionContext) fieldContext_Model_settings(_ context.Context, field
 			switch field.Name {
 			case "disableDeveloperSettingsInheritance":
 				return ec.fieldContext_ModelSettings_disableDeveloperSettingsInheritance(ctx, field)
+			case "minReasoningEffort":
+				return ec.fieldContext_ModelSettings_minReasoningEffort(ctx, field)
+			case "maxReasoningEffort":
+				return ec.fieldContext_ModelSettings_maxReasoningEffort(ctx, field)
 			case "associations":
 				return ec.fieldContext_ModelSettings_associations(ctx, field)
 			}
@@ -38848,6 +38866,64 @@ func (ec *executionContext) fieldContext_ModelSettings_disableDeveloperSettingsI
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ModelSettings_minReasoningEffort(ctx context.Context, field graphql.CollectedField, obj *objects.ModelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ModelSettings_minReasoningEffort,
+		func(ctx context.Context) (any, error) {
+			return obj.MinReasoningEffort, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ModelSettings_minReasoningEffort(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ModelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ModelSettings_maxReasoningEffort(ctx context.Context, field graphql.CollectedField, obj *objects.ModelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ModelSettings_maxReasoningEffort,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxReasoningEffort, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ModelSettings_maxReasoningEffort(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ModelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -83952,7 +84028,7 @@ func (ec *executionContext) unmarshalInputModelSettingsInput(ctx context.Context
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"disableDeveloperSettingsInheritance", "associations"}
+	fieldsInOrder := [...]string{"disableDeveloperSettingsInheritance", "minReasoningEffort", "maxReasoningEffort", "associations"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -83966,6 +84042,20 @@ func (ec *executionContext) unmarshalInputModelSettingsInput(ctx context.Context
 				return it, err
 			}
 			it.DisableDeveloperSettingsInheritance = data
+		case "minReasoningEffort":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minReasoningEffort"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinReasoningEffort = data
+		case "maxReasoningEffort":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxReasoningEffort"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxReasoningEffort = data
 		case "associations":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("associations"))
 			data, err := ec.unmarshalNModelAssociationInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐModelAssociationᚄ(ctx, v)
@@ -109868,6 +109958,16 @@ func (ec *executionContext) _ModelSettings(ctx context.Context, sel ast.Selectio
 			out.Values[i] = graphql.MarshalString("ModelSettings")
 		case "disableDeveloperSettingsInheritance":
 			out.Values[i] = ec._ModelSettings_disableDeveloperSettingsInheritance(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "minReasoningEffort":
+			out.Values[i] = ec._ModelSettings_minReasoningEffort(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxReasoningEffort":
+			out.Values[i] = ec._ModelSettings_maxReasoningEffort(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

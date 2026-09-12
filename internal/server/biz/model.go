@@ -49,14 +49,32 @@ type ModelService struct {
 	systemService  *SystemService
 }
 
-// validateModelSettings validates regex patterns in model settings.
+// validateModelSettings validates model settings before persistence.
 func (svc *ModelService) validateModelSettings(settings *objects.ModelSettings) error {
-	return validateModelSettings(settings)
+	return ValidateModelSettings(settings)
 }
 
 func validateModelSettings(settings *objects.ModelSettings) error {
-	if settings == nil || len(settings.Associations) == 0 {
+	return ValidateModelSettings(settings)
+}
+
+// ValidateModelSettings validates model settings at every persistence boundary,
+// including GraphQL mutations and backup restore.
+func ValidateModelSettings(settings *objects.ModelSettings) error {
+	if settings == nil {
 		return nil
+	}
+
+	minOrdinal, hasMin, err := validateReasoningEffortBound("minimum", settings.MinReasoningEffort)
+	if err != nil {
+		return err
+	}
+	maxOrdinal, hasMax, err := validateReasoningEffortBound("maximum", settings.MaxReasoningEffort)
+	if err != nil {
+		return err
+	}
+	if hasMin && hasMax && minOrdinal > maxOrdinal {
+		return fmt.Errorf("minimum reasoning effort %q must not exceed maximum reasoning effort %q", settings.MinReasoningEffort, settings.MaxReasoningEffort)
 	}
 
 	for _, assoc := range settings.Associations {
@@ -112,6 +130,19 @@ func validateModelSettings(settings *objects.ModelSettings) error {
 	}
 
 	return nil
+}
+
+func validateReasoningEffortBound(name, effort string) (ordinal int, configured bool, err error) {
+	if effort == "" {
+		return 0, false, nil
+	}
+
+	ordinal, ok := objects.ReasoningEffortOrdinal(effort)
+	if !ok {
+		return 0, false, fmt.Errorf("%s reasoning effort %q is not a standard level", name, effort)
+	}
+
+	return ordinal, true, nil
 }
 
 func validateModelAssociationWhen(when *objects.ModelAssociationWhen) error {
@@ -377,6 +408,14 @@ func (svc *ModelService) CreateModel(ctx context.Context, input ent.CreateModelI
 
 // BulkCreateModels creates multiple models with the provided inputs.
 func (svc *ModelService) BulkCreateModels(ctx context.Context, inputs []*ent.CreateModelInput) ([]*ent.Model, error) {
+	for _, input := range inputs {
+		if input != nil && input.Settings != nil {
+			if err := svc.validateModelSettings(input.Settings); err != nil {
+				return nil, fmt.Errorf("invalid settings for model %q: %w", input.ModelID, err)
+			}
+		}
+	}
+
 	// Check for duplicates in the input
 	inputMap := make(map[string]bool)
 

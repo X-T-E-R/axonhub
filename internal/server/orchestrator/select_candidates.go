@@ -115,6 +115,20 @@ func selectCandidates(inbound *PersistentInboundTransformer, quotaProvider Provi
 			}
 		}
 
+		if candidates[0] != nil {
+			modelSettings := candidates[0].ModelSettings
+			inbound.state.ReasoningBoundsActive = modelSettings != nil &&
+				(modelSettings.MinReasoningEffort != "" || modelSettings.MaxReasoningEffort != "")
+			inbound.state.ReasoningBoundsEnforced, inbound.state.ReasoningBoundsChanged = applyModelReasoningBounds(
+				ctx,
+				llmRequest,
+				modelSettings,
+			)
+			if inbound.state.ReasoningBoundsEnforced {
+				captureBoundedReasoningRequest(inbound.state, llmRequest)
+			}
+		}
+
 		// Store candidates directly (no need to extract channels)
 		inbound.state.ChannelModelsCandidates = candidates
 

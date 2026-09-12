@@ -296,6 +296,8 @@ func (processor *ChatCompletionOrchestrator) process(
 		// response is saved when pass-through is enabled.
 		applyPassThroughResponse(outbound, processor.SystemService),
 		applyPassThroughStream(outbound, processor.SystemService),
+		reconcileBoundedResponseModel(outbound),
+		reconcileBoundedResponseStreamModel(outbound),
 		// Restore Codex aliases only after the pipeline has selected transformed or
 		// pass-through output, leaving provider execution evidence untouched.
 		codexAgentToolAliases.responseMiddleware(),
@@ -305,6 +307,7 @@ func (processor *ChatCompletionOrchestrator) process(
 
 	// Add outbound middlewares (executed after outbound.TransformRequest)
 	middlewares = append(middlewares,
+		captureBoundedReasoningWire(outbound),
 		// AxonHub full pass-through preserves the original AxonHub API path/query/body
 		// before normal body/header override operations run.
 		applyAxonHubFullPassThroughRequest(outbound),
@@ -313,6 +316,9 @@ func (processor *ChatCompletionOrchestrator) process(
 		applyOverrideRequestBody(outbound),
 		// Codex agent aliases must see the final request body and be persisted as sent.
 		codexAgentToolAliases.requestMiddleware(),
+		// Model reasoning bounds take precedence over raw pass-through and body
+		// overrides. Restore the provider transformer's already-mapped wire fields.
+		reconcileBoundedReasoningWire(outbound),
 		// applyUserAgentPassThrough runs before header overrides to set the initial
 		// User-Agent value (either from client pass-through or default "axonhub/1.0").
 		// This allows override headers to modify the User-Agent if configured.

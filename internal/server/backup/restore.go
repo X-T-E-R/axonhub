@@ -21,6 +21,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/server/biz"
 )
 
 func (svc *BackupService) Restore(ctx context.Context, data []byte, opts RestoreOptions) error {
@@ -673,6 +674,9 @@ func (svc *BackupService) restoreModels(ctx context.Context, db *ent.Client, mod
 	for _, modelData := range models {
 		if modelData == nil {
 			continue
+		}
+		if err := biz.ValidateModelSettings(modelData.Settings); err != nil {
+			return fmt.Errorf("invalid settings for model %q: %w", modelData.ModelID, err)
 		}
 
 		remapModelSettingsChannelIDs(modelData.Settings, channelIDMap)

@@ -37,6 +37,8 @@ type ModelCardLimit {
 # ModelSettings represents model Association configuration
 type ModelSettings {
   disableDeveloperSettingsInheritance: Boolean!
+  minReasoningEffort: String!
+  maxReasoningEffort: String!
   associations: [ModelAssociation!]!
 }
 
@@ -132,6 +134,8 @@ input ModelCardLimitInput {
 
 input ModelSettingsInput {
   disableDeveloperSettingsInheritance: Boolean
+  minReasoningEffort: String
+  maxReasoningEffort: String
   associations: [ModelAssociationInput!]!
 }
 

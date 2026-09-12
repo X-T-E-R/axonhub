@@ -68,6 +68,8 @@ func TestBackupService_Restore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, m1.Name, restoredModel.Name)
 	require.Equal(t, m1.Developer, restoredModel.Developer)
+	require.Equal(t, "minimal", restoredModel.Settings.MinReasoningEffort)
+	require.Equal(t, "ultra", restoredModel.Settings.MaxReasoningEffort)
 
 	restoredPrice, err := client.ChannelModelPrice.Query().
 		Where(
@@ -545,6 +547,29 @@ func TestBackupService_Restore_InvalidVersion(t *testing.T) {
 		ModelConflictStrategy:   ConflictStrategyOverwrite,
 	})
 	require.Error(t, err)
+}
+
+func TestBackupService_Restore_RejectsInvalidModelReasoningBounds(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+
+	backupData := BackupData{
+		Version:  BackupVersion,
+		Channels: []*BackupChannel{},
+		Models: []*BackupModel{{Model: ent.Model{
+			Developer: "openai",
+			ModelID:   "invalid-bounds",
+			Settings: &objects.ModelSettings{
+				MinReasoningEffort: "ultra",
+				MaxReasoningEffort: "low",
+			},
+		}}},
+	}
+	data, err := json.Marshal(backupData)
+	require.NoError(t, err)
+
+	err = service.Restore(ctx, data, RestoreOptions{IncludeModels: true})
+	require.EqualError(t, err, `invalid settings for model "invalid-bounds": minimum reasoning effort "ultra" must not exceed maximum reasoning effort "low"`)
 }
 
 func TestBackupService_Restore_ModelPriceConflictStrategy_Skip(t *testing.T) {

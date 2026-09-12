@@ -38,18 +38,47 @@ type ModelCard struct {
 
 type ModelSettings struct {
 	DisableDeveloperSettingsInheritance bool                `json:"disableDeveloperSettingsInheritance"`
+	MinReasoningEffort                  string              `json:"minReasoningEffort,omitempty"`
+	MaxReasoningEffort                  string              `json:"maxReasoningEffort,omitempty"`
 	Associations                        []*ModelAssociation `json:"associations"`
 }
 
+// ReasoningEffortOrdinal returns the application-defined order of standard
+// reasoning effort levels. Custom provider values intentionally have no order.
+func ReasoningEffortOrdinal(effort string) (int, bool) {
+	switch effort {
+	case "none":
+		return 0, true
+	case "minimal":
+		return 1, true
+	case "low":
+		return 2, true
+	case "medium":
+		return 3, true
+	case "high":
+		return 4, true
+	case "xhigh":
+		return 5, true
+	case "max":
+		return 6, true
+	case "ultra":
+		return 7, true
+	case "persistent":
+		return 8, true
+	default:
+		return 0, false
+	}
+}
+
 const (
-	ModelAssociationConditionFieldPromptTokens  = "prompt_tokens"
-	ModelAssociationConditionFieldStream        = "stream"
-	ModelAssociationConditionFieldRequestFormat = "request_format"
-	ModelAssociationConditionFieldDailyTime     = "daily_time"
-	ModelAssociationConditionFieldHasImage      = "has_image"
-	ModelAssociationConditionFieldHasVideo      = "has_video"
-	ModelAssociationConditionFieldHasDocument   = "has_document"
-	ModelAssociationConditionFieldHasAudio      = "has_audio"
+	ModelAssociationConditionFieldPromptTokens        = "prompt_tokens"
+	ModelAssociationConditionFieldStream              = "stream"
+	ModelAssociationConditionFieldRequestFormat       = "request_format"
+	ModelAssociationConditionFieldDailyTime           = "daily_time"
+	ModelAssociationConditionFieldHasImage            = "has_image"
+	ModelAssociationConditionFieldHasVideo            = "has_video"
+	ModelAssociationConditionFieldHasDocument         = "has_document"
+	ModelAssociationConditionFieldHasAudio            = "has_audio"
 	ModelAssociationConditionFieldRequestHeader       = "request_header"
 	ModelAssociationConditionFieldRequestHeaderPrefix = "request_header."
 )
