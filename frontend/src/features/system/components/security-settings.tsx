@@ -5,6 +5,7 @@ import { Loader2, Save } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { TagsInput } from '@/components/ui/tags-input';
@@ -33,24 +34,32 @@ export function SecuritySettings() {
   const updateSettings = useUpdateSecuritySettings();
   const [blockedIPs, setBlockedIPs] = useState<string[]>([]);
   const [showRequestLogIPBanIcon, setShowRequestLogIPBanIcon] = useState(true);
+  const [cyberSessionBlockEnabled, setCyberSessionBlockEnabled] = useState(false);
+  const [cyberSessionBlockTTLSeconds, setCyberSessionBlockTTLSeconds] = useState(3600);
 
   useEffect(() => {
     if (settings) {
       setBlockedIPs(settings.blockedIPs ?? []);
       setShowRequestLogIPBanIcon(settings.showRequestLogIPBanIcon ?? true);
+      setCyberSessionBlockEnabled(settings.cyberSessionBlockEnabled ?? false);
+      setCyberSessionBlockTTLSeconds(settings.cyberSessionBlockTTLSeconds ?? 3600);
     }
   }, [settings]);
 
   const normalizedBlockedIPs = useMemo(() => normalizeEntries(blockedIPs), [blockedIPs]);
   const hasChanges = settings
     ? normalizedBlockedIPs.join('\n') !== normalizeEntries(settings.blockedIPs ?? []).join('\n') ||
-      showRequestLogIPBanIcon !== (settings.showRequestLogIPBanIcon ?? true)
+      showRequestLogIPBanIcon !== (settings.showRequestLogIPBanIcon ?? true) ||
+      cyberSessionBlockEnabled !== (settings.cyberSessionBlockEnabled ?? false) ||
+      cyberSessionBlockTTLSeconds !== (settings.cyberSessionBlockTTLSeconds ?? 3600)
     : false;
 
   const handleSave = async () => {
     await updateSettings.mutateAsync({
       blockedIPs: normalizedBlockedIPs,
       showRequestLogIPBanIcon,
+      cyberSessionBlockEnabled,
+      cyberSessionBlockTTLSeconds,
     });
   };
 
@@ -95,8 +104,51 @@ export function SecuritySettings() {
           />
         </div>
 
+        <div className='space-y-4 rounded-lg border p-4'>
+          <div className='flex items-center justify-between gap-4'>
+            <div className='space-y-1'>
+              <Label htmlFor='cyber-session-auto-block'>{t('system.security.cyberSessionAutoBlock.label')}</Label>
+              <div className='text-muted-foreground text-sm'>{t('system.security.cyberSessionAutoBlock.description')}</div>
+            </div>
+            <Switch
+              id='cyber-session-auto-block'
+              checked={cyberSessionBlockEnabled}
+              onCheckedChange={setCyberSessionBlockEnabled}
+              disabled={updateSettings.isPending}
+            />
+          </div>
+
+          <div className='space-y-2'>
+            <Label htmlFor='cyber-session-block-ttl'>{t('system.security.cyberSessionBlockTTL.label')}</Label>
+            <div className='flex items-center gap-2'>
+              <Input
+                id='cyber-session-block-ttl'
+                type='number'
+                min={1}
+                max={2147483647}
+                step={1}
+                value={cyberSessionBlockTTLSeconds}
+                onChange={(event) => setCyberSessionBlockTTLSeconds(Number.parseInt(event.target.value, 10) || 0)}
+                disabled={updateSettings.isPending || !cyberSessionBlockEnabled}
+                className='max-w-40'
+              />
+              <span className='text-muted-foreground text-sm'>{t('system.security.cyberSessionBlockTTL.unit')}</span>
+            </div>
+            <div className='text-muted-foreground text-sm'>{t('system.security.cyberSessionBlockTTL.description')}</div>
+          </div>
+        </div>
+
         <div className='flex justify-end'>
-          <Button onClick={handleSave} disabled={!hasChanges || updateSettings.isPending} className='min-w-[100px]'>
+          <Button
+            onClick={handleSave}
+            disabled={
+              !hasChanges ||
+              updateSettings.isPending ||
+              cyberSessionBlockTTLSeconds <= 0 ||
+              cyberSessionBlockTTLSeconds > 2147483647
+            }
+            className='min-w-[100px]'
+          >
             {updateSettings.isPending ? (
               <>
                 <Loader2 className='mr-2 h-4 w-4 animate-spin' />

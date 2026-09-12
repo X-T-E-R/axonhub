@@ -17,6 +17,8 @@ import (
 type PersistenceState struct {
 	APIKey *ent.APIKey
 
+	cyberSession *cyberSessionRequestState
+
 	RequestService      *biz.RequestService
 	UsageLogService     *biz.UsageLogService
 	ChannelService      *biz.ChannelService
@@ -106,6 +108,10 @@ type PersistenceState struct {
 	semanticInterruptStarted          bool
 	lifecycleStarted                  time.Time
 	lifecycleSequence                 uint64
+}
+
+func (s *PersistenceState) cyberPolicyObserved() bool {
+	return s != nil && s.cyberSession != nil && s.cyberSession.observedCyberPolicy()
 }
 
 func (s *PersistenceState) recordStreamLifecycle(ctx context.Context, phase string, fields ...log.Field) {

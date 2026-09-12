@@ -1901,8 +1901,10 @@ type ComplexityRoot struct {
 	}
 
 	SecuritySettings struct {
-		BlockedIPs              func(childComplexity int) int
-		ShowRequestLogIPBanIcon func(childComplexity int) int
+		BlockedIPs                  func(childComplexity int) int
+		CyberSessionBlockEnabled    func(childComplexity int) int
+		CyberSessionBlockTTLSeconds func(childComplexity int) int
+		ShowRequestLogIPBanIcon     func(childComplexity int) int
 	}
 
 	Segment struct {
@@ -11116,6 +11118,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SecuritySettings.BlockedIPs(childComplexity), true
+	case "SecuritySettings.cyberSessionBlockEnabled":
+		if e.complexity.SecuritySettings.CyberSessionBlockEnabled == nil {
+			break
+		}
+
+		return e.complexity.SecuritySettings.CyberSessionBlockEnabled(childComplexity), true
+	case "SecuritySettings.cyberSessionBlockTTLSeconds":
+		if e.complexity.SecuritySettings.CyberSessionBlockTTLSeconds == nil {
+			break
+		}
+
+		return e.complexity.SecuritySettings.CyberSessionBlockTTLSeconds(childComplexity), true
 	case "SecuritySettings.showRequestLogIPBanIcon":
 		if e.complexity.SecuritySettings.ShowRequestLogIPBanIcon == nil {
 			break
@@ -54441,6 +54455,10 @@ func (ec *executionContext) fieldContext_Query_securitySettings(_ context.Contex
 				return ec.fieldContext_SecuritySettings_blockedIPs(ctx, field)
 			case "showRequestLogIPBanIcon":
 				return ec.fieldContext_SecuritySettings_showRequestLogIPBanIcon(ctx, field)
+			case "cyberSessionBlockEnabled":
+				return ec.fieldContext_SecuritySettings_cyberSessionBlockEnabled(ctx, field)
+			case "cyberSessionBlockTTLSeconds":
+				return ec.fieldContext_SecuritySettings_cyberSessionBlockTTLSeconds(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type SecuritySettings", field.Name)
 		},
@@ -59891,6 +59909,64 @@ func (ec *executionContext) fieldContext_SecuritySettings_showRequestLogIPBanIco
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SecuritySettings_cyberSessionBlockEnabled(ctx context.Context, field graphql.CollectedField, obj *biz.SecuritySettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SecuritySettings_cyberSessionBlockEnabled,
+		func(ctx context.Context) (any, error) {
+			return obj.CyberSessionBlockEnabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SecuritySettings_cyberSessionBlockEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SecuritySettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SecuritySettings_cyberSessionBlockTTLSeconds(ctx context.Context, field graphql.CollectedField, obj *biz.SecuritySettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SecuritySettings_cyberSessionBlockTTLSeconds,
+		func(ctx context.Context) (any, error) {
+			return obj.CyberSessionBlockTTLSeconds, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SecuritySettings_cyberSessionBlockTTLSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SecuritySettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -96744,7 +96820,7 @@ func (ec *executionContext) unmarshalInputUpdateSecuritySettingsInput(ctx contex
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"blockedIPs", "showRequestLogIPBanIcon"}
+	fieldsInOrder := [...]string{"blockedIPs", "showRequestLogIPBanIcon", "cyberSessionBlockEnabled", "cyberSessionBlockTTLSeconds"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -96765,6 +96841,20 @@ func (ec *executionContext) unmarshalInputUpdateSecuritySettingsInput(ctx contex
 				return it, err
 			}
 			it.ShowRequestLogIPBanIcon = data
+		case "cyberSessionBlockEnabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cyberSessionBlockEnabled"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CyberSessionBlockEnabled = data
+		case "cyberSessionBlockTTLSeconds":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("cyberSessionBlockTTLSeconds"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CyberSessionBlockTTLSeconds = data
 		}
 	}
 
@@ -117690,6 +117780,16 @@ func (ec *executionContext) _SecuritySettings(ctx context.Context, sel ast.Selec
 			}
 		case "showRequestLogIPBanIcon":
 			out.Values[i] = ec._SecuritySettings_showRequestLogIPBanIcon(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cyberSessionBlockEnabled":
+			out.Values[i] = ec._SecuritySettings_cyberSessionBlockEnabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cyberSessionBlockTTLSeconds":
+			out.Values[i] = ec._SecuritySettings_cyberSessionBlockTTLSeconds(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

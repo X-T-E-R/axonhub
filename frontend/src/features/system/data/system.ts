@@ -308,11 +308,15 @@ export interface UpdateVideoStorageSettingsInput {
 export interface SecuritySettings {
   blockedIPs: string[];
   showRequestLogIPBanIcon: boolean;
+  cyberSessionBlockEnabled: boolean;
+  cyberSessionBlockTTLSeconds: number;
 }
 
 export interface UpdateSecuritySettingsInput {
   blockedIPs?: string[];
   showRequestLogIPBanIcon?: boolean;
+  cyberSessionBlockEnabled?: boolean;
+  cyberSessionBlockTTLSeconds?: number;
 }
 
 export interface StoragePolicy {
@@ -1007,6 +1011,8 @@ const SECURITY_SETTINGS_QUERY = `
     securitySettings {
       blockedIPs
       showRequestLogIPBanIcon
+      cyberSessionBlockEnabled
+      cyberSessionBlockTTLSeconds
     }
   }
 `;

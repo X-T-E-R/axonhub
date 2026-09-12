@@ -99,8 +99,10 @@ var defaultQuotaEnforcementSettings = QuotaEnforcementSettings{
 }
 
 var defaultSecuritySettings = SecuritySettings{
-	BlockedIPs:              []string{},
-	ShowRequestLogIPBanIcon: true,
+	BlockedIPs:                  []string{},
+	ShowRequestLogIPBanIcon:     true,
+	CyberSessionBlockEnabled:    false,
+	CyberSessionBlockTTLSeconds: 3600,
 }
 
 var defaultMonitoringSettings = MonitoringSettings{

@@ -97,6 +97,35 @@ func TestMutationResolver_UpdateStoragePolicy_ExplicitNullClearsNullableFields(t
 	require.True(t, updated.StoreResponseBody)
 }
 
+func TestMutationResolver_UpdateSecuritySettingsPreservesCyberFieldsAndValidatesTTL(t *testing.T) {
+	resolver, ctx, client := setupTestSystemMutationResolver(t)
+	defer client.Close()
+
+	require.NoError(t, resolver.systemService.SetSecuritySettings(ctx, biz.SecuritySettings{
+		BlockedIPs:                  []string{"192.0.2.1"},
+		ShowRequestLogIPBanIcon:     true,
+		CyberSessionBlockEnabled:    true,
+		CyberSessionBlockTTLSeconds: 90,
+	}))
+
+	ok, err := resolver.UpdateSecuritySettings(ctx, UpdateSecuritySettingsInput{
+		ShowRequestLogIPBanIcon: lo.ToPtr(false),
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	updated, err := resolver.systemService.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.True(t, updated.CyberSessionBlockEnabled)
+	require.Equal(t, 90, updated.CyberSessionBlockTTLSeconds)
+	require.False(t, updated.ShowRequestLogIPBanIcon)
+
+	_, err = resolver.UpdateSecuritySettings(ctx, UpdateSecuritySettingsInput{
+		CyberSessionBlockTTLSeconds: lo.ToPtr(0),
+	})
+	require.ErrorContains(t, err, "must be > 0")
+}
+
 func TestMutationResolver_UpdateSystemChannelSettings_MergesAutoSyncWithoutOverwritingProbe(t *testing.T) {
 	resolver, ctx, client := setupTestSystemMutationResolver(t)
 	defer client.Close()

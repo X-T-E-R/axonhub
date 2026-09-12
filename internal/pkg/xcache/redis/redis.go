@@ -36,6 +36,14 @@ type RedisStore[T any] struct {
 	options *lib_store.Options
 }
 
+type redisManyClient interface {
+	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
+}
+
+type redisSetNXClient interface {
+	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
+}
+
 // NewRedisStore creates a new generic store.
 func NewRedisStore[T any](client RedisClientInterface, options ...lib_store.Option) *RedisStore[T] {
 	return &RedisStore[T]{
@@ -66,6 +74,52 @@ func (gs *RedisStore[T]) Get(ctx context.Context, key any) (any, error) {
 	}
 
 	return result, nil
+}
+
+// GetMany fetches typed values in one Redis round trip. Missing keys are omitted.
+func (gs *RedisStore[T]) GetMany(ctx context.Context, keys []string) (map[string]T, error) {
+	client, ok := gs.client.(redisManyClient)
+	if !ok {
+		return nil, fmt.Errorf("redis client does not support MGET")
+	}
+
+	values, err := client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]T, len(values))
+	for index, raw := range values {
+		if raw == nil || index >= len(keys) {
+			continue
+		}
+		encoded, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		var value T
+		if err := json.Unmarshal([]byte(encoded), &value); err != nil {
+			continue
+		}
+		result[keys[index]] = value
+	}
+
+	return result, nil
+}
+
+// SetIfAbsent stores a typed value only when the Redis key does not exist.
+func (gs *RedisStore[T]) SetIfAbsent(ctx context.Context, key string, value T, expiration time.Duration) (bool, error) {
+	client, ok := gs.client.(redisSetNXClient)
+	if !ok {
+		return false, fmt.Errorf("redis client does not support SETNX")
+	}
+
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return false, err
+	}
+
+	return client.SetNX(ctx, key, string(raw), expiration).Result()
 }
 
 // GetWithTTL returns typed data stored from a given key and its corresponding TTL.

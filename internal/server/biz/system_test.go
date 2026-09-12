@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -644,6 +645,51 @@ func TestSystemService_BackwardCompatibility(t *testing.T) {
 	require.True(t, policy.StoreRequestBody)  // Should default to true
 	require.True(t, policy.StoreResponseBody) // Should default to true
 	require.Len(t, policy.CleanupOptions, 1)
+}
+
+func TestSystemService_SecuritySettingsDefaultsAndBackwardCompatibility(t *testing.T) {
+	cacheConfig := xcache.Config{Mode: xcache.ModeMemory}
+
+	service, client := setupTestSystemService(t, cacheConfig)
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	settings, err := service.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.False(t, settings.CyberSessionBlockEnabled)
+	require.Equal(t, 3600, settings.CyberSessionBlockTTLSeconds)
+
+	_, err = client.System.Create().
+		SetKey(SystemKeySecuritySettings).
+		SetValue(`{"blocked_ips":["192.0.2.1"],"show_request_log_ip_ban_icon":false}`).
+		Save(ctx)
+	require.NoError(t, err)
+
+	settings, err = service.SecuritySettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"192.0.2.1"}, settings.BlockedIPs)
+	require.False(t, settings.ShowRequestLogIPBanIcon)
+	require.False(t, settings.CyberSessionBlockEnabled)
+	require.Equal(t, 3600, settings.CyberSessionBlockTTLSeconds)
+}
+
+func TestSystemService_SetSecuritySettingsRejectsNonPositiveCyberTTL(t *testing.T) {
+	service, client := setupTestSystemService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer client.Close()
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+
+	for _, ttl := range []int{0, -1} {
+		err := service.SetSecuritySettings(ctx, SecuritySettings{CyberSessionBlockTTLSeconds: ttl})
+		require.ErrorContains(t, err, "must be > 0")
+	}
+
+	if strconv.IntSize == 64 {
+		tooLarge := maxCyberSessionBlockTTLSeconds + 1
+		err := service.SetSecuritySettings(ctx, SecuritySettings{
+			CyberSessionBlockTTLSeconds: int(tooLarge),
+		})
+		require.ErrorContains(t, err, "exceeds supported duration")
+	}
 }
 
 func TestSystemService_ModelSettingsBackwardCompatibility(t *testing.T) {
