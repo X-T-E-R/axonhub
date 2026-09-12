@@ -155,7 +155,7 @@ func rawUnsupportedToolChoice(choice *ToolChoice, rawChoice json.RawMessage) jso
 		return nil
 	}
 
-	if len(choice.Tools) > 0 {
+	if len(choice.Tools) > 0 || choice.Namespace != "" {
 		return cloneRaw(rawChoice)
 	}
 
@@ -392,7 +392,11 @@ func toolChoiceSignature(choice *ToolChoice) string {
 	}
 
 	if choice.Type != nil && choice.Name != nil {
-		return "named:" + *choice.Type + ":" + *choice.Name
+		name := *choice.Name
+		if choice.Namespace != "" {
+			name = namespaceFunctionName(choice.Namespace, name)
+		}
+		return "named:" + *choice.Type + ":" + name
 	}
 
 	if len(choice.Tools) > 0 {

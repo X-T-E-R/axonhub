@@ -322,6 +322,9 @@ func convertToolChoiceToLLM(src *ToolChoice) *llm.ToolChoice {
 		}
 		if src.Name != nil {
 			result.NamedToolChoice.Function.Name = *src.Name
+			if src.Namespace != "" {
+				result.NamedToolChoice.Function.Name = namespaceFunctionName(src.Namespace, *src.Name)
+			}
 		}
 	}
 
@@ -466,9 +469,10 @@ func convertReasoningWithFollowing(items []Item, startIdx int) (*llm.Message, in
 				ID:   nextItem.CallID,
 				Type: llm.ToolTypeResponsesCustomTool,
 				ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-					CallID: nextItem.CallID,
-					Name:   nextItem.Name,
-					Input:  inputStr,
+					CallID:    nextItem.CallID,
+					Name:      nextItem.Name,
+					Namespace: nextItem.Namespace,
+					Input:     inputStr,
 				},
 			})
 			consumed++
@@ -575,9 +579,10 @@ func convertItemToMessage(item *Item) (*llm.Message, error) {
 					ID:   item.CallID,
 					Type: llm.ToolTypeResponsesCustomTool,
 					ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-						CallID: item.CallID,
-						Name:   item.Name,
-						Input:  inputStr,
+						CallID:    item.CallID,
+						Name:      item.Name,
+						Namespace: item.Namespace,
+						Input:     inputStr,
 					},
 				},
 			},
@@ -976,12 +981,13 @@ func convertToResponsesAPIResponse(chatResp *llm.Response) *Response {
 			for _, toolCall := range message.ToolCalls {
 				if toolCall.ResponseCustomToolCall != nil {
 					resp.Output = append(resp.Output, Item{
-						ID:     toolCall.ID,
-						Type:   "custom_tool_call",
-						CallID: toolCall.ResponseCustomToolCall.CallID,
-						Name:   toolCall.ResponseCustomToolCall.Name,
-						Input:  lo.ToPtr(toolCall.ResponseCustomToolCall.Input),
-						Status: lo.ToPtr("completed"),
+						ID:        toolCall.ID,
+						Type:      "custom_tool_call",
+						CallID:    toolCall.ResponseCustomToolCall.CallID,
+						Name:      toolCall.ResponseCustomToolCall.Name,
+						Namespace: toolCall.ResponseCustomToolCall.Namespace,
+						Input:     lo.ToPtr(toolCall.ResponseCustomToolCall.Input),
+						Status:    lo.ToPtr("completed"),
 					})
 				} else {
 					resp.Output = append(resp.Output, Item{

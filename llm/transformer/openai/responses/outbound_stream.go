@@ -415,6 +415,7 @@ func (s *responsesOutboundStream) resolveOrCreateCustomToolCall(
 	callID string,
 	itemID *string,
 	name string,
+	namespace string,
 ) (string, *llm.ToolCall, *llm.Response) {
 	if resolvedCallID, toolCall, ok := s.resolveToolCall(callID, itemID); ok {
 		if itemID != nil && *itemID != "" {
@@ -437,8 +438,9 @@ func (s *responsesOutboundStream) resolveOrCreateCustomToolCall(
 		ID:   resolvedCallID,
 		Type: llm.ToolTypeResponsesCustomTool,
 		ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-			CallID: resolvedCallID,
-			Name:   name,
+			CallID:    resolvedCallID,
+			Name:      name,
+			Namespace: namespace,
 		},
 	}
 	s.state.toolCalls[resolvedCallID] = toolCall
@@ -452,8 +454,9 @@ func (s *responsesOutboundStream) resolveOrCreateCustomToolCall(
 		Type:  llm.ToolTypeResponsesCustomTool,
 		Index: toolCallIdx,
 		ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-			CallID: resolvedCallID,
-			Name:   name,
+			CallID:    resolvedCallID,
+			Name:      name,
+			Namespace: namespace,
 		},
 	})
 }
@@ -584,11 +587,12 @@ func (s *responsesOutboundStream) reconcileCustomToolCall(
 	callID string,
 	itemID *string,
 	name string,
+	namespace string,
 	input string,
 	inputPresent bool,
 	finalFallback bool,
 ) []*llm.Response {
-	resolvedCallID, toolCall, initial := s.resolveOrCreateCustomToolCall(callID, itemID, name)
+	resolvedCallID, toolCall, initial := s.resolveOrCreateCustomToolCall(callID, itemID, name, namespace)
 	if toolCall == nil || toolCall.ResponseCustomToolCall == nil {
 		return nil
 	}
@@ -600,6 +604,10 @@ func (s *responsesOutboundStream) reconcileCustomToolCall(
 	nameChanged := false
 	if toolCall.ResponseCustomToolCall.Name == "" && name != "" {
 		toolCall.ResponseCustomToolCall.Name = name
+		nameChanged = true
+	}
+	if toolCall.ResponseCustomToolCall.Namespace == "" && namespace != "" {
+		toolCall.ResponseCustomToolCall.Namespace = namespace
 		nameChanged = true
 	}
 
@@ -620,9 +628,10 @@ func (s *responsesOutboundStream) reconcileCustomToolCall(
 		Index: s.state.toolCallIndex[resolvedCallID],
 		Type:  llm.ToolTypeResponsesCustomTool,
 		ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-			CallID: resolvedCallID,
-			Name:   toolCall.ResponseCustomToolCall.Name,
-			Input:  inputToEmit,
+			CallID:    resolvedCallID,
+			Name:      toolCall.ResponseCustomToolCall.Name,
+			Namespace: toolCall.ResponseCustomToolCall.Namespace,
+			Input:     inputToEmit,
 		},
 	}))
 }
@@ -652,9 +661,10 @@ func (s *responsesOutboundStream) flushPendingToolCallPayloads() {
 				Index: index,
 				Type:  llm.ToolTypeResponsesCustomTool,
 				ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-					CallID: callID,
-					Name:   toolCall.ResponseCustomToolCall.Name,
-					Input:  toolCall.ResponseCustomToolCall.Input,
+					CallID:    callID,
+					Name:      toolCall.ResponseCustomToolCall.Name,
+					Namespace: toolCall.ResponseCustomToolCall.Namespace,
+					Input:     toolCall.ResponseCustomToolCall.Input,
 				},
 			}))
 
@@ -891,9 +901,10 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 				ID:   item.CallID,
 				Type: llm.ToolTypeResponsesCustomTool,
 				ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-					CallID: item.CallID,
-					Name:   item.Name,
-					Input:  lo.FromPtr(item.Input),
+					CallID:    item.CallID,
+					Name:      item.Name,
+					Namespace: item.Namespace,
+					Input:     lo.FromPtr(item.Input),
 				},
 			}
 			s.state.itemToCallID[item.ID] = item.CallID
@@ -909,8 +920,9 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 								Type:  llm.ToolTypeResponsesCustomTool,
 								Index: toolCallIdx,
 								ResponseCustomToolCall: &llm.ResponseCustomToolCall{
-									CallID: item.CallID,
-									Name:   item.Name,
+									CallID:    item.CallID,
+									Name:      item.Name,
+									Namespace: item.Namespace,
 								},
 							},
 						},
@@ -976,6 +988,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 			streamEvent.CallID,
 			streamEvent.ItemID,
 			streamEvent.Name,
+			streamEvent.Namespace,
 			streamEvent.Input,
 			jsonFieldPresent(event.Data, "input"),
 			false,
@@ -1072,6 +1085,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 				streamEvent.Item.CallID,
 				&itemID,
 				streamEvent.Item.Name,
+				streamEvent.Item.Namespace,
 				lo.FromPtr(streamEvent.Item.Input),
 				jsonFieldPresent(event.Data, "item", "input"),
 				false,
@@ -1138,6 +1152,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 						item.CallID,
 						&itemID,
 						item.Name,
+						item.Namespace,
 						lo.FromPtr(item.Input),
 						responseOutputFieldPresent(event.Data, i, "input"),
 						true,

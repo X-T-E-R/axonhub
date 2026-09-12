@@ -197,6 +197,10 @@ func (t *OutboundTransformer) TransformRequest(ctx context.Context, llmReq *llm.
 
 	// Convert to OpenAI Request format (this strips helper fields)
 	oaiReq := RequestFromLLM(llmReq, reasoningField)
+	toolBindings, err := lowerResponsesTools(llmReq, oaiReq)
+	if err != nil {
+		return nil, err
+	}
 	// Apply per-channel reasoning_effort mapping for non-standard OpenAI-compatible providers.
 	// Entries in the map replace the effort value; values not in the map pass through unchanged.
 	// e.g. ollama channel with {"xhigh": "max"} converts Anthropic's internal "xhigh" back to "max".
@@ -231,7 +235,7 @@ func (t *OutboundTransformer) TransformRequest(ctx context.Context, llmReq *llm.
 		return nil, fmt.Errorf("failed to build platform URL: %w", err)
 	}
 
-	return &httpclient.Request{
+	result := &httpclient.Request{
 		Method:    http.MethodPost,
 		URL:       url,
 		Headers:   headers,
@@ -239,7 +243,11 @@ func (t *OutboundTransformer) TransformRequest(ctx context.Context, llmReq *llm.
 		Auth:      authConfig,
 		APIFormat: string(llm.APIFormatOpenAIChatCompletion),
 		Metadata:  nil,
-	}, nil
+	}
+	if len(toolBindings) > 0 {
+		result.TransformerMetadata = map[string]any{responsesToolsMetadataKey: toolBindings}
+	}
+	return result, nil
 }
 
 // TransformResponse transforms Response to ChatCompletionResponse.
@@ -292,7 +300,11 @@ func (t *OutboundTransformer) TransformResponse(
 	}
 
 	// Convert to unified llm.Response
-	return oaiResp.ToLLMResponse(), nil
+	result := oaiResp.ToLLMResponse()
+	if err := responseBindings(httpResp.Request).restoreResponse(result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (t *OutboundTransformer) TransformStream(ctx context.Context, req *httpclient.Request, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*llm.Response], error) {
@@ -314,9 +326,10 @@ func (t *OutboundTransformer) TransformStream(ctx context.Context, req *httpclie
 	//
 	// Note: TransformStreamChunk only returns nil for events with explicit "choices":[]
 	// in the raw JSON. Events without a choices key (nil slice) are passed through.
-	return streams.NoNil(streams.MapErr(stream, func(event *httpclient.StreamEvent) (*llm.Response, error) {
+	decoded := streams.NoNil(streams.MapErr(stream, func(event *httpclient.StreamEvent) (*llm.Response, error) {
 		return t.TransformStreamChunk(ctx, event)
-	})), nil
+	}))
+	return restoreResponsesToolStream(decoded, responseBindings(req)), nil
 }
 
 func (t *OutboundTransformer) TransformStreamChunk(

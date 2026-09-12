@@ -722,6 +722,11 @@ func (s *responsesInboundStream) initToolCall(tc llm.ToolCall) error {
 			Arguments: "",
 		},
 	}
+	if tc.ResponseCustomToolCall != nil {
+		custom := *tc.ResponseCustomToolCall
+		custom.Input = ""
+		s.toolCalls[toolCallIndex].ResponseCustomToolCall = &custom
+	}
 
 	itemID := tc.ID
 	if itemID == "" {
@@ -731,12 +736,13 @@ func (s *responsesInboundStream) initToolCall(tc llm.ToolCall) error {
 	switch {
 	case tc.ResponseCustomToolCall != nil:
 		item := &Item{
-			ID:     itemID,
-			Type:   "custom_tool_call",
-			Status: lo.ToPtr("in_progress"),
-			CallID: tc.ResponseCustomToolCall.CallID,
-			Name:   tc.ResponseCustomToolCall.Name,
-			Input:  lo.ToPtr(""),
+			ID:        itemID,
+			Type:      "custom_tool_call",
+			Status:    lo.ToPtr("in_progress"),
+			CallID:    tc.ResponseCustomToolCall.CallID,
+			Name:      tc.ResponseCustomToolCall.Name,
+			Namespace: tc.ResponseCustomToolCall.Namespace,
+			Input:     lo.ToPtr(""),
 		}
 
 		err := s.enqueueEvent(&StreamEvent{
@@ -816,6 +822,9 @@ func (s *responsesInboundStream) handleCustomToolCallDelta(tc llm.ToolCall) erro
 	}
 	if tc.ResponseCustomToolCall.Name != "" {
 		stored.Name = tc.ResponseCustomToolCall.Name
+	}
+	if tc.ResponseCustomToolCall.Namespace != "" {
+		stored.Namespace = tc.ResponseCustomToolCall.Namespace
 	}
 	stored.Input += tc.ResponseCustomToolCall.Input
 
@@ -1063,12 +1072,13 @@ func (s *responsesInboundStream) closeCurrentOutputItem() error {
 			}
 
 			item := Item{
-				ID:     itemID,
-				Type:   "custom_tool_call",
-				Status: lo.ToPtr("completed"),
-				CallID: tc.ResponseCustomToolCall.CallID,
-				Name:   tc.ResponseCustomToolCall.Name,
-				Input:  lo.ToPtr(fullInput),
+				ID:        itemID,
+				Type:      "custom_tool_call",
+				Status:    lo.ToPtr("completed"),
+				CallID:    tc.ResponseCustomToolCall.CallID,
+				Name:      tc.ResponseCustomToolCall.Name,
+				Namespace: tc.ResponseCustomToolCall.Namespace,
+				Input:     lo.ToPtr(fullInput),
 			}
 
 			err = s.enqueueEvent(&StreamEvent{

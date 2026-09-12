@@ -193,6 +193,8 @@ type ToolChoice struct {
 	Type *string `json:"type,omitempty"`
 	// Name of the function for function tool choice.
 	Name *string `json:"name,omitempty"`
+	// Namespace owning a specifically selected function or custom tool.
+	Namespace string `json:"namespace,omitempty"`
 
 	// Allow multiple tools to be selected.
 	Tools []ToolOption `json:"tools,omitempty"`
@@ -230,15 +232,17 @@ func (t *ToolChoice) MarshalJSON() ([]byte, error) {
 	type Alias ToolChoice
 
 	return json.Marshal(&struct {
-		Mode  *string      `json:"mode,omitempty"`
-		Type  *string      `json:"type,omitempty"`
-		Name  *string      `json:"name,omitempty"`
-		Tools []ToolOption `json:"tools,omitempty"`
+		Mode      *string      `json:"mode,omitempty"`
+		Type      *string      `json:"type,omitempty"`
+		Name      *string      `json:"name,omitempty"`
+		Namespace string       `json:"namespace,omitempty"`
+		Tools     []ToolOption `json:"tools,omitempty"`
 	}{
-		Mode:  t.Mode,
-		Type:  t.Type,
-		Name:  t.Name,
-		Tools: t.Tools,
+		Mode:      t.Mode,
+		Type:      t.Type,
+		Name:      t.Name,
+		Namespace: t.Namespace,
+		Tools:     t.Tools,
 	})
 }
 
