@@ -31,6 +31,7 @@ import (
 
 const (
 	maxRetryResponseTimeoutSeconds = 600
+	maxCyberSessionBlockTTLSeconds = int64((1<<63 - 1) / int64(time.Second))
 )
 
 const (
@@ -223,11 +224,17 @@ type SecuritySettings struct {
 	BlockedIPs []string `json:"blocked_ips"`
 	// ShowRequestLogIPBanIcon controls whether the request log IP column shows the quick ban action.
 	ShowRequestLogIPBanIcon bool `json:"show_request_log_ip_ban_icon"`
+	// CyberSessionBlockEnabled blocks a conversation locally after an upstream cyber-policy refusal.
+	CyberSessionBlockEnabled bool `json:"cyber_session_block_enabled"`
+	// CyberSessionBlockTTLSeconds controls how long a refused conversation remains blocked.
+	CyberSessionBlockTTLSeconds int `json:"cyber_session_block_ttl_seconds"`
 }
 
 type securitySettingsJSON struct {
-	BlockedIPs              []string `json:"blocked_ips"`
-	ShowRequestLogIPBanIcon *bool    `json:"show_request_log_ip_ban_icon"`
+	BlockedIPs                  []string `json:"blocked_ips"`
+	ShowRequestLogIPBanIcon     *bool    `json:"show_request_log_ip_ban_icon"`
+	CyberSessionBlockEnabled    *bool    `json:"cyber_session_block_enabled"`
+	CyberSessionBlockTTLSeconds *int     `json:"cyber_session_block_ttl_seconds"`
 }
 
 // RequestObservabilitySettings controls optional request-log fields.
@@ -759,20 +766,23 @@ func NewSystemService(params SystemServiceParams) *SystemService {
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
-		CacheConfig: params.CacheConfig,
-		Cache:       xcache.NewFromConfig[ent.System](params.CacheConfig),
+		CacheConfig:            params.CacheConfig,
+		Cache:                  xcache.NewFromConfig[ent.System](params.CacheConfig),
+		CyberSessionBlockCache: xcache.NewFromConfig[CyberSessionBlockEntry](params.CacheConfig),
 	}
 }
 
 type SystemService struct {
 	*AbstractService
 
-	CacheConfig xcache.Config
-	Cache       xcache.Cache[ent.System]
+	CacheConfig            xcache.Config
+	Cache                  xcache.Cache[ent.System]
+	CyberSessionBlockCache xcache.Cache[CyberSessionBlockEntry]
 
-	mu                sync.RWMutex
-	timeLocation      *time.Location
-	observationWriter *ForwardingObservationWriter
+	mu                  sync.RWMutex
+	cyberSessionBlockMu sync.Mutex
+	timeLocation        *time.Location
+	observationWriter   *ForwardingObservationWriter
 }
 
 func (s *SystemService) IsInitialized(ctx context.Context) (bool, error) {
@@ -1931,8 +1941,17 @@ func (s *SystemService) SecuritySettings(ctx context.Context) (*SecuritySettings
 	if storedSettings.ShowRequestLogIPBanIcon != nil {
 		settings.ShowRequestLogIPBanIcon = *storedSettings.ShowRequestLogIPBanIcon
 	}
+	if storedSettings.CyberSessionBlockEnabled != nil {
+		settings.CyberSessionBlockEnabled = *storedSettings.CyberSessionBlockEnabled
+	}
+	if storedSettings.CyberSessionBlockTTLSeconds != nil {
+		settings.CyberSessionBlockTTLSeconds = *storedSettings.CyberSessionBlockTTLSeconds
+	}
 
 	normalizeSecuritySettings(&settings)
+	if err := validateSecuritySettings(settings); err != nil {
+		return nil, err
+	}
 
 	return &settings, nil
 }
@@ -1952,6 +1971,9 @@ func (s *SystemService) SecuritySettingsOrDefault(ctx context.Context) *Security
 // SetSecuritySettings sets the security settings.
 func (s *SystemService) SetSecuritySettings(ctx context.Context, settings SecuritySettings) error {
 	normalizeSecuritySettings(&settings)
+	if err := validateSecuritySettings(settings); err != nil {
+		return err
+	}
 
 	jsonBytes, err := json.Marshal(settings)
 	if err != nil {
@@ -1959,6 +1981,17 @@ func (s *SystemService) SetSecuritySettings(ctx context.Context, settings Securi
 	}
 
 	return s.setSystemValue(ctx, SystemKeySecuritySettings, string(jsonBytes))
+}
+
+func validateSecuritySettings(settings SecuritySettings) error {
+	if settings.CyberSessionBlockTTLSeconds <= 0 {
+		return fmt.Errorf("cyber session block TTL seconds must be > 0")
+	}
+	if int64(settings.CyberSessionBlockTTLSeconds) > maxCyberSessionBlockTTLSeconds {
+		return fmt.Errorf("cyber session block TTL seconds exceeds supported duration")
+	}
+
+	return nil
 }
 
 func normalizeSecuritySettings(settings *SecuritySettings) {

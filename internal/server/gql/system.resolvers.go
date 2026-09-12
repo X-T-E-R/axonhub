@@ -278,8 +278,10 @@ func (r *mutationResolver) UpdateSecuritySettings(ctx context.Context, input Upd
 	}
 
 	newSettings := biz.SecuritySettings{
-		BlockedIPs:              current.BlockedIPs,
-		ShowRequestLogIPBanIcon: current.ShowRequestLogIPBanIcon,
+		BlockedIPs:                  current.BlockedIPs,
+		ShowRequestLogIPBanIcon:     current.ShowRequestLogIPBanIcon,
+		CyberSessionBlockEnabled:    current.CyberSessionBlockEnabled,
+		CyberSessionBlockTTLSeconds: current.CyberSessionBlockTTLSeconds,
 	}
 
 	if input.BlockedIPs != nil {
@@ -287,6 +289,12 @@ func (r *mutationResolver) UpdateSecuritySettings(ctx context.Context, input Upd
 	}
 	if input.ShowRequestLogIPBanIcon != nil {
 		newSettings.ShowRequestLogIPBanIcon = *input.ShowRequestLogIPBanIcon
+	}
+	if input.CyberSessionBlockEnabled != nil {
+		newSettings.CyberSessionBlockEnabled = *input.CyberSessionBlockEnabled
+	}
+	if input.CyberSessionBlockTTLSeconds != nil {
+		newSettings.CyberSessionBlockTTLSeconds = *input.CyberSessionBlockTTLSeconds
 	}
 
 	err = r.systemService.SetSecuritySettings(ctx, newSettings)

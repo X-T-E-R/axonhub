@@ -100,6 +100,9 @@ func (m *modelCircuitBreakerTracker) OnOutboundRawError(ctx context.Context, err
 	if isChannelQueueError(err) {
 		return
 	}
+	if m.outbound.state.cyberPolicyObserved() {
+		return
+	}
 
 	channel := m.outbound.GetCurrentChannel()
 	modelID := m.outbound.GetRequestedModel()

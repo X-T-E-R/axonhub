@@ -202,6 +202,7 @@ func (processor *ChatCompletionOrchestrator) process(
 
 	// Get retry policy from system settings
 	retryPolicy := processor.SystemService.RetryPolicyOrDefault(ctx)
+	securitySettings := processor.SystemService.SecuritySettingsOrDefault(ctx)
 
 	strategy := deriveLoadBalancerStrategy(retryPolicy, apiKey)
 	if log.DebugEnabled(ctx) {
@@ -244,6 +245,15 @@ func (processor *ChatCompletionOrchestrator) process(
 		CurrentCandidateIndex: 0,
 	}
 
+	var cyberSessionState *cyberSessionRequestState
+	if securitySettings.CyberSessionBlockEnabled {
+		cyberSessionState = newCyberSessionRequestState(
+			processor.SystemService,
+			securitySettings.CyberSessionBlockTTLSeconds,
+		)
+		state.cyberSession = cyberSessionState
+	}
+
 	var pipelineOpts []pipeline.Option
 
 	// Only apply retry if policy is enabled
@@ -263,9 +273,14 @@ func (processor *ChatCompletionOrchestrator) process(
 			time.Duration(retryPolicy.NonStreamResponseTimeoutSeconds)*time.Second,
 		))
 	}
-	if commitObserver, ok := streamLivenessObserver.(downstreamCommitObserver); ok {
+	commitObserver, hasCommitObserver := streamLivenessObserver.(downstreamCommitObserver)
+	if hasCommitObserver || cyberSessionState != nil {
 		pipelineOpts = append(pipelineOpts, pipeline.WithRetryAllowed(func() bool {
-			return !commitObserver.IsDownstreamCommitted()
+			if hasCommitObserver && commitObserver.IsDownstreamCommitted() {
+				return false
+			}
+
+			return cyberSessionState == nil || !cyberSessionState.retryBlocked(ctx)
 		}))
 	}
 
@@ -304,6 +319,12 @@ func (processor *ChatCompletionOrchestrator) process(
 		codexAgentToolAliases.streamMiddleware(),
 		persistRequest(inbound),
 	)
+	if cyberSessionState != nil {
+		middlewares = append(middlewares, &cyberSessionAdmissionMiddleware{
+			state:    state,
+			blocking: cyberSessionState,
+		})
+	}
 
 	// Add outbound middlewares (executed after outbound.TransformRequest)
 	middlewares = append(middlewares,
@@ -355,6 +376,11 @@ func (processor *ChatCompletionOrchestrator) process(
 	// provider response headers before any middleware can pre-read the stream.
 	if streamLivenessObserver != nil {
 		middlewares = append(middlewares, newStreamLivenessMiddleware(state, streamLivenessObserver))
+	}
+	// Registered last so reverse-order raw response/error/stream callbacks see
+	// the untouched upstream payload before pass-through or client rewriting.
+	if cyberSessionState != nil {
+		middlewares = append(middlewares, &cyberSessionObservationMiddleware{blocking: cyberSessionState})
 	}
 
 	pipelineOpts = append(pipelineOpts, pipeline.WithMiddlewares(middlewares...))

@@ -134,6 +134,12 @@ func (m *performanceRecording) OnOutboundRawError(ctx context.Context, err error
 	if m.outbound.state.ChannelService == nil {
 		return
 	}
+	// A structured cyber-policy refusal is conversation-specific. Preserve the
+	// failed request/execution evidence without degrading or mutating the shared
+	// upstream channel/key health state.
+	if m.outbound.state.cyberPolicyObserved() {
+		return
+	}
 	if !perf.Canceled {
 		m.outbound.state.FailurePolicyRoutingChanged = m.outbound.state.ChannelService.ApplyRequestFailurePolicy(ctx, perf)
 	}

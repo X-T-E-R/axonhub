@@ -196,11 +196,15 @@ input UpdateQuotaEnforcementSettingsInput {
 type SecuritySettings {
   blockedIPs: [String!]!
   showRequestLogIPBanIcon: Boolean!
+  cyberSessionBlockEnabled: Boolean!
+  cyberSessionBlockTTLSeconds: Int!
 }
 
 input UpdateSecuritySettingsInput {
   blockedIPs: [String!]
   showRequestLogIPBanIcon: Boolean
+  cyberSessionBlockEnabled: Boolean
+  cyberSessionBlockTTLSeconds: Int
 }
 
 type MonitoringSettings {

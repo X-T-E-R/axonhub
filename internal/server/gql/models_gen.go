@@ -609,8 +609,10 @@ type UpdateQuotaEnforcementSettingsInput struct {
 }
 
 type UpdateSecuritySettingsInput struct {
-	BlockedIPs              []string `json:"blockedIPs,omitempty"`
-	ShowRequestLogIPBanIcon *bool    `json:"showRequestLogIPBanIcon,omitempty"`
+	BlockedIPs                  []string `json:"blockedIPs,omitempty"`
+	ShowRequestLogIPBanIcon     *bool    `json:"showRequestLogIPBanIcon,omitempty"`
+	CyberSessionBlockEnabled    *bool    `json:"cyberSessionBlockEnabled,omitempty"`
+	CyberSessionBlockTTLSeconds *int     `json:"cyberSessionBlockTTLSeconds,omitempty"`
 }
 
 type UpdateStoragePolicyInput struct {

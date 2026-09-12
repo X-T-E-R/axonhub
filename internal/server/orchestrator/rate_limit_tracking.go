@@ -81,6 +81,9 @@ func (m *rateLimitTracking) OnOutboundRawError(ctx context.Context, err error) {
 	if isChannelQueueError(err) || isLocalRPMExhaustedError(err) {
 		return
 	}
+	if m.outbound.state != nil && m.outbound.state.cyberPolicyObserved() {
+		return
+	}
 
 	channel := m.outbound.GetCurrentChannel()
 	if channel == nil {
