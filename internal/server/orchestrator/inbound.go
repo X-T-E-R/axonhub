@@ -363,7 +363,13 @@ func (ts *InboundPersistentStream) persistTerminalStreamFailure(ctx context.Cont
 	streamErr = terminalErrorCause(streamErr, requestContextCause)
 
 	statusCtx, cancelStatus := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-	if err := ts.requestService.UpdateRequestStatusFromError(statusCtx, ts.request.ID, streamErr, requestContextCause); err != nil {
+	if err := ts.requestService.UpdateRequestStatusFromErrorDetails(
+		statusCtx,
+		ts.request.ID,
+		streamErr,
+		requestContextCause,
+		ts.state.currentAttemptErrorInfo(),
+	); err != nil {
 		log.Warn(statusCtx, "Failed to update request status from error", log.Cause(err))
 	}
 	cancelStatus()

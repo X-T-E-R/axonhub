@@ -116,6 +116,12 @@ func (s *RequestService) shouldStoreExecutionResponseBody(ctx context.Context, e
 	return storeResponseBody
 }
 
+// ShouldStoreExecutionResponseBody reports the effective provider response-body
+// policy for an attempt before its execution row is available to the caller.
+func (s *RequestService) ShouldStoreExecutionResponseBody(ctx context.Context, channel *Channel) bool {
+	return s.shouldStoreExecutionResponseBody(ctx, nil, channel)
+}
+
 func (s *RequestService) shouldStoreExecutionStreamChunks(ctx context.Context, execution *ent.RequestExecution, channel *Channel) bool {
 	settings := s.getExecutionChannelSettings(ctx, execution, channel)
 	if settings != nil && settings.StoreExecutionStreamChunks != nil {

@@ -17,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tmaxmax/go-sse"
+
+	"github.com/looplj/axonhub/llm/streams"
 )
 
 func TestHttpClientImpl_Do(t *testing.T) {
@@ -155,7 +157,6 @@ func TestHttpClientImpl_Do(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
-
 			if tt.validate != nil && !tt.validate(result) {
 				t.Errorf("Do() validation failed for result: %+v", result)
 			}
@@ -262,6 +263,11 @@ func TestHttpClientImpl_DoStream(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
+			responseStream, ok := result.(ResponseStream)
+			require.True(t, ok)
+			require.Equal(t, http.StatusOK, responseStream.ResponseMetadata().StatusCode)
+			require.Equal(t, "text/event-stream", responseStream.ResponseMetadata().Headers.Get("Content-Type"))
+			require.Implements(t, (*streams.Interruptible)(nil), result)
 
 			if tt.validate != nil && !tt.validate(result) {
 				t.Errorf("DoStream() validation failed for result: %+v", result)
@@ -273,6 +279,42 @@ func TestHttpClientImpl_DoStream(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResponseStreamPreservesDecoderLifecycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	source := &responseStreamLifecycleRecorder{err: context.Cause(ctx)}
+	metadata := &Response{StatusCode: http.StatusAccepted}
+	wrapped := newResponseStream(source, metadata)
+
+	responseStream, ok := wrapped.(ResponseStream)
+	require.True(t, ok)
+	require.Same(t, metadata, responseStream.ResponseMetadata())
+	require.False(t, wrapped.Next())
+	require.ErrorIs(t, wrapped.Err(), context.Canceled)
+	require.NoError(t, wrapped.(streams.Interruptible).Interrupt())
+	require.Equal(t, 1, source.interrupts)
+	require.NoError(t, wrapped.Close())
+	require.Equal(t, 1, source.closes)
+}
+
+type responseStreamLifecycleRecorder struct {
+	err        error
+	interrupts int
+	closes     int
+}
+
+func (s *responseStreamLifecycleRecorder) Next() bool            { return false }
+func (s *responseStreamLifecycleRecorder) Current() *StreamEvent { return nil }
+func (s *responseStreamLifecycleRecorder) Err() error            { return s.err }
+func (s *responseStreamLifecycleRecorder) Close() error {
+	s.closes++
+	return nil
+}
+func (s *responseStreamLifecycleRecorder) Interrupt() error {
+	s.interrupts++
+	return nil
 }
 
 func TestNewHttpClient_WithInsecureSkipVerify_PreservesDefaultTransportSettings(t *testing.T) {

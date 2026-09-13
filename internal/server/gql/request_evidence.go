@@ -2,6 +2,7 @@ package gql
 
 import (
 	"context"
+	"errors"
 
 	"github.com/99designs/gqlgen/graphql"
 
@@ -11,9 +12,12 @@ import (
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xjson"
+	"github.com/looplj/axonhub/internal/server/biz"
 )
 
-const adminTerminalEvidenceMaxBytes int64 = 2 << 20
+// An exact, authorized request detail may include the large context sent to an
+// LLM. Keep the read bounded independently from list and diagnostics exports.
+const adminTerminalEvidenceMaxBytes int64 = 32 << 20
 
 func exactAdminRequestNodeField(ctx context.Context) (*graphql.FieldContext, bool) {
 	if !graphql.HasOperationContext(ctx) {
@@ -252,6 +256,10 @@ func boundedEvidenceOrEmpty(
 		return value, nil
 	}
 	if ctx.Err() != nil {
+		return nil, err
+	}
+	var tooLarge *biz.DataTooLargeError
+	if errors.As(err, &tooLarge) {
 		return nil, err
 	}
 

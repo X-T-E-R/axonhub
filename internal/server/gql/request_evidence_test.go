@@ -300,6 +300,35 @@ func TestAdminExactRequestDetailLoadsManagedRequestEvidence(t *testing.T) {
 	require.Equal(t, map[string]any{"managedResponse": "execution"}, requireObject(t, executionNode["responseBody"]))
 }
 
+func TestAdminExactFailedRequestDetailLoadsManagedBodyAboveLegacyLimit(t *testing.T) {
+	e := newRequestEvidenceGraphQLEnv(t)
+	payloadText := strings.Repeat("x", (2<<20)+1)
+	body := []byte(`{"payload":"` + payloadText + `"}`)
+	disposition := testStoredDisposition("database")
+	setManagedRequestDisposition(disposition, body)
+	disposition.RequestBody.Outcome = "unavailable"
+	disposition.RequestBody.FailureClass = lo.ToPtr("async_pending")
+
+	req := e.client.Request.Create().
+		SetProjectID(e.project.ID).
+		SetDataStorageID(e.primary.ID).
+		SetModelID("managed-large-terminal-evidence").
+		SetRequestBody([]byte(`{}`)).
+		SetStatus(request.StatusFailed).
+		SetManagedObservability(true).
+		SetEvidenceDisposition(disposition).
+		SaveX(e.ctx)
+	payload := createManagedPayload(t, e, req.ID, body)
+	e.client.Request.UpdateOneID(req.ID).SetRequestBodyPayloadID(payload.ID).SaveX(e.ctx)
+
+	response, raw := e.graphQL(t, e.ctx, `query LargeFailedRequest($id: ID!) {
+		node(id: $id) { ... on Request { status requestBody } }
+	}`, map[string]any{"id": requestGUID(req.ID)})
+	node := requireGraphQLNode(t, response, raw)
+	loaded := requireObject(t, node["requestBody"])
+	require.Equal(t, payloadText, loaded["payload"])
+}
+
 func setManagedRequestDisposition(disposition *objects.EvidenceDisposition, body []byte) {
 	sum := sha256.Sum256(body)
 	length := int64(len(body))
@@ -492,7 +521,7 @@ func TestAdminExactRequestDetailKeepsPendingMissingAndUnreadableEvidenceEmpty(t 
 	})
 }
 
-func TestAdminExactRequestDetailPreservesPlainTextAndSizeSchemaLimits(t *testing.T) {
+func TestAdminExactRequestDetailPreservesPlainTextAndReportsSizeLimit(t *testing.T) {
 	e := newRequestEvidenceGraphQLEnv(t)
 	dir := t.TempDir()
 	storage := e.client.DataStorage.Create().
@@ -504,11 +533,12 @@ func TestAdminExactRequestDetailPreservesPlainTextAndSizeSchemaLimits(t *testing
 		SaveX(e.ctx)
 
 	for _, test := range []struct {
-		name string
-		body []byte
+		name     string
+		body     []byte
+		tooLarge bool
 	}{
 		{name: "plain text", body: []byte("provider failed before returning JSON")},
-		{name: "oversized JSON", body: []byte(`{"payload":"` + strings.Repeat("x", int(adminTerminalEvidenceMaxBytes)) + `"}`)},
+		{name: "oversized JSON", body: []byte(`{"payload":"` + strings.Repeat("x", int(adminTerminalEvidenceMaxBytes)) + `"}`), tooLarge: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			req := e.client.Request.Create().
@@ -524,8 +554,13 @@ func TestAdminExactRequestDetailPreservesPlainTextAndSizeSchemaLimits(t *testing
 			require.NoError(t, e.storageService.SaveData(e.ctx, storage, key, test.body))
 
 			response, raw := e.graphQL(t, e.ctx, `query SchemaLimit($id: ID!) { node(id: $id) { ... on Request { status responseBody } } }`, map[string]any{"id": requestGUID(req.ID)})
-			node := requireGraphQLNode(t, response, raw)
-			require.Empty(t, requireObject(t, node["responseBody"]))
+			if test.tooLarge {
+				require.Contains(t, raw, biz.ErrDataTooLarge.Error())
+				require.NotEmpty(t, response["errors"])
+			} else {
+				node := requireGraphQLNode(t, response, raw)
+				require.Empty(t, requireObject(t, node["responseBody"]))
+			}
 			stored, err := e.storageService.LoadData(e.ctx, storage, key)
 			require.NoError(t, err)
 			require.Equal(t, test.body, stored, "GraphQL projection must not rewrite stored raw bytes")

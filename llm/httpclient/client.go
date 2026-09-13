@@ -371,7 +371,43 @@ func (hc *HttpClient) DoStream(ctx context.Context, request *Request) (streams.S
 
 	stream := decoderFactory(ctx, rawResp.Body)
 
-	return stream, nil
+	return newResponseStream(stream, &Response{
+		StatusCode:  rawResp.StatusCode,
+		Headers:     rawResp.Header,
+		Stream:      rawResp.Body,
+		Request:     request,
+		RawResponse: rawResp,
+		RawRequest:  rawReq,
+	}), nil
+}
+
+func newResponseStream(stream StreamDecoder, response *Response) streams.Stream[*StreamEvent] {
+	result := &responseStream{
+		StreamDecoder: stream,
+		response:      response,
+	}
+	if interruptible, ok := stream.(streams.Interruptible); ok {
+		return &interruptibleResponseStream{responseStream: result, interruptible: interruptible}
+	}
+	return result
+}
+
+type responseStream struct {
+	StreamDecoder
+	response *Response
+}
+
+func (s *responseStream) ResponseMetadata() *Response {
+	return s.response
+}
+
+type interruptibleResponseStream struct {
+	*responseStream
+	interruptible streams.Interruptible
+}
+
+func (s *interruptibleResponseStream) Interrupt() error {
+	return s.interruptible.Interrupt()
 }
 
 // BuildHttpRequest builds an HTTP request from Request.

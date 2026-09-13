@@ -239,6 +239,19 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 	requestContextErr := context.Cause(ctx)
 	err = terminalErrorCause(err, requestContextErr)
 	errorInfo := ExtractErrorInfo(err)
+	if errorInfo == nil {
+		errorInfo = state.currentFailedStreamErrorInfo(ctx)
+	}
+	if errorInfo == nil {
+		errorInfo = state.currentAttemptErrorInfo()
+	}
+	if state.ProviderStreamResponse != nil && (errorInfo == nil || errorInfo.StatusCode == nil) {
+		statusCode := state.ProviderStreamResponse.StatusCode
+		if errorInfo == nil {
+			errorInfo = &biz.ExecutionErrorInfo{}
+		}
+		errorInfo.StatusCode = &statusCode
+	}
 	state.recordAttemptErrorInfo(errorInfo)
 
 	// Use context without cancellation to ensure persistence even if client canceled
@@ -250,7 +263,7 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 		state.RequestExec.ID,
 		err,
 		requestContextErr,
-		ExtractErrorMessage(err),
+		streamFailureMessage(ExtractErrorMessage(err), state.ProviderStreamResponse),
 		errorInfo,
 		failureLatencyMetrics(state.Perf),
 	)

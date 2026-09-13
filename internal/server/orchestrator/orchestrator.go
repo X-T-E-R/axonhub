@@ -382,6 +382,9 @@ func (processor *ChatCompletionOrchestrator) process(
 	if cyberSessionState != nil {
 		middlewares = append(middlewares, &cyberSessionObservationMiddleware{blocking: cyberSessionState})
 	}
+	// Registered absolutely last so reverse-order raw stream callbacks capture
+	// the executor's response metadata before another middleware wraps the stream.
+	middlewares = append(middlewares, captureProviderStreamResponse(outbound))
 
 	pipelineOpts = append(pipelineOpts, pipeline.WithMiddlewares(middlewares...))
 

@@ -91,6 +91,9 @@ type PersistenceState struct {
 
 	// RawProviderResponse stores the raw provider response for non-stream response pass-through.
 	RawProviderResponse *httpclient.Response
+	// ProviderStreamResponse stores the headers/status for an established provider
+	// stream. Its body remains owned by the stream decoder and is never read here.
+	ProviderStreamResponse *httpclient.Response
 
 	// RawProviderRequest stores the actual outbound provider request for pass-through checks.
 	RawProviderRequest *httpclient.Request
@@ -120,6 +123,7 @@ type PersistenceState struct {
 	attemptErrorInfo                  *biz.ExecutionErrorInfo
 	deferredRequestFailurePersisted   bool
 	deferredExecutionFailurePersisted bool
+	failedStreamEvidence              *OutboundPersistentStream
 	streamCompletionConfirmed         bool
 	semanticInterruptStarted          bool
 	lifecycleStarted                  time.Time
@@ -270,10 +274,12 @@ func (s *PersistenceState) resetStreamTerminalState() {
 	s.deferredFailureMu.Lock()
 	s.StreamCompleted = false
 	s.providerTerminalStatus = streamTerminalNone
+	s.ProviderStreamResponse = nil
 	s.deferredStreamError = nil
 	s.attemptErrorInfo = nil
 	s.deferredRequestFailurePersisted = false
 	s.deferredExecutionFailurePersisted = false
+	s.failedStreamEvidence = nil
 	s.streamCompletionConfirmed = false
 	s.semanticInterruptStarted = false
 	s.deferredFailureMu.Unlock()
@@ -308,6 +314,39 @@ func (s *PersistenceState) currentAttemptErrorInfo() *biz.ExecutionErrorInfo {
 	s.deferredFailureMu.Lock()
 	defer s.deferredFailureMu.Unlock()
 	return cloneExecutionErrorInfo(s.attemptErrorInfo)
+}
+
+func (s *PersistenceState) registerFailedStreamEvidence(stream *OutboundPersistentStream) {
+	if s == nil {
+		return
+	}
+	s.deferredFailureMu.Lock()
+	s.failedStreamEvidence = stream
+	s.deferredFailureMu.Unlock()
+}
+
+func (s *PersistenceState) clearFailedStreamEvidence(stream *OutboundPersistentStream) {
+	if s == nil {
+		return
+	}
+	s.deferredFailureMu.Lock()
+	if s.failedStreamEvidence == stream {
+		s.failedStreamEvidence = nil
+	}
+	s.deferredFailureMu.Unlock()
+}
+
+func (s *PersistenceState) currentFailedStreamErrorInfo(ctx context.Context) *biz.ExecutionErrorInfo {
+	if s == nil {
+		return nil
+	}
+	s.deferredFailureMu.Lock()
+	stream := s.failedStreamEvidence
+	s.deferredFailureMu.Unlock()
+	if stream == nil {
+		return nil
+	}
+	return stream.terminalStreamErrorInfo(ctx)
 }
 
 func (s *PersistenceState) providerTerminalOutcome() streamTerminalStatus {

@@ -145,6 +145,14 @@ func SummarizeBinaryChunk(event *StreamEvent) *StreamEvent {
 // StreamDecoder defines the interface for decoding streaming responses.
 type StreamDecoder = streams.Stream[*StreamEvent]
 
+// ResponseStream exposes the HTTP response metadata that was available before
+// the streaming body was handed to a decoder. Consumers must not read or close
+// Response.RawResponse.Body; the embedded StreamDecoder owns it.
+type ResponseStream interface {
+	StreamDecoder
+	ResponseMetadata() *Response
+}
+
 // StreamDecoderFactory is a function that creates a StreamDecoder from a ReadCloser.
 type StreamDecoderFactory func(ctx context.Context, rc io.ReadCloser) StreamDecoder
 

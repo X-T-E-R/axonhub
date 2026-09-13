@@ -1,12 +1,16 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/samber/lo"
+	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
@@ -47,6 +51,8 @@ type OutboundPersistentStream struct {
 	state           *PersistenceState
 	streamCompleted bool
 	providerStatus  streamTerminalStatus
+	failureInfoOnce sync.Once
+	failureInfo     *biz.ExecutionErrorInfo
 }
 
 var _ streams.Stream[*httpclient.StreamEvent] = (*OutboundPersistentStream)(nil)
@@ -81,8 +87,20 @@ func NewOutboundPersistentStream(
 		channel:         channel,
 		observation:     requestService.NewObservationStreamBuffer(ctx, channel, true),
 	}
+	state.registerFailedStreamEvidence(s)
 
 	return s
+}
+
+func captureProviderStreamResponse(outbound *PersistentOutboundTransformer) pipeline.Middleware {
+	return pipeline.OnRawStream("capture-provider-stream-response", func(_ context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+		if outbound != nil && outbound.state != nil {
+			if responseStream, ok := stream.(httpclient.ResponseStream); ok {
+				outbound.state.ProviderStreamResponse = responseStream.ResponseMetadata()
+			}
+		}
+		return stream, nil
+	})
 }
 
 func (ts *OutboundPersistentStream) Next() bool {
@@ -131,6 +149,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	}
 
 	ts.closed = true
+	defer ts.state.clearFailedStreamEvidence(ts)
 	defer ts.observation.Close()
 	defer func() { ts.responseChunks = nil }()
 	ctx := ts.observation.Context(ts.ctx)
@@ -201,6 +220,8 @@ func (ts *OutboundPersistentStream) Close() error {
 			ts.streamCompleted = true
 			streamCompleted = true
 			ts.state.markStreamCompleted()
+		} else {
+			ts.cacheTerminalStreamErrorInfo(responseBody, aggErr)
 		}
 	} else {
 		ts.logFinalizationDecision(ctx, "no_outbound_chunks_to_aggregate", streamErr, ctxErr, false, nil)
@@ -255,15 +276,19 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Con
 
 	requestContextCause := context.Cause(ctx)
 	streamErr = terminalErrorCause(streamErr, requestContextCause)
+	errorInfo := ts.terminalStreamErrorInfo(ctx)
+	ts.state.recordAttemptErrorInfo(errorInfo)
 
 	// Give the terminal status its own persistence budget and store it first. A
 	// blocked external chunk write must not leave the execution processing.
 	statusCtx, cancelStatus := xcontext.DetachWithTimeout(ctx, 10*time.Second)
-	if err := ts.RequestService.UpdateRequestExecutionStatusFromErrorWithMetrics(
+	if err := ts.RequestService.UpdateRequestExecutionStatusFromErrorDetailsWithMetrics(
 		statusCtx,
 		ts.requestExec.ID,
 		streamErr,
 		requestContextCause,
+		streamFailureMessage(streamErr.Error(), ts.state.ProviderStreamResponse),
+		errorInfo,
 		failureLatencyMetrics(ts.perf),
 	); err != nil {
 		log.Warn(statusCtx, "Failed to update request execution status from error", log.Cause(err))
@@ -271,6 +296,152 @@ func (ts *OutboundPersistentStream) persistTerminalStreamFailure(ctx context.Con
 	cancelStatus()
 
 	ts.persistTerminalStreamFailureChunks(ctx)
+}
+
+func streamFailureMessage(message string, response *httpclient.Response) string {
+	if response == nil {
+		return message
+	}
+	if contentType := response.Headers.Get("Content-Type"); contentType != "" {
+		return fmt.Sprintf("%s (upstream content-type %q)", message, contentType)
+	}
+	return message
+}
+
+func (ts *OutboundPersistentStream) terminalStreamErrorInfo(ctx context.Context) *biz.ExecutionErrorInfo {
+	ts.failureInfoOnce.Do(func() {
+		var body []byte
+		var aggregateErr error
+		bodyAvailable := ts.observation == nil && ts.RequestService.ShouldStoreExecutionResponseBody(ctx, ts.channel)
+		if ts.observation != nil {
+			bodyAvailable = ts.observation.BodyEnabled && !ts.observation.Unavailable
+		}
+		if bodyAvailable && len(ts.responseChunks) > 0 {
+			body, _, aggregateErr = ts.transformer.AggregateStreamChunks(context.WithoutCancel(ctx), ts.state.RawProviderRequest, ts.responseChunks)
+		}
+		ts.failureInfo = ts.buildTerminalStreamErrorInfo(body, aggregateErr)
+	})
+	return ts.failureInfo
+}
+
+func (ts *OutboundPersistentStream) cacheTerminalStreamErrorInfo(body []byte, aggregateErr error) {
+	ts.failureInfoOnce.Do(func() {
+		ts.failureInfo = ts.buildTerminalStreamErrorInfo(body, aggregateErr)
+	})
+}
+
+func (ts *OutboundPersistentStream) buildTerminalStreamErrorInfo(body []byte, aggregateErr error) *biz.ExecutionErrorInfo {
+	info := &biz.ExecutionErrorInfo{}
+	if ts.state != nil && ts.state.ProviderStreamResponse != nil {
+		statusCode := ts.state.ProviderStreamResponse.StatusCode
+		info.StatusCode = &statusCode
+	}
+
+	bodyAvailable := ts.observation == nil && ts.RequestService.ShouldStoreExecutionResponseBody(ts.ctx, ts.channel)
+	if ts.observation != nil {
+		bodyAvailable = ts.observation.BodyEnabled && !ts.observation.Unavailable
+	}
+	if bodyAvailable && aggregateErr == nil && len(body) > 0 {
+		body, err := incompleteStreamEvidenceBody(body, ts.transformer.APIFormat(), ts.responseChunks)
+		if err == nil {
+			info.ResponseBody = body
+		}
+	}
+
+	if info.StatusCode == nil && len(info.ResponseBody) == 0 {
+		return nil
+	}
+	return info
+}
+
+type observedStreamTerminalFields struct {
+	finishReasons   map[int]string
+	responseStatus  *string
+	stopReason      *string
+	stopSequence    any
+	stopSequenceSet bool
+}
+
+func observeStreamTerminalFields(chunks []*httpclient.StreamEvent) observedStreamTerminalFields {
+	observed := observedStreamTerminalFields{finishReasons: make(map[int]string)}
+	for _, chunk := range chunks {
+		if chunk == nil || len(chunk.Data) == 0 {
+			continue
+		}
+		gjson.GetBytes(chunk.Data, "choices").ForEach(func(_, choice gjson.Result) bool {
+			finishReason := choice.Get("finish_reason")
+			if finishReason.Type == gjson.String && finishReason.String() != "" {
+				observed.finishReasons[int(choice.Get("index").Int())] = finishReason.String()
+			}
+			return true
+		})
+		if status := gjson.GetBytes(chunk.Data, "response.status"); status.Type == gjson.String && status.String() != "" {
+			value := status.String()
+			observed.responseStatus = &value
+		}
+		if reason := gjson.GetBytes(chunk.Data, "delta.stop_reason"); reason.Type == gjson.String && reason.String() != "" {
+			value := reason.String()
+			observed.stopReason = &value
+		}
+		if sequence := gjson.GetBytes(chunk.Data, "delta.stop_sequence"); sequence.Exists() {
+			observed.stopSequence = sequence.Value()
+			observed.stopSequenceSet = true
+		}
+	}
+	return observed
+}
+
+func incompleteStreamEvidenceBody(body []byte, format llm.APIFormat, chunks []*httpclient.StreamEvent) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var value map[string]any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+
+	observed := observeStreamTerminalFields(chunks)
+	switch format {
+	case llm.APIFormatOpenAIChatCompletion, llm.APIFormatOpenAICompletion:
+		if choices, ok := value["choices"].([]any); ok {
+			for position, choice := range choices {
+				if item, ok := choice.(map[string]any); ok {
+					index := position
+					switch rawIndex := item["index"].(type) {
+					case json.Number:
+						if parsed, err := rawIndex.Int64(); err == nil {
+							index = int(parsed)
+						}
+					case float64:
+						index = int(rawIndex)
+					}
+					if reason, ok := observed.finishReasons[index]; ok {
+						item["finish_reason"] = reason
+					} else {
+						item["finish_reason"] = nil
+					}
+				}
+			}
+		}
+	case llm.APIFormatOpenAIResponse:
+		if observed.responseStatus != nil {
+			value["status"] = *observed.responseStatus
+		} else if value["status"] == "completed" {
+			delete(value, "status")
+		}
+	case llm.APIFormatAnthropicMessage:
+		if observed.stopReason != nil {
+			value["stop_reason"] = *observed.stopReason
+		} else {
+			value["stop_reason"] = nil
+		}
+		if observed.stopSequenceSet {
+			value["stop_sequence"] = observed.stopSequence
+		} else {
+			value["stop_sequence"] = nil
+		}
+	}
+
+	return json.Marshal(value)
 }
 
 func (ts *OutboundPersistentStream) persistProviderTerminalStatus(ctx context.Context, status streamTerminalStatus) {
