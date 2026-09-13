@@ -207,6 +207,10 @@ func (t *OutboundTransformer) TransformRequest(ctx context.Context, llmReq *llm.
 	if err != nil {
 		return nil, err
 	}
+	if llmReq.APIFormat != llm.APIFormatOpenAIChatCompletion {
+		// 工具绑定按原消息索引转换，图片消息必须在绑定完成后展开。
+		oaiReq.Messages = liftToolResultImages(oaiReq.Messages)
+	}
 	// Apply per-channel reasoning_effort mapping for non-standard OpenAI-compatible providers.
 	// Entries in the map replace the effort value; values not in the map pass through unchanged.
 	// e.g. ollama channel with {"xhigh": "max"} converts Anthropic's internal "xhigh" back to "max".
