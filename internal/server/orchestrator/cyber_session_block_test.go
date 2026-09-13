@@ -180,7 +180,7 @@ func TestCyberSessionCacheKeysRequireTrustedKeyAndKeepSemanticIDsExclusive(t *te
 	require.NotContains(t, secondPromptLookup, firstPromptMark)
 
 	threadOnly := cyberLLMRequest(`{"model":"gpt-4"}`)
-	threadOnly.RawRequest.Headers.Set("AH-Thread-Id", "database-thread")
+	threadOnly.RawRequest.Headers.Set("Ah-Thread-Id", "database-thread")
 	_, _, ok = cyberSessionCacheKeys(cyberTestPersistenceState(7, 11), threadOnly)
 	require.False(t, ok, "database thread IDs are not upstream semantic conversation IDs")
 }
@@ -506,7 +506,6 @@ func TestChatCompletionOrchestrator_CyberSessionBlockStopsExecutorAndPersistsLoc
 	_, err = orch.Process(requestCtx, uncached)
 	require.Error(t, err)
 	require.EqualValues(t, 7, executor.requestCalls.Load(), "cache uncertainty must fail open for a later request")
-
 }
 
 func TestChatCompletionOrchestrator_CyberStreamBlocksNextCall(t *testing.T) {

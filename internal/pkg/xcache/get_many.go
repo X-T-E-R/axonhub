@@ -2,6 +2,7 @@ package xcache
 
 import (
 	"context"
+	"maps"
 	"time"
 )
 
@@ -103,9 +104,7 @@ func getManyFromLayer[T any](ctx context.Context, cache SetterCache[T], keys []s
 			if err != nil {
 				continue
 			}
-			for key, value := range values {
-				result[key] = value
-			}
+			maps.Copy(result, values)
 		}
 	} else {
 		for _, key := range keys {

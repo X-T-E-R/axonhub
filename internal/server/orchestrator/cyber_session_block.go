@@ -124,6 +124,7 @@ func (s *cyberSessionRequestState) markBlocked(ctx context.Context) {
 
 type cyberSessionAdmissionMiddleware struct {
 	pipeline.DummyMiddleware
+
 	state    *PersistenceState
 	blocking *cyberSessionRequestState
 }
@@ -168,6 +169,7 @@ func (m *cyberSessionAdmissionMiddleware) OnInboundLlmRequest(ctx context.Contex
 
 type cyberSessionObservationMiddleware struct {
 	pipeline.DummyMiddleware
+
 	blocking *cyberSessionRequestState
 }
 
@@ -204,6 +206,7 @@ func (m *cyberSessionObservationMiddleware) OnOutboundRawStream(ctx context.Cont
 
 type cyberPolicyObservationStream struct {
 	streams.Stream[*httpclient.StreamEvent]
+
 	ctx      context.Context
 	blocking *cyberSessionRequestState
 }

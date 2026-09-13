@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	redis "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
 type countingRedisClient struct {
 	redis.UniversalClient
+
 	mgetCalls atomic.Int64
 }
 
