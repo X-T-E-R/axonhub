@@ -357,10 +357,16 @@ func (hc *HttpClient) DoStream(ctx context.Context, request *Request) (streams.S
 
 	// Try to get a registered decoder for the content type
 	decoderFactory, exists := GetDecoder(contentType)
+	mediaType := contentType
 	if !exists {
-		if mediaType, _, err := mime.ParseMediaType(contentType); err == nil {
+		if parsedMediaType, _, err := mime.ParseMediaType(contentType); err == nil {
+			mediaType = parsedMediaType
 			decoderFactory, exists = GetDecoder(mediaType)
 		}
+	}
+	if !exists && strings.EqualFold(mediaType, "application/json") {
+		decoderFactory = NewJSONStreamDecoder
+		exists = true
 	}
 	if !exists {
 		// Fallback to default SSE decoder

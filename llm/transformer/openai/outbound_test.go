@@ -524,6 +524,123 @@ func TestOutboundTransformer_TransformStreamChunk_StreamErrorEvent(t *testing.T)
 	assert.Equal(t, "2026031122524215033670187648af", respErr.Detail.RequestID)
 }
 
+func TestOutboundTransformer_TransformStreamChunk_JSONCompletion(t *testing.T) {
+	transformerInterface, err := NewOutboundTransformer("https://api.openai.com/v1", "test-key")
+	assert.NoError(t, err)
+	transformer := transformerInterface.(*OutboundTransformer)
+
+	chunk, err := transformer.TransformStreamChunk(t.Context(), &httpclient.StreamEvent{
+		Type: httpclient.JSONStreamEventType,
+		Data: []byte(`{
+			"id":"chatcmpl-json","object":"chat.completion","created":42,"model":"command-r",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"complete reply"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10},"error":null
+		}`),
+	})
+
+	assert.NoError(t, err)
+	if !assert.NotNil(t, chunk) || !assert.Len(t, chunk.Choices, 1) {
+		return
+	}
+	assert.Equal(t, "chat.completion.chunk", chunk.Object)
+	assert.Nil(t, chunk.Choices[0].Message)
+	if assert.NotNil(t, chunk.Choices[0].Delta) && assert.NotNil(t, chunk.Choices[0].Delta.Content.Content) {
+		assert.Equal(t, "complete reply", *chunk.Choices[0].Delta.Content.Content)
+	}
+	assert.Equal(t, "stop", *chunk.Choices[0].FinishReason)
+	if assert.NotNil(t, chunk.Usage) {
+		assert.Equal(t, int64(10), chunk.Usage.TotalTokens)
+	}
+}
+
+func TestOutboundTransformer_TransformStreamChunk_JSONCompletionToolCalls(t *testing.T) {
+	transformerInterface, err := NewOutboundTransformer("https://api.openai.com/v1", "test-key")
+	assert.NoError(t, err)
+	transformer := transformerInterface.(*OutboundTransformer)
+
+	chunk, err := transformer.TransformStreamChunk(t.Context(), &httpclient.StreamEvent{
+		Type: httpclient.JSONStreamEventType,
+		Data: []byte(`{
+			"id":"chatcmpl-tool","object":"chat.completion","created":43,"model":"command-r",
+			"choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}},
+				{"id":"call_2","type":"function","function":{"name":"list_files","arguments":"{\"path\":\"docs\"}"}}
+			]},"finish_reason":"tool_calls"}],
+			"usage":{"prompt_tokens":8,"completion_tokens":5,"total_tokens":13}
+		}`),
+	})
+
+	assert.NoError(t, err)
+	if !assert.NotNil(t, chunk) || !assert.Len(t, chunk.Choices, 1) || !assert.NotNil(t, chunk.Choices[0].Delta) {
+		return
+	}
+	if assert.Len(t, chunk.Choices[0].Delta.ToolCalls, 2) {
+		assert.Equal(t, "call_1", chunk.Choices[0].Delta.ToolCalls[0].ID)
+		assert.Equal(t, 0, chunk.Choices[0].Delta.ToolCalls[0].Index)
+		assert.Equal(t, "read_file", chunk.Choices[0].Delta.ToolCalls[0].Function.Name)
+		assert.JSONEq(t, `{"path":"README.md"}`, chunk.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+		assert.Equal(t, "call_2", chunk.Choices[0].Delta.ToolCalls[1].ID)
+		assert.Equal(t, 1, chunk.Choices[0].Delta.ToolCalls[1].Index)
+		assert.Equal(t, "list_files", chunk.Choices[0].Delta.ToolCalls[1].Function.Name)
+		assert.JSONEq(t, `{"path":"docs"}`, chunk.Choices[0].Delta.ToolCalls[1].Function.Arguments)
+	}
+	assert.Equal(t, "tool_calls", *chunk.Choices[0].FinishReason)
+}
+
+func TestParseStreamErrorEvent_ExplicitJSONEnvelopes(t *testing.T) {
+	tests := []struct {
+		name        string
+		data        string
+		wantMessage string
+		wantType    string
+		wantCode    string
+	}{
+		{
+			name:        "OpenAI envelope",
+			data:        `{"error":{"message":"quota exhausted","type":"insufficient_quota","code":"quota","param":"model"}}`,
+			wantMessage: "quota exhausted",
+			wantType:    "insufficient_quota",
+			wantCode:    "quota",
+		},
+		{
+			name:        "Anthropic envelope",
+			data:        `{"type":"error","error":{"type":"overloaded_error","message":"busy"}}`,
+			wantMessage: "busy",
+			wantType:    "overloaded_error",
+		},
+		{
+			name:        "top-level typed error",
+			data:        `{"type":"error","message":"bad gateway response","code":"bad_response"}`,
+			wantMessage: "bad gateway response",
+			wantType:    "error",
+			wantCode:    "bad_response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseStreamErrorEvent(&httpclient.StreamEvent{Type: httpclient.JSONStreamEventType, Data: []byte(tt.data)})
+			if !assert.NotNil(t, got) {
+				return
+			}
+			assert.Equal(t, tt.wantMessage, got.Detail.Message)
+			assert.Equal(t, tt.wantType, got.Detail.Type)
+			assert.Equal(t, tt.wantCode, got.Detail.Code)
+		})
+	}
+}
+
+func TestParseStreamErrorEvent_DoesNotInferErrorsFromSuccessfulPayload(t *testing.T) {
+	tests := []string{
+		`{"id":"chatcmpl-ok","object":"chat.completion","error":null,"choices":[{"message":{"role":"assistant","content":"generated status=error and type=error text"},"finish_reason":"stop"}]}`,
+		`{"id":"chatcmpl-ok","object":"chat.completion","status":"error","choices":[{"message":{"role":"assistant","content":"ordinary answer"},"finish_reason":"stop"}]}`,
+	}
+
+	for _, data := range tests {
+		assert.Nil(t, parseStreamErrorEvent(&httpclient.StreamEvent{Type: httpclient.JSONStreamEventType, Data: []byte(data)}))
+	}
+}
+
 func TestOutboundTransformer_TransformStream_FiltersEmptyChoicesWithoutDroppingUsageChunk(t *testing.T) {
 	transformerInterface, err := NewOutboundTransformer("https://api.openai.com/v1", "test-key")
 	if err != nil {

@@ -1176,6 +1176,19 @@ func classifyStreamError(err error) (code, message string) {
 	code = "stream_error"
 	message = err.Error()
 
+	var responseErr *llm.ResponseError
+	if errors.As(err, &responseErr) {
+		if responseErr.Detail.Code != "" {
+			code = responseErr.Detail.Code
+		} else if responseErr.Detail.Type != "" {
+			code = responseErr.Detail.Type
+		}
+		if responseErr.Detail.Message != "" {
+			message = responseErr.Detail.Message
+		}
+		return code, message
+	}
+
 	if errors.Is(err, transformer.ErrToolCallIntegrity) {
 		code = "tool_call_integrity"
 		message = "tool call stream ended before a valid terminal boundary"

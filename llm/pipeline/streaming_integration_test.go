@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/samber/lo"
@@ -17,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer"
 	"github.com/looplj/axonhub/llm/transformer/anthropic"
 	"github.com/looplj/axonhub/llm/transformer/openai"
+	responsestransformer "github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
 
 type streamUpgradeOutboundWrapper struct {
@@ -669,7 +671,6 @@ func TestPipeline_NonStreaming_AutoAggregateUpgradedStream_EmptyAggregatedBody(t
 	require.ErrorContains(t, err, "empty aggregated body")
 }
 
-
 func TestPipeline_NonStreaming_AutoAggregateUpgradedStream_EmptyJSONObjectAggregatedBodyAllowed(t *testing.T) {
 	ctx := context.Background()
 
@@ -863,4 +864,213 @@ func TestPipeline_Streaming_WithTestData(t *testing.T) {
 			tt.expectedOutputCheck(t, collectedEvents)
 		})
 	}
+}
+
+func runChatUpstreamResponsesStream(
+	t *testing.T,
+	contentType string,
+	body string,
+) ([]*httpclient.StreamEvent, error) {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "text/event-stream", r.Header.Get("Accept"))
+
+		var upstreamRequest map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&upstreamRequest))
+		require.Equal(t, true, upstreamRequest["stream"])
+
+		w.Header().Set("Content-Type", contentType)
+		_, err := w.Write([]byte(body))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	outbound, err := openai.NewOutboundTransformer(server.URL, "test-api-key")
+	require.NoError(t, err)
+	p := pipeline.NewFactory(httpclient.NewHttpClient()).Pipeline(
+		responsestransformer.NewInboundTransformer(),
+		outbound,
+	)
+
+	result, err := p.Process(t.Context(), &httpclient.Request{
+		Method: http.MethodPost,
+		URL:    "/v1/responses",
+		Headers: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		Body: []byte(`{"model":"command-r","input":"test prompt","stream":true}`),
+	})
+	if err != nil {
+		return nil, err
+	}
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.NotNil(t, result.EventStream)
+	defer result.EventStream.Close()
+
+	var events []*httpclient.StreamEvent
+	for result.EventStream.Next() {
+		events = append(events, result.EventStream.Current())
+	}
+
+	return events, result.EventStream.Err()
+}
+
+func responsesEventByType(t *testing.T, events []*httpclient.StreamEvent, eventType string) responsestransformer.StreamEvent {
+	t.Helper()
+
+	for _, event := range events {
+		if event == nil || event.Type != eventType {
+			continue
+		}
+
+		var decoded responsestransformer.StreamEvent
+		require.NoError(t, json.Unmarshal(event.Data, &decoded))
+		return decoded
+	}
+
+	require.FailNow(t, "missing Responses stream event", "type=%s events=%v", eventType, events)
+	return responsestransformer.StreamEvent{}
+}
+
+func responsesEventsByType(t *testing.T, events []*httpclient.StreamEvent, eventType string) []responsestransformer.StreamEvent {
+	t.Helper()
+
+	var decodedEvents []responsestransformer.StreamEvent
+	for _, event := range events {
+		if event == nil || event.Type != eventType {
+			continue
+		}
+		var decoded responsestransformer.StreamEvent
+		require.NoError(t, json.Unmarshal(event.Data, &decoded))
+		decodedEvents = append(decodedEvents, decoded)
+	}
+	return decodedEvents
+}
+
+func TestPipeline_Streaming_OpenAIChatJSONToResponses(t *testing.T) {
+	t.Run("text and usage", func(t *testing.T) {
+		events, err := runChatUpstreamResponsesStream(t, "application/json; charset=utf-8", `{
+			"id":"chatcmpl-json","object":"chat.completion","created":42,"model":"command-r",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"complete reply"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10},"error":null
+		}`)
+		require.NoError(t, err)
+
+		delta := responsesEventByType(t, events, "response.output_text.delta")
+		require.Equal(t, "complete reply", delta.Delta)
+
+		completed := responsesEventByType(t, events, "response.completed")
+		require.NotNil(t, completed.Response)
+		require.Equal(t, "chatcmpl-json", completed.Response.ID)
+		require.NotNil(t, completed.Response.Status)
+		require.Equal(t, "completed", *completed.Response.Status)
+		require.NotNil(t, completed.Response.Usage)
+		require.Equal(t, int64(10), completed.Response.Usage.TotalTokens)
+		require.Len(t, completed.Response.Output, 1)
+		require.Equal(t, "message", completed.Response.Output[0].Type)
+	})
+
+	t.Run("tool calls and usage", func(t *testing.T) {
+		events, err := runChatUpstreamResponsesStream(t, "application/json", `{
+			"id":"chatcmpl-tool","object":"chat.completion","created":43,"model":"command-r",
+			"choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}},
+				{"id":"call_2","type":"function","function":{"name":"list_files","arguments":"{\"path\":\"docs\"}"}}
+			]},"finish_reason":"tool_calls"}],
+			"usage":{"prompt_tokens":8,"completion_tokens":5,"total_tokens":13}
+		}`)
+		require.NoError(t, err)
+
+		arguments := responsesEventsByType(t, events, "response.function_call_arguments.done")
+		require.Len(t, arguments, 2)
+		require.Equal(t, `{"path":"README.md"}`, arguments[0].Arguments)
+		require.Equal(t, `{"path":"docs"}`, arguments[1].Arguments)
+
+		completed := responsesEventByType(t, events, "response.completed")
+		require.NotNil(t, completed.Response)
+		require.NotNil(t, completed.Response.Usage)
+		require.Equal(t, int64(13), completed.Response.Usage.TotalTokens)
+		require.Len(t, completed.Response.Output, 2)
+		require.Equal(t, "function_call", completed.Response.Output[0].Type)
+		require.Equal(t, "call_1", completed.Response.Output[0].CallID)
+		require.Equal(t, "read_file", completed.Response.Output[0].Name)
+		require.Equal(t, `{"path":"README.md"}`, completed.Response.Output[0].Arguments)
+		require.Equal(t, "function_call", completed.Response.Output[1].Type)
+		require.Equal(t, "call_2", completed.Response.Output[1].CallID)
+		require.Equal(t, "list_files", completed.Response.Output[1].Name)
+		require.Equal(t, `{"path":"docs"}`, completed.Response.Output[1].Arguments)
+	})
+}
+
+func TestPipeline_Streaming_OpenAIChatJSONToResponsesFailures(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name:        "OpenAI JSON error",
+			contentType: "application/json",
+			body:        `{"error":{"message":"quota exhausted","type":"insufficient_quota","code":"quota"}}`,
+			wantCode:    "quota",
+			wantMessage: "quota exhausted",
+		},
+		{
+			name:        "top-level typed JSON error",
+			contentType: "application/json",
+			body:        `{"type":"error","message":"bad gateway response","code":"bad_response"}`,
+			wantCode:    "bad_response",
+			wantMessage: "bad gateway response",
+		},
+		{
+			name:        "SSE error remains supported",
+			contentType: "text/event-stream",
+			body:        "data: {\"error\":{\"message\":\"stream quota exhausted\",\"type\":\"insufficient_quota\",\"code\":\"stream_quota\"}}\n\n",
+			wantCode:    "stream_quota",
+			wantMessage: "stream quota exhausted",
+		},
+		{
+			name:        "empty JSON body",
+			contentType: "application/json",
+			body:        "",
+			wantCode:    "stream_error",
+			wantMessage: "unexpected EOF",
+		},
+		{
+			name:        "malformed JSON body",
+			contentType: "application/json",
+			body:        `{"choices":[}`,
+			wantCode:    "stream_error",
+			wantMessage: "invalid JSON stream response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events, err := runChatUpstreamResponsesStream(t, tt.contentType, tt.body)
+			require.NoError(t, err)
+
+			errorEvent := responsesEventByType(t, events, "error")
+			require.Equal(t, tt.wantCode, errorEvent.Code)
+			require.Contains(t, errorEvent.Message, tt.wantMessage)
+		})
+	}
+}
+
+func TestPipeline_Streaming_OpenAIChatNativeSSEToResponsesUnchanged(t *testing.T) {
+	events, err := runChatUpstreamResponsesStream(t, "text/event-stream", ""+
+		"data: {\"id\":\"chatcmpl-sse\",\"object\":\"chat.completion.chunk\",\"created\":44,\"model\":\"command-r\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"native stream\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":6,\"completion_tokens\":2,\"total_tokens\":8}}\n\n"+
+		"data: [DONE]\n\n")
+	require.NoError(t, err)
+
+	delta := responsesEventByType(t, events, "response.output_text.delta")
+	require.Equal(t, "native stream", delta.Delta)
+	completed := responsesEventByType(t, events, "response.completed")
+	require.NotNil(t, completed.Response)
+	require.Equal(t, "chatcmpl-sse", completed.Response.ID)
 }

@@ -133,3 +133,52 @@ func TestAggregateStreamChunksMessageToolCallsOverridePartialDeltas(t *testing.T
 		})
 	}
 }
+
+func TestAggregateStreamChunksJSONCompletionPreservesMessageAndUsage(t *testing.T) {
+	chunk := &httpclient.StreamEvent{
+		Type: httpclient.JSONStreamEventType,
+		Data: []byte(`{
+			"id":"chatcmpl-json","object":"chat.completion","created":42,"model":"command-r",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"complete reply","tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}},
+				{"id":"call_2","type":"function","function":{"name":"list_files","arguments":"{\"path\":\"docs\"}"}}
+			]},"finish_reason":"tool_calls"}],
+			"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}
+		}`),
+	}
+
+	gotBytes, meta, err := AggregateStreamChunks(t.Context(), []*httpclient.StreamEvent{chunk}, DefaultTransformChunk)
+	require.NoError(t, err)
+	require.Equal(t, "chatcmpl-json", meta.ID)
+
+	var got llm.Response
+	require.NoError(t, json.Unmarshal(gotBytes, &got))
+	require.Equal(t, "chat.completion", got.Object)
+	require.Len(t, got.Choices, 1)
+	require.NotNil(t, got.Choices[0].Message)
+	require.NotNil(t, got.Choices[0].Message.Content.Content)
+	require.Equal(t, "complete reply", *got.Choices[0].Message.Content.Content)
+	require.Len(t, got.Choices[0].Message.ToolCalls, 2)
+	require.Equal(t, "call_1", got.Choices[0].Message.ToolCalls[0].ID)
+	require.Equal(t, 0, got.Choices[0].Message.ToolCalls[0].Index)
+	require.Equal(t, `{"path":"README.md"}`, got.Choices[0].Message.ToolCalls[0].Function.Arguments)
+	require.Equal(t, "call_2", got.Choices[0].Message.ToolCalls[1].ID)
+	require.Equal(t, 1, got.Choices[0].Message.ToolCalls[1].Index)
+	require.Equal(t, "list_files", got.Choices[0].Message.ToolCalls[1].Function.Name)
+	require.Equal(t, `{"path":"docs"}`, got.Choices[0].Message.ToolCalls[1].Function.Arguments)
+	require.NotNil(t, got.Usage)
+	require.Equal(t, int64(10), got.Usage.TotalTokens)
+}
+
+func TestAggregateStreamChunksJSONErrorPreservesProviderBody(t *testing.T) {
+	body := []byte(`{"error":{"message":"quota exhausted","type":"insufficient_quota","code":"quota"}}`)
+
+	got, meta, err := AggregateStreamChunks(t.Context(), []*httpclient.StreamEvent{{
+		Type: httpclient.JSONStreamEventType,
+		Data: body,
+	}}, DefaultTransformChunk)
+
+	require.NoError(t, err)
+	require.Empty(t, meta.ID)
+	require.JSONEq(t, string(body), string(got))
+}

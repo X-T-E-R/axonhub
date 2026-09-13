@@ -281,6 +281,69 @@ func TestHttpClientImpl_DoStream(t *testing.T) {
 	}
 }
 
+func TestHttpClientImpl_DoStream_JSONResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "text/event-stream", r.Header.Get("Accept"))
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, err := io.WriteString(w, `{"id":"chatcmpl-json","choices":[]}`)
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	stream, err := client.DoStream(t.Context(), &Request{
+		Method: http.MethodPost,
+		URL:    server.URL,
+		Headers: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		Body: []byte(`{"stream":true}`),
+	})
+	require.NoError(t, err)
+	defer stream.Close()
+
+	responseStream, ok := stream.(ResponseStream)
+	require.True(t, ok)
+	require.Equal(t, "application/json; charset=utf-8", responseStream.ResponseMetadata().Headers.Get("Content-Type"))
+	require.True(t, stream.Next())
+	require.Equal(t, JSONStreamEventType, stream.Current().Type)
+	require.JSONEq(t, `{"id":"chatcmpl-json","choices":[]}`, string(stream.Current().Data))
+	require.False(t, stream.Next())
+	require.NoError(t, stream.Err())
+}
+
+func TestHttpClientImpl_DoStream_RegisteredJSONDecoderTakesPrecedence(t *testing.T) {
+	original, hadOriginal := GetDecoder("application/json")
+	defer func() {
+		globalRegistry.mu.Lock()
+		defer globalRegistry.mu.Unlock()
+		if hadOriginal {
+			globalRegistry.decoders["application/json"] = original
+		} else {
+			delete(globalRegistry.decoders, "application/json")
+		}
+	}()
+
+	RegisterDecoder("application/json", func(ctx context.Context, rc io.ReadCloser) StreamDecoder {
+		return newMockStreamDecoder(ctx, rc, []*StreamEvent{{Type: "custom-json", Data: []byte("custom")}})
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, err := io.WriteString(w, `{"ignored":true}`)
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	stream, err := NewHttpClient().DoStream(t.Context(), &Request{Method: http.MethodGet, URL: server.URL})
+	require.NoError(t, err)
+	defer stream.Close()
+
+	require.True(t, stream.Next())
+	require.Equal(t, "custom-json", stream.Current().Type)
+	require.Equal(t, []byte("custom"), stream.Current().Data)
+}
+
 func TestResponseStreamPreservesDecoderLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

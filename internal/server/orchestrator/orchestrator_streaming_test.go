@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -40,6 +41,187 @@ func mustMarshalGeminiStreamChunk(resp *geminitransformer.GenerateContentRespons
 	}
 
 	return data
+}
+
+type chatHTTPResponsesPersistenceFixture struct {
+	ctx            context.Context
+	client         *ent.Client
+	requestService *biz.RequestService
+	orchestrator   *ChatCompletionOrchestrator
+}
+
+func newChatHTTPResponsesPersistenceFixture(
+	t *testing.T,
+	contentType string,
+	body string,
+) *chatHTTPResponsesPersistenceFixture {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "text/event-stream", r.Header.Get("Accept"))
+		w.Header().Set("Content-Type", contentType)
+		_, err := w.Write([]byte(body))
+		require.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	ctx := authz.WithTestBypass(context.Background())
+	client := enttest.NewEntClient(t, "sqlite3", "file:ent?mode=memory&_fk=0")
+	t.Cleanup(func() { client.Close() })
+	ctx = ent.NewContext(ctx, client)
+	createOutboundTestPrimaryDataStorage(t, ctx, client)
+
+	project := createTestProject(t, ctx, client)
+	channelRow, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("HTTP JSON Chat Channel").
+		SetBaseURL(server.URL).
+		SetCredentials(objects.ChannelCredentials{APIKey: "test-api-key"}).
+		SetSupportedModels([]string{"gpt-4"}).
+		SetDefaultTestModel("gpt-4").
+		Save(ctx)
+	require.NoError(t, err)
+
+	channelService, requestService, systemService, usageLogService := setupTestServices(t, client)
+	require.NoError(t, systemService.SetStoragePolicy(ctx, &biz.StoragePolicy{
+		StoreChunks:       true,
+		StoreRequestBody:  true,
+		StoreResponseBody: true,
+	}))
+
+	outbound, err := openai.NewOutboundTransformer(server.URL, channelRow.Credentials.APIKey)
+	require.NoError(t, err)
+	bizChannel := &biz.Channel{Channel: channelRow, Outbound: outbound}
+	channelSelector := &staticChannelSelector{
+		candidates: channelsToTestCandidates([]*biz.Channel{bizChannel}, "gpt-4"),
+	}
+
+	return &chatHTTPResponsesPersistenceFixture{
+		ctx:            contexts.WithProjectID(ctx, project.ID),
+		client:         client,
+		requestService: requestService,
+		orchestrator: &ChatCompletionOrchestrator{
+			channelSelector:       channelSelector,
+			Inbound:               responsestransformer.NewInboundTransformer(),
+			RequestService:        requestService,
+			ChannelService:        channelService,
+			PromptProvider:        &stubPromptProvider{},
+			SystemService:         systemService,
+			UsageLogService:       usageLogService,
+			PipelineFactory:       pipeline.NewFactory(httpclient.NewHttpClient()),
+			ModelMapper:           NewModelMapper(),
+			channelLimiterManager: NewChannelLimiterManager(),
+			Middlewares: []pipeline.Middleware{
+				stream.EnsureUsage(),
+			},
+		},
+	}
+}
+
+func TestChatCompletionOrchestrator_ResponsesFromChatJSONPersistsCompleteResponse(t *testing.T) {
+	fixture := newChatHTTPResponsesPersistenceFixture(t, "application/json", `{
+		"id":"chatcmpl-json-persist","object":"chat.completion","created":42,"model":"gpt-4",
+		"choices":[{"index":0,"message":{"role":"assistant","content":"complete reply","tool_calls":[
+			{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}},
+			{"id":"call_2","type":"function","function":{"name":"list_files","arguments":"{\"path\":\"docs\"}"}}
+		]},"finish_reason":"tool_calls"}],
+		"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}
+	}`)
+
+	result, err := fixture.orchestrator.Process(fixture.ctx, buildTestResponsesRequest())
+	require.NoError(t, err)
+	require.NotNil(t, result.ChatCompletionStream)
+
+	var completed *responsestransformer.StreamEvent
+	for result.ChatCompletionStream.Next() {
+		event := result.ChatCompletionStream.Current()
+		if event.Type != "response.completed" {
+			continue
+		}
+		var decoded responsestransformer.StreamEvent
+		require.NoError(t, json.Unmarshal(event.Data, &decoded))
+		completed = &decoded
+	}
+	require.NoError(t, result.ChatCompletionStream.Err())
+	require.NoError(t, result.ChatCompletionStream.Close())
+	require.NotNil(t, completed)
+	require.NotNil(t, completed.Response)
+	require.Equal(t, "chatcmpl-json-persist", completed.Response.ID)
+	require.NotNil(t, completed.Response.Usage)
+	require.Equal(t, int64(10), completed.Response.Usage.TotalTokens)
+	require.Len(t, completed.Response.Output, 3)
+	require.Equal(t, "message", completed.Response.Output[0].Type)
+	require.Equal(t, "function_call", completed.Response.Output[1].Type)
+	require.Equal(t, "call_1", completed.Response.Output[1].CallID)
+	require.Equal(t, "read_file", completed.Response.Output[1].Name)
+	require.Equal(t, `{"path":"README.md"}`, completed.Response.Output[1].Arguments)
+	require.Equal(t, "function_call", completed.Response.Output[2].Type)
+	require.Equal(t, "call_2", completed.Response.Output[2].CallID)
+	require.Equal(t, "list_files", completed.Response.Output[2].Name)
+	require.Equal(t, `{"path":"docs"}`, completed.Response.Output[2].Arguments)
+
+	requests, err := fixture.client.Request.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, request.StatusCompleted, requests[0].Status)
+
+	executions, err := fixture.client.RequestExecution.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, executions, 1)
+	require.Equal(t, requestexecution.StatusCompleted, executions[0].Status)
+
+	var persisted openai.Response
+	require.NoError(t, json.Unmarshal(executions[0].ResponseBody, &persisted))
+	require.Equal(t, "chatcmpl-json-persist", persisted.ID)
+	require.Len(t, persisted.Choices, 1)
+	require.NotNil(t, persisted.Choices[0].Message)
+	require.NotNil(t, persisted.Choices[0].Message.Content.Content)
+	require.Equal(t, "complete reply", *persisted.Choices[0].Message.Content.Content)
+	require.Len(t, persisted.Choices[0].Message.ToolCalls, 2)
+	require.Equal(t, "call_1", persisted.Choices[0].Message.ToolCalls[0].ID)
+	require.Equal(t, 0, persisted.Choices[0].Message.ToolCalls[0].Index)
+	require.Equal(t, "read_file", persisted.Choices[0].Message.ToolCalls[0].Function.Name)
+	require.Equal(t, `{"path":"README.md"}`, persisted.Choices[0].Message.ToolCalls[0].Function.Arguments)
+	require.Equal(t, "call_2", persisted.Choices[0].Message.ToolCalls[1].ID)
+	require.Equal(t, 1, persisted.Choices[0].Message.ToolCalls[1].Index)
+	require.Equal(t, "list_files", persisted.Choices[0].Message.ToolCalls[1].Function.Name)
+	require.Equal(t, `{"path":"docs"}`, persisted.Choices[0].Message.ToolCalls[1].Function.Arguments)
+	require.NotNil(t, persisted.Usage)
+	require.Equal(t, int64(10), persisted.Usage.TotalTokens)
+
+	chunks, err := fixture.requestService.LoadRequestExecutionResponseChunks(fixture.ctx, executions[0])
+	require.NoError(t, err)
+	require.Len(t, chunks, 1)
+	require.Contains(t, string(chunks[0]), `"event":"application/json"`)
+	require.Contains(t, string(chunks[0]), `"id":"chatcmpl-json-persist"`)
+}
+
+func TestChatCompletionOrchestrator_ResponsesFromChatJSONErrorPersistsFailureCause(t *testing.T) {
+	fixture := newChatHTTPResponsesPersistenceFixture(t, "application/json", `{
+		"error":{"message":"quota exhausted","type":"insufficient_quota","code":"quota"}
+	}`)
+
+	result, err := fixture.orchestrator.Process(fixture.ctx, buildTestResponsesRequest())
+	require.Nil(t, result.ChatCompletion)
+	require.Nil(t, result.ChatCompletionStream)
+	require.ErrorContains(t, err, "quota exhausted")
+
+	requests, err := fixture.client.Request.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, request.StatusFailed, requests[0].Status)
+	executions, err := fixture.client.RequestExecution.Query().All(fixture.ctx)
+	require.NoError(t, err)
+	require.Len(t, executions, 1)
+	require.Equal(t, requestexecution.StatusFailed, executions[0].Status)
+	require.NotNil(t, executions[0].ResponseStatusCode)
+	require.Equal(t, http.StatusOK, *executions[0].ResponseStatusCode)
+	require.JSONEq(t, `{"error":{"message":"quota exhausted","type":"insufficient_quota","code":"quota"}}`, string(executions[0].ResponseBody))
+	chunks, err := fixture.requestService.LoadRequestExecutionResponseChunks(fixture.ctx, executions[0])
+	require.NoError(t, err)
+	require.Len(t, chunks, 1)
+	require.Contains(t, string(chunks[0]), `"event":"application/json"`)
+	require.Contains(t, string(chunks[0]), `"message":"quota exhausted"`)
 }
 
 func TestChatCompletionOrchestrator_Process_Streaming_PreservesGeminiGroundingAnnotations(t *testing.T) {

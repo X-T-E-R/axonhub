@@ -366,6 +366,20 @@ func (t *OutboundTransformer) TransformStreamChunk(
 	if err != nil {
 		return nil, err
 	}
+	if event.Type == httpclient.JSONStreamEventType {
+		for i := range resp.Choices {
+			if resp.Choices[i].Delta == nil && resp.Choices[i].Message != nil {
+				for position := range resp.Choices[i].Message.ToolCalls {
+					resp.Choices[i].Message.ToolCalls[position].Index = position
+				}
+				resp.Choices[i].Delta = resp.Choices[i].Message
+				resp.Choices[i].Message = nil
+			}
+		}
+		if resp.Object == "chat.completion" {
+			resp.Object = "chat.completion.chunk"
+		}
+	}
 
 	// Normalize empty finish_reason to nil. Some OpenAI-compatible providers
 	// (e.g. Sensenova) emit finish_reason:"" in every stream chunk. An empty
@@ -414,13 +428,16 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 
 	root := gjson.ParseBytes(event.Data)
 
-	// Prefer explicit SSE event type when present.
-	if event.Type == "error" || root.Get("event").String() == "error" {
+	// Prefer explicit SSE event type or an explicit JSON error type when present.
+	if event.Type == "error" || root.Get("event").String() == "error" || root.Get("type").String() == "error" {
 		// Zai-style (SSE `event: error`): {"error":{"code":"...","message":"..."},"request_id":"..."}
 		// Also tolerate wrapped form: {"event":"error","data":{"error":{...},"request_id":"..."}}
 		errObj := root.Get("error")
 		if !errObj.Exists() {
 			errObj = root.Get("data.error")
+		}
+		if !errObj.Exists() || errObj.Type == gjson.Null {
+			errObj = root
 		}
 
 		detail := llm.ErrorDetail{
@@ -451,7 +468,7 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 
 	// OpenAI-style: {"error":{...}} or {"error":"..."}
 	ep := root.Get("error")
-	if !ep.Exists() {
+	if !ep.Exists() || ep.Type == gjson.Null {
 		return nil
 	}
 
@@ -463,6 +480,9 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 	}
 	if detail.Message == "" {
 		detail.Message = ep.String()
+	}
+	if detail.Message == "" {
+		detail.Message = "stream error"
 	}
 
 	// Best-effort request_id extraction (provider-specific).

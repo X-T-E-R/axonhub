@@ -3,7 +3,9 @@ package httpclient
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -42,37 +44,37 @@ func GetDecoder(contentType string) (StreamDecoderFactory, bool) {
 }
 
 const (
-	sseReadIdle uint32 = iota
-	sseReadInProgress
-	sseReadClosed
+	streamReadIdle uint32 = iota
+	streamReadInProgress
+	streamReadClosed
 )
 
-// localSSEReadInterruptError marks an error from a Read that was still active
+// localReadInterruptError marks an error from a Read that was still active
 // when this decoder closed its body. The marker records lifecycle provenance;
 // the wrapped transport error remains available for diagnostics.
-type localSSEReadInterruptError struct {
+type localReadInterruptError struct {
 	err error
 }
 
-func (e *localSSEReadInterruptError) Error() string { return e.err.Error() }
-func (e *localSSEReadInterruptError) Unwrap() error { return e.err }
+func (e *localReadInterruptError) Error() string { return e.err.Error() }
+func (e *localReadInterruptError) Unwrap() error { return e.err }
 
-// interruptibleSSEReadCloser linearizes completion of each body Read against a
+// interruptibleReadCloser linearizes completion of each body Read against a
 // local Close. Once Read changes in-progress back to idle, a later Close cannot
-// relabel its provider error as local teardown, even if Recv has not classified
+// relabel its provider error as local teardown, even if the decoder has not classified
 // that error yet.
-type interruptibleSSEReadCloser struct {
+type interruptibleReadCloser struct {
 	reader io.ReadCloser
 	state  atomic.Uint32
 }
 
-func (r *interruptibleSSEReadCloser) Read(p []byte) (int, error) {
-	if !r.state.CompareAndSwap(sseReadIdle, sseReadInProgress) {
-		return 0, &localSSEReadInterruptError{err: io.ErrClosedPipe}
+func (r *interruptibleReadCloser) Read(p []byte) (int, error) {
+	if !r.state.CompareAndSwap(streamReadIdle, streamReadInProgress) {
+		return 0, &localReadInterruptError{err: io.ErrClosedPipe}
 	}
 
 	n, err := r.reader.Read(p)
-	if r.state.CompareAndSwap(sseReadInProgress, sseReadIdle) {
+	if r.state.CompareAndSwap(streamReadInProgress, streamReadIdle) {
 		return n, err
 	}
 
@@ -83,24 +85,24 @@ func (r *interruptibleSSEReadCloser) Read(p []byte) (int, error) {
 		err = io.ErrClosedPipe
 	}
 
-	return n, &localSSEReadInterruptError{err: err}
+	return n, &localReadInterruptError{err: err}
 }
 
-func (r *interruptibleSSEReadCloser) Close() error {
-	r.state.Swap(sseReadClosed)
+func (r *interruptibleReadCloser) Close() error {
+	r.state.Swap(streamReadClosed)
 
 	return r.reader.Close()
 }
 
-func isLocalSSEReadInterrupt(err error) bool {
-	var interruptErr *localSSEReadInterruptError
+func isLocalReadInterrupt(err error) bool {
+	var interruptErr *localReadInterruptError
 
 	return errors.As(err, &interruptErr)
 }
 
 // NewDefaultSSEDecoder creates a new default SSE decoder.
 func NewDefaultSSEDecoder(ctx context.Context, rc io.ReadCloser) StreamDecoder {
-	reader := &interruptibleSSEReadCloser{reader: rc}
+	reader := &interruptibleReadCloser{reader: rc}
 
 	return &defaultSSEDecoder{
 		ctx:    ctx,
@@ -202,7 +204,7 @@ func (s *defaultSSEDecoder) Next() bool {
 		// Only the reader-owned marker can prove that local Close claimed the
 		// active body Read. The decoder-level closed flag alone is insufficient:
 		// Close may race after a provider error has already completed its Read.
-		if isLocalSSEReadInterrupt(err) {
+		if isLocalReadInterrupt(err) {
 			slog.DebugContext(s.ctx, "SSE stream read interrupted")
 
 			return false
@@ -280,6 +282,111 @@ func init() {
 	RegisterDecoder("audio/flac", NewBinaryChunkDecoder("audio/flac"))
 	RegisterDecoder("audio/pcm", NewBinaryChunkDecoder("audio/pcm"))
 	RegisterDecoder("application/octet-stream", NewBinaryChunkDecoder("application/octet-stream"))
+}
+
+const maxJSONStreamBodySize = 32 * 1024 * 1024
+
+var errJSONStreamBodyTooLarge = errors.New("JSON stream response exceeds size limit")
+
+// JSONStreamEventType marks a complete JSON document returned for a streaming request.
+const JSONStreamEventType = "application/json"
+
+// NewJSONStreamDecoder decodes a complete JSON response body as one stream event.
+func NewJSONStreamDecoder(ctx context.Context, rc io.ReadCloser) StreamDecoder {
+	reader := &interruptibleReadCloser{reader: rc}
+
+	return &jsonStreamDecoder{
+		ctx:    ctx,
+		reader: reader,
+	}
+}
+
+//nolint:containedctx // Checked.
+type jsonStreamDecoder struct {
+	ctx       context.Context
+	reader    io.ReadCloser
+	current   *StreamEvent
+	err       error
+	done      bool
+	afterRead func()
+
+	closed    atomic.Bool
+	closeOnce sync.Once
+	closeErr  error
+}
+
+var _ StreamDecoder = (*jsonStreamDecoder)(nil)
+
+func (d *jsonStreamDecoder) Next() bool {
+	if d.done || d.err != nil || d.closed.Load() {
+		return false
+	}
+	d.done = true
+
+	select {
+	case <-d.ctx.Done():
+		d.err = d.ctx.Err()
+		return false
+	default:
+	}
+
+	body, err := io.ReadAll(io.LimitReader(d.reader, maxJSONStreamBodySize+1))
+	if d.afterRead != nil {
+		d.afterRead()
+	}
+	if err != nil {
+		if isLocalReadInterrupt(err) {
+			return false
+		}
+		d.err = fmt.Errorf("failed to read JSON stream response: %w", err)
+		return false
+	}
+	if len(body) > maxJSONStreamBodySize {
+		d.err = errJSONStreamBodyTooLarge
+		return false
+	}
+
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		d.err = io.ErrUnexpectedEOF
+		return false
+	}
+
+	var raw json.RawMessage
+	if err := json.Unmarshal(trimmed, &raw); err != nil {
+		d.err = fmt.Errorf("invalid JSON stream response: %w", err)
+		return false
+	}
+
+	d.current = &StreamEvent{
+		Type: JSONStreamEventType,
+		Data: bytes.Clone(trimmed),
+	}
+
+	return true
+}
+
+func (d *jsonStreamDecoder) Current() *StreamEvent {
+	return d.current
+}
+
+func (d *jsonStreamDecoder) Err() error {
+	return d.err
+}
+
+func (d *jsonStreamDecoder) Close() error {
+	d.closeOnce.Do(func() {
+		d.closed.Store(true)
+		if d.reader != nil {
+			d.closeErr = d.reader.Close()
+		}
+	})
+
+	return d.closeErr
+}
+
+func (d *jsonStreamDecoder) Interrupt() error {
+	return d.Close()
 }
 
 // NewBinaryChunkDecoder creates a decoder that yields raw bytes as stream events.

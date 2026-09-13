@@ -82,6 +82,13 @@ type readChunkThenError struct {
 	read bool
 }
 
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
 func (r *readChunkThenError) Read(p []byte) (int, error) {
 	if r.read {
 		return 0, io.EOF
@@ -100,6 +107,26 @@ func (r *readChunkThenError) Close() error {
 type cancelThenErrorReadCloser struct {
 	cancel context.CancelFunc
 	err    error
+}
+
+type cancelWithDataReadCloser struct {
+	cancel context.CancelFunc
+	data   []byte
+	read   bool
+}
+
+func (r *cancelWithDataReadCloser) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, io.EOF
+	}
+	r.read = true
+	n := copy(p, r.data)
+	r.cancel()
+	return n, io.EOF
+}
+
+func (r *cancelWithDataReadCloser) Close() error {
+	return nil
 }
 
 type closeUnblocksWithErrorReadCloser struct {
@@ -320,6 +347,155 @@ func TestDefaultSSEDecoder_InterruptAfterReadCompletionDoesNotSuppressProviderEr
 	require.False(t, <-nextReturned)
 	require.ErrorIs(t, decoder.Err(), transportErr,
 		"a later local Close must not relabel or clear an already completed provider error")
+}
+
+func TestJSONStreamDecoder(t *testing.T) {
+	rc := newMockReadCloser([]byte(" \n{\"ok\":true}\t"))
+	decoder := NewJSONStreamDecoder(t.Context(), rc)
+
+	require.True(t, decoder.Next())
+	require.Equal(t, &StreamEvent{Type: JSONStreamEventType, Data: []byte(`{"ok":true}`)}, decoder.Current())
+	require.False(t, decoder.Next())
+	require.NoError(t, decoder.Err())
+	require.NoError(t, decoder.Close())
+	require.True(t, rc.closed)
+}
+
+func TestJSONStreamDecoder_RejectsInvalidBodies(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      io.ReadCloser
+		wantErr   string
+		wantErrIs error
+	}{
+		{
+			name:      "empty EOF",
+			body:      newMockReadCloser(nil),
+			wantErrIs: io.ErrUnexpectedEOF,
+		},
+		{
+			name:    "malformed JSON",
+			body:    newMockReadCloser([]byte(`{"choices":[}`)),
+			wantErr: "invalid JSON stream response",
+		},
+		{
+			name:      "oversized JSON",
+			body:      io.NopCloser(io.LimitReader(zeroReader{}, maxJSONStreamBodySize+1)),
+			wantErrIs: errJSONStreamBodyTooLarge,
+		},
+		{
+			name: "read failure",
+			body: &readChunkThenError{
+				data: []byte(`{"partial":`),
+				err:  io.ErrClosedPipe,
+			},
+			wantErrIs: io.ErrClosedPipe,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decoder := NewJSONStreamDecoder(t.Context(), tt.body)
+
+			require.False(t, decoder.Next())
+			if tt.wantErr != "" {
+				require.ErrorContains(t, decoder.Err(), tt.wantErr)
+			}
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, decoder.Err(), tt.wantErrIs)
+			}
+		})
+	}
+}
+
+func TestJSONStreamDecoder_CancellationAndClose(t *testing.T) {
+	t.Run("canceled before read", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		decoder := NewJSONStreamDecoder(ctx, newMockReadCloser([]byte(`{"ok":true}`)))
+
+		require.False(t, decoder.Next())
+		require.ErrorIs(t, decoder.Err(), context.Canceled)
+	})
+
+	t.Run("close before read", func(t *testing.T) {
+		rc := newMockReadCloser([]byte(`{"ok":true}`))
+		decoder := NewJSONStreamDecoder(t.Context(), rc)
+
+		require.NoError(t, decoder.Close())
+		require.NoError(t, decoder.Close())
+		require.True(t, rc.closed)
+		require.False(t, decoder.Next())
+		require.NoError(t, decoder.Err())
+	})
+
+	t.Run("completed body wins over later cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		decoder := NewJSONStreamDecoder(ctx, &cancelWithDataReadCloser{
+			cancel: cancel,
+			data:   []byte(`{"ok":true}`),
+		})
+
+		require.True(t, decoder.Next())
+		require.Equal(t, []byte(`{"ok":true}`), decoder.Current().Data)
+		require.NoError(t, decoder.Err())
+	})
+
+	t.Run("close interrupts active read", func(t *testing.T) {
+		rc := newCloseUnblocksWithErrorReadCloser(net.ErrClosed)
+		decoder := NewJSONStreamDecoder(t.Context(), rc)
+		nextReturned := make(chan bool, 1)
+		go func() {
+			defer func() {
+				if cause := recover(); cause != nil {
+					t.Errorf("JSON decoder Next panicked: %v", cause)
+					nextReturned <- false
+				}
+			}()
+			nextReturned <- decoder.Next()
+		}()
+
+		<-rc.readStarted
+		require.NoError(t, decoder.Close())
+		require.False(t, <-nextReturned)
+		require.NoError(t, decoder.Err())
+	})
+
+	t.Run("close after completed read preserves provider error", func(t *testing.T) {
+		transportErr := &net.OpError{
+			Op:  "read",
+			Net: "tcp",
+			Err: net.ErrClosed,
+		}
+		decoder := NewJSONStreamDecoder(t.Context(), &readChunkThenError{
+			data: []byte(`{"partial":`),
+			err:  transportErr,
+		})
+		concreteDecoder := decoder.(*jsonStreamDecoder)
+		readReturned := make(chan struct{})
+		classify := make(chan struct{})
+		concreteDecoder.afterRead = func() {
+			close(readReturned)
+			<-classify
+		}
+
+		nextReturned := make(chan bool, 1)
+		go func() {
+			defer func() {
+				if cause := recover(); cause != nil {
+					t.Errorf("JSON decoder Next panicked: %v", cause)
+					nextReturned <- false
+				}
+			}()
+			nextReturned <- decoder.Next()
+		}()
+
+		<-readReturned
+		require.NoError(t, decoder.(interface{ Interrupt() error }).Interrupt())
+		close(classify)
+		require.False(t, <-nextReturned)
+		require.ErrorIs(t, decoder.Err(), transportErr)
+	})
 }
 
 func TestBinaryChunkDecoder(t *testing.T) {

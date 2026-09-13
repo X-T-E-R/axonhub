@@ -175,6 +175,20 @@ func DefaultTransformChunk(ctx context.Context, chunk *httpclient.StreamEvent) (
 	if err := json.Unmarshal(chunk.Data, &response); err != nil {
 		return nil, err
 	}
+	if chunk.Type == httpclient.JSONStreamEventType {
+		for i := range response.Choices {
+			if response.Choices[i].Delta == nil && response.Choices[i].Message != nil {
+				for position := range response.Choices[i].Message.ToolCalls {
+					response.Choices[i].Message.ToolCalls[position].Index = position
+				}
+				response.Choices[i].Delta = response.Choices[i].Message
+				response.Choices[i].Message = nil
+			}
+		}
+		if response.Object == "chat.completion" {
+			response.Object = "chat.completion.chunk"
+		}
+	}
 
 	return &response, nil
 }
@@ -186,6 +200,10 @@ func AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent
 	if len(chunks) == 0 {
 		data, err := json.Marshal(&llm.Response{})
 		return data, llm.ResponseMeta{}, err
+	}
+	if len(chunks) == 1 && chunks[0] != nil && chunks[0].Type == httpclient.JSONStreamEventType &&
+		parseStreamErrorEvent(chunks[0]) != nil {
+		return bytes.Clone(chunks[0].Data), llm.ResponseMeta{}, nil
 	}
 
 	var (
