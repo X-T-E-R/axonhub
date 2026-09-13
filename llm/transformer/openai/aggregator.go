@@ -20,7 +20,7 @@ type choiceAggregator struct {
 	index               int
 	content             strings.Builder
 	reasoningContent    strings.Builder
-	hasReasoningContent bool                  // Tracks whether any delta carried reasoning_content (even an empty string).
+	hasReasoningContent bool                  // Tracks whether any delta carried reasoning_content or reasoning (even an empty string).
 	toolCalls           map[int]*llm.ToolCall // Map to track tool calls by their index within the choice
 	finishReason        *string
 	role                string
@@ -258,9 +258,15 @@ func AggregateStreamChunks(ctx context.Context, chunks []*httpclient.StreamEvent
 				// content length so that a semantically meaningful empty string (e.g. DeepSeek
 				// thinking mode emitting reasoning_content: "") is preserved on the aggregated
 				// message rather than being silently dropped.
-				if choice.Delta.ReasoningContent != nil {
+				// Prefer the canonical field when both aliases are present; do not
+				// concatenate duplicate reasoning from the same delta.
+				reasoning := choice.Delta.ReasoningContent
+				if reasoning == nil {
+					reasoning = choice.Delta.Reasoning
+				}
+				if reasoning != nil {
 					choiceAgg.hasReasoningContent = true
-					choiceAgg.reasoningContent.WriteString(*choice.Delta.ReasoningContent)
+					choiceAgg.reasoningContent.WriteString(*reasoning)
 				}
 
 				// Handle tool calls
