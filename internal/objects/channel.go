@@ -195,7 +195,9 @@ type ChannelSettings struct {
 
 	// PassThroughBody controls whether to forward the original request body directly
 	// to the upstream provider and the raw provider response/stream directly to the client
-	// without re-serialization through the transform pipelines.
+	// without re-serialization through the transform pipelines. When pass-through is
+	// actually applied, end-to-end provider response headers are also forwarded; AxonHub
+	// still owns transport framing, credentials, and cookies.
 	// Only effective when the inbound and outbound API formats are identical.
 	// When set to nil, it inherits from the global system setting.
 	// When set to true/false, it overrides the global setting.

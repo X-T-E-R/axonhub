@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -19,9 +20,11 @@ import (
 // ConfirmSemanticCompletion become available after response headers are accepted.
 // It intentionally excludes request and response bodies.
 type StreamLivenessAttempt struct {
-	ChannelID   int
-	ChannelName string
-	KeepAlive   *objects.ChannelSSEKeepAlive
+	ChannelID                     int
+	ChannelName                   string
+	KeepAlive                     *objects.ChannelSSEKeepAlive
+	ResponseHeaders               http.Header
+	FullResponseHeaderPassThrough bool
 	// Interrupt targets only the concurrency-safe raw decoder. It must not
 	// close terminal/persistence wrappers while their reader owns Next/Current.
 	Interrupt func() error
@@ -152,6 +155,10 @@ func streamLivenessAttemptFromState(state *PersistenceState) StreamLivenessAttem
 	attempt.ChannelName = channel.Name
 	if channel.Settings != nil {
 		attempt.KeepAlive = channel.Settings.SSEKeepAlive
+	}
+	attempt.FullResponseHeaderPassThrough = state.PassThroughApplied
+	if state.ProviderStreamResponse != nil {
+		attempt.ResponseHeaders = state.ProviderStreamResponse.Headers.Clone()
 	}
 	return attempt
 }

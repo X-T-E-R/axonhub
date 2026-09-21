@@ -770,6 +770,82 @@ func TestSSELivenessSession_CommitsAndHeartbeatsOnlyForConfirmedStream(t *testin
 	}
 }
 
+func TestSSELivenessSession_ResponseHeadersGateResponsesAndFullPassThrough(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		responsesAPI    bool
+		fullPassThrough bool
+	}{
+		{name: "responses protocol metadata", responsesAPI: true},
+		{name: "full response header pass through", fullPassThrough: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{Enabled: true, Interval: time.Second}, sseHeartbeatOpenAI, true)
+			session.responsesAPI = tt.responsesAPI
+
+			session.OnUpstreamAttemptSelected(orchestrator.StreamLivenessAttempt{
+				FullResponseHeaderPassThrough: tt.fullPassThrough,
+			})
+			select {
+			case <-session.readySignal:
+				t.Fatal("response became writable before upstream headers were available")
+			default:
+			}
+
+			session.OnUpstreamResponseHeaders(orchestrator.StreamLivenessAttempt{
+				ResponseHeaders: http.Header{
+					"X-Codex-Turn-State": []string{"turn-state"},
+					"X-Upstream-Debug":   []string{"visible-only-in-full-mode"},
+				},
+				FullResponseHeaderPassThrough: tt.fullPassThrough,
+			})
+			select {
+			case <-session.readySignal:
+			case <-time.After(time.Second):
+				t.Fatal("upstream headers did not release the SSE response")
+			}
+
+			header := make(http.Header)
+			session.forwardProviderResponseHeaders(header)
+			require.Equal(t, "turn-state", header.Get("X-Codex-Turn-State"))
+			if tt.fullPassThrough {
+				require.Equal(t, "visible-only-in-full-mode", header.Get("X-Upstream-Debug"))
+			} else {
+				require.Empty(t, header.Get("X-Upstream-Debug"))
+			}
+		})
+	}
+}
+
+func TestCopyProviderResponseHeaders_FiltersManagedAndSensitiveHeaders(t *testing.T) {
+	source := http.Header{
+		"X-Codex-Turn-State": []string{"turn-state"},
+		"X-Upstream-Debug":   []string{"debug"},
+		"Set-Cookie":         []string{"session=secret"},
+		"Content-Length":     []string{"123"},
+		"Connection":         []string{"X-Connection-Only"},
+		"X-Connection-Only":  []string{"drop-me"},
+	}
+
+	safe := make(http.Header)
+	copyProviderResponseHeaders(safe, source, false)
+	require.Equal(t, "turn-state", safe.Get("X-Codex-Turn-State"))
+	require.Empty(t, safe.Get("X-Upstream-Debug"))
+	require.Empty(t, safe.Get("Set-Cookie"))
+	require.Empty(t, safe.Get("Content-Length"))
+	require.Empty(t, safe.Get("X-Connection-Only"))
+
+	full := make(http.Header)
+	copyProviderResponseHeaders(full, source, true)
+	require.Equal(t, "turn-state", full.Get("X-Codex-Turn-State"))
+	require.Equal(t, "debug", full.Get("X-Upstream-Debug"))
+	require.Empty(t, full.Get("Set-Cookie"))
+	require.Empty(t, full.Get("Content-Length"))
+	require.Empty(t, full.Get("X-Connection-Only"))
+}
+
 func TestSSELivenessSession_HonorsChannelOverrideBeforeProviderSetup(t *testing.T) {
 	tests := []struct {
 		name           string

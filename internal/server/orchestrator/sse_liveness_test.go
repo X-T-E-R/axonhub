@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,10 @@ func TestStreamLivenessMiddleware_ReportsTransportMilestonesWithoutChangingEvent
 	}
 	state := &PersistenceState{
 		OriginalRequestStream: &wantsStream,
+		PassThroughApplied:    true,
+		ProviderStreamResponse: &httpclient.Response{Headers: http.Header{
+			"X-Codex-Turn-State": []string{"turn-state"},
+		}},
 		CurrentCandidate: &ChannelModelsCandidate{
 			Channel: &biz.Channel{Channel: &ent.Channel{
 				ID:       7,
@@ -93,6 +98,8 @@ func TestStreamLivenessMiddleware_ReportsTransportMilestonesWithoutChangingEvent
 	require.Equal(t, 7, observer.attempts[0].ChannelID)
 	require.Equal(t, "DeepSeek Pro", observer.attempts[0].ChannelName)
 	require.Same(t, settings, observer.attempts[0].KeepAlive)
+	require.Equal(t, "turn-state", observer.attempts[0].ResponseHeaders.Get("X-Codex-Turn-State"))
+	require.True(t, observer.attempts[0].FullResponseHeaderPassThrough)
 	require.NotNil(t, observer.attempts[0].ConfirmSemanticCompletion)
 	require.False(t, state.StreamCompleted)
 	require.True(t, observer.attempts[0].ConfirmSemanticCompletion())

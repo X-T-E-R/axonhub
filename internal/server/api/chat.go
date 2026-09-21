@@ -146,6 +146,7 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 
 	if result.ChatCompletion != nil {
 		resp := result.ChatCompletion
+		copyProviderResponseHeaders(c.Writer.Header(), resp.Headers, result.FullResponseHeaderPassThrough)
 
 		contentType := "application/json"
 		if ct := resp.Headers.Get("Content-Type"); ct != "" {
@@ -161,6 +162,7 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 	}
 
 	if result.ChatCompletionStream != nil {
+		copyProviderResponseHeaders(c.Writer.Header(), result.ProviderResponseHeaders, result.FullResponseHeaderPassThrough)
 		ownedStream := newCloseOnceStream(result.ChatCompletionStream)
 		defer func() {
 			log.Debug(ctx, "Close chat stream")

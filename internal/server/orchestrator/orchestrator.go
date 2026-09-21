@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/looplj/axonhub/internal/authz"
@@ -164,8 +165,10 @@ func (processor *ChatCompletionOrchestrator) WithProxy(proxy *httpclient.ProxyCo
 }
 
 type ChatCompletionResult struct {
-	ChatCompletion       *httpclient.Response
-	ChatCompletionStream streams.Stream[*httpclient.StreamEvent]
+	ChatCompletion                *httpclient.Response
+	ChatCompletionStream          streams.Stream[*httpclient.StreamEvent]
+	ProviderResponseHeaders       http.Header
+	FullResponseHeaderPassThrough bool
 }
 
 func (processor *ChatCompletionOrchestrator) Process(ctx context.Context, request *httpclient.Request) (ChatCompletionResult, error) {
@@ -285,11 +288,6 @@ func (processor *ChatCompletionOrchestrator) process(
 	}
 
 	var middlewares []pipeline.Middleware
-	if streamLivenessObserver != nil {
-		// The selected channel is known after outbound transformation. Publish its
-		// keep-alive policy before any provider request setup can block.
-		middlewares = append(middlewares, newStreamLivenessSelectionMiddleware(state, streamLivenessObserver))
-	}
 
 	// Add global middlewares
 	middlewares = append(middlewares, processor.Middlewares...)
@@ -345,6 +343,15 @@ func (processor *ChatCompletionOrchestrator) process(
 		// This allows override headers to modify the User-Agent if configured.
 		applyUserAgentPassThrough(outbound, processor.SystemService),
 		applyOverrideRequestHeaders(outbound),
+	)
+	if streamLivenessObserver != nil {
+		// Publish the selected channel policy after request pass-through has been
+		// resolved, but before admission control or provider I/O can block. This lets
+		// full pass-through streams retain their upstream response headers before a
+		// downstream heartbeat commits the response.
+		middlewares = append(middlewares, newStreamLivenessSelectionMiddleware(state, streamLivenessObserver))
+	}
+	middlewares = append(middlewares,
 
 		// Unified performance tracking middleware.
 		withPerformanceRecording(outbound),
@@ -433,15 +440,22 @@ func (processor *ChatCompletionOrchestrator) process(
 
 	// Return result based on stream type
 	if result.Stream {
+		var providerResponseHeaders http.Header
+		if state.ProviderStreamResponse != nil {
+			providerResponseHeaders = state.ProviderStreamResponse.Headers.Clone()
+		}
 		streamOwnsObservation = true
 		return ChatCompletionResult{
-			ChatCompletion:       nil,
-			ChatCompletionStream: result.EventStream,
+			ChatCompletion:                nil,
+			ChatCompletionStream:          result.EventStream,
+			ProviderResponseHeaders:       providerResponseHeaders,
+			FullResponseHeaderPassThrough: state.PassThroughApplied,
 		}, nil
 	}
 
 	return ChatCompletionResult{
-		ChatCompletion:       result.Response,
-		ChatCompletionStream: nil,
+		ChatCompletion:                result.Response,
+		ChatCompletionStream:          nil,
+		FullResponseHeaderPassThrough: state.PassThroughApplied,
 	}, nil
 }

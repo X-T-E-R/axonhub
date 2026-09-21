@@ -237,19 +237,22 @@ type sseLivenessSession struct {
 	semanticOnce    sync.Once
 	confirmOnce     sync.Once
 
-	mu                          sync.Mutex
-	effective                   SSEKeepAliveConfig
-	interrupt                   *sseStreamInterrupt
-	confirmSemanticCompletion   func() bool
-	recordClientTerminalFlushed func()
-	confirmAccepted             bool
-	semanticResponse            *llm.Response
-	semanticChoices             map[int]struct{}
-	expectedChoices             int
-	terminalGrace               time.Duration
-	committed                   atomic.Bool
-	responsesAPI                bool
-	responsesSemanticContent    bool
+	mu                            sync.Mutex
+	effective                     SSEKeepAliveConfig
+	interrupt                     *sseStreamInterrupt
+	confirmSemanticCompletion     func() bool
+	recordClientTerminalFlushed   func()
+	confirmAccepted               bool
+	semanticResponse              *llm.Response
+	semanticChoices               map[int]struct{}
+	providerResponseHeaders       http.Header
+	fullResponseHeaderPassThrough bool
+	waitForUpstreamHeaders        bool
+	expectedChoices               int
+	terminalGrace                 time.Duration
+	committed                     atomic.Bool
+	responsesAPI                  bool
+	responsesSemanticContent      bool
 }
 
 const defaultSSETerminalGrace = 250 * time.Millisecond
@@ -298,6 +301,15 @@ func (s *sseLivenessSession) IsDownstreamCommitted() bool {
 
 func (s *sseLivenessSession) OnUpstreamAttemptSelected(attempt orchestrator.StreamLivenessAttempt) {
 	s.applyAttemptKeepAlive(attempt)
+	s.mu.Lock()
+	if attempt.FullResponseHeaderPassThrough {
+		s.waitForUpstreamHeaders = true
+	}
+	waitForHeaders := s.responsesAPI || s.waitForUpstreamHeaders
+	s.mu.Unlock()
+	if !waitForHeaders {
+		s.signalReady()
+	}
 }
 
 func (s *sseLivenessSession) OnUpstreamResponseHeaders(attempt orchestrator.StreamLivenessAttempt) {
@@ -306,8 +318,11 @@ func (s *sseLivenessSession) OnUpstreamResponseHeaders(attempt orchestrator.Stre
 	s.interrupt = &sseStreamInterrupt{fn: attempt.Interrupt}
 	s.confirmSemanticCompletion = attempt.ConfirmSemanticCompletion
 	s.recordClientTerminalFlushed = attempt.RecordClientTerminalFlushed
+	s.providerResponseHeaders = attempt.ResponseHeaders.Clone()
+	s.fullResponseHeaderPassThrough = attempt.FullResponseHeaderPassThrough
 	s.mu.Unlock()
 	s.applyAttemptKeepAlive(attempt)
+	s.signalReady()
 }
 
 func (s *sseLivenessSession) clientTerminalFlushed() {
@@ -326,6 +341,9 @@ func (s *sseLivenessSession) applyAttemptKeepAlive(attempt orchestrator.StreamLi
 	s.mu.Lock()
 	s.effective = resolveSSEKeepAlive(s.global, attempt.KeepAlive)
 	s.mu.Unlock()
+}
+
+func (s *sseLivenessSession) signalReady() {
 	if !s.streaming {
 		return
 	}
@@ -333,6 +351,12 @@ func (s *sseLivenessSession) applyAttemptKeepAlive(attempt orchestrator.StreamLi
 	case s.readySignal <- struct{}{}:
 	default:
 	}
+}
+
+func (s *sseLivenessSession) forwardProviderResponseHeaders(header http.Header) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copyProviderResponseHeaders(header, s.providerResponseHeaders, s.fullResponseHeaderPassThrough)
 }
 
 func (s *sseLivenessSession) OnRawSSE(event *httpclient.StreamEvent) {
@@ -603,6 +627,7 @@ func (s *sseLivenessSession) awaitProcess(
 			}
 
 			if !committed {
+				s.forwardProviderResponseHeaders(c.Writer.Header())
 				commitSSEHeaders(c)
 				committed = true
 				s.committed.Store(true)
