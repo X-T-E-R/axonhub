@@ -466,13 +466,39 @@ func convertLLMToolResultToGeminiContent(msg *llm.Message, contents []*Content) 
 		Role: "user", // Function responses come from user role in Gemini
 	}
 
-	var responseData map[string]any
-	if msg.Content.Content != nil {
-		_ = json.Unmarshal([]byte(*msg.Content.Content), &responseData)
+	resultText := lo.FromPtr(msg.Content.Content)
+	var mediaParts []*Part
+	if msg.Content.Content == nil {
+		var texts []string
+		var media []llm.MessageContentPart
+		for _, part := range msg.Content.MultipleContent {
+			if part.Type == "text" {
+				if part.Text != nil {
+					texts = append(texts, *part.Text)
+				}
+			} else {
+				media = append(media, part)
+			}
+		}
+		resultText = strings.Join(texts, "\n")
+
+		// Keep tool-result media as user content alongside the function response,
+		// using the same media conversion as ordinary messages.
+		if len(media) > 0 {
+			mediaContent := convertLLMMessageToGeminiContent(&llm.Message{
+				Role:    "user",
+				Content: llm.MessageContent{MultipleContent: media},
+			})
+			if mediaContent != nil {
+				mediaParts = mediaContent.Parts
+			}
+		}
 	}
 
+	var responseData map[string]any
+	_ = json.Unmarshal([]byte(resultText), &responseData)
 	if responseData == nil {
-		responseData = map[string]any{"result": lo.FromPtrOr(msg.Content.Content, "")}
+		responseData = map[string]any{"result": resultText}
 	}
 
 	toolCallID := lo.FromPtr(msg.ToolCallID)
@@ -489,9 +515,7 @@ func convertLLMToolResultToGeminiContent(msg *llm.Message, contents []*Content) 
 		Response: responseData,
 	}
 
-	content.Parts = []*Part{
-		{FunctionResponse: fp},
-	}
+	content.Parts = append([]*Part{{FunctionResponse: fp}}, mediaParts...)
 
 	return content
 }
