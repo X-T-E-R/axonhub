@@ -552,6 +552,16 @@ func (s *anthropicInboundStream) Next() bool {
 			return false
 		}
 
+		// A later Gemini candidate can introduce tools after the first finish.
+		// Validate and emit those buffered calls before the whole-stream terminal.
+		if s.requiresCandidateFinish && len(s.toolCalls) > 0 && !s.toolCallsFlushed {
+			if err := s.flushBufferedToolCalls(); err != nil {
+				s.err = err
+				return false
+			}
+			s.stopReason = nil // Recompute for the newly emitted tool-use blocks.
+		}
+
 		if s.stopReason == nil {
 			stopReason := "end_turn"
 			for _, toolCall := range s.toolCalls {
@@ -1034,14 +1044,15 @@ func (s *anthropicInboundStream) Next() bool {
 				stopReason = "end_turn"
 			}
 
-			// Store the stop reason, but don't generate message_delta yet
-			// We'll wait for the usage chunk to combine them
+			// Store the stop reason for the terminal message_delta and latest usage.
 			s.stopReason = &stopReason
 		}
 	}
 
-	if chunk.Usage != nil && s.hasFinished && !s.messageStoped && (!s.requiresCandidateFinish || s.geminiCandidatesFinished()) {
-		// Usage-only chunk after finish_reason - generate message_delta with both stop reason and usage.
+	// Gemini usage cannot seal the stream: later frames may introduce another
+	// candidate or a source error. Only clean source EOF can finalize Gemini.
+	if chunk.Usage != nil && s.hasFinished && !s.messageStoped && !s.requiresCandidateFinish {
+		// Preserve the legacy usage-triggered terminal for other providers.
 		if err := s.enqueueTerminalEvents(); err != nil {
 			s.err = err
 			return false
