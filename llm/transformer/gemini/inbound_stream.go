@@ -155,7 +155,7 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 		Choices: make([]llm.Choice, 0, len(chunk.Choices)),
 	}
 
-	emitAny := false
+	emitAny := chunk.Usage != nil
 	var (
 		splitTerminalCalls       []llm.ToolCall
 		splitTerminalChoiceIndex int
@@ -184,9 +184,11 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 			targetIsDelta = false
 		}
 
-		if srcMsg == nil {
-			out.Choices = append(out.Choices, outChoice)
-			continue
+		contentless := srcMsg == nil
+		if contentless {
+			// A separate terminal choice must still flush pending calls and
+			// emit its finish reason/usage, without inventing a content part.
+			srcMsg = &llm.Message{}
 		}
 
 		// Copy message but strip tool calls; we will re-inject only completed ones.
@@ -318,10 +320,12 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 			}
 		}
 
-		if targetIsDelta {
-			outChoice.Delta = &dstMsg
-		} else {
-			outChoice.Message = &dstMsg
+		if !contentless || len(dstMsg.ToolCalls) > 0 {
+			if targetIsDelta {
+				outChoice.Delta = &dstMsg
+			} else {
+				outChoice.Message = &dstMsg
+			}
 		}
 
 		// Emit if there is any non-tool content, any flushed tool call, or a finish reason.

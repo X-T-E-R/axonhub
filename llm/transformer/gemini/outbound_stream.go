@@ -14,7 +14,8 @@ import (
 
 // streamState tracks state across streaming events.
 type streamState struct {
-	toolCallIndex int
+	toolCallIndex        int
+	toolCallsByCandidate map[int]bool
 }
 
 // TransformStream transforms the HTTP stream response to the unified response format.
@@ -72,6 +73,21 @@ func (t *OutboundTransformer) transformStreamChunkWithState(
 	// Convert to unified response format (streaming) with tool call index tracking
 	llmResp, nextIndex := convertGeminiToLLMResponseWithState(&resp, true, state.toolCallIndex)
 	state.toolCallIndex = nextIndex
+
+	if state.toolCallsByCandidate == nil {
+		state.toolCallsByCandidate = make(map[int]bool)
+	}
+	for i := range llmResp.Choices {
+		choice := &llmResp.Choices[i]
+		if choice.Delta != nil && len(choice.Delta.ToolCalls) > 0 {
+			state.toolCallsByCandidate[choice.Index] = true
+		}
+		// Gemini may send STOP in a later, contentless chunk. Its meaning
+		// depends on calls already emitted for this candidate, not this chunk.
+		if resp.Candidates[i].FinishReason == "STOP" && state.toolCallsByCandidate[choice.Index] {
+			choice.FinishReason = convertGeminiFinishReasonToLLM("STOP", true)
+		}
+	}
 
 	return llmResp, nil
 }
