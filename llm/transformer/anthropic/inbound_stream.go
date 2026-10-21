@@ -42,6 +42,8 @@ type anthropicInboundStream struct {
 	hasThinkingContentStarted bool
 	hasToolContentStarted     bool
 	hasFinished               bool
+	requiresCandidateFinish   bool
+	geminiCandidateFinishes   map[int]bool
 	messageStoped             bool
 	messageID                 string
 	model                     string
@@ -507,6 +509,18 @@ func (s *anthropicInboundStream) enqueEvent(ev *StreamEvent) error {
 	return nil
 }
 
+func (s *anthropicInboundStream) geminiCandidatesFinished() bool {
+	if len(s.geminiCandidateFinishes) == 0 {
+		return false
+	}
+	for _, finished := range s.geminiCandidateFinishes {
+		if !finished {
+			return false
+		}
+	}
+	return true
+}
+
 //nolint:maintidx // It is complex, and hard to split.
 func (s *anthropicInboundStream) Next() bool {
 	// If we have events in the queue, return them first
@@ -525,6 +539,11 @@ func (s *anthropicInboundStream) Next() bool {
 		}
 		if len(s.toolCalls) > 0 && !s.hasFinished {
 			s.err = fmt.Errorf("%w: stream ended before tool-call finish", transformer.ErrIncompleteToolCall)
+			return false
+		}
+
+		if s.requiresCandidateFinish && !s.geminiCandidatesFinished() {
+			s.err = fmt.Errorf("%w: Gemini stream ended before every candidate finish", transformer.ErrInvalidResponse)
 			return false
 		}
 
@@ -565,6 +584,21 @@ func (s *anthropicInboundStream) Next() bool {
 	// Handle [DONE] marker
 	if chunk.Object == "[DONE]" {
 		return s.Next() // Try next chunk
+	}
+
+	// Gemini requires a real terminal per observed candidate. Remember the
+	// source format across later usage/[DONE] chunks that omit APIFormat.
+	if chunk.APIFormat == llm.APIFormatGeminiContents {
+		s.requiresCandidateFinish = true
+	}
+	if s.requiresCandidateFinish {
+		if s.geminiCandidateFinishes == nil {
+			s.geminiCandidateFinishes = make(map[int]bool)
+		}
+		for _, choice := range chunk.Choices {
+			finished := choice.FinishReason != nil && *choice.FinishReason != ""
+			s.geminiCandidateFinishes[choice.Index] = s.geminiCandidateFinishes[choice.Index] || finished
+		}
 	}
 
 	// Initialize message ID and model from first chunk
@@ -1006,7 +1040,7 @@ func (s *anthropicInboundStream) Next() bool {
 		}
 	}
 
-	if chunk.Usage != nil && s.hasFinished && !s.messageStoped {
+	if chunk.Usage != nil && s.hasFinished && !s.messageStoped && (!s.requiresCandidateFinish || s.geminiCandidatesFinished()) {
 		// Usage-only chunk after finish_reason - generate message_delta with both stop reason and usage.
 		if err := s.enqueueTerminalEvents(); err != nil {
 			s.err = err
