@@ -156,11 +156,7 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 	}
 
 	emitAny := chunk.Usage != nil
-	var (
-		splitTerminalCalls       []llm.ToolCall
-		splitTerminalChoiceIndex int
-		splitTerminalSeparate    bool
-	)
+	var splitToolChoices []llm.Choice
 
 	for _, choice := range chunk.Choices {
 		outChoice := llm.Choice{
@@ -311,12 +307,20 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 		}
 
 		if len(completed) > 0 {
-			if flushAll && (len(completed) > 1 || validBeforeTerminal) {
-				splitTerminalCalls = completed
-				splitTerminalChoiceIndex = choice.Index
-				splitTerminalSeparate = validBeforeTerminal
-			} else {
-				dstMsg.ToolCalls = completed
+			separate := completed
+			if !validBeforeTerminal {
+				// Keep the last fresh call on its own candidate's terminal.
+				separate = completed[:len(completed)-1]
+				dstMsg.ToolCalls = completed[len(completed)-1:]
+			}
+			if len(separate) > 0 {
+				if validBeforeTerminal {
+					splitToolChoices = append(splitToolChoices, llm.Choice{Index: choice.Index, Delta: &llm.Message{Role: "assistant", ToolCalls: separate}})
+				} else {
+					for _, call := range separate {
+						splitToolChoices = append(splitToolChoices, llm.Choice{Index: choice.Index, Delta: &llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}})
+					}
+				}
 			}
 		}
 
@@ -349,56 +353,19 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 		return nil, nil
 	}
 
-	if len(splitTerminalCalls) > 0 {
-		if splitTerminalSeparate {
+	if len(splitToolChoices) > 0 {
+		// Emit every candidate's pending calls before the shared terminal frame.
+		// Each split choice carries its original index; usage stays on the terminal.
+		for _, choice := range splitToolChoices {
 			callOut := *out
 			callOut.Usage = nil
-			callOut.Choices = []llm.Choice{{
-				Index: splitTerminalChoiceIndex,
-				Delta: &llm.Message{
-					Role:      "assistant",
-					ToolCalls: splitTerminalCalls,
-				},
-			}}
+			callOut.Choices = []llm.Choice{choice}
 			geminiResp := convertLLMToGeminiResponse(&callOut, true)
 			eventData, err := json.Marshal(geminiResp)
 			if err != nil {
 				return nil, err
 			}
 			s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
-
-			geminiResp = convertLLMToGeminiResponse(out, true)
-			eventData, err = json.Marshal(geminiResp)
-			if err != nil {
-				return nil, err
-			}
-			s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
-			return nil, nil
-		}
-
-		for _, toolCall := range splitTerminalCalls[:len(splitTerminalCalls)-1] {
-			callOut := *out
-			callOut.Usage = nil
-			callOut.Choices = []llm.Choice{{
-				Index: splitTerminalChoiceIndex,
-				Delta: &llm.Message{
-					Role:      "assistant",
-					ToolCalls: []llm.ToolCall{toolCall},
-				},
-			}}
-			geminiResp := convertLLMToGeminiResponse(&callOut, true)
-			eventData, err := json.Marshal(geminiResp)
-			if err != nil {
-				return nil, err
-			}
-			s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
-		}
-
-		last := splitTerminalCalls[len(splitTerminalCalls)-1]
-		if out.Choices[0].Delta != nil {
-			out.Choices[0].Delta.ToolCalls = []llm.ToolCall{last}
-		} else if out.Choices[0].Message != nil {
-			out.Choices[0].Message.ToolCalls = []llm.ToolCall{last}
 		}
 		geminiResp := convertLLMToGeminiResponse(out, true)
 		eventData, err := json.Marshal(geminiResp)
@@ -406,7 +373,6 @@ func (s *geminiInboundStream) transformChunk(chunk *llm.Response) (*httpclient.S
 			return nil, err
 		}
 		s.queue = append(s.queue, &httpclient.StreamEvent{Data: eventData})
-
 		return nil, nil
 	}
 

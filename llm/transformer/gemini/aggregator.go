@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/looplj/axonhub/llm"
@@ -146,13 +147,15 @@ func buildGeminiResponse(
 	responseID, modelVersion string,
 	usage *UsageMetadata,
 ) ([]byte, llm.ResponseMeta, error) {
-	candidates := make([]*Candidate, len(candidateAggs))
+	candidates := make([]*Candidate, 0, len(candidateAggs))
+	indices := make([]int64, 0, len(candidateAggs))
+	for index := range candidateAggs {
+		indices = append(indices, index)
+	}
+	sort.Slice(indices, func(i, j int) bool { return indices[i] < indices[j] })
 
-	for i := range candidates {
-		agg := candidateAggs[int64(i)]
-		if agg == nil {
-			continue
-		}
+	for _, index := range indices {
+		agg := candidateAggs[index]
 
 		content := &Content{
 			Role: "model",
@@ -206,18 +209,14 @@ func buildGeminiResponse(
 
 		content.Parts = parts
 
-		// Determine finish reason
-		finishReason := agg.finishReason
-		if finishReason == "" {
-			finishReason = "STOP"
-		}
-
-		candidates[i] = &Candidate{
+		// Only a provider terminal can establish completion. Usage or content
+		// without a finish reason must remain incomplete after aggregation.
+		candidates = append(candidates, &Candidate{
 			Index:             agg.index,
 			Content:           content,
-			FinishReason:      finishReason,
+			FinishReason:      agg.finishReason,
 			GroundingMetadata: agg.groundingMetadata,
-		}
+		})
 	}
 
 	// Build the final response
