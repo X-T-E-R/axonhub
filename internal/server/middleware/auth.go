@@ -26,49 +26,9 @@ func WithAPIKeyAuth(auth *biz.AuthService) gin.HandlerFunc {
 // WithAPIKeyConfig 中间件用于验证 API key，支持自定义配置.
 func WithAPIKeyConfig(auth *biz.AuthService, config *APIKeyConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		key, err := ExtractAPIKeyFromRequest(c.Request, config)
-		// DO NOT ALLOW USE NO AUTH API KEY DIRECTLY.
-		if key == biz.NoAuthAPIKeyValue {
-			AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid API key"))
-			return
-		}
-
-		var apiKey *ent.APIKey
-		if err == nil {
-			apiKey, err = auth.AuthenticateAPIKey(c.Request.Context(), key)
-		}
+		ctx, status, err := AuthenticateAPIKeyContext(c, auth, config)
 		if err != nil {
-			apiKey, err = auth.AuthenticateNoAuth(c.Request.Context())
-		}
-		if err != nil {
-			if ent.IsNotFound(err) || errors.Is(err, biz.ErrInvalidAPIKey) {
-				AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid API key"))
-			} else {
-				log.Error(c.Request.Context(), "Failed to validate API key", log.Cause(err))
-				AbortWithError(c, http.StatusInternalServerError, errors.New("Failed to validate API key"))
-			}
-
-			return
-		}
-
-		if len(apiKey.AllowedIps) > 0 {
-			if !isAllowedRemoteIP(c, apiKey.AllowedIps) {
-				AbortWithError(c, http.StatusForbidden, errors.New("IP address is not allowed for this API key"))
-				return
-			}
-		}
-
-		ctx := contexts.WithAPIKey(c.Request.Context(), apiKey)
-
-		if apiKey.Edges.Project != nil {
-			ctx = contexts.WithProjectID(ctx, apiKey.Edges.Project.ID)
-		}
-
-		ctx = withSessionScopeForAPIKey(ctx, apiKey)
-
-		ctx, err = withAPIKeyPrincipal(ctx, apiKey)
-		if err != nil {
-			AbortWithError(c, http.StatusUnauthorized, errors.New("Invalid authentication context"))
+			AbortWithError(c, status, err)
 			return
 		}
 
@@ -76,6 +36,44 @@ func WithAPIKeyConfig(auth *biz.AuthService, config *APIKeyConfig) gin.HandlerFu
 
 		c.Next()
 	}
+}
+
+// AuthenticateAPIKeyContext runs the same authentication and IP/principal policy
+// as the HTTP middleware without writing a response. Long-lived transports call
+// it for each generation with a fresh request-scoped context.
+func AuthenticateAPIKeyContext(c *gin.Context, auth *biz.AuthService, config *APIKeyConfig) (context.Context, int, error) {
+	ctx := c.Request.Context()
+	key, err := ExtractAPIKeyFromRequest(c.Request, config)
+	if key == biz.NoAuthAPIKeyValue {
+		return nil, http.StatusUnauthorized, errors.New("Invalid API key")
+	}
+	var apiKey *ent.APIKey
+	if err == nil {
+		apiKey, err = auth.AuthenticateAPIKey(ctx, key)
+	}
+	if err != nil {
+		apiKey, err = auth.AuthenticateNoAuth(ctx)
+	}
+	if err != nil {
+		if ent.IsNotFound(err) || errors.Is(err, biz.ErrInvalidAPIKey) {
+			return nil, http.StatusUnauthorized, errors.New("Invalid API key")
+		}
+		log.Error(ctx, "Failed to validate API key", log.Cause(err))
+		return nil, http.StatusInternalServerError, errors.New("Failed to validate API key")
+	}
+	if len(apiKey.AllowedIps) > 0 && !isAllowedRemoteIP(c, apiKey.AllowedIps) {
+		return nil, http.StatusForbidden, errors.New("IP address is not allowed for this API key")
+	}
+	ctx = contexts.WithAPIKey(ctx, apiKey)
+	if apiKey.Edges.Project != nil {
+		ctx = contexts.WithProjectID(ctx, apiKey.Edges.Project.ID)
+	}
+	ctx = withSessionScopeForAPIKey(ctx, apiKey)
+	ctx, err = withAPIKeyPrincipal(ctx, apiKey)
+	if err != nil {
+		return nil, http.StatusUnauthorized, errors.New("Invalid authentication context")
+	}
+	return ctx, http.StatusOK, nil
 }
 
 type ErrorResponder func(c *gin.Context, status int, err error)

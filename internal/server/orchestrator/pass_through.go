@@ -18,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
 // isPassThroughEnabled returns true when the effective pass-through flag for the current
@@ -44,6 +45,10 @@ func (p *PersistentOutboundTransformer) isPassThroughEnabled(ctx context.Context
 
 	if !passThroughStreamAligned(p.state.OriginalRequestStream, llmReq.Stream) {
 		return false
+	}
+
+	if shared.NativeResponsesWebSocket(ctx) && llmReq.APIFormat == llm.APIFormatOpenAIResponse {
+		return true
 	}
 
 	var enabled bool
@@ -433,20 +438,23 @@ func (a *passThroughAttempt) setDrain(done chan error) {
 	a.mu.Unlock()
 }
 
-func (a *passThroughAttempt) stopAndWait() {
+func (a *passThroughAttempt) stopAndWait() error {
 	if a == nil {
-		return
+		return nil
 	}
 	if a.cancel != nil {
 		a.cancel()
 	}
-	<-a.producerDone
+	err := <-a.producerDone
 	a.mu.Lock()
 	drainDone := a.drainDone
 	a.mu.Unlock()
 	if drainDone != nil {
-		<-drainDone
+		if drainErr := <-drainDone; err == nil {
+			err = drainErr
+		}
 	}
+	return err
 }
 
 func providerStreamTerminal(apiFormat llm.APIFormat, event *httpclient.StreamEvent) bool {
@@ -642,7 +650,11 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 			}
 		}()
 
-		return &passThroughChannelStream{ctx: ctx, ch: rawCh, errRef: errRef, cancel: cancel}, nil
+		result := &passThroughChannelStream{ctx: ctx, ch: rawCh, errRef: errRef, cancel: cancel}
+		if shared.NativeResponsesWebSocket(ctx) {
+			result.attempt = attempt
+		}
+		return result, nil
 	})
 }
 
@@ -650,13 +662,15 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 //
 //nolint:containedctx // Required so Next() can observe request cancellation.
 type passThroughChannelStream struct {
-	ctx     context.Context
-	ch      <-chan *httpclient.StreamEvent
-	current *httpclient.StreamEvent
-	errRef  *error
-	cancel  context.CancelFunc
-	once    sync.Once
-	ctxDone bool
+	ctx      context.Context
+	ch       <-chan *httpclient.StreamEvent
+	current  *httpclient.StreamEvent
+	errRef   *error
+	cancel   context.CancelFunc
+	attempt  *passThroughAttempt
+	once     sync.Once
+	closeErr error
+	ctxDone  bool
 }
 
 func (s *passThroughChannelStream) Next() bool {
@@ -732,10 +746,12 @@ func (s *passThroughChannelStream) Err() error {
 
 func (s *passThroughChannelStream) Close() error {
 	s.once.Do(func() {
-		if s.cancel != nil {
+		if s.attempt != nil {
+			s.closeErr = s.attempt.stopAndWait()
+		} else if s.cancel != nil {
 			s.cancel()
 		}
 	})
 
-	return nil
+	return s.closeErr
 }

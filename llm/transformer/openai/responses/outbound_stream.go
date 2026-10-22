@@ -35,13 +35,16 @@ func (t *OutboundTransformer) TransformStream(
 	doneEvent := lo.ToPtr(llm.DoneStreamEvent)
 	streamWithDone := streams.AppendStream(stream, doneEvent)
 
-	return streams.NoNil(newResponsesOutboundStream(streamWithDone)), nil
+	result := newResponsesOutboundStream(streamWithDone)
+	result.suppressPayloadLogs = shared.SensitivePayloadLoggingDisabled(ctx)
+	return streams.NoNil(result), nil
 }
 
 // responsesOutboundStream wraps a stream and maintains state during processing.
 type responsesOutboundStream struct {
-	stream streams.Stream[*httpclient.StreamEvent]
-	state  *outboundStreamState
+	stream              streams.Stream[*httpclient.StreamEvent]
+	state               *outboundStreamState
+	suppressPayloadLogs bool
 
 	// Event queue
 	eventQueue []*llm.Response
@@ -785,7 +788,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 		s.state.previousResponseID = streamEvent.Response.PreviousResponseID
 	}
 
-	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+	if !s.suppressPayloadLogs && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		slog.DebugContext(context.Background(), "received response stream event", slog.Any("event", streamEvent))
 	}
 

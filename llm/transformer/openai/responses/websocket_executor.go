@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -199,19 +200,29 @@ func (e *WebSocketExecutor) DoStream(ctx context.Context, request *httpclient.Re
 		return nil, err
 	}
 
-	if err := lease.conn.WriteJSON(payload); err != nil {
-		lease.release(true)
-		return nil, fmt.Errorf("failed to write response.create websocket event: %w", err)
-	}
-
 	stream := &webSocketStream{ctx: ctx, lease: lease, done: make(chan struct{})}
 	go func() {
+		defer func() {
+			if recover() != nil {
+				slog.ErrorContext(ctx, "responses websocket cancellation watcher panicked")
+				_ = stream.Close()
+			}
+		}()
 		select {
 		case <-ctx.Done():
 			_ = stream.Close()
 		case <-stream.done:
 		}
 	}()
+	deadline := time.Now().Add(30 * time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	_ = lease.conn.SetWriteDeadline(deadline)
+	if err := lease.conn.WriteJSON(payload); err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("failed to write response.create websocket event (delivery unknown): %w", err)
+	}
 
 	return stream, nil
 }
@@ -435,6 +446,7 @@ func (e *WebSocketExecutor) dial(ctx context.Context, request *httpclient.Reques
 	if err != nil {
 		return nil, newWebSocketDialError(request, resp, err)
 	}
+	conn.SetReadLimit(32 << 20)
 	return conn, nil
 }
 
@@ -757,15 +769,9 @@ func (pc *pooledWebSocketConn) rememberTurn(input []json.RawMessage, responseID 
 	if strings.TrimSpace(responseID) == "" {
 		return false
 	}
-	if len(input) == 0 {
-		pc.mu.Lock()
-		pc.lastInput = nil
-		pc.lastResponseID = ""
-		pc.mu.Unlock()
-		return true
-	}
 	if maxInputBytes > 0 && rawMessagesSize(input) > maxInputBytes {
-		return false
+		// Retire the old full-input baseline but keep the latest live native ID.
+		input = nil
 	}
 	pc.mu.Lock()
 	pc.lastInput = cloneRawMessages(input)
@@ -840,6 +846,18 @@ func (e *webSocketReconnectRequiredError) Error() string {
 }
 
 func prepareWebSocketPayloadForLease(payload map[string]any, lease *webSocketLease) error {
+	// An explicit previous ID means input is a native delta, not a full-input
+	// prefix candidate. It is safe only on the matching live authenticated lease;
+	// reconnecting cannot hydrate store=false provider state.
+	if previousID := explicitPreviousResponseID(payload); previousID != "" {
+		if lease != nil && lease.pooled != nil && lease.reused {
+			_, liveID := lease.pooled.previousTurn()
+			if previousID == liveID {
+				return nil
+			}
+		}
+		return &httpclient.Error{StatusCode: http.StatusBadRequest, Status: "previous_response_not_found", Body: []byte(`{"error":{"type":"invalid_request_error","code":"previous_response_not_found","param":"previous_response_id","message":"The previous response is not available on this live WebSocket; send full input without previous_response_id."}}`)}
+	}
 	if lease == nil || lease.pooled == nil {
 		return nil
 	}
@@ -857,10 +875,6 @@ func prepareWebSocketPayloadForLease(payload map[string]any, lease *webSocketLea
 	if !lease.reused || previousResponseID == "" || len(previousInput) == 0 {
 		return nil
 	}
-	if explicitPreviousResponseID(payload) != "" && explicitPreviousResponseID(payload) != previousResponseID {
-		return &webSocketReconnectRequiredError{}
-	}
-
 	suffix, ok := inputSuffix(previousInput, fullInput)
 	if !ok || len(suffix) == 0 || suffixStartsWithResponseOutput(suffix) {
 		return &webSocketReconnectRequiredError{}
@@ -970,8 +984,13 @@ func rawMessagesSize(messages []json.RawMessage) int {
 func buildWebSocketCreatePayload(body []byte) (map[string]any, error) {
 	payload := map[string]any{}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &payload); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.UseNumber()
+		if err := decoder.Decode(&payload); err != nil {
 			return nil, fmt.Errorf("failed to decode responses request body: %w", err)
+		}
+		if payload == nil || decoder.Decode(new(any)) != io.EOF {
+			return nil, fmt.Errorf("responses request body must contain one JSON object")
 		}
 	}
 

@@ -29,6 +29,7 @@ type OpenAIHandlersParams struct {
 	fx.In
 
 	VideoService                *biz.VideoService
+	AuthService                 *biz.AuthService
 	ChannelService              *biz.ChannelService
 	ModelService                *biz.ModelService
 	DefaultSelector             *orchestrator.DefaultSelector
@@ -54,6 +55,7 @@ type OpenAIHandlers struct {
 	ChatCompletionHandlers     *ChatCompletionHandlers
 	CompletionHandlers         *ChatCompletionHandlers
 	ResponseCompletionHandlers *ChatCompletionHandlers
+	ResponseWebSocketHandler   *ResponsesWebSocketHandler
 	CompactHandlers            *ChatCompletionHandlers
 	EmbeddingHandlers          *ChatCompletionHandlers
 	ModerationHandlers         *ChatCompletionHandlers
@@ -317,6 +319,8 @@ func NewOpenAIHandlers(params OpenAIHandlersParams) *OpenAIHandlers {
 		handler.sseKeepAlive = params.SSEKeepAliveConfig
 		handler.sseHeartbeatFormat = sseHeartbeatOpenAI
 	}
+
+	handlers.ResponseWebSocketHandler = newResponsesWebSocketHandler(handlers.ResponseCompletionHandlers, params.AuthService)
 
 	return handlers
 }

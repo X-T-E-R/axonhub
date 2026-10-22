@@ -14,6 +14,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
+	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
 // Precompiled regex patterns for sanitizeResponseBody to avoid recompiling on each call.
@@ -227,7 +228,7 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 			logFields = append(logFields, log.String("model_id", modelID))
 		}
 		// Add response body for HTTP errors to help debug 400 errors (sanitized for PII)
-		if httpErr, ok := xerrors.As[*httpclient.Error](err); ok && len(httpErr.Body) > 0 {
+		if httpErr, ok := xerrors.As[*httpclient.Error](err); ok && len(httpErr.Body) > 0 && !shared.SensitivePayloadLoggingDisabled(ctx) {
 			sanitizedBody := sanitizeResponseBody(httpErr.Body, 1024)
 			logFields = append(logFields, log.ByteString("response_body", sanitizedBody))
 		}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/logpolicy"
 	"github.com/looplj/axonhub/llm/streams"
 )
 
@@ -351,7 +352,7 @@ func (p *pipeline) stream(
 		return nil, fmt.Errorf("failed to apply raw stream middlewares: %w", err)
 	}
 
-	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+	if slog.Default().Enabled(ctx, slog.LevelDebug) && !logpolicy.PayloadsDisabled(ctx) {
 		outboundStream = streams.Map(outboundStream,
 			func(event *httpclient.StreamEvent) *httpclient.StreamEvent {
 				slog.DebugContext(ctx, "Outbound stream event", slog.Any("event", event))
@@ -391,7 +392,7 @@ func (p *pipeline) stream(
 		return nil, fmt.Errorf("failed to apply llm stream middlewares: %w", err)
 	}
 
-	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+	if slog.Default().Enabled(ctx, slog.LevelDebug) && !logpolicy.PayloadsDisabled(ctx) {
 		llmStream = streams.Map(llmStream, func(event *llm.Response) *llm.Response {
 			slog.DebugContext(ctx, "LLM stream event", slog.Any("event", event))
 			return event
@@ -450,7 +451,7 @@ func (p *pipeline) stream(
 		return nil, fmt.Errorf("failed to apply inbound raw stream middlewares: %w", err)
 	}
 
-	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+	if slog.Default().Enabled(ctx, slog.LevelDebug) && !logpolicy.PayloadsDisabled(ctx) {
 		inboundStream = streams.Map(
 			inboundStream,
 			func(event *httpclient.StreamEvent) *httpclient.StreamEvent {

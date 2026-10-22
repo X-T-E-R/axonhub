@@ -76,6 +76,9 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		server.OPTIONS("*any", corsHandler)
 	}
 
+	requestBodyTransport := middleware.NewRequestBodyTransport()
+	server.GET("/__portway/capabilities", middleware.WithIPBlocklist(services.SystemService), requestBodyTransport.Capabilities)
+
 	publicGroup := server.Group("", middleware.WithTimeout(server.Config.RequestTimeout))
 	{
 		// Favicon API - DO NOT AUTH
@@ -179,13 +182,22 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		handlers.Diagnostics.Pull,
 	)
 
+	responsesWebSocketGroup := server.Group("/",
+		middleware.WithIPBlocklist(services.SystemService),
+		middleware.WithAPIKeyConfig(services.AuthService, nil),
+		middleware.WithSource(request.SourceAPI),
+		middleware.WithThread(server.Config.Trace, services.ThreadService),
+		middleware.WithTrace(server.Config.Trace, services.TraceService),
+	)
+	responsesWebSocketGroup.GET("/v1/responses", handlers.OpenAI.ResponsesWebSocketWithTimeout(server.Config.LLMRequestTimeout))
+
 	apiGroup := server.Group("/",
 		middleware.WithTimeout(server.Config.LLMRequestTimeout),
 		middleware.WithIPBlocklist(services.SystemService),
 		middleware.WithAPIKeyConfig(services.AuthService, nil),
 		middleware.WithSource(request.SourceAPI),
 		middleware.WithThread(server.Config.Trace, services.ThreadService),
-		middleware.WithDecodedRequestBody(),
+		middleware.WithDecodedRequestBody(requestBodyTransport),
 		middleware.WithTrace(server.Config.Trace, services.TraceService),
 	)
 
@@ -248,7 +260,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			middleware.WithGeminiKeyAuth(services.AuthService),
 			middleware.WithSource(request.SourceAPI),
 			middleware.WithThread(server.Config.Trace, services.ThreadService),
-			middleware.WithDecodedRequestBody(),
+			middleware.WithDecodedRequestBody(requestBodyTransport),
 			middleware.WithTrace(server.Config.Trace, services.TraceService),
 		)
 
@@ -261,7 +273,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			middleware.WithGeminiKeyAuth(services.AuthService),
 			middleware.WithSource(request.SourceAPI),
 			middleware.WithThread(server.Config.Trace, services.ThreadService),
-			middleware.WithDecodedRequestBody(),
+			middleware.WithDecodedRequestBody(requestBodyTransport),
 			middleware.WithTrace(server.Config.Trace, services.TraceService),
 		)
 

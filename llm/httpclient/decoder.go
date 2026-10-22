@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/looplj/axonhub/llm/logpolicy"
 	"github.com/tmaxmax/go-sse"
 )
 
@@ -224,7 +225,9 @@ func (s *defaultSSEDecoder) Next() bool {
 		return false
 	}
 
-	slog.DebugContext(s.ctx, "SSE event received", slog.Any("event", event))
+	if !logpolicy.PayloadsDisabled(s.ctx) {
+		slog.DebugContext(s.ctx, "SSE event received", slog.Any("event", event))
+	}
 
 	s.current = &StreamEvent{
 		LastEventID: event.LastEventID,

@@ -17,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/llm/pipeline/stream"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer"
+	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
 func NewChatCompletionOrchestrator(
@@ -208,7 +209,7 @@ func (processor *ChatCompletionOrchestrator) process(
 	securitySettings := processor.SystemService.SecuritySettingsOrDefault(ctx)
 
 	strategy := deriveLoadBalancerStrategy(retryPolicy, apiKey)
-	if log.DebugEnabled(ctx) {
+	if log.DebugEnabled(ctx) && !shared.SensitivePayloadLoggingDisabled(ctx) {
 		log.Debug(ctx, "chat request received",
 			log.String("request_body", string(request.Body)),
 			log.Any("request_headers", request.Headers),
@@ -277,9 +278,11 @@ func (processor *ChatCompletionOrchestrator) process(
 		))
 	}
 	commitObserver, hasCommitObserver := streamLivenessObserver.(downstreamCommitObserver)
-	if hasCommitObserver || cyberSessionState != nil {
+	if hasCommitObserver || cyberSessionState != nil || shared.NativeResponsesWebSocket(ctx) {
 		pipelineOpts = append(pipelineOpts, pipeline.WithRetryAllowed(func() bool {
-			if hasCommitObserver && commitObserver.IsDownstreamCommitted() {
+			// Native WS has no exactly-once/retrieve contract. Even a failed send
+			// can be ambiguous, so never transparently start another attempt.
+			if shared.NativeResponsesWebSocket(ctx) || (hasCommitObserver && commitObserver.IsDownstreamCommitted()) {
 				return false
 			}
 
@@ -326,6 +329,7 @@ func (processor *ChatCompletionOrchestrator) process(
 
 	// Add outbound middlewares (executed after outbound.TransformRequest)
 	middlewares = append(middlewares,
+		requireNativeResponsesWebSocketFormat(outbound),
 		captureBoundedReasoningWire(outbound),
 		// AxonHub full pass-through preserves the original AxonHub API path/query/body
 		// before normal body/header override operations run.

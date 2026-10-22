@@ -17,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
+	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
 // RenderContext is the context used for rendering override templates.
@@ -182,7 +183,7 @@ func applyOverrideRequestBody(outbound *PersistentOutboundTransformer) pipeline.
 			}
 		}
 
-		if log.DebugEnabled(ctx) {
+		if log.DebugEnabled(ctx) && !shared.SensitivePayloadLoggingDisabled(ctx) {
 			log.Debug(ctx, "applied body override operations",
 				log.String("channel", channel.Name),
 				log.Int("channel_id", channel.ID),

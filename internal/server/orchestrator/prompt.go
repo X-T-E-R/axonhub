@@ -6,9 +6,11 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/pipeline"
+	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
 type PromptProvider interface {
@@ -68,7 +70,22 @@ func injectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 			log.Int("matching_count", len(matchingPrompts)),
 		)
 
+		originalCount := len(llmRequest.Messages)
 		llmRequest = matcher.ApplyPrompts(llmRequest, matchingPrompts)
+		if shared.NativeResponsesWebSocket(ctx) {
+			// ApplyPrompts owns matching, ordering and content. Project exactly
+			// its prefix/suffix into the native wire without rebuilding old items.
+			appendCount := 0
+			for _, prompt := range matchingPrompts {
+				if prompt.Settings.Action.Type == objects.PromptActionTypeAppend {
+					appendCount++
+				}
+			}
+			prefixCount := len(llmRequest.Messages) - originalCount - appendCount
+			if err := applyNativeWSInjectedPrompts(llmRequest, llmRequest.Messages[:prefixCount], llmRequest.Messages[len(llmRequest.Messages)-appendCount:]); err != nil {
+				return nil, err
+			}
+		}
 
 		return llmRequest, nil
 	})

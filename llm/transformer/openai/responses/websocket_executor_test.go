@@ -486,118 +486,63 @@ func TestWebSocketExecutorDoesNotPoolWithoutSession(t *testing.T) {
 	require.Equal(t, int32(2), upgrades.Load())
 }
 
-func TestWebSocketExecutorKeepsExplicitPreviousResponseIDOnFreshConnection(t *testing.T) {
+func TestWebSocketExecutorRejectsExplicitPreviousResponseIDOnFreshConnection(t *testing.T) {
 	upgrader := websocket.Upgrader{}
+	received := make(chan bool, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		require.NoError(t, err)
 		defer conn.Close()
-
-		var payload map[string]any
-		require.NoError(t, conn.ReadJSON(&payload))
-		require.Equal(t, "client_prev", payload["previous_response_id"])
-		require.NoError(t, conn.WriteJSON(map[string]any{
-			"type": "response.completed",
-			"response": map[string]any{
-				"id":         "resp_test",
-				"object":     "response",
-				"created_at": 1700000000,
-				"model":      "gpt-5",
-				"status":     "completed",
-				"output":     []any{},
-			},
-		}))
+		_, _, err = conn.ReadMessage()
+		received <- err == nil
 	}))
 	defer server.Close()
-
 	executor := NewWebSocketExecutor(nil)
+	defer executor.Close()
 	stream, err := executor.DoStream(webSocketTestContext(), &httpclient.Request{
-		Method: http.MethodPost,
-		URL:    "http" + strings.TrimPrefix(server.URL, "http") + "/v1/responses",
-		Headers: http.Header{
-			webSocketSessionHeader: []string{"explicit-previous"},
-		},
-		Auth: &httpclient.AuthConfig{Type: httpclient.AuthTypeBearer, APIKey: "test-key"},
-		Body: []byte(`{"model":"gpt-5","previous_response_id":"client_prev","input":[{"id":"first","type":"message"}]}`),
+		Method: http.MethodPost, URL: server.URL + "/v1/responses",
+		Headers: http.Header{webSocketSessionHeader: []string{"explicit-previous"}},
+		Auth:    &httpclient.AuthConfig{Type: httpclient.AuthTypeBearer, APIKey: "test-key"},
+		Body:    []byte(`{"model":"gpt-5","previous_response_id":"client_prev","input":[{"id":"first","type":"message"}]}`),
 	})
-	require.NoError(t, err)
-	require.True(t, stream.Next())
-	require.Equal(t, "response.completed", stream.Current().Type)
-	require.False(t, stream.Next())
-	require.NoError(t, stream.Err())
-	require.NoError(t, stream.Close())
+	require.Nil(t, stream)
+	var httpErr *httpclient.Error
+	require.ErrorAs(t, err, &httpErr)
+	require.Equal(t, http.StatusBadRequest, httpErr.StatusCode)
+	require.Contains(t, string(httpErr.Body), "previous_response_not_found")
+	require.False(t, <-received, "an unhydratable delta must not be sent")
 }
 
-func TestWebSocketExecutorReconnectsForDifferentExplicitPreviousResponseID(t *testing.T) {
+func TestWebSocketExecutorRejectsDifferentExplicitPreviousResponseIDWithoutReconnect(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	var upgrades atomic.Int32
+	received := make(chan bool, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upgrade := upgrades.Add(1)
+		upgrades.Add(1)
 		conn, err := upgrader.Upgrade(w, r, nil)
 		require.NoError(t, err)
 		defer conn.Close()
-
 		var payload map[string]any
 		require.NoError(t, conn.ReadJSON(&payload))
-
-		if upgrade == 1 {
-			require.NotContains(t, payload, "previous_response_id")
-			require.NoError(t, conn.WriteJSON(map[string]any{
-				"type": "response.completed",
-				"response": map[string]any{
-					"id":         "resp_1",
-					"object":     "response",
-					"created_at": 1700000000,
-					"model":      "gpt-5",
-					"status":     "completed",
-					"output":     []any{},
-				},
-			}))
-			return
-		}
-
-		require.Equal(t, "client_prev", payload["previous_response_id"])
-		input, ok := payload["input"].([]any)
-		require.True(t, ok)
-		require.Len(t, input, 2)
-		require.NoError(t, conn.WriteJSON(map[string]any{
-			"type": "response.completed",
-			"response": map[string]any{
-				"id":         "resp_2",
-				"object":     "response",
-				"created_at": 1700000000,
-				"model":      "gpt-5",
-				"status":     "completed",
-				"output":     []any{},
-			},
-		}))
+		require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.completed", "response": map[string]any{"id": "resp_1", "status": "completed", "output": []any{}}}))
+		_, _, err = conn.ReadMessage()
+		received <- err == nil
 	}))
 	defer server.Close()
-
 	executor := NewWebSocketExecutor(nil)
-	ctx := webSocketTestContext()
-	for _, body := range [][]byte{
-		[]byte(`{"model":"gpt-5","input":[{"id":"first","type":"message","role":"user"}]}`),
-		[]byte(`{"model":"gpt-5","previous_response_id":"client_prev","input":[{"id":"first","type":"message","role":"user"},{"id":"second","type":"message","role":"user"}]}`),
-	} {
-		stream, err := executor.DoStream(ctx, &httpclient.Request{
-			Method: http.MethodPost,
-			URL:    "http" + strings.TrimPrefix(server.URL, "http") + "/v1/responses",
-			Headers: http.Header{
-				webSocketSessionHeader: []string{"explicit-reconnect"},
-			},
-			Auth: &httpclient.AuthConfig{Type: httpclient.AuthTypeBearer, APIKey: "test-key"},
-			Body: body,
-		})
-		require.NoError(t, err)
-		require.True(t, stream.Next())
-		require.Equal(t, "response.completed", stream.Current().Type)
-		require.False(t, stream.Next())
-		require.NoError(t, stream.Err())
-		require.NoError(t, stream.Close())
-	}
-
-	require.Equal(t, int32(2), upgrades.Load())
+	defer executor.Close()
+	request := &httpclient.Request{Method: http.MethodPost, URL: server.URL + "/v1/responses", Headers: http.Header{webSocketSessionHeader: []string{"explicit-reconnect"}}, Body: []byte(`{"model":"gpt-5","input":[{"role":"user","content":"first"}]}`)}
+	stream, err := executor.DoStream(webSocketTestContext(), request)
+	require.NoError(t, err)
+	require.True(t, stream.Next())
+	require.False(t, stream.Next())
+	require.NoError(t, stream.Close())
+	request.Body = []byte(`{"model":"gpt-5","previous_response_id":"other_parent","input":[{"role":"user","content":"delta"}]}`)
+	stream, err = executor.DoStream(webSocketTestContext(), request)
+	require.Nil(t, stream)
+	require.ErrorContains(t, err, "previous_response_not_found")
+	require.False(t, <-received)
+	require.Equal(t, int32(1), upgrades.Load(), "must not reconnect and send an unhydratable suffix")
 }
 
 func TestRestorePayloadMapRestoresMutatedPayload(t *testing.T) {

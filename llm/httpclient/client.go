@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/looplj/axonhub/llm/logpolicy"
 	"github.com/looplj/axonhub/llm/streams"
 )
 
@@ -209,7 +210,9 @@ func NewHttpClientWithClient(client *http.Client) *HttpClient {
 
 // Do executes the HTTP request.
 func (hc *HttpClient) Do(ctx context.Context, request *Request) (*Response, error) {
-	slog.DebugContext(ctx, "execute http request", slog.Any("request", request), slog.Any("proxy", hc.proxyConfig))
+	if !logpolicy.PayloadsDisabled(ctx) {
+		slog.DebugContext(ctx, "execute http request", slog.Any("request", request), slog.Any("proxy", hc.proxyConfig))
+	}
 
 	rawReq, err := hc.BuildHttpRequest(ctx, request)
 	if err != nil {
@@ -245,7 +248,7 @@ func (hc *HttpClient) Do(ctx context.Context, request *Request) (*Response, erro
 			return nil, fmt.Errorf("failed to read error response body: %w", err)
 		}
 
-		if slog.Default().Enabled(ctx, slog.LevelDebug) {
+		if slog.Default().Enabled(ctx, slog.LevelDebug) && !logpolicy.PayloadsDisabled(ctx) {
 			slog.DebugContext(ctx, "HTTP request failed",
 				slog.String("method", rawReq.Method),
 				slog.String("url", rawReq.URL.String()),
@@ -268,7 +271,7 @@ func (hc *HttpClient) Do(ctx context.Context, request *Request) (*Response, erro
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+	if slog.Default().Enabled(ctx, slog.LevelDebug) && !logpolicy.PayloadsDisabled(ctx) {
 		slog.DebugContext(ctx, "HTTP request success",
 			slog.String("method", rawReq.Method),
 			slog.String("url", rawReq.URL.String()),
@@ -292,7 +295,9 @@ func (hc *HttpClient) Do(ctx context.Context, request *Request) (*Response, erro
 
 // DoStream executes a streaming HTTP request using Server-Sent Events.
 func (hc *HttpClient) DoStream(ctx context.Context, request *Request) (streams.Stream[*StreamEvent], error) {
-	slog.DebugContext(ctx, "execute stream request", slog.Any("request", request))
+	if !logpolicy.PayloadsDisabled(ctx) {
+		slog.DebugContext(ctx, "execute stream request", slog.Any("request", request))
+	}
 
 	rawReq, err := hc.BuildHttpRequest(ctx, request)
 	if err != nil {
@@ -331,7 +336,7 @@ func (hc *HttpClient) DoStream(ctx context.Context, request *Request) (streams.S
 			return nil, err
 		}
 
-		if slog.Default().Enabled(ctx, slog.LevelDebug) {
+		if slog.Default().Enabled(ctx, slog.LevelDebug) && !logpolicy.PayloadsDisabled(ctx) {
 			slog.DebugContext(ctx, "HTTP stream request failed",
 				slog.String("method", rawReq.Method),
 				slog.String("url", rawReq.URL.String()),
