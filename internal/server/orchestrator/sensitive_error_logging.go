@@ -27,12 +27,10 @@ func diagnosticErrorString(ctx context.Context, err error) string {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "context_deadline_exceeded"
 	}
-	var httpErr *httpclient.Error
-	if errors.As(err, &httpErr) {
+	if httpErr, ok := errors.AsType[*httpclient.Error](err); ok {
 		return fmt.Sprintf("upstream_http_error (status %d)", httpErr.StatusCode)
 	}
-	var responseErr *llm.ResponseError
-	if errors.As(err, &responseErr) {
+	if responseErr, ok := errors.AsType[*llm.ResponseError](err); ok {
 		return fmt.Sprintf("upstream_response_error (status %d)", responseErr.StatusCode)
 	}
 	return "error"
