@@ -422,13 +422,6 @@ func newPassThroughAttempt(cancel context.CancelFunc) *passThroughAttempt {
 	return &passThroughAttempt{cancel: cancel, producerDone: make(chan error, 1)}
 }
 
-func passThroughErrorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
 func (a *passThroughAttempt) setDrain(done chan error) {
 	if a == nil {
 		return
@@ -525,7 +518,7 @@ func captureRawProviderStream(outbound *PersistentOutboundTransformer, systemSer
 			defer func() {
 				if r := recover(); r != nil {
 					log.Warn(ctx, "captureRawProviderStream goroutine panicked, recovering",
-						log.Any("panic", r),
+						diagnosticPanicField(ctx, "panic", r),
 						log.String("channel", channel.Name),
 					)
 					rawStreamErr = fmt.Errorf("passthrough stream panic: %v", r)
@@ -634,10 +627,10 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 				if cause := recover(); cause != nil {
 					drainErr = fmt.Errorf("pass-through drain panic: %v", cause)
 					log.Warn(ctx, "pass-through drain goroutine panicked, recovering",
-						log.Any("panic", cause), log.String("channel", channel.Name))
+						diagnosticPanicField(ctx, "panic", cause), log.String("channel", channel.Name))
 				}
 				outbound.state.recordStreamLifecycle(ctx, "pass_through_drain_end",
-					log.String("error", passThroughErrorString(drainErr)))
+					log.String("error", diagnosticErrorString(ctx, drainErr)))
 				drainDone <- drainErr
 				close(drainDone)
 			}()

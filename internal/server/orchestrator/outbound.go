@@ -497,13 +497,13 @@ func (ts *OutboundPersistentStream) logFinalizationDecision(ctx context.Context,
 	}
 
 	if streamErr != nil {
-		fields = append(fields, log.String("stream_err", streamErr.Error()))
+		fields = append(fields, log.String("stream_err", diagnosticErrorString(ctx, streamErr)))
 	}
 	if ctxErr != nil {
-		fields = append(fields, log.String("ctx_err", ctxErr.Error()))
+		fields = append(fields, log.String("ctx_err", diagnosticErrorString(ctx, ctxErr)))
 	}
 	if aggregatedErr != nil {
-		fields = append(fields, log.String("aggregated_err", aggregatedErr.Error()))
+		fields = append(fields, log.String("aggregated_err", diagnosticErrorString(ctx, aggregatedErr)))
 	}
 
 	log.Debug(ctx, "Outbound stream finalization decision", fields...)
@@ -526,7 +526,7 @@ func (ts *OutboundPersistentStream) persistResponseChunks(ctx context.Context) {
 	}
 	defer func() {
 		if cause := recover(); cause != nil {
-			log.Warn(ctx, "Failed to persist outbound response chunks", log.Any("cause", cause))
+			log.Warn(ctx, "Failed to persist outbound response chunks", diagnosticPanicField(ctx, "cause", cause))
 			ts.persistAggregationIncomplete(ctx, fmt.Errorf("aggregation panic: %v", cause))
 		}
 	}()
@@ -539,7 +539,7 @@ func (ts *OutboundPersistentStream) persistResponseChunks(ctx context.Context) {
 
 		responseBody, meta, err := ts.transformer.AggregateStreamChunks(persistCtx, ts.state.RawProviderRequest, ts.responseChunks)
 		if err != nil {
-			log.Warn(persistCtx, "Failed to aggregate chunks using transformer", log.Cause(err))
+			log.Warn(persistCtx, "Failed to aggregate chunks using transformer", diagnosticErrorField(persistCtx, "error", err))
 			ts.persistAggregationIncomplete(persistCtx, err)
 			return
 		}
@@ -571,7 +571,7 @@ func (ts *OutboundPersistentStream) persistAggregationIncomplete(ctx context.Con
 	log.Warn(ctx, "Stream completed but response aggregation evidence is incomplete",
 		log.String("signal", "stream_evidence_aggregation_incomplete"),
 		log.String("api_format", string(ts.transformer.APIFormat())),
-		log.Cause(aggregateErr))
+		diagnosticErrorField(ctx, "error", aggregateErr))
 	ts.persistTerminalStreamFailureChunks(ctx)
 }
 

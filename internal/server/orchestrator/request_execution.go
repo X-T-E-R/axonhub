@@ -220,7 +220,7 @@ func (m *persistRequestExecutionMiddleware) OnOutboundRawError(ctx context.Conte
 	channel := m.outbound.GetCurrentChannel()
 	if channel != nil {
 		logFields := []log.Field{
-			log.Cause(err),
+			diagnosticErrorField(ctx, "error", err),
 			log.Int("channel_id", channel.ID),
 			log.String("channel_name", channel.Name),
 		}

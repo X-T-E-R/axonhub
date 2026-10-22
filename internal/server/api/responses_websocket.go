@@ -205,6 +205,10 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 	ctx = contexts.WithRequestID(ctx, uuid.NewString())
 	authContext := c.Copy()
 	authContext.Request = c.Request.Clone(ctx)
+	if err := middleware.CheckIPBlocklist(authContext); err != nil {
+		_ = writer.failure(frame.streamID, &responsesWSError{status: http.StatusForbidden, kind: "permission_error", code: "ip_blocked", message: "IP address is blocked", notExecuted: true})
+		return
+	}
 	authenticated, status, err := h.authenticate(authContext)
 	if err != nil {
 		_ = writer.failure(frame.streamID, &responsesWSError{status: status, kind: "authentication_error", code: "authentication_failed", message: err.Error(), notExecuted: true})
@@ -288,6 +292,9 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 			break
 		}
 		delete(raw, "stream_id")
+		// Only gateway-owned pre-inference rejections may assert safe replay.
+		// Native response/output objects remain opaque, including nested fields.
+		delete(raw, "execution")
 		if frame.streamID != "" {
 			raw["stream_id"], _ = json.Marshal(frame.streamID)
 		}

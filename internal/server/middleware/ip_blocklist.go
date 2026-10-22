@@ -14,24 +14,41 @@ import (
 	"github.com/looplj/axonhub/internal/server/biz"
 )
 
+type ipBlocklistPolicyKey struct{}
+
 // WithIPBlocklist blocks external API requests from configured IP addresses or CIDR ranges.
 func WithIPBlocklist(systemService *biz.SystemService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clientIPs := clientIPCandidates(c)
-		if len(clientIPs) == 0 {
-			c.Next()
+		// Bind the service, not a settings snapshot: upgraded transports must apply
+		// the current policy again before each generation.
+		ctx := context.WithValue(c.Request.Context(), ipBlocklistPolicyKey{}, systemService)
+		c.Request = c.Request.WithContext(ctx)
+		if err := CheckIPBlocklist(c); err != nil {
+			AbortWithError(c, http.StatusForbidden, err)
 			return
 		}
-
-		ctx := authz.WithSystemBypass(c.Request.Context(), "ip-blocklist-middleware")
-		settings := systemService.SecuritySettingsOrDefault(ctx)
-		if !isBlockedIP(clientIPs, settings.BlockedIPs) {
-			c.Next()
-			return
-		}
-
-		AbortWithError(c, http.StatusForbidden, errors.New("IP address is blocked"))
+		c.Next()
 	}
+}
+
+// CheckIPBlocklist evaluates the current policy installed by WithIPBlocklist
+// without writing to the response. It preserves that middleware's client-IP
+// candidates; per-key allowlists independently check only the direct TCP peer.
+func CheckIPBlocklist(c *gin.Context) error {
+	systemService, installed := c.Request.Context().Value(ipBlocklistPolicyKey{}).(*biz.SystemService)
+	if !installed {
+		return nil
+	}
+	clientIPs := clientIPCandidates(c)
+	if len(clientIPs) == 0 {
+		return nil
+	}
+	ctx := authz.WithSystemBypass(c.Request.Context(), "ip-blocklist-middleware")
+	settings := systemService.SecuritySettingsOrDefault(ctx)
+	if isBlockedIP(clientIPs, settings.BlockedIPs) {
+		return errors.New("IP address is blocked")
+	}
+	return nil
 }
 
 func clientIPCandidates(c *gin.Context) []string {
