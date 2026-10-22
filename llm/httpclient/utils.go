@@ -35,21 +35,27 @@ func ReadHTTPRequest(rawReq *http.Request) (*Request, error) {
 		RawRequest: rawReq,
 	}
 
-	body, err := readLimitedBody(rawReq.Body, httpRequestBodyReadLimit)
+	body, err := ReadRequestBody(rawReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read request body: %w", err)
-	}
-
-	if len(body) > 0 {
-		body, err = decodeRequestBody(body, req.Headers)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	req.Body = body
 
 	return req, nil
+}
+
+// ReadRequestBody reads and decodes an HTTP request with the same wire and decoded size limits.
+// Callers that inspect the body before ReadHTTPRequest must restore the returned bytes.
+func ReadRequestBody(rawReq *http.Request) ([]byte, error) {
+	body, err := readLimitedBody(rawReq.Body, httpRequestBodyReadLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read request body: %w", err)
+	}
+	if len(body) == 0 {
+		return body, nil
+	}
+	return decodeRequestBody(body, rawReq.Header)
 }
 
 func decodeRequestBody(body []byte, headers http.Header) ([]byte, error) {
@@ -99,7 +105,11 @@ func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) (
 		return decoded, nil
 
 	case "zstd":
-		decoder, err := zstd.NewReader(bytes.NewReader(body))
+		decoder, err := zstd.NewReader(bytes.NewReader(body),
+			zstd.WithDecoderConcurrency(1),
+			zstd.WithDecoderMaxMemory(64<<20),
+			zstd.WithDecoderMaxWindow(32<<20),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create zstd decoder: %w", err)
 		}

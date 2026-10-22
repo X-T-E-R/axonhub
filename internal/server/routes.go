@@ -185,6 +185,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		middleware.WithAPIKeyConfig(services.AuthService, nil),
 		middleware.WithSource(request.SourceAPI),
 		middleware.WithThread(server.Config.Trace, services.ThreadService),
+		middleware.WithDecodedRequestBody(),
 		middleware.WithTrace(server.Config.Trace, services.TraceService),
 	)
 
@@ -247,6 +248,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			middleware.WithGeminiKeyAuth(services.AuthService),
 			middleware.WithSource(request.SourceAPI),
 			middleware.WithThread(server.Config.Trace, services.ThreadService),
+			middleware.WithDecodedRequestBody(),
 			middleware.WithTrace(server.Config.Trace, services.TraceService),
 		)
 
@@ -259,6 +261,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			middleware.WithGeminiKeyAuth(services.AuthService),
 			middleware.WithSource(request.SourceAPI),
 			middleware.WithThread(server.Config.Trace, services.ThreadService),
+			middleware.WithDecodedRequestBody(),
 			middleware.WithTrace(server.Config.Trace, services.TraceService),
 		)
 
