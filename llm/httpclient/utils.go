@@ -48,9 +48,28 @@ func ReadHTTPRequest(rawReq *http.Request) (*Request, error) {
 // ReadRequestBody reads and decodes an HTTP request with the same wire and decoded size limits.
 // Callers that inspect the body before ReadHTTPRequest must restore the returned bytes.
 func ReadRequestBody(rawReq *http.Request) ([]byte, error) {
+	return ReadRequestBodyWithDictionary(rawReq, nil)
+}
+
+// ReadRequestBodyWithDictionary additionally accepts the opt-in DCZ request extension.
+// A lookup must only expose dictionaries owned by the authenticated request scope.
+func ReadRequestBodyWithDictionary(rawReq *http.Request, lookup RequestDictionaryLookup) ([]byte, error) {
+	encoding, err := RequestContentEncoding(rawReq.Header)
+	if err != nil {
+		return nil, err
+	}
 	body, err := readLimitedBody(rawReq.Body, httpRequestBodyReadLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read request body: %w", err)
+	}
+	if encoding == "dcz" {
+		decoded, err := decodeDictionaryRequest(body, lookup)
+		if err != nil {
+			return nil, err
+		}
+		rawReq.Header.Del("Content-Encoding")
+		rawReq.Header.Del("Content-Length")
+		return decoded, nil
 	}
 	if len(body) == 0 {
 		return body, nil
@@ -62,13 +81,24 @@ func decodeRequestBody(body []byte, headers http.Header) ([]byte, error) {
 	return decodeRequestBodyWithLimit(body, headers, httpRequestBodyReadLimit)
 }
 
-func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) ([]byte, error) {
-	contentEncoding := headers.Get("Content-Encoding")
-	if contentEncoding == "" {
-		return body, nil
+// RequestContentEncoding accepts only a single content coding, regardless of whether
+// a coding list is represented by repeated fields or a comma-separated field.
+func RequestContentEncoding(headers http.Header) (string, error) {
+	values := headers.Values("Content-Encoding")
+	if len(values) == 0 {
+		return "", nil
 	}
+	if len(values) != 1 || strings.Contains(values[0], ",") {
+		return "", errors.New("multiple request content encodings are unsupported")
+	}
+	return strings.ToLower(strings.TrimSpace(values[0])), nil
+}
 
-	encoding := strings.ToLower(strings.TrimSpace(contentEncoding))
+func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) ([]byte, error) {
+	encoding, err := RequestContentEncoding(headers)
+	if err != nil {
+		return nil, err
+	}
 
 	switch encoding {
 	case "identity", "":
@@ -126,7 +156,7 @@ func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) (
 		return decoded, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported content encoding: %s", contentEncoding)
+		return nil, fmt.Errorf("unsupported content encoding: %s", encoding)
 	}
 }
 

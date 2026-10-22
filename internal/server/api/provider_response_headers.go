@@ -8,18 +8,23 @@ import (
 )
 
 var blockedProviderResponseHeaders = map[string]struct{}{
-	"Alt-Svc":            {},
-	"Connection":         {},
-	"Content-Encoding":   {},
-	"Content-Length":     {},
-	"Content-Type":       {},
-	"Keep-Alive":         {},
-	"Proxy-Authenticate": {},
-	"Proxy-Connection":   {},
-	"Te":                 {},
-	"Trailer":            {},
-	"Transfer-Encoding":  {},
-	"Upgrade":            {},
+	"Alt-Svc":                {},
+	"Connection":             {},
+	"Content-Encoding":       {},
+	"Content-Length":         {},
+	"Content-Type":           {},
+	"Keep-Alive":             {},
+	"Proxy-Authenticate":     {},
+	"Proxy-Connection":       {},
+	"Te":                     {},
+	"Trailer":                {},
+	"Transfer-Encoding":      {},
+	"Upgrade":                {},
+	"X-Dict-Stored":          {},
+	"X-Dict-Miss":            {},
+	"X-Portway-Decode-Error": {},
+	"X-Request-Encodings":    {},
+	"X-Request-Dictionary":   {},
 }
 
 // copyProviderResponseHeaders preserves protocol metadata that downstream

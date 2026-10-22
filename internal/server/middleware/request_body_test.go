@@ -73,7 +73,7 @@ func TestDecodedRequestBodyRejectsBeforeHandler(t *testing.T) {
 	}{
 		{"invalid gzip", "gzip", []byte("not gzip"), http.StatusBadRequest},
 		{"invalid zstd", "zstd", []byte("not zstd"), http.StatusBadRequest},
-		{"unknown encoding", "unsupported", []byte("{}"), http.StatusBadRequest},
+		{"unknown encoding", "unsupported", []byte("{}"), http.StatusUnsupportedMediaType},
 		{"decoded limit", "gzip", bomb.Bytes(), http.StatusRequestEntityTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

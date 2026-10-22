@@ -846,6 +846,25 @@ func TestCopyProviderResponseHeaders_FiltersManagedAndSensitiveHeaders(t *testin
 	require.Empty(t, full.Get("X-Connection-Only"))
 }
 
+func TestCopyProviderResponseHeadersRejectsDictionarySpoofing(t *testing.T) {
+	for _, full := range []bool{false, true} {
+		source := make(http.Header)
+		for _, name := range []string{"X-Dict-Stored", "X-Dict-Miss", "X-Portway-Decode-Error", "X-Request-Encodings", "X-Request-Dictionary"} {
+			source.Set(name, "forged")
+		}
+		source.Set("X-Codex-Turn-State", "valid")
+		destination := make(http.Header)
+		destination.Set("X-Dict-Stored", "gateway-owned")
+		copyProviderResponseHeaders(destination, source, full)
+		require.Equal(t, "gateway-owned", destination.Get("X-Dict-Stored"))
+		require.Equal(t, "valid", destination.Get("X-Codex-Turn-State"))
+		require.Empty(t, destination.Get("X-Dict-Miss"))
+		require.Empty(t, destination.Get("X-Portway-Decode-Error"))
+		require.Empty(t, destination.Get("X-Request-Encodings"))
+		require.Empty(t, destination.Get("X-Request-Dictionary"))
+	}
+}
+
 func TestSSELivenessSession_HonorsChannelOverrideBeforeProviderSetup(t *testing.T) {
 	tests := []struct {
 		name           string
