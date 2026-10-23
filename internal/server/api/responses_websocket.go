@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"runtime/debug"
 	"sync"
@@ -25,8 +26,11 @@ import (
 )
 
 const responsesWSCapabilityHeader = "X-Responses-WebSocket-Capabilities"
-const responsesWSCapabilities = `{"version":1,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":8388608,"max_queued_bytes":8388608,"max_state_bytes":8388608,"state_ttl_seconds":600,"connection_lifetime_seconds":1800,"state_scope":"connection","previous_response_id":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
+const responsesWSCapabilities = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":8388608,"max_queued_bytes":8388608,"max_state_bytes":8388608,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
 const responsesWSMaxBytes = 8 << 20
+const responsesWSDefaultTurnTimeout = 10 * time.Minute
+const responsesWSAdmissionLifetime = 30 * time.Minute
+const responsesWSTerminalGrace = 15 * time.Second
 
 type responsesWSProcessor func(context.Context, *httpclient.Request, orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error)
 type responsesWSAuthenticator func(*gin.Context) (context.Context, int, error)
@@ -48,7 +52,7 @@ func newResponsesWebSocketHandler(handler *ChatCompletionHandlers, auth *biz.Aut
 		authenticate: func(c *gin.Context) (context.Context, int, error) {
 			return middleware.AuthenticateAPIKeyContext(c, auth, nil)
 		},
-		slots: make(chan struct{}, 64), turnTimeout: 10 * time.Minute, lifetime: 30 * time.Minute, stateTTL: 10 * time.Minute,
+		slots: make(chan struct{}, 64), turnTimeout: responsesWSDefaultTurnTimeout, lifetime: responsesWSAdmissionLifetime, stateTTL: 10 * time.Minute,
 	}
 }
 
@@ -60,20 +64,43 @@ func (handlers *OpenAIHandlers) CreateResponseWebSocket(c *gin.Context) {
 // registration. The upgraded connection has its own independent lifetime.
 func (handlers *OpenAIHandlers) ResponsesWebSocketWithTimeout(timeout time.Duration) gin.HandlerFunc {
 	configured := *handlers.ResponseWebSocketHandler
-	configured.turnTimeout = timeout
+	configured.turnTimeout = responsesWSTurnTimeout(timeout)
 	return configured.Serve
 }
 
+func responsesWSTurnTimeout(timeout time.Duration) time.Duration {
+	// Keep both the rounded advertised timeout and the total deadline representable.
+	if timeout <= 0 || timeout > time.Duration(1<<63-1)-responsesWSAdmissionLifetime-responsesWSTerminalGrace-time.Second {
+		return responsesWSDefaultTurnTimeout
+	}
+	return timeout
+}
+
+func responsesWSSeconds(duration time.Duration) int64 {
+	return int64((duration-1)/time.Second) + 1
+}
+
+func (h *ResponsesWebSocketHandler) capabilities() string {
+	admission := responsesWSSeconds(h.lifetime)
+	active := responsesWSSeconds(responsesWSTurnTimeout(h.turnTimeout))
+	return fmt.Sprintf(responsesWSCapabilities, admission+active+responsesWSSeconds(responsesWSTerminalGrace), admission, active)
+}
+
 type responsesWSWriter struct {
-	conn   *websocket.Conn
-	mu     sync.Mutex
-	cancel context.CancelFunc
+	conn     *websocket.Conn
+	mu       sync.Mutex
+	cancel   context.CancelFunc
+	deadline time.Time
 }
 
 func (w *responsesWSWriter) write(value any) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	_ = w.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
+	deadline := time.Now().Add(responsesWSTerminalGrace)
+	if w.deadline.Before(deadline) {
+		deadline = w.deadline
+	}
+	_ = w.conn.SetWriteDeadline(deadline)
 	if err := w.conn.WriteJSON(value); err != nil {
 		w.cancel()
 		_ = w.conn.Close()
@@ -92,14 +119,28 @@ func (w *responsesWSWriter) failure(streamID string, e *responsesWSError) error 
 	return w.write(event)
 }
 
-func (w *responsesWSWriter) queueFailure(data []byte, message string) error {
+func (w *responsesWSWriter) frameFailure(data []byte, rejection *responsesWSError) error {
 	var frame struct {
 		StreamID string `json:"stream_id"`
 	}
 	if json.Unmarshal(data, &frame) != nil || len(frame.StreamID) > 64 {
 		frame.StreamID = ""
 	}
-	return w.failure(frame.StreamID, wsRejected("queue_capacity_exceeded", message, ""))
+	return w.failure(frame.StreamID, rejection)
+}
+
+func wsConnectionRetiring() *responsesWSError {
+	return wsRejected("connection_retiring", "This connection is retiring; this event was not executed. Reconnect and send full input.", "")
+}
+
+func (w *responsesWSWriter) retired() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	deadline := time.Now().Add(responsesWSTerminalGrace)
+	if w.deadline.Before(deadline) {
+		deadline = w.deadline
+	}
+	_ = w.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "connection retired"), deadline)
 }
 
 type responsesWSFrame struct{ data []byte }
@@ -117,23 +158,29 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 		return
 	}
 	upgrader := websocket.Upgrader{HandshakeTimeout: 10 * time.Second, ReadBufferSize: 4096, WriteBufferSize: 4096}
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, http.Header{responsesWSCapabilityHeader: []string{responsesWSCapabilities}})
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, http.Header{responsesWSCapabilityHeader: []string{h.capabilities()}})
 	if err != nil {
 		return
 	}
 	defer conn.Close()
 	conn.SetReadLimit(responsesWSMaxBytes)
-	// A finite connection lifetime also unblocks an idle reader without a timer goroutine.
-	_ = conn.SetReadDeadline(time.Now().Add(h.lifetime))
-	ctx, cancel := context.WithTimeout(c.Request.Context(), h.lifetime)
+	admissionDeadline := time.Now().Add(h.lifetime)
+	hardDeadline := admissionDeadline.Add(time.Duration(responsesWSSeconds(responsesWSTurnTimeout(h.turnTimeout)))*time.Second + responsesWSTerminalGrace)
+	_ = conn.SetReadDeadline(hardDeadline)
+	ctx, cancel := context.WithDeadline(c.Request.Context(), hardDeadline)
 	defer cancel()
-	writer := &responsesWSWriter{conn: conn, cancel: cancel}
+	writer := &responsesWSWriter{conn: conn, cancel: cancel, deadline: hardDeadline}
 	queue := make(chan responsesWSFrame, 8)
 	var queuedBytes atomic.Int64
+	// Serialize queue admission with retirement so no pre-cutoff enqueue can
+	// race the final drain. Only the worker may select an active generation.
+	var admissionMu sync.Mutex
+	retiring := false
 	done := make(chan struct{})
 	snapshot := c.Copy()
 	go func() {
 		defer close(done)
+		defer cancel()
 		defer func() {
 			if recover() != nil {
 				log.Error(ctx, "Responses WebSocket worker panicked", log.String("stack", string(debug.Stack())))
@@ -142,17 +189,54 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 			}
 		}()
 		state := newResponsesWSState(h.stateTTL)
+		defer state.clear()
 		cleanup := time.NewTicker(min(h.stateTTL, time.Minute))
 		defer cleanup.Stop()
+		retirement := time.NewTimer(time.Until(admissionDeadline))
+		defer retirement.Stop()
+		retire := func() {
+			admissionMu.Lock()
+			retiring = true
+			admissionMu.Unlock()
+			for {
+				select {
+				case frame := <-queue:
+					queuedBytes.Add(-int64(len(frame.data)))
+					if writer.frameFailure(frame.data, wsConnectionRetiring()) != nil {
+						return
+					}
+				default:
+					writer.retired()
+					return
+				}
+			}
+		}
 		for {
+			if ctx.Err() != nil {
+				return
+			}
+			if !time.Now().Before(admissionDeadline) {
+				retire()
+				return
+			}
 			select {
 			case <-ctx.Done():
+				return
+			case <-retirement.C:
+				retire()
 				return
 			case now := <-cleanup.C:
 				state.expire(now)
 			case frame := <-queue:
 				queuedBytes.Add(-int64(len(frame.data)))
 				if ctx.Err() != nil {
+					return
+				}
+				if !time.Now().Before(admissionDeadline) {
+					if writer.frameFailure(frame.data, wsConnectionRetiring()) != nil {
+						return
+					}
+					retire()
 					return
 				}
 				h.generate(ctx, snapshot, frame.data, state, writer)
@@ -168,39 +252,42 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 		if err != nil {
 			return
 		}
-		if typ != websocket.TextMessage {
-			if writer.failure("", wsRejected("unsupported_frame", "Only JSON text frames are supported.", "")) != nil {
-				return
+		admissionMu.Lock()
+		var rejection *responsesWSError
+		if retiring || !time.Now().Before(admissionDeadline) {
+			rejection = wsConnectionRetiring()
+		} else if typ != websocket.TextMessage {
+			rejection = wsRejected("unsupported_frame", "Only JSON text frames are supported.", "")
+			data = nil
+		} else {
+			size := int64(len(data))
+			if queuedBytes.Add(size) > responsesWSMaxBytes {
+				queuedBytes.Add(-size)
+				rejection = wsRejected("queue_capacity_exceeded", "The connection queue byte limit was reached; this event was not executed.", "")
+			} else {
+				select {
+				case queue <- responsesWSFrame{data: data}:
+				default:
+					queuedBytes.Add(-size)
+					rejection = wsRejected("queue_capacity_exceeded", "The connection queue is full; this event was not executed.", "")
+				}
 			}
-			continue
 		}
-		size := int64(len(data))
-		if queuedBytes.Add(size) > responsesWSMaxBytes {
-			queuedBytes.Add(-size)
-			if writer.queueFailure(data, "The connection queue byte limit was reached; this event was not executed.") != nil {
-				return
-			}
-			continue
-		}
-		select {
-		case queue <- responsesWSFrame{data: data}:
-		default:
-			queuedBytes.Add(-size)
-			if writer.queueFailure(data, "The connection queue is full; this event was not executed.") != nil {
-				return
-			}
+		admissionMu.Unlock()
+		if rejection != nil && writer.frameFailure(data, rejection) != nil {
+			return
 		}
 	}
 }
 
 func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Context, data []byte, state *responsesWSState, writer *responsesWSWriter) {
+	ctx, cancel := context.WithTimeout(contexts.NewRequestScope(parent), responsesWSTurnTimeout(h.turnTimeout))
+	defer cancel()
 	frame, parseErr := parseResponsesWSCreate(data)
 	if parseErr != nil {
 		_ = writer.failure(frame.streamID, parseErr)
 		return
 	}
-	ctx, cancel := context.WithTimeout(contexts.NewRequestScope(parent), h.turnTimeout)
-	defer cancel()
 	ctx = shared.WithNativeResponsesWebSocket(ctx)
 	ctx = contexts.WithRequestID(ctx, uuid.NewString())
 	authContext := c.Copy()
