@@ -49,12 +49,12 @@ func wsTestDial(t *testing.T, server *httptest.Server) *websocket.Conn {
 		Active    int64  `json:"active_turn_timeout_seconds"`
 		Mode      string `json:"lifetime_mode"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(resp.Header.Get(responsesWSCapabilityHeader)), &capabilities))
+	require.NoError(t, json.Unmarshal([]byte(resp.Header.Get(http.CanonicalHeaderKey(responsesWSCapabilityHeader))), &capabilities))
 	require.Equal(t, 2, capabilities.Version)
 	require.Equal(t, "drain_active", capabilities.Mode)
 	require.Positive(t, capabilities.Active)
 	require.Equal(t, capabilities.Admission+capabilities.Active+15, capabilities.Lifetime)
-	require.JSONEq(t, fmt.Sprintf(responsesWSCapabilities, capabilities.Lifetime, capabilities.Admission, capabilities.Active), resp.Header.Get(responsesWSCapabilityHeader))
+	require.JSONEq(t, fmt.Sprintf(responsesWSCapabilities, capabilities.Lifetime, capabilities.Admission, capabilities.Active), resp.Header.Get(http.CanonicalHeaderKey(responsesWSCapabilityHeader)))
 	t.Cleanup(func() { conn.Close() })
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	return conn

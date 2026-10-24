@@ -158,7 +158,7 @@ func TestResponsesWebSocketLifecycleCapabilitiesAndTimeoutDefault(t *testing.T) 
 			require.NoError(t, err)
 			defer conn.Close()
 			var capabilities map[string]any
-			require.NoError(t, json.Unmarshal([]byte(response.Header.Get(responsesWSCapabilityHeader)), &capabilities))
+			require.NoError(t, json.Unmarshal([]byte(response.Header.Get(http.CanonicalHeaderKey(responsesWSCapabilityHeader))), &capabilities))
 			require.Equal(t, float64(2), capabilities["version"])
 			require.Equal(t, "drain_active", capabilities["lifetime_mode"])
 			require.Equal(t, float64(1800), capabilities["admission_lifetime_seconds"])
@@ -276,6 +276,7 @@ func (s *lifecycleDelayedStream) Next() bool {
 		return false
 	}
 }
+
 func (s *lifecycleDelayedStream) Current() *httpclient.StreamEvent {
 	if s.phase == 1 {
 		return &httpclient.StreamEvent{Type: "response.created", Data: []byte(`{"type":"response.created","response":{"id":"active","status":"in_progress"}}`)}
