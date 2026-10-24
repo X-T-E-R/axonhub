@@ -135,17 +135,7 @@ func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) (
 		return decoded, nil
 
 	case "zstd":
-		decoder, err := zstd.NewReader(bytes.NewReader(body),
-			zstd.WithDecoderConcurrency(1),
-			zstd.WithDecoderMaxMemory(64<<20),
-			zstd.WithDecoderMaxWindow(32<<20),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create zstd decoder: %w", err)
-		}
-		defer decoder.Close()
-
-		decoded, err := readLimitedBody(decoder, limit)
+		decoded, err := decodeZstdRequestBody(body, limit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode zstd compressed body: %w", err)
 		}
@@ -158,6 +148,36 @@ func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) (
 	default:
 		return nil, fmt.Errorf("unsupported content encoding: %s", encoding)
 	}
+}
+
+// The complete compressed frame is already buffered by ReadRequestBody. DecodeAll
+// avoids a second streaming history window and bytes.Buffer copy per request.
+func decodeZstdRequestBody(body []byte, limit int64, extra ...zstd.DOption) ([]byte, error) {
+	if limit <= 0 {
+		return nil, ErrHTTPRequestBodyTooLarge
+	}
+	options := []zstd.DOption{
+		zstd.WithDecoderConcurrency(1),
+		// Production's decoded cap is 32 MiB. Keep the existing window allowance
+		// independent of smaller limits used by callers/tests.
+		zstd.WithDecoderMaxMemory(uint64(max(limit, httpRequestBodyReadLimit))),
+		zstd.WithDecoderMaxWindow(32 << 20),
+	}
+	options = append(options, extra...)
+	decoder, err := zstd.NewReader(nil, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer decoder.Close()
+
+	decoded, err := decoder.DecodeAll(body, nil)
+	if errors.Is(err, zstd.ErrDecoderSizeExceeded) || int64(len(decoded)) > limit {
+		return nil, ErrHTTPRequestBodyTooLarge
+	}
+	if err != nil {
+		return nil, err
+	}
+	return decoded, nil
 }
 
 func readLimitedBody(reader io.Reader, limit int64) ([]byte, error) {

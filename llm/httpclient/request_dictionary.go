@@ -42,17 +42,7 @@ func decodeDictionaryRequest(body []byte, lookup RequestDictionaryLookup) ([]byt
 	if err := validateDictionaryFrame(frame); err != nil {
 		return nil, err
 	}
-	decoder, err := zstd.NewReader(bytes.NewReader(frame),
-		zstd.WithDecoderDictRaw(0, dictionary),
-		zstd.WithDecoderConcurrency(1),
-		zstd.WithDecoderMaxMemory(64<<20),
-		zstd.WithDecoderMaxWindow(32<<20),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidDictionaryRequest, err)
-	}
-	defer decoder.Close()
-	decoded, err := readLimitedBody(decoder, httpRequestBodyReadLimit)
+	decoded, err := decodeZstdRequestBody(frame, httpRequestBodyReadLimit, zstd.WithDecoderDictRaw(0, dictionary))
 	if err != nil {
 		if errors.Is(err, ErrHTTPRequestBodyTooLarge) {
 			return nil, err
