@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -51,6 +52,9 @@ func TestDebugListenerRejectsNonLoopback(t *testing.T) {
 		"[::]:6060",
 		"192.0.2.10:6060",
 		"example.com:6060",
+		"localhost:6060",
+		"127.0.0.2:6060",
+		"[::1]:6060",
 		"127.0.0.1",
 		"127.0.0.1:http",
 		"127.0.0.1:70000",
@@ -98,6 +102,21 @@ func TestDebugListenerServesProfilesOnlyOnLoopback(t *testing.T) {
 
 	if code, _ := get("/debug/pprof/"); code != http.StatusOK {
 		t.Fatalf("index status %d", code)
+	}
+	if code, body := get("/debug/runtime?ignored=not-a-response-field"); code != http.StatusOK {
+		t.Fatalf("runtime statistics status %d", code)
+	} else {
+		var stats map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(body), &stats); err != nil {
+			t.Fatalf("runtime statistics JSON: %v", err)
+		}
+		if len(stats) != 9 || stats["totalAllocBytes"] == nil || stats["heapAllocBytes"] == nil || stats["numGC"] == nil || stats["runtimeCPUCounters"] == nil || strings.Contains(body, "not-a-response-field") {
+			t.Fatal("runtime statistics must expose only aggregate allocation/GC fields")
+		}
+		var counters map[string]float64
+		if err := json.Unmarshal(stats["runtimeCPUCounters"], &counters); err != nil || len(counters) != 3 {
+			t.Fatal("runtime GC CPU counters unavailable")
+		}
 	}
 	if code, body := get("/debug/pprof/allocs?debug=1"); code != http.StatusOK || !strings.Contains(body, "heap profile:") {
 		t.Fatalf("allocs status %d body %q", code, body)

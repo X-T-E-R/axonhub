@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"runtime"
+	"runtime/metrics"
 	"strconv"
 	"strings"
 	"time"
@@ -31,8 +34,8 @@ type DebugListener struct {
 	listener net.Listener
 }
 
-// newDebugProfileMux registers a fixed set of profiling handlers. It never
-// mutates http.DefaultServeMux, so the public gin engine cannot reach them.
+// newDebugProfileMux uses a private allowlist, not http.DefaultServeMux.
+// The public Gin engine never routes to this listener.
 func newDebugProfileMux() *http.ServeMux {
 	onlyGET := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -56,12 +59,46 @@ func newDebugProfileMux() *http.ServeMux {
 		}
 		pprof.Index(w, r)
 	}))
+	mux.HandleFunc("/debug/runtime", onlyGET(debugRuntimeStats))
 	mux.HandleFunc("/debug/pprof/profile", onlyGET(pprof.Profile))
 	for _, name := range debugProfileNames {
 		mux.Handle("/debug/pprof/"+name, onlyGET(pprof.Handler(name).ServeHTTP))
 	}
 
 	return mux
+}
+
+// debugRuntimeStats exposes aggregate allocation and GC counters only. No
+// request state, environment, goroutine arguments or object contents are read.
+func debugRuntimeStats(w http.ResponseWriter, _ *http.Request) {
+	var memory runtime.MemStats
+	runtime.ReadMemStats(&memory)
+	samples := []metrics.Sample{
+		{Name: "/cpu/classes/gc/total:cpu-seconds"},
+		{Name: "/cpu/classes/gc/mark/assist:cpu-seconds"},
+		{Name: "/cpu/classes/total:cpu-seconds"},
+	}
+	metrics.Read(samples)
+	cpu := make(map[string]float64, len(samples))
+	for _, sample := range samples {
+		if sample.Value.Kind() == metrics.KindFloat64 {
+			cpu[sample.Name] = sample.Value.Float64()
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(struct {
+		HeapAlloc    uint64             `json:"heapAllocBytes"`
+		HeapInuse    uint64             `json:"heapInuseBytes"`
+		HeapObjects  uint64             `json:"heapObjects"`
+		TotalAlloc   uint64             `json:"totalAllocBytes"`
+		NumGC        uint32             `json:"numGC"`
+		PauseTotalNs uint64             `json:"gcPauseTotalNs"`
+		GCCPU        float64            `json:"gcCPUFractionSinceStart"`
+		Goroutines   int                `json:"goroutines"`
+		CPU          map[string]float64 `json:"runtimeCPUCounters"`
+	}{memory.HeapAlloc, memory.HeapInuse, memory.HeapObjects, memory.TotalAlloc,
+		memory.NumGC, memory.PauseTotalNs, memory.GCCPUFraction, runtime.NumGoroutine(), cpu})
 }
 
 // validateDebugAddr accepts only a literal loopback host. Any routable or
@@ -75,15 +112,8 @@ func validateDebugAddr(addr string) (string, error) {
 	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
 		return "", errors.New("debug listener port must be numeric")
 	}
-	if host == "" {
-		return "", errors.New("debug listener host is required")
-	}
-	if strings.EqualFold(host, "localhost") {
-		return addr, nil
-	}
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return "", fmt.Errorf("debug listener host %q is not loopback", host)
+	if host != "127.0.0.1" {
+		return "", errors.New("debug listener host must be 127.0.0.1")
 	}
 
 	return addr, nil
