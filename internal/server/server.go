@@ -91,6 +91,7 @@ func Run(opts ...fx.Option) {
 		gql.NewGraphqlHandlers,
 		gc.NewWorker,
 		New,
+		NewDebugListener,
 		NewIPAccessControlRuntime,
 	}
 
@@ -132,6 +133,9 @@ func Run(opts ...fx.Option) {
 					},
 				})
 			}),
+			// The listener is provided for its lifecycle hooks; consuming the
+			// value keeps fx from pruning it when the option is configured.
+			fx.Invoke(func(*DebugListener) {}),
 			fx.Invoke(SetupRoutes),
 		}, opts...)...,
 	)

@@ -241,6 +241,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.dashboard.all_time_token_stats_hard_ttl", "24h")
 
 	v.SetDefault("server.debug", false)
+	v.SetDefault("server.debug_listener", "")
 	v.SetDefault("server.disable_ssl_verify", false)
 
 	// Max multipart memory for file uploads (backup restore, etc.)

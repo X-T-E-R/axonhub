@@ -96,11 +96,17 @@ type Config struct {
 	Trace     tracing.Config `conf:"trace" yaml:"trace" json:"trace"`
 	Dashboard Dashboard      `conf:"dashboard" yaml:"dashboard" json:"dashboard"`
 
-	Debug            bool            `conf:"debug" yaml:"debug" json:"debug"`
-	DisableSSLVerify bool            `conf:"disable_ssl_verify" yaml:"disable_ssl_verify" json:"disable_ssl_verify"`
-	CORS             CORS            `conf:"cors" yaml:"cors" json:"cors"`
-	API              API             `conf:"api" yaml:"api" json:"api"`
-	IPAccessControl  IPAccessControl `conf:"ip_access_control" yaml:"ip_access_control" json:"ip_access_control"`
+	Debug            bool `conf:"debug" yaml:"debug" json:"debug"`
+	DisableSSLVerify bool `conf:"disable_ssl_verify" yaml:"disable_ssl_verify" json:"disable_ssl_verify"`
+
+	// DebugListener optionally starts a loopback-only profiling listener with
+	// CPU and memory profiles. Empty disables it and is the default. Only a
+	// literal loopback address is accepted; any other host refuses to start so
+	// profiles cannot be exposed on a routable interface by accident.
+	DebugListener   string          `conf:"debug_listener" yaml:"debug_listener" json:"debug_listener"`
+	CORS            CORS            `conf:"cors" yaml:"cors" json:"cors"`
+	API             API             `conf:"api" yaml:"api" json:"api"`
+	IPAccessControl IPAccessControl `conf:"ip_access_control" yaml:"ip_access_control" json:"ip_access_control"`
 
 	// MaxMultipartMemory sets the maximum memory for parsing multipart forms (in bytes).
 	// This is important for backup restore which uploads large backup files.
