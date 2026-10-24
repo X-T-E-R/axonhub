@@ -97,8 +97,17 @@ func debugRuntimeStats(w http.ResponseWriter, _ *http.Request) {
 		GCCPU        float64            `json:"gcCPUFractionSinceStart"`
 		Goroutines   int                `json:"goroutines"`
 		CPU          map[string]float64 `json:"runtimeCPUCounters"`
-	}{memory.HeapAlloc, memory.HeapInuse, memory.HeapObjects, memory.TotalAlloc,
-		memory.NumGC, memory.PauseTotalNs, memory.GCCPUFraction, runtime.NumGoroutine(), cpu})
+	}{
+		HeapAlloc:    memory.HeapAlloc,
+		HeapInuse:    memory.HeapInuse,
+		HeapObjects:  memory.HeapObjects,
+		TotalAlloc:   memory.TotalAlloc,
+		NumGC:        memory.NumGC,
+		PauseTotalNs: memory.PauseTotalNs,
+		GCCPU:        memory.GCCPUFraction,
+		Goroutines:   runtime.NumGoroutine(),
+		CPU:          cpu,
+	})
 }
 
 // validateDebugAddr accepts only a literal loopback host. Any routable or
