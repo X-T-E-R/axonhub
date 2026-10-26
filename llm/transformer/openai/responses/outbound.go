@@ -171,17 +171,20 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 		Error llm.ErrorDetail `json:"error"`
 	}
 
+	retryAfter := httpclient.RetryAfterHeader(rawErr.Headers)
 	err := json.Unmarshal(rawErr.Body, &openaiError)
 	if err == nil && openaiError.Error.Message != "" {
 		return &llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail:     openaiError.Error,
+			RetryAfter: retryAfter,
 		}
 	}
 
 	// If JSON parsing fails, use the upstream status text
 	return &llm.ResponseError{
 		StatusCode: rawErr.StatusCode,
+		RetryAfter: retryAfter,
 		Detail: llm.ErrorDetail{
 			Message: strings.TrimSpace(string(rawErr.Body)),
 			Type:    "api_error",

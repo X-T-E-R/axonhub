@@ -11,6 +11,7 @@ import (
 type responsesWSError struct {
 	status                     int
 	kind, code, message, param string
+	retryAfter                 string
 	notExecuted                bool
 }
 

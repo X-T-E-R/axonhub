@@ -282,6 +282,35 @@ func TestParseRetryAfter_HTTPDate_MaxCooldownCap(t *testing.T) {
 	assert.Equal(t, MaxRetryAfterDuration, result)
 }
 
+func TestRetryAfterHeader(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		header http.Header
+		want   string
+	}{
+		{name: "ten seconds", header: http.Header{"Retry-After": {"10"}}, want: "10"},
+		{name: "zero", header: http.Header{"Retry-After": {"0"}}, want: "0"},
+		{name: "uncapped", header: http.Header{"Retry-After": {"86400"}}, want: "86400"},
+		{name: "large integer", header: http.Header{"Retry-After": {"184467440737095516160"}}, want: "184467440737095516160"},
+		{name: "date", header: http.Header{"Retry-After": {"Wed, 21 Oct 2037 07:28:00 GMT"}}, want: "Wed, 21 Oct 2037 07:28:00 GMT"},
+		{name: "OWS", header: http.Header{"Retry-After": {" \t10\t "}}, want: "10"},
+		{name: "missing"},
+		{name: "empty", header: http.Header{"Retry-After": {""}}},
+		{name: "invalid", header: http.Header{"Retry-After": {"soon"}}},
+		{name: "negative", header: http.Header{"Retry-After": {"-10"}}},
+		{name: "signed", header: http.Header{"Retry-After": {"+10"}}},
+		{name: "fractional", header: http.Header{"Retry-After": {"0.5"}}},
+		{name: "multiple", header: http.Header{"Retry-After": {"10", "20"}}},
+		{name: "comma joined", header: http.Header{"Retry-After": {"10, 20"}}},
+		{name: "header injection", header: http.Header{"Retry-After": {"10\r\nSet-Cookie: secret"}}},
+		{name: "connection scoped", header: http.Header{"Retry-After": {"10"}, "Connection": {"keep-alive, retry-after"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, RetryAfterHeader(tt.header))
+		})
+	}
+}
+
 func TestError_Error(t *testing.T) {
 	err := &Error{
 		Method:     "POST",

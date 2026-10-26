@@ -124,10 +124,15 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 			},
 		}
 
+		var headers http.Header
+		if value := httpclient.RetryAfterHeader(http.Header{"Retry-After": {llmErr.RetryAfter}}); value != "" {
+			headers = http.Header{"Retry-After": {value}}
+		}
 		return &httpclient.Error{
 			StatusCode: llmErr.StatusCode,
 			Status:     http.StatusText(llmErr.StatusCode),
 			Body:       xjson.MustMarshal(&errResp),
+			Headers:    headers,
 		}
 	}
 

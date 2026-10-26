@@ -860,6 +860,8 @@ type PromptTokensDetails struct {
 type ResponseError struct {
 	StatusCode int         `json:"-"`
 	Detail     ErrorDetail `json:"error"`
+	// RetryAfter carries the upstream HTTP advice, not a gateway retry policy.
+	RetryAfter string `json:"-"`
 }
 
 func (e ResponseError) Error() string {

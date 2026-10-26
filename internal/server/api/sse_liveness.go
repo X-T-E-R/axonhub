@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -669,8 +670,25 @@ func (s *sseLivenessSession) awaitProcess(
 	}
 }
 
-func (s *sseLivenessSession) writeError(c *gin.Context, value any) error {
-	if err := writeAndFlushSSEEvent(c.Writer, "error", value); err != nil {
+func (s *sseLivenessSession) writeError(c *gin.Context, httpErr *httpclient.Error) error {
+	event := "error"
+	var value any = json.RawMessage(httpErr.Body)
+	if retryAfter := httpclient.RetryAfterHeader(httpErr.Headers); s.responsesAPI && retryAfter != "" {
+		var body struct {
+			Error map[string]json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal(httpErr.Body, &body) == nil && body.Error != nil {
+			// Responses clients read advice from response.error.headers, not a
+			// bare SSE error event. Only project the validated public header.
+			body.Error["headers"], _ = json.Marshal(map[string]string{"retry-after": retryAfter})
+			event = "response.failed"
+			value = gin.H{
+				"type":     event,
+				"response": gin.H{"object": "response", "status": "failed", "error": body.Error},
+			}
+		}
+	}
+	if err := writeAndFlushSSEEvent(c.Writer, event, value); err != nil {
 		s.failDownstream(err)
 		return err
 	}

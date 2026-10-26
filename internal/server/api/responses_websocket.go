@@ -110,6 +110,9 @@ func (w *responsesWSWriter) write(value any) error {
 }
 func (w *responsesWSWriter) failure(streamID string, e *responsesWSError) error {
 	event := map[string]any{"type": "error", "status": e.status, "error": map[string]any{"type": e.kind, "code": e.code, "message": e.message, "param": e.param}}
+	if value := httpclient.RetryAfterHeader(http.Header{"Retry-After": {e.retryAfter}}); value != "" {
+		event["headers"] = map[string]string{"retry-after": value}
+	}
 	if streamID != "" {
 		event["stream_id"] = streamID
 	}
@@ -330,16 +333,18 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 		kind := "server_error"
 		message := "Generation failed. Delivery may be unknown; do not automatically replay."
 		errorStatus := http.StatusInternalServerError
+		retryAfter := ""
 		var llmErr *llm.ResponseError
 		if errors.As(err, &llmErr) {
 			code = llmErr.Detail.Code
 			kind = llmErr.Detail.Type
 			errorStatus = llmErr.StatusCode
+			retryAfter = llmErr.RetryAfter
 			if notExecuted {
 				message = llmErr.Detail.Message
 			}
 		}
-		_ = writer.failure(frame.streamID, &responsesWSError{status: errorStatus, kind: kind, code: code, message: message, notExecuted: notExecuted})
+		_ = writer.failure(frame.streamID, &responsesWSError{status: errorStatus, kind: kind, code: code, message: message, retryAfter: retryAfter, notExecuted: notExecuted})
 		return
 	}
 	if result.ChatCompletionStream == nil {

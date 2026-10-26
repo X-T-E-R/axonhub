@@ -112,6 +112,11 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 			streaming,
 		)
 		liveness.responsesAPI = genericReq.APIFormat == string(llm.APIFormatOpenAIResponse)
+		// ReadHTTPRequest does not set APIFormat. The configured Responses
+		// transformer identifies the public route before processing starts.
+		if inbound, ok := handlers.ChatCompletionOrchestrator.Inbound.(interface{ APIFormat() llm.APIFormat }); ok {
+			liveness.responsesAPI = inbound.APIFormat() == llm.APIFormatOpenAIResponse
+		}
 		if requestedChoices := int(gjson.GetBytes(genericReq.Body, "n").Int()); requestedChoices > 1 {
 			liveness.expectedChoices = requestedChoices
 		}
@@ -132,9 +137,12 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 
 		httpErr := transformOrchestratorError(ctx, err, handlers.ChatCompletionOrchestrator)
 		if committed && liveness != nil {
-			_ = liveness.writeError(c, json.RawMessage(httpErr.Body))
+			_ = liveness.writeError(c, httpErr)
 			liveness.finish(sseCloseUpstreamError)
 		} else {
+			if value := httpclient.RetryAfterHeader(httpErr.Headers); value != "" {
+				c.Header("Retry-After", value)
+			}
 			c.JSON(httpErr.StatusCode, json.RawMessage(httpErr.Body))
 			if liveness != nil {
 				liveness.finish(sseCloseUpstreamError)

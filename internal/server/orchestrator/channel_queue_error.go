@@ -22,8 +22,8 @@ const (
 // a synthetic *httpclient.Error so the inbound TransformError path can pluck
 // out a 429 response shape via errors.AsType[*httpclient.Error].
 //
-// No Retry-After is set: the chat handler drops headers from synthetic errors,
-// and its absence keeps HasRetryAfterHeader off so this local rejection cannot
+// No Retry-After is set: a local queue rejection has no upstream wait advice.
+// Its absence also keeps HasRetryAfterHeader off so this local rejection cannot
 // be misread as an upstream 429 by the cooldown middleware.
 type ChannelQueueError struct {
 	ChannelID   int

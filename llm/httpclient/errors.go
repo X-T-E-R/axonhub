@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -74,6 +75,43 @@ func ParseRetryAfter(err error) (time.Duration, bool) {
 
 	// 3. Failed to parse, use default
 	return DefaultRetryAfterSeconds * time.Second, true
+}
+
+// RetryAfterHeader returns a valid end-to-end Retry-After value for public
+// responses. Unlike ParseRetryAfter, it preserves the upstream advice without
+// applying a cooldown default, duration conversion, or cap.
+func RetryAfterHeader(headers http.Header) string {
+	values := headers.Values("Retry-After")
+	if len(values) != 1 {
+		return ""
+	}
+	for _, connection := range headers.Values("Connection") {
+		for token := range strings.SplitSeq(connection, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), "Retry-After") {
+				return ""
+			}
+		}
+	}
+	value := strings.Trim(values[0], " \t")
+	if value == "" {
+		return ""
+	}
+	// RFC 9110 delay-seconds is 1*DIGIT, not a signed or fractional number.
+	// Check the syntax without integer conversion so large valid values survive.
+	digits := true
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			digits = false
+			break
+		}
+	}
+	if digits {
+		return value
+	}
+	if _, err := http.ParseTime(value); err == nil {
+		return value
+	}
+	return ""
 }
 
 type Error struct {

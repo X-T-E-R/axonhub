@@ -65,6 +65,7 @@ func applyUpstreamErrorPolicy(ctx context.Context, err error, systemService *biz
 
 		return &llm.ResponseError{
 			StatusCode: respErr.StatusCode,
+			RetryAfter: respErr.RetryAfter,
 			Detail: llm.ErrorDetail{
 				Message:   message,
 				Type:      firstNonEmpty(respErr.Detail.Type, "upstream_error"),
@@ -78,6 +79,7 @@ func applyUpstreamErrorPolicy(ctx context.Context, err error, systemService *biz
 	if errors.As(err, &httpErr) {
 		return &llm.ResponseError{
 			StatusCode: httpErr.StatusCode,
+			RetryAfter: httpclient.RetryAfterHeader(httpErr.Headers),
 			Detail: llm.ErrorDetail{
 				Message:   message,
 				Type:      upstreamErrorTypeFromHTTP(httpErr),
