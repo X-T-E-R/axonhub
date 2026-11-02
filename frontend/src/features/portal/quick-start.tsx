@@ -6,16 +6,38 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { CodeBlock } from '@/components/ai-elements/code-block';
-import { type PortalKey, type PortalModel, portalRequest, MODELS_QUERY, usePortalQuery } from './data';
+import {
+  type PortalKey,
+  type PortalModel,
+  type PortalModelChannel,
+  portalRequest,
+  MODELS_QUERY,
+  MODEL_CHANNELS_QUERY,
+  usePortalQuery,
+} from './data';
 import { usePortalGroup } from './layout';
 import { accessTemplates } from './templates';
 
-export function QuickStart({ keys, initialModel }: { keys: PortalKey[]; initialModel?: PortalModel }) {
+export function QuickStart({ keys, initialModel, channelID }: { keys: PortalKey[]; initialModel?: PortalModel; channelID?: string }) {
   const { t } = useTranslation();
   const group = usePortalGroup();
   const enabledKeys = keys.filter((k) => k.status === 'enabled');
   const [keyID, setKeyID] = useState<number | null>(enabledKeys[0]?.id ?? null);
-  const models = usePortalQuery<{ models: PortalModel[] }>('key-models', MODELS_QUERY, { projectID: group?.id, keyID }, !!group?.member);
+  const models = usePortalQuery<{ models: PortalModel[] }>(
+    'key-models',
+    MODELS_QUERY,
+    { projectID: group?.id, keyID },
+    !!group?.member && !channelID
+  );
+  const channels = usePortalQuery<{ modelChannels: PortalModelChannel[] }>(
+    'key-model-channels',
+    MODEL_CHANNELS_QUERY,
+    { projectID: group?.id, keyID },
+    !!group?.member && !!channelID
+  );
+  const availableModels = channelID
+    ? channels.data?.modelChannels.find((channel) => channel.id === channelID)?.models
+    : models.data?.models;
   const [modelID, setModelID] = useState(initialModel?.id || '');
   const [templateID, setTemplateID] = useState('');
   const mounted = useRef(true);
@@ -28,7 +50,7 @@ export function QuickStart({ keys, initialModel }: { keys: PortalKey[]; initialM
   useEffect(() => {
     if (!enabledKeys.some((k) => k.id === keyID)) setKeyID(enabledKeys[0]?.id ?? null);
   }, [keys, keyID]);
-  const model = models.data?.models.find((m) => m.id === modelID) || models.data?.models[0];
+  const model = availableModels?.find((m) => m.id === modelID) || availableModels?.[0];
   const templates = model ? accessTemplates(model) : [];
   const template = templates.find((tpl) => tpl.id === templateID) || templates[0];
   const selectedKey = enabledKeys.find((k) => k.id === keyID);
@@ -93,7 +115,7 @@ export function QuickStart({ keys, initialModel }: { keys: PortalKey[]; initialM
               <option value='' disabled>
                 {t('portal.noModels')}
               </option>
-              {models.data?.models.map((m) => (
+              {availableModels?.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.id}
                 </option>
@@ -137,7 +159,8 @@ export function QuickStart({ keys, initialModel }: { keys: PortalKey[]; initialM
             </>
           ) : (
             <p className='text-muted-foreground py-8 text-sm'>
-              {models.error instanceof Error ? models.error.message : t(models.isLoading ? 'portal.models' : 'portal.noTemplate')}
+              {(channelID ? channels.error : models.error)?.message ||
+                t((channelID ? channels.isLoading : models.isLoading) ? 'portal.models' : 'portal.noTemplate')}
             </p>
           )}
         </div>

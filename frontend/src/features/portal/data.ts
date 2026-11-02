@@ -74,6 +74,11 @@ export interface PortalModel {
   outputPrice: number | null;
   apiFormats: string[];
 }
+export interface PortalModelChannel {
+  id: string;
+  name: string;
+  models: PortalModel[];
+}
 export interface ModelUsage {
   modelID: string;
   usageCount: number;
@@ -141,5 +146,6 @@ export function usePortalCurrency() {
 export const GROUPS_QUERY = `query PortalGroups { groups { id name callable member } }`;
 export const KEYS_QUERY = `query PortalKeys($projectID: Int, $first: Int!, $after: Int) { keys(projectID: $projectID, first: $first, after: $after) { items { ${KEY_FIELDS} } totalCount nextCursor } }`;
 export const MODELS_QUERY = `query PortalModels($projectID: Int!, $keyID: Int, $search: String, $type: String) { models(projectID: $projectID, keyID: $keyID, search: $search, type: $type) { ${MODEL_FIELDS} } }`;
+export const MODEL_CHANNELS_QUERY = `query PortalModelChannels($projectID: Int!, $keyID: Int, $search: String, $type: String) { modelChannels(projectID: $projectID, keyID: $keyID, search: $search, type: $type) { id name models { ${MODEL_FIELDS} } } }`;
 export const CONTENT_QUERY = `query PortalContent { content { announcements { ${DOCUMENT_FIELDS} } guides { ${DOCUMENT_FIELDS} } } }`;
 export const DASHBOARD_QUERY = `query PortalDashboard($projectID: Int, $period: String!, $keyID: Int) { dashboard(projectID: $projectID, period: $period, keyID: $keyID) { requests successfulRequests usageCount inputTokens outputTokens cachedTokens totalTokens pricedCount cost models { modelID usageCount inputTokens outputTokens cachedTokens totalTokens pricedCount cost } days { day totalTokens } recentRequests { id createdAt status modelID usageReported totalTokens cost } } }`;

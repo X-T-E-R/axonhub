@@ -30,7 +30,7 @@ let group;
 const query = (config) => ({ ...config, data: hydrated.get(JSON.stringify(config.queryKey)), refetch: noop });
 const stubs = {
   '@tanstack/react-query': { useQuery: query, useMutation: (config) => config, useQueryClient: () => ({ invalidateQueries: noop }) },
-  '@tanstack/react-router': { Link: ({ to, search: _search, ...props }) => React.createElement('a', { href: to, ...props }), useNavigate: () => noop, useSearch: () => ({ doc: 'live' }) },
+  '@tanstack/react-router': { Link: ({ to, search: _search, ...props }) => React.createElement('a', { href: to, ...props }), useNavigate: () => noop, useSearch: () => ({ doc: 'live' }), useRouterState: ({ select }) => select({ location: { search: {} } }) },
   'react-i18next': { useTranslation: () => ({ t: (key) => key, i18n: { language: 'en' } }) },
   // The icon package requires Vite's directory resolution; SVG appearance is not
   // part of this SSR/data-flow check.
@@ -107,21 +107,26 @@ await prime('currency', 'query PortalCurrency { currencyCode }');
 await prime('content', data.CONTENT_QUERY);
 await prime('dashboard', data.DASHBOARD_QUERY, { projectID, period: 'month' });
 await prime('keys', data.KEYS_QUERY, { projectID, first: 100 });
-await prime('keys', data.KEYS_QUERY, { projectID, first: 50, after: null });
-await prime('models', data.MODELS_QUERY, { projectID, search: '', type: '' });
+await prime('keys', data.KEYS_QUERY, { projectID, first: 20, after: null });
+await prime('model-channels', data.MODEL_CHANNELS_QUERY, { projectID, search: '', type: '' });
 const keys = await data.portalRequest(data.KEYS_QUERY, { projectID, first: 100 });
 const selectedKey = keys.keys.items.find((key) => key.status === 'enabled');
 await prime('key-models', data.MODELS_QUERY, { projectID, keyID: selectedKey.id });
 const markup = {};
 for (const page of ['overview', 'keys', 'models', 'guides']) {
   markup[page] = renderToStaticMarkup(React.createElement(load(`features/portal/${page}.tsx`).default));
-  assert.doesNotMatch(markup[page], /internal-route|synthetic-upstream|B key/);
+  assert.doesNotMatch(markup[page], /synthetic-upstream|B key/);
+  if (page !== 'models') assert.doesNotMatch(markup[page], /internal-route/);
 }
 assert.match(markup.overview, /portal\.overview/);
 assert.match(markup.overview, /portal\.modelUsage/);
 assert.match(markup.keys, /Node edited key/);
 assert.match(markup.models, /portal\.models/);
 assert.match(markup.models, /\bm\b/);
+assert.match(markup.models, /internal-route/, 'authorized channel display name is shown');
+for (const text of Object.values(markup)) assert.doesNotMatch(text, /independentQuota|pricedCoverage|reportedCoverage|modelUsageHelp|nativeNotice/);
+assert.match(markup.keys, /apikeys\.columns\.key/);
+assert.match(markup.keys, /pagination\.rowsPerPage/);
 assert.match(markup.guides, /<h1>Hello<\/h1>/);
 assert.doesNotMatch(markup.guides, /secret|Draft/);
 

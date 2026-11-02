@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
+import { format } from 'date-fns';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { IconArchive, IconCheck, IconEdit, IconRefresh, IconUserCheck, IconUserOff } from '@tabler/icons-react';
+import { BarChart3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TagsAutocompleteInput } from '@/components/ui/tags-autocomplete-input';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { KeyCredentialCell } from '@/components/key-credential-cell';
+import LongText from '@/components/long-text';
+import { RowActionsMenu } from '@/components/row-actions-menu';
+import { ServerSidePagination } from '@/components/server-side-pagination';
 import {
   KEY_FIELDS,
   KEYS_QUERY,
@@ -59,10 +68,9 @@ function KeyEditor({ item, onClose }: { item: PortalKey | null; onClose: () => v
         if (!open) onClose();
       }}
     >
-      <DialogContent ref={setContainer}>
+      <DialogContent ref={setContainer} aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t(item ? 'portal.editKey' : 'portal.createKey')}</DialogTitle>
-          <DialogDescription>{t('portal.followGroup')}</DialogDescription>
         </DialogHeader>
         <form
           className='space-y-4'
@@ -83,6 +91,7 @@ function KeyEditor({ item, onClose }: { item: PortalKey | null; onClose: () => v
               suggestions={available.data?.models.map((m) => m.id) || []}
               portalContainer={container}
             />
+            <p className='text-muted-foreground text-xs'>{t('portal.followGroup')}</p>
           </div>
           <div className='space-y-2'>
             <Label htmlFor='key-ips'>{t('portal.allowedIPs')}</Label>
@@ -134,8 +143,9 @@ function KeyHistory({ item, onClose }: { item: PortalKey; onClose: () => void })
             data={stats.data.dashboard.models}
             columns={[
               { accessorKey: 'modelID', header: t('portal.model') },
+              { accessorKey: 'inputTokens', header: t('portal.input') },
+              { accessorKey: 'outputTokens', header: t('portal.output') },
               { accessorKey: 'totalTokens', header: 'Token' },
-              { accessorKey: 'usageCount', header: t('portal.tokens') },
             ]}
           />
         ) : (
@@ -149,8 +159,11 @@ export default function PortalKeys() {
   const { t } = useTranslation();
   const group = usePortalGroup();
   const queryClient = useQueryClient();
-  const [after, setAfter] = useState<number | null>(null);
-  const [previous, setPrevious] = useState<PortalKey[]>([]);
+  const [cursors, setCursors] = useState<(number | null)[]>([null]);
+  const [pageSize, setPageSize] = useState(20);
+  const [confirm, setConfirm] = useState<{ key: PortalKey; rotate?: boolean } | null>(null);
+  const after = cursors[cursors.length - 1];
+  const resetPage = () => setCursors([null]);
   const [editor, setEditor] = useState<PortalKey | null | undefined>(undefined);
   const [history, setHistory] = useState<PortalKey | null>(null);
   const mounted = useRef(true);
@@ -163,10 +176,10 @@ export default function PortalKeys() {
   const page = usePortalQuery<{ keys: { items: PortalKey[]; totalCount: number; nextCursor: number | null } }>(
     'keys',
     KEYS_QUERY,
-    { projectID: group?.id, first: 50, after },
+    { projectID: group?.id, first: pageSize, after },
     !!group
   );
-  const rows = after === null ? page.data?.keys.items || [] : [...previous, ...(page.data?.keys.items || [])];
+  const rows = page.data?.keys.items || [];
   const action = useMutation({
     mutationFn: ({ id, status, rotate }: { id: number; status?: string; rotate?: boolean }) =>
       rotate
@@ -176,7 +189,8 @@ export default function PortalKeys() {
             status,
           }),
     onSuccess: () => {
-      setAfter(null);
+      resetPage();
+      setConfirm(null);
       void queryClient.invalidateQueries({ queryKey: ['portal'] });
     },
   });
@@ -213,67 +227,88 @@ export default function PortalKeys() {
           data={rows}
           columns={[
             {
-              id: 'name',
+              accessorKey: 'name',
               header: t('portal.name'),
+              cell: ({ row }) => <LongText className='max-w-36 font-medium'>{row.original.name}</LongText>,
+            },
+            {
+              id: 'key',
+              header: t('apikeys.columns.key'),
               cell: ({ row }) => (
-                <div>
-                  <p className='font-medium'>{row.original.name}</p>
-                  <code className='text-muted-foreground text-xs'>{row.original.maskedKey}</code>
-                </div>
+                <KeyCredentialCell
+                  maskedKey={row.original.maskedKey}
+                  onCopy={() => copyKey(row.original.id)}
+                  disabled={!group.callable || row.original.status !== 'enabled'}
+                />
               ),
             },
-            { id: 'status', header: t('portal.status'), cell: ({ row }) => t(`portal.${row.original.status}`) },
+            {
+              id: 'status',
+              header: t('portal.status'),
+              cell: ({ row }) => (
+                <span
+                  className={
+                    row.original.status === 'enabled'
+                      ? 'text-green-600'
+                      : row.original.status === 'archived'
+                        ? 'text-orange-600'
+                        : 'text-red-600'
+                  }
+                >
+                  {t(`portal.${row.original.status}`)}
+                </span>
+              ),
+            },
             { id: 'quota', header: t('portal.quota'), cell: ({ row }) => <KeyQuota item={row.original} /> },
+            {
+              id: 'createdAt',
+              header: t('common.columns.createdAt'),
+              cell: ({ row }) => (
+                <span className='text-muted-foreground whitespace-nowrap'>
+                  {format(new Date(row.original.createdAt), 'yyyy-MM-dd HH:mm')}
+                </span>
+              ),
+            },
             {
               id: 'actions',
               header: t('portal.actions'),
               cell: ({ row }) => {
                 const k = row.original;
                 return (
-                  <div className='flex max-w-80 flex-wrap gap-1'>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      disabled={!group.callable || k.status !== 'enabled'}
-                      onClick={() => void copyKey(k.id)}
-                    >
-                      {t('portal.copyKey')}
-                    </Button>
-                    <Button size='sm' variant='ghost' disabled={!group.callable} onClick={() => setEditor(k)}>
-                      {t('portal.editKey')}
-                    </Button>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      disabled={action.isPending || (k.status !== 'enabled' && !group.callable)}
-                      onClick={() => action.mutate({ id: k.id, status: k.status === 'enabled' ? 'disabled' : 'enabled' })}
-                    >
-                      {t(k.status === 'enabled' ? 'portal.disable' : 'portal.enable')}
-                    </Button>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      disabled={!group.member || action.isPending}
-                      onClick={() => {
-                        if (window.confirm(t('portal.rotateConfirm'))) action.mutate({ id: k.id, rotate: true });
-                      }}
-                    >
-                      {t('portal.rotate')}
-                    </Button>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      disabled={k.status === 'archived' || action.isPending}
-                      onClick={() => {
-                        if (window.confirm(t('portal.archiveConfirm'))) action.mutate({ id: k.id, status: 'archived' });
-                      }}
-                    >
-                      {t('portal.archive')}
-                    </Button>
-                    <Button size='sm' variant='ghost' onClick={() => setHistory(k)}>
+                  <RowActionsMenu>
+                    <DropdownMenuItem onSelect={() => setHistory(k)}>
+                      <BarChart3 className='mr-2 h-4 w-4' />
                       {t('portal.details')}
-                    </Button>
-                  </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled={!group.callable} onSelect={() => setEditor(k)}>
+                      <IconEdit className='mr-2 h-4 w-4' />
+                      {t('common.actions.edit')}
+                    </DropdownMenuItem>
+                    {k.status !== 'archived' && (
+                      <DropdownMenuItem
+                        disabled={action.isPending || (k.status !== 'enabled' && !group.callable)}
+                        onSelect={() => action.mutate({ id: k.id, status: k.status === 'enabled' ? 'disabled' : 'enabled' })}
+                        className={k.status === 'enabled' ? 'text-orange-600' : 'text-green-600'}
+                      >
+                        {k.status === 'enabled' ? <IconUserOff className='mr-2 h-4 w-4' /> : <IconUserCheck className='mr-2 h-4 w-4' />}
+                        {t(k.status === 'enabled' ? 'portal.disable' : 'portal.enable')}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      disabled={action.isPending || (k.status === 'archived' && !group.callable)}
+                      onSelect={() => (k.status === 'archived' ? action.mutate({ id: k.id, status: 'enabled' }) : setConfirm({ key: k }))}
+                      className={k.status === 'archived' ? 'text-green-600' : 'text-orange-600'}
+                    >
+                      {k.status === 'archived' ? <IconCheck className='mr-2 h-4 w-4' /> : <IconArchive className='mr-2 h-4 w-4' />}
+                      {t(k.status === 'archived' ? 'common.buttons.restore' : 'portal.archive')}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled={!group.member || action.isPending} onSelect={() => setConfirm({ key: k, rotate: true })}>
+                      <IconRefresh className='mr-2 h-4 w-4' />
+                      {t('portal.rotate')}
+                    </DropdownMenuItem>
+                  </RowActionsMenu>
                 );
               },
             },
@@ -282,24 +317,46 @@ export default function PortalKeys() {
       ) : (
         <PortalEmpty title={t('portal.noKeys')} description={t('portal.noKeysHelp')} />
       )}
-      {page.data?.keys.nextCursor && (
-        <Button
-          variant='outline'
-          disabled={page.isFetching}
-          onClick={() => {
-            setPrevious(rows);
-            setAfter(page.data!.keys.nextCursor);
+      {page.data && (
+        <ServerSidePagination
+          pageInfo={{ hasPreviousPage: cursors.length > 1, hasNextPage: !!page.data.keys.nextCursor }}
+          pageSize={pageSize}
+          dataLength={rows.length}
+          totalCount={page.data.keys.totalCount}
+          selectedRows={0}
+          onFirstPage={resetPage}
+          onPreviousPage={() => setCursors((c) => c.slice(0, -1))}
+          onNextPage={() => {
+            if (page.data.keys.nextCursor) setCursors((c) => [...c, page.data.keys.nextCursor]);
           }}
-        >
-          {t('portal.more')}
-        </Button>
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            resetPage();
+          }}
+        />
+      )}
+      {confirm && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setConfirm(null);
+          }}
+          title={t(confirm.rotate ? 'portal.rotate' : 'portal.archive')}
+          desc={t(confirm.rotate ? 'portal.rotateConfirm' : 'portal.archiveConfirm')}
+          cancelBtnText={t('portal.cancel')}
+          confirmText={t(confirm.rotate ? 'portal.rotate' : 'portal.archive')}
+          destructive
+          isLoading={action.isPending}
+          handleConfirm={() =>
+            action.mutate({ id: confirm.key.id, rotate: confirm.rotate, status: confirm.rotate ? undefined : 'archived' })
+          }
+        />
       )}
       {editor !== undefined && (
         <KeyEditor
           item={editor}
           onClose={() => {
-            setAfter(null);
-            setPrevious([]);
+            resetPage();
             setEditor(undefined);
           }}
         />

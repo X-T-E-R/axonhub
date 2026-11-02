@@ -80,6 +80,14 @@ type PortalModel struct {
 	OutputPrice     *float64 `json:"outputPrice"`
 	APIFormats      []string `json:"apiFormats"`
 }
+
+// PortalModelChannel exposes only the authorized channel's display identity.
+// Route configuration, provider URLs and credentials stay on the server.
+type PortalModelChannel struct {
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Models []*PortalModel `json:"models"`
+}
 type PortalModelUsage struct {
 	ModelID      string   `json:"modelID"`
 	UsageCount   int      `json:"usageCount"`

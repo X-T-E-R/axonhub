@@ -94,6 +94,11 @@ func (r *queryResolver) Models(ctx context.Context, projectID int, keyID *int, s
 	return r.Service.Models(ctx, projectID, keyID, search, typeArg)
 }
 
+// ModelChannels is the resolver for the modelChannels field.
+func (r *queryResolver) ModelChannels(ctx context.Context, projectID int, keyID *int, search *string, typeArg *string) ([]*objects.PortalModelChannel, error) {
+	return r.Service.ModelChannels(ctx, projectID, keyID, search, typeArg)
+}
+
 // Dashboard is the resolver for the dashboard field.
 func (r *queryResolver) Dashboard(ctx context.Context, projectID *int, period string, keyID *int) (*objects.PortalDashboard, error) {
 	return r.Service.Dashboard(ctx, projectID, period, keyID)

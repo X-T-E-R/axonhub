@@ -16,13 +16,13 @@ import (
 	"github.com/samber/lo"
 )
 
-func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, search *string, modelType *string) ([]*objects.PortalModel, error) {
+func (s *PortalService) modelCatalogKey(ctx context.Context, projectID int, keyID *int) (*ent.APIKey, error) {
 	g, err := s.group(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("group unavailable")
 	}
 	if ValidatePortalGroup(g) != nil {
-		return []*objects.PortalModel{}, nil
+		return nil, nil
 	}
 	key := &ent.APIKey{ProjectID: projectID, PortalManaged: true}
 	key.Edges.Project = g
@@ -32,10 +32,25 @@ func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, s
 			return nil, fmt.Errorf("key unavailable")
 		}
 		if key.Status != apikey.StatusEnabled {
-			return []*objects.PortalModel{}, nil
+			return nil, nil
 		}
 		key.Edges.Project = g
 	}
+	return key, nil
+}
+
+func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, search *string, modelType *string) ([]*objects.PortalModel, error) {
+	key, err := s.modelCatalogKey(ctx, projectID, keyID)
+	if err != nil {
+		return nil, err
+	}
+	if key == nil {
+		return []*objects.PortalModel{}, nil
+	}
+	return s.modelsForKey(ctx, key, search, modelType)
+}
+
+func (s *PortalService) modelsForKey(ctx context.Context, key *ent.APIKey, search, modelType *string) ([]*objects.PortalModel, error) {
 	ctx = authz.WithSystemBypass(contexts.WithAPIKey(ctx, key), "portal-available-models")
 	available, err := s.models.ListEnabledModels(ctx)
 	if err != nil {
@@ -59,13 +74,14 @@ func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, s
 	out := make([]*objects.PortalModel, 0, len(available))
 	channels := lo.Filter(s.models.channelService.GetEnabledChannels(), func(ch *Channel, _ int) bool { return KeyAllowsChannel(key, ch.ID, ch.Tags) })
 	for _, facade := range available {
-		m := byID[facade.ID]
-		if m == nil {
-			if target := byID[KeyMappedModel(key, facade.ID)]; target != nil {
-				copy := *target
-				copy.ModelID, copy.Name = facade.ID, facade.DisplayName
-				m = &copy
+		m := byID[KeyMappedModel(key, facade.ID)]
+		if m != nil {
+			copy := *m
+			copy.ModelID, copy.Name = facade.ID, facade.DisplayName
+			if alias := byID[facade.ID]; alias != nil {
+				copy.Name, copy.Icon, copy.Remark = alias.Name, alias.Icon, alias.Remark
 			}
+			m = &copy
 		}
 		// Channel-derived identifiers have no invented capabilities or price metadata.
 		if m == nil {
@@ -122,6 +138,66 @@ func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, s
 			out = append(out, dto)
 		}
 	}
+	return out, nil
+}
+
+// ModelChannels groups a model once per currently eligible channel. Only display
+// DTOs leave this boundary; no channel configuration or credentials are exposed.
+func (s *PortalService) ModelChannels(ctx context.Context, projectID int, keyID *int, search, modelType *string) ([]*objects.PortalModelChannel, error) {
+	key, err := s.modelCatalogKey(ctx, projectID, keyID)
+	if err != nil {
+		return nil, err
+	}
+	out := []*objects.PortalModelChannel{}
+	if key == nil {
+		return out, nil
+	}
+	models, err := s.modelsForKey(ctx, key, search, modelType)
+	if err != nil {
+		return nil, err
+	}
+	ctx = authz.WithSystemBypass(contexts.WithAPIKey(ctx, key), "portal-model-channels")
+	channels := lo.SliceToMap(s.models.channelService.GetEnabledChannels(), func(ch *Channel) (int, *Channel) { return ch.ID, ch })
+	groups := map[int]*objects.PortalModelChannel{}
+	for _, m := range models {
+		connections, err := s.models.modelConnectionsForKey(ctx, key, m.ID)
+		if err != nil {
+			return nil, err
+		}
+		prices := map[int][]*ent.ChannelModelPrice{}
+		for _, conn := range connections {
+			ch := channels[conn.Channel.ID]
+			if ch == nil || len(ch.ResolveEndpoints()) == 0 {
+				continue
+			}
+			for _, entry := range conn.Models {
+				prices[ch.ID] = append(prices[ch.ID], ch.cachedModelPrices[entry.RequestModel])
+			}
+		}
+		for id, routePrices := range prices {
+			ch := channels[id]
+			if groups[id] == nil {
+				groups[id] = &objects.PortalModelChannel{ID: fmt.Sprintf("channel-%d", id), Name: ch.Name, Models: []*objects.PortalModel{}}
+				out = append(out, groups[id])
+			}
+			copy := *m
+			copy.APIFormats = []string{}
+			for _, ep := range ch.ResolveEndpoints() {
+				if !slices.Contains(copy.APIFormats, ep.APIFormat) {
+					copy.APIFormats = append(copy.APIFormats, ep.APIFormat)
+				}
+			}
+			sort.Strings(copy.APIFormats)
+			copy.InputPrice, copy.OutputPrice = portalReferencePrices(routePrices)
+			groups[id].Models = append(groups[id].Models, &copy)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out, nil
 }
 

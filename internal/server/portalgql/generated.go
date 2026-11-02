@@ -141,6 +141,12 @@ type ComplexityRoot struct {
 		Vision          func(childComplexity int) int
 	}
 
+	PortalModelChannel struct {
+		ID     func(childComplexity int) int
+		Models func(childComplexity int) int
+		Name   func(childComplexity int) int
+	}
+
 	PortalModelUsage struct {
 		CachedTokens func(childComplexity int) int
 		Cost         func(childComplexity int) int
@@ -181,13 +187,14 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		Content      func(childComplexity int) int
-		CurrencyCode func(childComplexity int) int
-		Dashboard    func(childComplexity int, projectID *int, period string, keyID *int) int
-		Groups       func(childComplexity int) int
-		Keys         func(childComplexity int, projectID *int, first int, after *int) int
-		Me           func(childComplexity int) int
-		Models       func(childComplexity int, projectID int, keyID *int, search *string, typeArg *string) int
+		Content       func(childComplexity int) int
+		CurrencyCode  func(childComplexity int) int
+		Dashboard     func(childComplexity int, projectID *int, period string, keyID *int) int
+		Groups        func(childComplexity int) int
+		Keys          func(childComplexity int, projectID *int, first int, after *int) int
+		Me            func(childComplexity int) int
+		ModelChannels func(childComplexity int, projectID int, keyID *int, search *string, typeArg *string) int
+		Models        func(childComplexity int, projectID int, keyID *int, search *string, typeArg *string) int
 	}
 }
 
@@ -207,6 +214,7 @@ type QueryResolver interface {
 	Groups(ctx context.Context) ([]*objects.PortalGroup, error)
 	Keys(ctx context.Context, projectID *int, first int, after *int) (*objects.PortalKeyPage, error)
 	Models(ctx context.Context, projectID int, keyID *int, search *string, typeArg *string) ([]*objects.PortalModel, error)
+	ModelChannels(ctx context.Context, projectID int, keyID *int, search *string, typeArg *string) ([]*objects.PortalModelChannel, error)
 	Dashboard(ctx context.Context, projectID *int, period string, keyID *int) (*objects.PortalDashboard, error)
 	Content(ctx context.Context) (*objects.PortalSettings, error)
 }
@@ -675,6 +683,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.PortalModel.Vision(childComplexity), true
 
+	case "PortalModelChannel.id":
+		if e.complexity.PortalModelChannel.ID == nil {
+			break
+		}
+
+		return e.complexity.PortalModelChannel.ID(childComplexity), true
+	case "PortalModelChannel.models":
+		if e.complexity.PortalModelChannel.Models == nil {
+			break
+		}
+
+		return e.complexity.PortalModelChannel.Models(childComplexity), true
+	case "PortalModelChannel.name":
+		if e.complexity.PortalModelChannel.Name == nil {
+			break
+		}
+
+		return e.complexity.PortalModelChannel.Name(childComplexity), true
+
 	case "PortalModelUsage.cachedTokens":
 		if e.complexity.PortalModelUsage.CachedTokens == nil {
 			break
@@ -887,6 +914,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.Me(childComplexity), true
+	case "Query.modelChannels":
+		if e.complexity.Query.ModelChannels == nil {
+			break
+		}
+
+		args, err := ec.field_Query_modelChannels_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.ModelChannels(childComplexity, args["projectID"].(int), args["keyID"].(*int), args["search"].(*string), args["type"].(*string)), true
 	case "Query.models":
 		if e.complexity.Query.Models == nil {
 			break
@@ -1192,6 +1230,32 @@ func (ec *executionContext) field_Query_keys_args(ctx context.Context, rawArgs m
 		return nil, err
 	}
 	args["after"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_modelChannels_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "projectID", ec.unmarshalNInt2int)
+	if err != nil {
+		return nil, err
+	}
+	args["projectID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "keyID", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["keyID"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "search", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["search"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "type", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["type"] = arg3
 	return args, nil
 }
 
@@ -3463,6 +3527,123 @@ func (ec *executionContext) fieldContext_PortalModel_apiFormats(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _PortalModelChannel_id(ctx context.Context, field graphql.CollectedField, obj *objects.PortalModelChannel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalModelChannel_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalModelChannel_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalModelChannel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalModelChannel_name(ctx context.Context, field graphql.CollectedField, obj *objects.PortalModelChannel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalModelChannel_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalModelChannel_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalModelChannel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalModelChannel_models(ctx context.Context, field graphql.CollectedField, obj *objects.PortalModelChannel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalModelChannel_models,
+		func(ctx context.Context) (any, error) {
+			return obj.Models, nil
+		},
+		nil,
+		ec.marshalNPortalModel2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalModelᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalModelChannel_models(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalModelChannel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_PortalModel_id(ctx, field)
+			case "name":
+				return ec.fieldContext_PortalModel_name(ctx, field)
+			case "type":
+				return ec.fieldContext_PortalModel_type(ctx, field)
+			case "developer":
+				return ec.fieldContext_PortalModel_developer(ctx, field)
+			case "icon":
+				return ec.fieldContext_PortalModel_icon(ctx, field)
+			case "remark":
+				return ec.fieldContext_PortalModel_remark(ctx, field)
+			case "vision":
+				return ec.fieldContext_PortalModel_vision(ctx, field)
+			case "toolCall":
+				return ec.fieldContext_PortalModel_toolCall(ctx, field)
+			case "reasoning":
+				return ec.fieldContext_PortalModel_reasoning(ctx, field)
+			case "contextLength":
+				return ec.fieldContext_PortalModel_contextLength(ctx, field)
+			case "maxOutputTokens":
+				return ec.fieldContext_PortalModel_maxOutputTokens(ctx, field)
+			case "inputPrice":
+				return ec.fieldContext_PortalModel_inputPrice(ctx, field)
+			case "outputPrice":
+				return ec.fieldContext_PortalModel_outputPrice(ctx, field)
+			case "apiFormats":
+				return ec.fieldContext_PortalModel_apiFormats(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PortalModel", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _PortalModelUsage_modelID(ctx context.Context, field graphql.CollectedField, obj *objects.PortalModelUsage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4503,6 +4684,55 @@ func (ec *executionContext) fieldContext_Query_models(ctx context.Context, field
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_models_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_modelChannels(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_modelChannels,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().ModelChannels(ctx, fc.Args["projectID"].(int), fc.Args["keyID"].(*int), fc.Args["search"].(*string), fc.Args["type"].(*string))
+		},
+		nil,
+		ec.marshalNPortalModelChannel2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalModelChannelᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_modelChannels(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_PortalModelChannel_id(ctx, field)
+			case "name":
+				return ec.fieldContext_PortalModelChannel_name(ctx, field)
+			case "models":
+				return ec.fieldContext_PortalModelChannel_models(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PortalModelChannel", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_modelChannels_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -6860,6 +7090,55 @@ func (ec *executionContext) _PortalModel(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var portalModelChannelImplementors = []string{"PortalModelChannel"}
+
+func (ec *executionContext) _PortalModelChannel(ctx context.Context, sel ast.SelectionSet, obj *objects.PortalModelChannel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, portalModelChannelImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PortalModelChannel")
+		case "id":
+			out.Values[i] = ec._PortalModelChannel_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._PortalModelChannel_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "models":
+			out.Values[i] = ec._PortalModelChannel_models(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var portalModelUsageImplementors = []string{"PortalModelUsage"}
 
 func (ec *executionContext) _PortalModelUsage(ctx context.Context, sel ast.SelectionSet, obj *objects.PortalModelUsage) graphql.Marshaler {
@@ -7224,6 +7503,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_models(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "modelChannels":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_modelChannels(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -8013,6 +8314,60 @@ func (ec *executionContext) marshalNPortalModel2ᚖgithubᚗcomᚋloopljᚋaxonh
 		return graphql.Null
 	}
 	return ec._PortalModel(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNPortalModelChannel2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalModelChannelᚄ(ctx context.Context, sel ast.SelectionSet, v []*objects.PortalModelChannel) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNPortalModelChannel2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalModelChannel(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNPortalModelChannel2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalModelChannel(ctx context.Context, sel ast.SelectionSet, v *objects.PortalModelChannel) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._PortalModelChannel(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNPortalModelUsage2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalModelUsageᚄ(ctx context.Context, sel ast.SelectionSet, v []*objects.PortalModelUsage) graphql.Marshaler {

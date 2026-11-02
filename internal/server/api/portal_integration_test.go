@@ -211,7 +211,7 @@ func TestPortalJWTGraphQLPipelineIsolationAndRevocation(t *testing.T) {
 		}
 		return query
 	}
-	for _, name := range []string{"IDENTITY_QUERY", "GROUPS_QUERY", "KEYS_QUERY", "MODELS_QUERY", "CONTENT_QUERY", "DASHBOARD_QUERY"} {
+	for _, name := range []string{"IDENTITY_QUERY", "GROUPS_QUERY", "KEYS_QUERY", "MODELS_QUERY", "MODEL_CHANNELS_QUERY", "CONTENT_QUERY", "DASHBOARD_QUERY"} {
 		vars := map[string]any{"projectID": g.ID, "first": 50, "after": nil, "period": "all"}
 		okGraph(ta, callerQuery(name), vars)
 	}
@@ -221,6 +221,11 @@ func TestPortalJWTGraphQLPipelineIsolationAndRevocation(t *testing.T) {
 	badGraph(ta, `mutation($id:Int!){revealKey(id:$id)}`, map[string]any{"id": kb})
 	badGraph(ta, `mutation($id:Int!){setKeyStatus(id:$id,status:"disabled"){id}}`, map[string]any{"id": kb})
 	badGraph(ta, `query($p:Int!,$k:Int!){models(projectID:$p,keyID:$k){id}}`, map[string]any{"p": g.ID, "k": kb})
+	badGraph(ta, `query($p:Int!,$k:Int!){modelChannels(projectID:$p,keyID:$k){id}}`, map[string]any{"p": g.ID, "k": kb})
+	badGraph(tn, `query($p:Int!){modelChannels(projectID:$p){id}}`, map[string]any{"p": g.ID})
+	for _, field := range []string{"baseURL", "credentials", "settings"} {
+		badGraph(ta, fmt.Sprintf(`query($p:Int!){modelChannels(projectID:$p){%s}}`, field), map[string]any{"p": g.ID})
+	}
 	badGraph(ta, `mutation($k:Int!){updateKey(id:$k,input:{name:"A key",modelIDs:["other"]}){id}}`, map[string]any{"k": ka})
 	listed := okGraph(ta, `query($p:Int!){models(projectID:$p){id apiFormats} keys(projectID:$p){items{id name maskedKey} totalCount}}`, map[string]any{"p": g.ID})
 	require.Contains(t, string(listed), `"id":"m"`)

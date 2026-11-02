@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -68,11 +71,12 @@ func TestPortalCatalogKeyMappingHTTPAndRevocation(t *testing.T) {
 	db.UserProject.Create().SetUserID(u.ID).SetProjectID(g.ID).SaveX(ctx)
 	k := db.APIKey.Create().SetName("Catalog key").SetKey("ah-catalog-synthetic").SetType(apikey.TypePersonal).SetPortalManaged(true).SetUserID(u.ID).SetProjectID(g.ID).
 		SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "p", Profiles: []objects.APIKeyProfile{{Name: "p", ModelIDs: []string{"alias"}, ModelMappings: []objects.ModelMapping{{From: "alias", To: "target"}}}}}).SaveX(ctx)
-	createModel := func(id string, associations []*objects.ModelAssociation) {
-		db.Model.Create().SetModelID(id).SetName(id).SetType(entmodel.TypeChat).SetStatus(entmodel.StatusEnabled).SetDeveloper("synthetic").SetIcon("OpenAI").SetGroup("catalog").
-			SetModelCard(&objects.ModelCard{}).SetSettings(&objects.ModelSettings{Associations: associations}).SaveX(ctx)
+	createModel := func(id string, associations []*objects.ModelAssociation) *ent.Model {
+		return db.Model.Create().SetModelID(id).SetName(id).SetType(entmodel.TypeChat).SetStatus(entmodel.StatusEnabled).SetDeveloper("synthetic").SetIcon("OpenAI").SetGroup("catalog").
+			SetModelCard(&objects.ModelCard{Limit: objects.ModelCardLimit{Context: 1024}}).SetSettings(&objects.ModelSettings{Associations: associations}).SaveX(ctx)
 	}
-	createModel("alias", nil)
+	alias := createModel("alias", nil)
+	db.Model.UpdateOne(alias).SetName("Public alias").SetType(entmodel.TypeEmbedding).SetModelCard(&objects.ModelCard{Vision: true, Limit: objects.ModelCardLimit{Context: 999}}).SaveX(ctx)
 	createModel("target", []*objects.ModelAssociation{
 		{Type: "channel_model", ChannelModel: &objects.ChannelModelAssociation{ChannelID: a.ID, ModelID: "target"}},
 		{Type: "channel_model", ChannelModel: &objects.ChannelModelAssociation{ChannelID: b.ID, ModelID: "alternate"}},
@@ -114,27 +118,58 @@ func TestPortalCatalogKeyMappingHTTPAndRevocation(t *testing.T) {
 		router.ServeHTTP(rec, r)
 		return rec
 	}
-	checkDirectories := func(available bool) {
+	checkedTemplates := false
+	checkMetadata := func(m *objects.PortalModel) {
+		t.Helper()
+		require.Equal(t, "alias", m.ID)
+		require.Equal(t, "Public alias", m.Name)
+		require.Equal(t, "chat", m.Type)
+		require.False(t, m.Vision)
+		require.NotNil(t, m.ContextLength)
+		require.Equal(t, 1024, *m.ContextLength)
+		require.Equal(t, []string{"openai/responses"}, m.APIFormats)
+	}
+	checkDirectories := func(names ...string) {
 		t.Helper()
 		rec := serve("GET", "/v1/models", k.Key, "")
 		require.Equal(t, 200, rec.Code, rec.Body.String())
 		var compatibility struct{ Data []OpenAIModel }
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &compatibility))
-		query := fmt.Sprintf(`{"query":"{models(projectID:%d,keyID:%d){id apiFormats}}"}`, g.ID, k.ID)
+		query := fmt.Sprintf(`{"query":"{models(projectID:%d,keyID:%d,type:\"chat\"){id name type vision contextLength apiFormats} modelChannels(projectID:%d,keyID:%d,type:\"chat\"){id name models{id name type vision contextLength apiFormats}}}"}`, g.ID, k.ID, g.ID, k.ID)
 		rec = serve("POST", "/portal/graphql", jwt, query)
 		require.Equal(t, 200, rec.Code, rec.Body.String())
 		var body struct {
-			Data   struct{ Models []*objects.PortalModel }
+			Data struct {
+				Models        []*objects.PortalModel
+				ModelChannels []*objects.PortalModelChannel
+			}
 			Errors json.RawMessage
 		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		require.Empty(t, body.Errors, rec.Body.String())
-		if available {
+		var actualNames []string
+		for _, ch := range body.Data.ModelChannels {
+			actualNames = append(actualNames, ch.Name)
+			require.True(t, strings.HasPrefix(ch.ID, "channel-"))
+			require.Len(t, ch.Models, 1)
+			checkMetadata(ch.Models[0])
+		}
+		require.ElementsMatch(t, names, actualNames, "one public model may appear under each authorized channel")
+		if len(names) > 0 {
 			require.Len(t, compatibility.Data, 1)
 			require.Equal(t, "alias", compatibility.Data[0].ID)
 			require.Len(t, body.Data.Models, 1)
-			require.Equal(t, "alias", body.Data.Models[0].ID)
-			require.Equal(t, []string{"openai/responses"}, body.Data.Models[0].APIFormats, "QuickStart must use the target route's protocol")
+			checkMetadata(body.Data.Models[0])
+			if node := os.Getenv("AXON_PORTAL_NODE"); node != "" && !checkedTemplates {
+				payload, err := json.Marshal(map[string]any{"model": body.Data.Models[0], "channels": body.Data.ModelChannels})
+				require.NoError(t, err)
+				command := exec.Command(node, "../../../integration_test/portal/mapped_model_client.mjs")
+				command.Stdin = bytes.NewReader(payload)
+				output, err := command.CombinedOutput()
+				require.NoError(t, err, string(output))
+				t.Log(string(output))
+				checkedTemplates = true
+			}
 		} else {
 			require.Empty(t, compatibility.Data)
 			require.Empty(t, body.Data.Models)
@@ -162,26 +197,26 @@ func TestPortalCatalogKeyMappingHTTPAndRevocation(t *testing.T) {
 	candidates, err := selector.Select(contexts.WithAPIKey(ctx, key), &llm.Request{Model: "target", RequestType: llm.RequestTypeChat, APIFormat: llm.APIFormatOpenAIResponse})
 	require.NoError(t, err)
 	require.Len(t, candidates, 2)
-	checkDirectories(true)
+	checkDirectories("a", "b")
 	invoke(true)
 	// Per-entry upper boundary removes alternate but leaves target callable.
 	db.Project.UpdateOne(g).SetProfiles(profile([]string{"alias", "target"}, allowedChannels)).SaveX(ctx)
 	beforeB := callsB.Load()
-	checkDirectories(true)
+	checkDirectories("a")
 	invoke(true)
 	require.Equal(t, beforeB, callsB.Load())
 	// Removing the target itself rejects even though alternate is still allowed.
 	db.Project.UpdateOne(g).SetProfiles(profile([]string{"alias", "alternate"}, allowedChannels)).SaveX(ctx)
-	checkDirectories(false)
+	checkDirectories()
 	invoke(false)
 	// With only B allowed, inference and directories remain usable; removing B
 	// too leaves a valid non-empty group profile but no eligible target route.
 	db.Project.UpdateOne(g).SetProfiles(profile(allowedModels, []int{b.ID})).SaveX(ctx)
 	beforeA := callsA.Load()
-	checkDirectories(true)
+	checkDirectories("b")
 	invoke(true)
 	require.Equal(t, beforeA, callsA.Load())
 	db.Project.UpdateOne(g).SetProfiles(profile([]string{"alias", "target"}, []int{b.ID})).SaveX(ctx)
-	checkDirectories(false)
+	checkDirectories()
 	invoke(false)
 }

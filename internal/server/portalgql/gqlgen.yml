@@ -24,6 +24,8 @@ models:
     model: github.com/looplj/axonhub/internal/objects.PortalQuota
   PortalModel:
     model: github.com/looplj/axonhub/internal/objects.PortalModel
+  PortalModelChannel:
+    model: github.com/looplj/axonhub/internal/objects.PortalModelChannel
   PortalSettings:
     model: github.com/looplj/axonhub/internal/objects.PortalSettings
   PortalDocument:

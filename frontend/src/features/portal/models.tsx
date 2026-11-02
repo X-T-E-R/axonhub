@@ -7,7 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { KEYS_QUERY, MODELS_QUERY, type PortalKey, type PortalModel, usePortalQuery, usePortalCurrency } from './data';
+import {
+  KEYS_QUERY,
+  MODEL_CHANNELS_QUERY,
+  type PortalKey,
+  type PortalModel,
+  type PortalModelChannel,
+  usePortalQuery,
+  usePortalCurrency,
+} from './data';
 import { PortalEmpty, PortalError, usePortalGroup } from './layout';
 import { QuickStart } from './quick-start';
 import { PortalTable } from './table';
@@ -26,14 +34,14 @@ export default function PortalModels() {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [type, setType] = useState('');
-  const [example, setExample] = useState<PortalModel | null>(null);
+  const [example, setExample] = useState<{ model: PortalModel; channelID: string } | null>(null);
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(search), 250);
     return () => clearTimeout(timer);
   }, [search]);
-  const models = usePortalQuery<{ models: PortalModel[] }>(
-    'models',
-    MODELS_QUERY,
+  const models = usePortalQuery<{ modelChannels: PortalModelChannel[] }>(
+    'model-channels',
+    MODEL_CHANNELS_QUERY,
     { projectID: group?.id, search: debounced, type },
     !!group?.member
   );
@@ -73,81 +81,89 @@ export default function PortalModels() {
         <PortalError error={models.error} retry={() => void models.refetch()} />
       ) : models.isLoading ? (
         <Skeleton className='h-72 w-full' />
-      ) : models.data?.models.length ? (
-        <PortalTable
-          data={models.data.models}
-          columns={[
-            {
-              id: 'model',
-              header: t('portal.model'),
-              cell: ({ row }) => (
-                <div className='flex max-w-80 items-start gap-3'>
-                  <ModelIcon name={row.original.icon} />
-                  <div className='min-w-0'>
-                    <button
-                      className='text-left font-mono text-xs underline-offset-4 hover:underline focus-visible:underline'
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(row.original.id);
-                          toast.success(t('portal.copied'));
-                        } catch {
-                          toast.error(t('portal.copyFailed'));
-                        }
-                      }}
-                    >
-                      {row.original.id}
-                    </button>
-                    <p className='mt-1 font-medium'>{row.original.name}</p>
-                    {row.original.remark && (
-                      <p title={row.original.remark} className='text-muted-foreground max-w-64 truncate text-xs'>
-                        {row.original.remark}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ),
-            },
-            {
-              id: 'type',
-              header: t('portal.allTypes'),
-              cell: ({ row }) => (
-                <div className='flex max-w-56 flex-wrap gap-1'>
-                  <Badge variant='secondary'>{row.original.type}</Badge>
-                  {row.original.vision && <Badge variant='outline'>Vision</Badge>}
-                  {row.original.toolCall && <Badge variant='outline'>Tool call</Badge>}
-                  {row.original.reasoning && <Badge variant='outline'>Reasoning</Badge>}
-                </div>
-              ),
-            },
-            {
-              id: 'context',
-              header: t('portal.context'),
-              cell: ({ row }) => (
-                <span className='font-mono text-xs'>
-                  {row.original.contextLength?.toLocaleString() || '-'} / {row.original.maxOutputTokens?.toLocaleString() || '-'}
-                </span>
-              ),
-            },
-            {
-              id: 'price',
-              header: t('portal.price'),
-              cell: ({ row }) => (
-                <span className='font-mono text-xs whitespace-nowrap'>
-                  {price(row.original.inputPrice)} / {price(row.original.outputPrice)}
-                </span>
-              ),
-            },
-            {
-              id: 'example',
-              header: t('portal.actions'),
-              cell: ({ row }) => (
-                <Button variant='outline' size='sm' onClick={() => setExample(row.original)}>
-                  {t('portal.example')}
-                </Button>
-              ),
-            },
-          ]}
-        />
+      ) : models.data?.modelChannels.length ? (
+        models.data.modelChannels.map((channel) => (
+          <section key={channel.id} className='space-y-3'>
+            <h2 className='flex items-center gap-2 text-lg font-semibold'>
+              {channel.name}
+              <Badge variant='secondary'>{channel.models.length}</Badge>
+            </h2>
+            <PortalTable
+              data={channel.models}
+              columns={[
+                {
+                  id: 'model',
+                  header: t('portal.model'),
+                  cell: ({ row }) => (
+                    <div className='flex max-w-80 items-start gap-3'>
+                      <ModelIcon name={row.original.icon} />
+                      <div className='min-w-0'>
+                        <button
+                          className='text-left font-mono text-xs underline-offset-4 hover:underline focus-visible:underline'
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(row.original.id);
+                              toast.success(t('portal.copied'));
+                            } catch {
+                              toast.error(t('portal.copyFailed'));
+                            }
+                          }}
+                        >
+                          {row.original.id}
+                        </button>
+                        <p className='mt-1 font-medium'>{row.original.name}</p>
+                        {row.original.remark && (
+                          <p title={row.original.remark} className='text-muted-foreground max-w-64 truncate text-xs'>
+                            {row.original.remark}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  id: 'type',
+                  header: t('portal.allTypes'),
+                  cell: ({ row }) => (
+                    <div className='flex max-w-56 flex-wrap gap-1'>
+                      <Badge variant='secondary'>{row.original.type}</Badge>
+                      {row.original.vision && <Badge variant='outline'>Vision</Badge>}
+                      {row.original.toolCall && <Badge variant='outline'>Tool call</Badge>}
+                      {row.original.reasoning && <Badge variant='outline'>Reasoning</Badge>}
+                    </div>
+                  ),
+                },
+                {
+                  id: 'context',
+                  header: t('portal.context'),
+                  cell: ({ row }) => (
+                    <span className='font-mono text-xs'>
+                      {row.original.contextLength?.toLocaleString() || '-'} / {row.original.maxOutputTokens?.toLocaleString() || '-'}
+                    </span>
+                  ),
+                },
+                {
+                  id: 'price',
+                  header: t('portal.price'),
+                  cell: ({ row }) => (
+                    <span className='font-mono text-xs whitespace-nowrap'>
+                      {price(row.original.inputPrice)} / {price(row.original.outputPrice)}
+                    </span>
+                  ),
+                },
+                {
+                  id: 'example',
+                  header: t('portal.actions'),
+                  cell: ({ row }) => (
+                    <Button variant='outline' size='sm' onClick={() => setExample({ model: row.original, channelID: channel.id })}>
+                      {t('portal.example')}
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+          </section>
+        ))
       ) : (
         <PortalEmpty title={t(search || type ? 'portal.noMatches' : 'portal.noModels')} description={t('portal.noModelsHelp')} />
       )}
@@ -160,9 +176,9 @@ export default function PortalModels() {
         >
           <DialogContent className='max-h-[90dvh] overflow-y-auto sm:max-w-4xl'>
             <DialogHeader>
-              <DialogTitle>{example.name}</DialogTitle>
+              <DialogTitle>{example.model.name}</DialogTitle>
             </DialogHeader>
-            <QuickStart keys={keys.data?.keys.items || []} initialModel={example} />
+            <QuickStart keys={keys.data?.keys.items || []} initialModel={example.model} channelID={example.channelID} />
           </DialogContent>
         </Dialog>
       )}
