@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -40,13 +39,8 @@ func registrationAdmin(ctx context.Context, scope scopes.ScopeSlug) (*ent.User, 
 	if !ok || u == nil || u.Status != user.StatusActivated || u.AccessMode == user.AccessModePortal {
 		return nil, fmt.Errorf("permission denied")
 	}
-	if u.IsOwner || slices.Contains(u.Scopes, string(scope)) {
+	if scopes.HasSystemScope(u, scope) {
 		return u, nil
-	}
-	for _, role := range u.Edges.Roles {
-		if role.IsSystemRole() && slices.Contains(role.Scopes, string(scope)) {
-			return u, nil
-		}
 	}
 	return nil, fmt.Errorf("permission denied")
 }

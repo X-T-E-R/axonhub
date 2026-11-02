@@ -36,7 +36,7 @@ export function SignUpForm({ className, ...props }: HTMLAttributes<HTMLFormEleme
   const register = useMutation({
     mutationFn: (data: z.infer<typeof schema>) => authApi.signUp(data),
     onSuccess: async (_, data) => {
-      await signIn.mutateAsync({ email: data.email.trim().toLowerCase(), password: data.password });
+      await signIn.mutateAsync({ email: data.email, password: data.password });
     },
   });
   return (

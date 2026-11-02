@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -126,11 +127,17 @@ func (s *AuthService) AuthenticateUser(
 	u, err := authz.RunWithSystemBypass(ctx, "auth-lookup", func(bypassCtx context.Context) (*ent.User, error) {
 		client := s.entFromContext(bypassCtx)
 
-		return client.User.Query().
-			Where(user.EmailEQ(email)).
-			Where(user.StatusEQ(user.StatusActivated)).
-			WithRoles().
-			Only(bypassCtx)
+		// Keep exact legacy identities authoritative, including disabled accounts.
+		// Only a missing exact identity may use the canonical portal email created
+		// by invitation registration; old accounts retain their existing matching.
+		u, err := client.User.Query().Where(user.EmailEQ(email)).WithRoles().Only(bypassCtx)
+		canonical := strings.ToLower(email)
+		if ent.IsNotFound(err) && canonical != email {
+			return client.User.Query().
+				Where(user.EmailEQ(canonical), user.AccessModeEQ(user.AccessModePortal)).
+				WithRoles().Only(bypassCtx)
+		}
+		return u, err
 	})
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -140,6 +147,10 @@ func (s *AuthService) AuthenticateUser(
 		log.Error(ctx, "failed to get user", log.Cause(err))
 
 		return nil, ErrInternal
+	}
+
+	if u.Status != user.StatusActivated {
+		return nil, fmt.Errorf("invalid email or password: %w", ErrInvalidPassword)
 	}
 
 	if s.OIDCService != nil && s.OIDCService.IsUserRestrictedToOIDC(ctx, u) {

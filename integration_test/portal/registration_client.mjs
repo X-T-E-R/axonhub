@@ -18,7 +18,7 @@ let token = adminToken;
 let storedUser;
 let destination;
 const noop = () => {};
-const state = { auth: { user: {}, setUser: (u) => { storedUser = u; }, setAccessToken: (value) => { token = value; } } };
+const state = { auth: { user: {}, setUser: (u) => { storedUser = u; }, setAccessToken: (value) => { token = value; }, reset: () => { storedUser = undefined; token = undefined; } } };
 const useAuthStore = (selector) => selector(state);
 useAuthStore.getState = () => state;
 const hydrated = new Map();
@@ -33,7 +33,7 @@ const stubs = {
   '@tanstack/react-router': { Link: ({ to, ...props }) => React.createElement('a', { href: to, ...props }), useRouter: () => ({ navigate: ({ to }) => { destination = to; } }), useNavigate: () => noop },
   'react-i18next': { useTranslation: () => ({ t: (key) => key, i18n: { language: 'en' } }) },
   '@/lib/i18n': { __esModule: true, default: { t: (key) => key, language: 'en', changeLanguage: noop } },
-  '@/stores/authStore': { getTokenFromStorage: () => token, setTokenToStorage: (value) => { token = value; }, removeTokenFromStorage: noop, useAuthStore },
+  '@/stores/authStore': { getTokenFromStorage: () => token, setTokenToStorage: (value) => { token = value; }, removeTokenFromStorage: () => { token = undefined; }, useAuthStore },
   '@/hooks/usePermissions': { usePermissions: () => ({ hasSystemScope: () => true }) },
   sonner: { toast: { success: noop, error: noop } },
 };
@@ -116,7 +116,7 @@ assert.ok(!managerMarkup.includes(generatedCode));
 const productionSignIn = load('features/auth/data/auth.ts').useSignIn();
 const signIn = { mutateAsync: async (data) => { const signed = await productionSignIn.mutationFn(data); productionSignIn.onSuccess(signed); return signed; } };
 const register = mutation('features/auth/sign-up/components/sign-up-form.tsx', 'register', { authApi, signIn });
-const input = { email: 'node-registration@example.test', password: 'SyntheticPassword1', confirmPassword: 'SyntheticPassword1', firstName: 'Node', lastName: 'User', inviteCode: generatedCode };
+const input = { email: 'Node.Registration@Example.test', password: 'SyntheticPassword1', confirmPassword: 'SyntheticPassword1', firstName: 'Node', lastName: 'User', inviteCode: generatedCode };
 const registered = await register.mutationFn(input);
 assert.equal(registered.success, true);
 await register.onSuccess(registered, input);
@@ -124,6 +124,15 @@ assert.equal(destination, '/portal');
 assert.equal(storedUser.accessMode, 'portal');
 assert.equal(storedUser.isOwner, false);
 assert.deepEqual(storedUser.scopes, []);
+const firstIdentity = storedUser.id;
+load('features/auth/data/auth.ts').useSignOut()();
+assert.equal(token, undefined);
+assert.equal(storedUser, undefined);
+assert.equal(destination, '/sign-in');
+await signIn.mutateAsync({ email: input.email, password: input.password });
+assert.equal(destination, '/portal');
+assert.deepEqual(storedUser.id, firstIdentity);
+console.log('F-05: production mixed-case signup/automatic signin -> real sign-out hook clears identity/token -> original-spelling signin returns the same portal identity');
 const portal = load('features/portal/data.ts');
 const groups = (await portal.portalRequest(portal.GROUPS_QUERY)).groups;
 assert.equal(groups.length, 1);
