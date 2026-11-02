@@ -153,6 +153,10 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 		c.JSON(http.StatusUpgradeRequired, gin.H{"error": gin.H{"type": "invalid_request_error", "code": "websocket_upgrade_required", "message": "Use a WebSocket upgrade for this endpoint, or POST /v1/responses."}})
 		return
 	}
+	// Thread/trace preparation belongs to the handshake, not to every response
+	// on this socket. Queued metadata owns its jobs; release unused lifecycle
+	// credits before individual generations reserve their own bounded scopes.
+	biz.EndForwardingObservation(c.Request.Context())
 	select {
 	case h.slots <- struct{}{}:
 		defer func() { <-h.slots }()
@@ -320,6 +324,8 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 	// Retire this lane's previous baseline before attempting a new generation.
 	// Failure/partial output never becomes a continuation checkpoint.
 	state.retire(frame.streamID)
+	authenticated = biz.NewForwardingObservationScope(authenticated)
+	defer biz.EndForwardingObservation(authenticated)
 	req := &httpclient.Request{Method: http.MethodPost, URL: c.Request.URL.String(), Path: c.Request.URL.Path, Headers: c.Request.Header.Clone(), Body: body, ContentType: "application/json", APIFormat: string(llm.APIFormatOpenAIResponse)}
 	req.Headers.Set("Content-Type", "application/json")
 	for _, name := range []string{"Connection", "Upgrade", "Sec-WebSocket-Key", "Sec-WebSocket-Version", "Sec-WebSocket-Extensions", "Content-Encoding", "Content-Length"} {
@@ -358,7 +364,10 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 	failed := false
 	for stream.Next() {
 		if authenticated.Err() != nil {
-			return
+			// A generation deadline does not close the socket. Finish/join this
+			// stream and emit its terminal failure before accepting the next frame.
+			failed = true
+			break
 		}
 		event := stream.Current()
 		if event == nil {

@@ -730,8 +730,14 @@ func (s *passThroughChannelStream) nextBuffered() bool {
 func (s *passThroughChannelStream) Current() *httpclient.StreamEvent { return s.current }
 
 func (s *passThroughChannelStream) Err() error {
-	if s.errRef != nil {
+	if s.errRef != nil && *s.errRef != nil {
 		return *s.errRef
+	}
+	if s.ctxDone {
+		// Draining a canceled channel can finish before the raw producer reports
+		// an error. Preserve the request cause instead of presenting a clean EOF
+		// that terminal validation would misclassify as an upstream failure.
+		return context.Cause(s.ctx)
 	}
 
 	return nil

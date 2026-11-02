@@ -122,6 +122,7 @@ var (
 // persistence worker accesses ids; forwarding entities are never mutated by it.
 type observationScope struct {
 	writer            *ForwardingObservationWriter
+	parent            *observationScope // Immutable transport association IDs, on the same FIFO worker.
 	ids               map[int]int
 	reservedCore      int
 	reservedTerminal  int
@@ -361,6 +362,22 @@ func (w *ForwardingObservationWriter) WithScope(ctx context.Context) context.Con
 	return context.WithValue(ctx, observationContextKey{}, scope)
 }
 
+// NewForwardingObservationScope gives one generation of a long-lived transport
+// its own admission, usage deduplication and terminal lifecycle. The transport's
+// metadata scope must be ended once thread/trace preparation is complete. Its
+// pending association IDs remain resolvable on the same persistence FIFO; sibling
+// generations never share their request/execution ID maps or lifecycle state.
+// Without an inherited writer, the orchestrator establishes its usual scope.
+func NewForwardingObservationScope(ctx context.Context) context.Context {
+	parent := observationFromContext(ctx)
+	if parent == nil {
+		return ctx
+	}
+	ctx = parent.writer.WithScope(context.WithValue(ctx, observationContextKey{}, (*observationScope)(nil)))
+	observationFromContext(ctx).parent = parent
+	return ctx
+}
+
 func observationFromContext(ctx context.Context) *observationScope {
 	scope, _ := ctx.Value(observationContextKey{}).(*observationScope)
 	return scope
@@ -423,6 +440,9 @@ func (s *observationScope) resolve(id int) (int, error) {
 	}
 	if actual := s.ids[id]; actual != 0 {
 		return actual, nil
+	}
+	if s.parent != nil {
+		return s.parent.resolve(id)
 	}
 	return 0, errObservationParentUnavailable
 }
