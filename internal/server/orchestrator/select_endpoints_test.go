@@ -91,3 +91,16 @@ func TestSelectAPIFormat_Compact(t *testing.T) {
 		APIFormat:   llm.APIFormatOpenAIResponseCompact,
 	}))
 }
+
+func TestSelectAPIFormatNativeDecisionIsolation(t *testing.T) {
+	native := []objects.ChannelEndpoint{{APIFormat: "typesafe/systemone"}, {APIFormat: "commandcode/systemone"}, {APIFormat: "openai/decisions"}}
+	for _, format := range []llm.APIFormat{llm.APIFormatTypeSafeSystemOne, llm.APIFormatCommandCodeSystemOne, llm.APIFormatOpenAIDecisions} {
+		require.Equal(t, format.String(), SelectAPIFormat(native, &llm.Request{RequestType: llm.RequestTypeDecision, APIFormat: format}))
+	}
+	require.Equal(t, "commandcode/systemone", SelectAPIFormat(native[1:2], &llm.Request{RequestType: llm.RequestTypeDecision, APIFormat: llm.APIFormatTypeSafeSystemOne}))
+	require.Empty(t, SelectAPIFormat(native[:1], &llm.Request{RequestType: llm.RequestTypeDecision, APIFormat: llm.APIFormatOpenAIDecisions}))
+	require.Empty(t, SelectAPIFormat(native, &llm.Request{RequestType: llm.RequestTypeChat}))
+	require.Empty(t, SelectAPIFormat([]objects.ChannelEndpoint{{APIFormat: "openai/chat_completions"}}, &llm.Request{RequestType: llm.RequestTypeDecision, APIFormat: llm.APIFormatTypeSafeSystemOne}))
+	mixed := append(append([]objects.ChannelEndpoint{}, native...), objects.ChannelEndpoint{APIFormat: "openai/chat_completions"})
+	require.Equal(t, "openai/chat_completions", SelectAPIFormat(mixed, &llm.Request{RequestType: llm.RequestTypeChat}))
+}

@@ -760,3 +760,13 @@ func TestPipeline_Process_NonStreamEmptyResponseDetection(t *testing.T) {
 		require.Equal(t, 1, execCalls)
 	})
 }
+
+func TestNativeDecisionsAreNotChatEmptyResponses(t *testing.T) {
+	for _, body := range []string{`{"answers":{}}`, `{"answers":[]}`, `{"answers":{"q":{"type":"noul","noul":0}}}`} {
+		resp := &llm.Response{Decision: &llm.DecisionResponse{Body: []byte(body)}}
+		require.True(t, hasResponseContentWithPatterns(resp, []string{"answers"}))
+		text, chatText := responseTextContent(resp)
+		require.Empty(t, text)
+		require.False(t, chatText)
+	}
+}

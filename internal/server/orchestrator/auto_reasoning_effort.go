@@ -35,7 +35,7 @@ func (m *autoReasoningEffortMiddleware) Name() string {
 }
 
 func (m *autoReasoningEffortMiddleware) OnInboundLlmRequest(ctx context.Context, llmRequest *llm.Request) (*llm.Request, error) {
-	if llmRequest == nil || llmRequest.Model == "" {
+	if llmRequest == nil || llmRequest.Model == "" || llmRequest.RequestType == llm.RequestTypeDecision {
 		return llmRequest, nil
 	}
 

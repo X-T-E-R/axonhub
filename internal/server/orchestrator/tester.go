@@ -157,6 +157,12 @@ func (processor *TestChannelOrchestrator) TestChannel(
 		return nil, err
 	}
 
+	nativeInbound, nativeBody := nativeDecisionTestRequest(channel, testModel)
+	if nativeInbound != nil {
+		chatProcessor.Inbound = nativeInbound
+		body = nativeBody
+	}
+
 	// Measure latency
 	startTime := time.Now()
 	rawResponse, err := chatProcessor.Process(ctx, &httpclient.Request{
@@ -184,6 +190,9 @@ func (processor *TestChannelOrchestrator) TestChannel(
 	}
 
 	latency := time.Since(startTime).Seconds()
+	if nativeInbound != nil {
+		return &TestChannelResult{Latency: latency, Success: true, Message: new(string(rawResponse.ChatCompletion.Body))}, nil
+	}
 
 	// Handle non-streaming response
 	response, err := xjson.To[llm.Response](rawResponse.ChatCompletion.Body)
@@ -556,6 +565,15 @@ func (processor *TestChannelOrchestrator) testSingleKey(
 		}
 	}
 
+	channel, err := processor.channelService.GetChannel(ctx, channelID.ID)
+	if err != nil {
+		return &TestAPIKeyResult{KeyPrefix: keyPrefix, Error: new(err.Error())}
+	}
+	nativeInbound, nativeBody := nativeDecisionTestRequest(channel, testModel)
+	if nativeInbound != nil {
+		chatProcessor.Inbound = nativeInbound
+		body = nativeBody
+	}
 	startTime := time.Now()
 
 	rawResponse, err := chatProcessor.Process(ctx, &httpclient.Request{
@@ -600,6 +618,9 @@ func (processor *TestChannelOrchestrator) testSingleKey(
 	statusCode := 0
 	if rawResponse.ChatCompletion != nil {
 		statusCode = rawResponse.ChatCompletion.StatusCode
+	}
+	if nativeInbound != nil {
+		return &TestAPIKeyResult{KeyPrefix: keyPrefix, Success: true, Latency: latency, StatusCode: statusCode}
 	}
 
 	// Handle non-streaming response

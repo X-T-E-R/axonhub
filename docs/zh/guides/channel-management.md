@@ -52,6 +52,10 @@
 | API Key | sk-your-deepseek-key |
 | 支持模型 | deepseek-chat, deepseek-reasoner |
 
+### 原生决策渠道
+
+选择 **TypeSafe Jev**、**Command Code Jev**、**OpenAI Decisions** 或 **System One 兼容服务**，配置结构化决策 API。预设保存原生端点，连接测试也使用对应协议。凭据、根地址、SDK 示例与支持范围见[原生决策模型](native-decisions.md)。
+
 ## 配置多个 API Key
 
 当一个账号有多个 API Key 时，可以都配置到同一个渠道中，AxonHub 会自动轮流使用，提高稳定性。

@@ -19,6 +19,8 @@ const (
 	RequestTypeTranslation RequestType = "translation"
 	// RequestTypeModeration is the content moderation request type, maps to /v1/moderations.
 	RequestTypeModeration RequestType = "moderation"
+	// RequestTypeDecision carries native structured questions and answers, not chat messages.
+	RequestTypeDecision RequestType = "decision"
 )
 
 func (r RequestType) String() string {
@@ -54,6 +56,11 @@ const (
 
 	APIFormatOllamaChat    APIFormat = "ollama/chat"
 	APIFormatSeedanceVideo APIFormat = "seedance/video"
+
+	APIFormatTypeSafeSystemOne APIFormat = "typesafe/systemone"
+	// CommandCodeSystemOne shares the System One wire, with its own capability profile.
+	APIFormatCommandCodeSystemOne APIFormat = "commandcode/systemone"
+	APIFormatOpenAIDecisions      APIFormat = "openai/decisions"
 )
 
 func (f APIFormat) String() string {

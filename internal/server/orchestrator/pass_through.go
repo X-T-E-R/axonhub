@@ -313,7 +313,10 @@ func passThroughBodySupported(apiFormat llm.APIFormat) bool {
 func passThroughBodyNeedsModelPatch(apiFormat llm.APIFormat) bool {
 	//nolint:exhaustive // ohter format do not need model field.
 	switch apiFormat {
-	case llm.APIFormatOpenAIChatCompletion,
+	case llm.APIFormatTypeSafeSystemOne,
+		llm.APIFormatCommandCodeSystemOne,
+		llm.APIFormatOpenAIDecisions,
+		llm.APIFormatOpenAIChatCompletion,
 		llm.APIFormatOpenAICompletion,
 		llm.APIFormatOpenAIResponse,
 		llm.APIFormatOpenAIResponseCompact,

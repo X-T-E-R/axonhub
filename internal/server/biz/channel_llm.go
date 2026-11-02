@@ -25,6 +25,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/bailian"
 	"github.com/looplj/axonhub/llm/transformer/cerebras"
 	"github.com/looplj/axonhub/llm/transformer/cline"
+	"github.com/looplj/axonhub/llm/transformer/decision"
 	"github.com/looplj/axonhub/llm/transformer/deepseek"
 	"github.com/looplj/axonhub/llm/transformer/doubao"
 	"github.com/looplj/axonhub/llm/transformer/fireworks"
@@ -214,7 +215,7 @@ func (svc *ChannelService) buildChannelWithOutbounds(c *ent.Channel, apiKeyOverr
 		return nil, err
 	}
 
-	defaultEndpoints := DefaultEndpointsForChannelType(c.Type)
+	defaultEndpoints := DefaultEndpointsForChannel(c)
 	userEndpoints := c.Endpoints
 
 	if len(defaultEndpoints) == 0 && len(userEndpoints) == 0 {
@@ -250,6 +251,9 @@ func (svc *ChannelService) buildChannelWithOutbounds(c *ent.Channel, apiKeyOverr
 		out, err := svc.buildNonDefaultEndpointOutbound(c, ch, ep)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build outbound for api_format %q on channel %s: %w", ep.APIFormat, c.Name, err)
+		}
+		if len(outbounds) == 0 {
+			ch.Outbound = out
 		}
 		outbounds[ep.APIFormat] = out
 	}
@@ -388,6 +392,8 @@ func (svc *ChannelService) buildNonDefaultEndpointOutbound(
 	}
 
 	switch ep.APIFormat {
+	case llm.APIFormatTypeSafeSystemOne.String(), llm.APIFormatCommandCodeSystemOne.String(), llm.APIFormatOpenAIDecisions.String():
+		return decision.NewOutbound(decision.Config{Format: llm.APIFormat(ep.APIFormat), BaseURL: baseURL, EndpointPath: ep.Path, APIKeyProvider: apiKeyProvider()})
 	case llm.APIFormatOpenAIChatCompletion.String():
 		if c.Type == channel.TypeCline {
 			return cline.NewOutboundTransformerWithConfig(&cline.Config{

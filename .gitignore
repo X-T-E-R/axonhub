@@ -169,5 +169,7 @@ config.schema.json
 .ace-tool/
 
 # Local diagnostic and Assay control state
+/.runtime/
+__pycache__/
 /.workflow/
 /system.yaml

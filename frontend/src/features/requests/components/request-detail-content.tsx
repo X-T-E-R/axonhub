@@ -16,6 +16,7 @@ import { useGeneralSettings } from '@/features/system/data/system';
 import { type Request, useRequest, useRequestExecutions } from '../data';
 import { useUsageLogs } from '../data/usage-logs';
 import { generateRequestCurl, generateExecutionCurl } from '../utils/curl-generator';
+import { nativeDecisionUsage } from '../utils/native-decision-usage';
 import { formatLatencyMs, resolveExecutionLatencyMs } from '../utils/request-latency';
 import { parseResponse } from '../utils/response-parser';
 import { ChunksDialog } from './chunks-dialog';
@@ -48,6 +49,10 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
   const { data: settings } = useGeneralSettings();
   const { data: requestData, isLoading } = useRequest(requestId, { projectId, disableAutoRefresh: isPreviewStreaming });
   const request = previewRequest ?? requestData;
+  const decisionUsage = nativeDecisionUsage(request?.format, request?.responseBody);
+  useEffect(() => {
+    setResponseView(decisionUsage ? 'json' : 'preview');
+  }, [requestId, !!decisionUsage]);
   const {
     data: executions,
     isLoading: isExecutionsLoading,
@@ -382,6 +387,17 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
         </CardContent>
       </Card>
 
+      {decisionUsage && !decisionUsage.complete && hasResponseBody && request.status === 'completed' && (
+        <Card className='border-0 shadow-sm'>
+          <CardHeader className='pb-2'>
+            <CardTitle className='text-base'>{t('requests.detail.tabs.usage')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className='font-medium'>{t('requests.nativeDecisions.usageUnknown')}</p>
+            <p className='text-muted-foreground mt-1 text-sm'>{t('requests.nativeDecisions.usageUnknownDescription')}</p>
+          </CardContent>
+        </Card>
+      )}
       {usageLogs &&
         usageLogs.edges.length > 0 &&
         (() => {
@@ -410,6 +426,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
             });
 
           const renderCost = (val: number | null | undefined) => {
+            if (decisionUsage && val == null) return t('requests.nativeDecisions.notReported');
             if (cost <= 0) return '-';
             if (val == null || val <= 0) return '-';
             return formatCurrency(val);
@@ -455,7 +472,11 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                     <span className='text-muted-foreground text-xs font-medium'>{t('usageLogs.columns.promptCachedTokens')}</span>
                     <div className='mt-1'>
                       <div className='flex flex-wrap items-center gap-1'>
-                        <p className='text-sm font-semibold'>{cachedTokens.toLocaleString()}</p>
+                        <p className='text-sm font-semibold'>
+                          {decisionUsage && decisionUsage.cachedTokens === null
+                            ? t('requests.nativeDecisions.notReported')
+                            : cachedTokens.toLocaleString()}
+                        </p>
                         {hasReadCache && (
                           <Badge variant='outline' className='h-4 border-green-200 bg-green-50 px-1 text-[10px] text-green-600'>
                             {cacheHitRate}%
@@ -481,7 +502,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                     <span className='text-muted-foreground text-xs font-medium'>{t('usageLogs.columns.totalTokens')}</span>
                     <div className='mt-1'>
                       <p className='text-sm font-semibold'>{usage.totalTokens.toLocaleString()}</p>
-                      <p className='text-muted-foreground text-xs'>{renderCost(cost)}</p>
+                      <p className='text-muted-foreground text-xs'>{renderCost(usage.totalCost)}</p>
                     </div>
                   </div>
                 </div>
@@ -602,8 +623,8 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
             <TabsContent value='response' className='space-y-6 p-6'>
               <Tabs value={responseView} onValueChange={(v: any) => setResponseView(v)} className='w-full'>
                 <div className='flex flex-wrap items-center justify-between gap-4'>
-                  <TabsList className='grid w-full grid-cols-2 sm:w-[300px]'>
-                    <TabsTrigger value='preview'>{t('requests.detail.tabs.preview')}</TabsTrigger>
+                  <TabsList className={decisionUsage ? 'grid w-full grid-cols-1 sm:w-[150px]' : 'grid w-full grid-cols-2 sm:w-[300px]'}>
+                    {!decisionUsage && <TabsTrigger value='preview'>{t('requests.detail.tabs.preview')}</TabsTrigger>}
                     <TabsTrigger value='json'>{t('requests.detail.tabs.json')}</TabsTrigger>
                   </TabsList>
 

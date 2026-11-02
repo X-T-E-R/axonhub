@@ -34,6 +34,9 @@ func injectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 	matcher := biz.NewPromptMatcher()
 
 	return pipeline.OnLlmRequest("inject-prompts", func(ctx context.Context, llmRequest *llm.Request) (*llm.Request, error) {
+		if llmRequest.RequestType == llm.RequestTypeDecision {
+			return llmRequest, nil
+		}
 		projectID, ok := contexts.GetProjectID(ctx)
 		if !ok {
 			log.Debug(ctx, "no project ID in context, skipping prompt injection")

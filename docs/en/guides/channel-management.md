@@ -52,6 +52,10 @@ In short: **API Key Profile renames → Model Association selects channel → Ch
 | API Key | sk-your-deepseek-key |
 | Supported Models | deepseek-chat, deepseek-reasoner |
 
+### Native decision channels
+
+Choose **TypeSafe Jev**, **Command Code Jev**, **OpenAI Decisions**, or **System One compatible** to configure structured decision APIs. These presets save native endpoints and use protocol-specific connection tests. See [Native decision models](native-decisions.md) for credentials, endpoint roots, SDK examples and supported capabilities.
+
 ## Multiple API Keys
 
 When an account has multiple API Keys, you can configure them all in the same channel. AxonHub will automatically rotate between them for better stability.

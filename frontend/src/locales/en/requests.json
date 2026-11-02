@@ -1,4 +1,7 @@
 {
+  "requests.nativeDecisions.usageUnknown": "Usage unknown",
+  "requests.nativeDecisions.usageUnknownDescription": "The upstream did not report complete token usage. This does not mean the request was free. Any reported fields remain in the response JSON.",
+  "requests.nativeDecisions.notReported": "Not reported",
   "requests.title": "Request Logs",
   "requests.description": "View and manage LLM call request logs",
   "requests.columns.modelId": "Model ID",

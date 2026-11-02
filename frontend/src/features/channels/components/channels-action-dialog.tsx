@@ -55,6 +55,12 @@ import {
   getApiFormatsForProvider,
   getChannelTypeForApiFormat,
 } from '../data/config_providers';
+import {
+  getNativeDecisionPreset,
+  isNativeDecisionPreset,
+  NATIVE_DECISION_PRESETS,
+  nativeDecisionEndpoints,
+} from '../data/native-decisions';
 import { Channel, ChannelType, ApiFormat, RetryableErrorPattern, createChannelInputSchema, updateChannelInputSchema } from '../data/schema';
 import { ProxyConfig, useOAuthFlow } from '../hooks/use-oauth-flow';
 import {
@@ -438,10 +444,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     }),
     [passThroughUserAgent, passThroughBody, disableRetries, fullPassThrough, axonHubCaptureSettings]
   );
-  const axonHubBehaviorPreset = useMemo(
-    () => getAxonHubBehaviorPreset(axonHubBehaviorSettings),
-    [axonHubBehaviorSettings]
-  );
+  const axonHubBehaviorPreset = useMemo(() => getAxonHubBehaviorPreset(axonHubBehaviorSettings), [axonHubBehaviorSettings]);
   const axonHubCaptureHasDisabledField = useMemo(
     () => Object.values(axonHubCaptureSettings).some((value) => value === false),
     [axonHubCaptureSettings]
@@ -518,18 +521,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     },
   });
 
-  // Provider-based selection state
-  const [selectedProvider, setSelectedProvider] = useState<string>(() => {
-    if (initialRow) {
-      return getProviderFromChannelType(initialRow.type) || 'openai';
-    }
-    return 'openai';
-  });
+  // Native presets share the OpenAI carrier but reopen from persisted endpoints.
+  const [selectedProvider, setSelectedProvider] = useState<string>(
+    () => getNativeDecisionPreset(initialRow) || (initialRow && getProviderFromChannelType(initialRow.type)) || 'openai'
+  );
+  const [nativeEndpoints, setNativeEndpoints] = useState(initialRow?.endpoints);
   const [selectedApiFormat, setSelectedApiFormat] = useState<ApiFormat>(() => {
-    if (initialRow) {
-      return CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || 'openai/chat_completions';
-    }
-    return 'openai/chat_completions';
+    const preset = getNativeDecisionPreset(initialRow);
+    if (preset) return NATIVE_DECISION_PRESETS[preset].apiFormat;
+    return initialRow ? CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || OPENAI_CHAT_COMPLETIONS : OPENAI_CHAT_COMPLETIONS;
   });
   const [responsesTransport, setResponsesTransport] = useState<ResponsesTransport>(() => getResponsesTransportFromChannel(initialRow));
   const [useGeminiVertex, setUseGeminiVertex] = useState(() => {
@@ -554,10 +554,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   useEffect(() => {
     if (!initialRow) return;
 
-    const provider = getProviderFromChannelType(initialRow.type) || 'openai';
+    const preset = getNativeDecisionPreset(initialRow);
+    const provider = preset || getProviderFromChannelType(initialRow.type) || 'openai';
     setSelectedProvider(provider);
-    const apiFormat = CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || OPENAI_CHAT_COMPLETIONS;
-    setSelectedApiFormat(apiFormat);
+    setNativeEndpoints(initialRow.endpoints);
+    setSelectedApiFormat(
+      preset
+        ? NATIVE_DECISION_PRESETS[preset].apiFormat
+        : CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || OPENAI_CHAT_COMPLETIONS
+    );
     setResponsesTransport(getResponsesTransportFromChannel(initialRow));
     setUseGeminiVertex(initialRow.type === 'gemini_vertex');
     setUseAnthropicAws(initialRow.type === 'anthropic_aws');
@@ -897,6 +902,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
   const baseURLPlaceholder = useMemo(() => {
     const currentType = selectedType || derivedChannelType;
+    if (isNativeDecisionPreset(selectedProvider)) return NATIVE_DECISION_PRESETS[selectedProvider].baseURL || 'http://localhost:8080';
     if (selectedApiFormat === OPENAI_RESPONSES && responsesTransport === 'websocket') {
       const websocketBaseURL = getResponsesWebSocketBaseURL(currentType);
       if (websocketBaseURL) {
@@ -908,7 +914,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       return defaultURL;
     }
     return t('channels.dialogs.fields.baseURL.placeholder');
-  }, [selectedType, derivedChannelType, selectedApiFormat, responsesTransport, t]);
+  }, [selectedType, derivedChannelType, selectedApiFormat, selectedProvider, responsesTransport, t]);
 
   // Sync form type when provider or API format changes
   const handleProviderChange = useCallback(
@@ -927,6 +933,28 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       if (provider !== 'moonshot') {
         setUseKimiCoding(false);
       }
+
+      if (isNativeDecisionPreset(provider)) {
+        const preset = NATIVE_DECISION_PRESETS[provider];
+        if (provider !== selectedProvider) {
+          form.setValue('credentials.apiKey', undefined);
+          form.setValue('credentials.apiKeys', []);
+        }
+        setSelectedApiFormat(preset.apiFormat);
+        setNativeEndpoints(nativeDecisionEndpoints(provider));
+        applyAxonHubChannelTransition('openai');
+        form.setValue('type', 'openai');
+        form.setValue('baseURL', preset.baseURL, { shouldDirty: true });
+        form.setValue('defaultTestModel', preset.models[0] || '');
+        form.setValue('autoSyncSupportedModels', false);
+        if (!form.getValues('name')) form.setValue('name', preset.name);
+        setSupportedModels([...preset.models]);
+        setManualModels([]);
+        setFetchedModels([]);
+        setUseFetchedModels(false);
+        return;
+      }
+      if (isNativeDecisionPreset(selectedProvider)) setNativeEndpoints([]);
 
       if (provider === 'codex') {
         setSelectedApiFormat(OPENAI_RESPONSES);
@@ -1000,6 +1028,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       isDuplicate,
       isEdit,
       selectedApiFormat,
+      selectedProvider,
       isOAuthChannel,
       applyAxonHubChannelTransition,
       responsesTransport,
@@ -1291,6 +1320,16 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         values.credentials.apiKeys = [...new Set(values.credentials.apiKeys.filter((k) => k.trim().length > 0))];
       }
 
+      if (
+        isNativeDecisionPreset(selectedProvider) &&
+        getNativeDecisionPreset(initialRow) !== selectedProvider &&
+        !values.credentials?.apiKey?.trim() &&
+        !values.credentials?.apiKeys?.some((key) => key.trim())
+      ) {
+        toast.error(t('channels.nativeDecisions.providerKeyRequired'));
+        return;
+      }
+
       const retryableStatusCodes = parseRetryableStatusCodesInput(retryableStatusCodesText);
       if (retryableStatusCodes === null) {
         toast.error(t('channels.dialogs.retryableStatusCodes.validation'));
@@ -1319,6 +1358,11 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         ...valuesForSubmit,
         supportedModels,
         manualModels,
+        ...(isNativeDecisionPreset(selectedProvider)
+          ? { endpoints: nativeDecisionEndpoints(selectedProvider, nativeEndpoints), autoSyncSupportedModels: false }
+          : getNativeDecisionPreset(initialRow)
+            ? { endpoints: [] }
+            : {}),
         credentials: valuesForSubmit.credentials,
       };
       const settingsForSubmit = isOpenCodeGoChannelType(dataWithModels.type as ChannelType | undefined)
@@ -1605,6 +1649,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   }, [currentRow, form, patternError, syncChannelModels]);
 
   const canFetchModels = () => {
+    if (isNativeDecisionPreset(selectedProvider)) return false;
     const baseURL = form.watch('baseURL');
     const apiKeys = form.watch('credentials.apiKeys');
     const hasApiKey = apiKeys?.some((key) => key.trim().length > 0);
@@ -1629,8 +1674,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const currentType = form.watch('type');
   const quickModels = useMemo(() => {
     if (useFetchedModels || !currentType) return [];
+    if (isNativeDecisionPreset(selectedProvider)) return [...NATIVE_DECISION_PRESETS[selectedProvider].models];
     return getDefaultModels(currentType);
-  }, [currentType, useFetchedModels]);
+  }, [currentType, useFetchedModels, selectedProvider]);
 
   // Filtered fetched models based on search and filter
   const filteredFetchedModels = useMemo(() => {
@@ -1842,9 +1888,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
               ? getGenericChannelBehaviorSettings(initialRow?.settings)
               : null;
             // Reset provider and API format state
+            setNativeEndpoints(initialRow?.endpoints);
             if (initialRow) {
-              setSelectedProvider(getProviderFromChannelType(initialRow.type) || 'openai');
-              setSelectedApiFormat(CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || OPENAI_CHAT_COMPLETIONS);
+              const preset = getNativeDecisionPreset(initialRow);
+              setSelectedProvider(preset || getProviderFromChannelType(initialRow.type) || 'openai');
+              setSelectedApiFormat(
+                preset
+                  ? NATIVE_DECISION_PRESETS[preset].apiFormat
+                  : CHANNEL_CONFIGS[initialRow.type as ChannelType]?.apiFormat || OPENAI_CHAT_COMPLETIONS
+              );
               setResponsesTransport(getResponsesTransportFromChannel(initialRow));
               setUseGeminiVertex(initialRow.type === 'gemini_vertex');
               setUseAnthropicAws(initialRow.type === 'anthropic_aws');
@@ -1952,6 +2004,11 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 label: getApiFormatOptionLabel(format),
                               }))}
                             />
+                            {isNativeDecisionPreset(selectedProvider) && (
+                              <p className='text-muted-foreground pt-2 text-sm' data-testid='native-decision-capabilities'>
+                                {t(`channels.nativeDecisions.${selectedProvider}.description`)} {t('channels.nativeDecisions.manualModels')}
+                              </p>
+                            )}
                             {selectedApiFormat === 'gemini/contents' && (
                               <div className='mt-3'>
                                 <label
@@ -2641,12 +2698,14 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                   className={`flex items-center gap-2 ${isCodexType || isClaudeCodeType || isCopilotType ? 'opacity-60' : ''}`}
                                 >
                                   {wrapUnsupported(
-                                    isCodexType || isClaudeCodeType || isCopilotType,
+                                    isCodexType || isClaudeCodeType || isCopilotType || isNativeDecisionPreset(selectedProvider),
                                     <Checkbox
                                       checked={field.value}
                                       onCheckedChange={field.onChange}
                                       data-testid='auto-sync-supported-models-checkbox'
-                                      disabled={isCodexType || isClaudeCodeType || isCopilotType}
+                                      disabled={
+                                        isCodexType || isClaudeCodeType || isCopilotType || isNativeDecisionPreset(selectedProvider)
+                                      }
                                       className={isCodexType || isClaudeCodeType || isCopilotType ? 'pointer-events-none' : undefined}
                                     />,
                                     'inline-flex items-center'
@@ -2674,7 +2733,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                         </Tooltip>
                                       </div>
                                     </div>
-                                    {isEdit && field.value && (
+                                    {isEdit && field.value && !isNativeDecisionPreset(selectedProvider) && (
                                       <Button
                                         type='button'
                                         size='sm'
@@ -2926,7 +2985,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                             </FormLabel>
                             <div className='space-y-3 md:col-span-6'>
                               <Select value={axonHubBehaviorPreset} onValueChange={applyAxonHubBehaviorPreset}>
-                                <SelectTrigger aria-label={t('channels.dialogs.axonHubBehavior.preset.label')} data-testid='axonhub-behavior-preset'>
+                                <SelectTrigger
+                                  aria-label={t('channels.dialogs.axonHubBehavior.preset.label')}
+                                  data-testid='axonhub-behavior-preset'
+                                >
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>

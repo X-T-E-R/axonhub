@@ -70,5 +70,5 @@ func shouldForwardProviderResponseHeader(key string, fullPassThrough bool, conne
 	if fullPassThrough {
 		return true
 	}
-	return strings.HasPrefix(strings.ToLower(key), "x-codex-")
+	return key == "X-Request-Id" || key == "X-Typesafe-Request-Id" || strings.HasPrefix(strings.ToLower(key), "x-codex-")
 }

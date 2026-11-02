@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm"
@@ -12,6 +13,9 @@ import (
 
 // SupportedAPIFormats lists the API formats that are recognized as valid endpoint api_format values.
 var SupportedAPIFormats = map[string]struct{}{
+	llm.APIFormatTypeSafeSystemOne.String():     {},
+	llm.APIFormatCommandCodeSystemOne.String():  {},
+	llm.APIFormatOpenAIDecisions.String():       {},
 	llm.APIFormatOpenAIChatCompletion.String():  {},
 	llm.APIFormatOpenAICompletion.String():      {},
 	llm.APIFormatOpenAIResponse.String():        {},
@@ -113,6 +117,8 @@ var axonhubDefaultEndpoints = []objects.ChannelEndpoint{
 	{APIFormat: llm.APIFormatOpenAIImageEdit.String()},
 	{APIFormat: llm.APIFormatOpenAIVideo.String()},
 	{APIFormat: llm.APIFormatOpenAIModeration.String()},
+	{APIFormat: llm.APIFormatTypeSafeSystemOne.String(), Path: "/v1/systemone"},
+	{APIFormat: llm.APIFormatOpenAIDecisions.String(), Path: "/v1/decisions"},
 	{APIFormat: llm.APIFormatAnthropicMessage.String()},
 	{APIFormat: llm.APIFormatJinaRerank.String()},
 	{APIFormat: llm.APIFormatJinaEmbedding.String()},
@@ -224,6 +230,27 @@ func DefaultEndpointsForChannelType(t channel.Type) []objects.ChannelEndpoint {
 	return nil
 }
 
+// Native-only OpenAI carriers have no implicit chat/image capabilities. Existing
+// channels and explicit mixed configurations keep the established merge behavior.
+func DefaultEndpointsForChannel(c *ent.Channel) []objects.ChannelEndpoint {
+	if c == nil {
+		return nil
+	}
+	if c.Type == channel.TypeOpenai && len(c.Endpoints) > 0 {
+		nativeOnly := true
+		for _, ep := range c.Endpoints {
+			if !llm.IsDecisionAPIFormat(llm.APIFormat(ep.APIFormat)) {
+				nativeOnly = false
+				break
+			}
+		}
+		if nativeOnly {
+			return nil
+		}
+	}
+	return DefaultEndpointsForChannelType(c.Type)
+}
+
 func mergeEndpoints(defaultEndpoints, userEndpoints []objects.ChannelEndpoint) []objects.ChannelEndpoint {
 	if len(defaultEndpoints) == 0 && len(userEndpoints) == 0 {
 		return nil
@@ -283,7 +310,7 @@ func (c *Channel) ResolveEndpoints() []objects.ChannelEndpoint {
 		return nil
 	}
 
-	return mergeEndpoints(DefaultEndpointsForChannelType(c.Type), c.Endpoints)
+	return mergeEndpoints(DefaultEndpointsForChannel(c.Channel), c.Endpoints)
 }
 
 func (c *Channel) platformTypeForGeminiEndpoint() string {

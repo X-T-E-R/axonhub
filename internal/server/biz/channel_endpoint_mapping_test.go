@@ -151,6 +151,8 @@ func TestDefaultEndpointsForChannelType_UseLLMAPIFormatValues(t *testing.T) {
 				llm.APIFormatOpenAIImageEdit.String(),
 				llm.APIFormatOpenAIVideo.String(),
 				llm.APIFormatOpenAIModeration.String(),
+				llm.APIFormatTypeSafeSystemOne.String(),
+				llm.APIFormatOpenAIDecisions.String(),
 				llm.APIFormatAnthropicMessage.String(),
 				llm.APIFormatJinaRerank.String(),
 				llm.APIFormatJinaEmbedding.String(),

@@ -16,7 +16,7 @@ const promptProtectionRejectedMessage = "request blocked by prompt protection po
 
 func protectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 	return pipeline.OnLlmRequest("protect-prompts", func(ctx context.Context, llmRequest *llm.Request) (*llm.Request, error) {
-		if inbound.state.PromptProtecter == nil {
+		if llmRequest.RequestType == llm.RequestTypeDecision || inbound.state.PromptProtecter == nil {
 			return llmRequest, nil
 		}
 

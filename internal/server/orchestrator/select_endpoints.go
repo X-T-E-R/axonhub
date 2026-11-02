@@ -78,6 +78,32 @@ func SelectAPIFormat(endpoints []objects.ChannelEndpoint, req *llm.Request) stri
 		return ""
 	}
 
+	// Decisions never fall back through a chat endpoint or another wire protocol.
+	if req.RequestType == llm.RequestTypeDecision {
+		for _, ep := range endpoints {
+			if ep.APIFormat == string(req.APIFormat) {
+				return ep.APIFormat
+			}
+		}
+		for _, ep := range endpoints {
+			if llm.DecisionFormatsCompatible(req.APIFormat, llm.APIFormat(ep.APIFormat)) {
+				return ep.APIFormat
+			}
+		}
+		return ""
+	}
+	// A native-only carrier must not accidentally receive legacy chat requests.
+	allDecisions := true
+	for _, ep := range endpoints {
+		if !llm.IsDecisionAPIFormat(llm.APIFormat(ep.APIFormat)) {
+			allDecisions = false
+			break
+		}
+	}
+	if allDecisions {
+		return ""
+	}
+
 	requestType := req.RequestType
 	preferredFormat := string(req.APIFormat)
 

@@ -59,6 +59,8 @@ type OpenAIHandlers struct {
 	CompactHandlers            *ChatCompletionHandlers
 	EmbeddingHandlers          *ChatCompletionHandlers
 	ModerationHandlers         *ChatCompletionHandlers
+	SystemOneHandlers          *ChatCompletionHandlers
+	DecisionHandlers           *ChatCompletionHandlers
 	ImageGenerationHandlers    *ChatCompletionHandlers
 	ImageEditHandlers          *ChatCompletionHandlers
 	ImageVariationHandlers     *ChatCompletionHandlers
@@ -321,6 +323,8 @@ func NewOpenAIHandlers(params OpenAIHandlersParams) *OpenAIHandlers {
 	}
 
 	handlers.ResponseWebSocketHandler = newResponsesWebSocketHandler(handlers.ResponseCompletionHandlers, params.AuthService)
+	handlers.SystemOneHandlers = newNativeDecisionHandlers(params, llm.APIFormatTypeSafeSystemOne)
+	handlers.DecisionHandlers = newNativeDecisionHandlers(params, llm.APIFormatOpenAIDecisions)
 
 	return handlers
 }

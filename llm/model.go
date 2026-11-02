@@ -258,6 +258,9 @@ type Request struct {
 	// Moderation is the standalone /v1/moderations request payload.
 	Moderation *ModerationRequest `json:"moderation_request,omitempty"`
 
+	// Decision retains the native JSON, including unknown fields and exact numbers.
+	Decision *DecisionRequest `json:"decision_request,omitempty"`
+
 	// RawRequest is the raw request from the client.
 	RawRequest *httpclient.Request `json:"raw_request,omitempty"`
 
@@ -720,6 +723,9 @@ type Response struct {
 	// Moderation is the standalone /v1/moderations response payload.
 	Moderation *ModerationResponse `json:"moderation,omitempty"`
 
+	// Decision is a parsed native structured answer, including valid empty answers.
+	Decision *DecisionResponse `json:"decision,omitempty"`
+
 	// RequestType is the outbound request type from the llm service.
 	// e.g. the request from the chat/completions endpoint is in the chat type.
 	// if it is embedding request, it will be embedding.
@@ -862,6 +868,15 @@ type ResponseError struct {
 	Detail     ErrorDetail `json:"error"`
 	// RetryAfter carries the upstream HTTP advice, not a gateway retry policy.
 	RetryAfter string `json:"-"`
+	// HTTPError retains native upstream envelopes when a transformer promises raw errors.
+	HTTPError *httpclient.Error `json:"-"`
+}
+
+func (e ResponseError) Unwrap() error {
+	if e.HTTPError == nil {
+		return nil
+	}
+	return e.HTTPError
 }
 
 func (e ResponseError) Error() string {

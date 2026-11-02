@@ -81,6 +81,11 @@ func hasResponseContentWithPatterns(resp *llm.Response, emptyTextPatterns []stri
 
 	matcher := newEmptyResponseTextMatcher(emptyTextPatterns)
 
+	// Native answers can legitimately be empty or contain zero probabilities.
+	if resp.Decision != nil {
+		return true
+	}
+
 	if resp.Moderation != nil && len(resp.Moderation.Results) > 0 {
 		return true
 	}
@@ -259,6 +264,10 @@ func bufferedResponsesTextContent(responses []*llm.Response) (string, bool) {
 func responseTextContent(resp *llm.Response) (string, bool) {
 	if resp == nil || resp == llm.DoneResponse || resp.Object == "[DONE]" {
 		return "", true
+	}
+
+	if resp.Decision != nil {
+		return "", false
 	}
 
 	if resp.Embedding != nil && len(resp.Embedding.Data) > 0 {

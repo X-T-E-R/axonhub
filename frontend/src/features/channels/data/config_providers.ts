@@ -37,6 +37,7 @@ import { AxonHubIcon } from '../components/axonhub-icon';
 import { EvolinkIcon } from '../components/evolink-icon';
 import { NanoGPTIcon } from '../components/nanogpt-icon';
 import { CHANNEL_CONFIGS } from './config_channels';
+import { isNativeDecisionPreset, NATIVE_DECISION_PRESETS } from './native-decisions';
 import { ApiFormat, ChannelType } from './schema';
 
 export interface ProviderConfig {
@@ -52,6 +53,8 @@ const AXONHUB_PROVIDER_API_FORMATS: ApiFormat[] = [
   'openai/completions',
   'openai/responses',
   'openai/responses_compact',
+  'openai/decisions',
+  'typesafe/systemone',
   'openai/image_generation',
   'openai/image_edit',
   'openai/embeddings',
@@ -76,6 +79,17 @@ export const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
     color: 'bg-white-100 text-white-800 border-white-200',
     channelTypes: ['openai', 'openai_responses'],
   },
+  ...Object.fromEntries(
+    Object.keys(NATIVE_DECISION_PRESETS).map((provider) => [
+      provider,
+      {
+        provider,
+        icon: OpenAI,
+        color: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+        channelTypes: ['openai'] as ChannelType[],
+      },
+    ])
+  ),
   atlascloud: {
     provider: 'atlascloud',
     icon: AtlasCloudIcon,
@@ -316,6 +330,7 @@ export const getProviderFromChannelType = (channelType: ChannelType): string | u
  * Get channel type for a provider with specific API format
  */
 export const getChannelTypeForApiFormat = (provider: string, apiFormat: ApiFormat): ChannelType | undefined => {
+  if (isNativeDecisionPreset(provider)) return NATIVE_DECISION_PRESETS[provider].apiFormat === apiFormat ? 'openai' : undefined;
   const providerConfig = PROVIDER_CONFIGS[provider];
   if (!providerConfig) return undefined;
 
@@ -336,6 +351,7 @@ export const getChannelTypeForApiFormat = (provider: string, apiFormat: ApiForma
  * Get available API formats for a provider
  */
 export const getApiFormatsForProvider = (provider: string): ApiFormat[] => {
+  if (isNativeDecisionPreset(provider)) return [NATIVE_DECISION_PRESETS[provider].apiFormat];
   const providerConfig = PROVIDER_CONFIGS[provider];
   if (!providerConfig) return [];
 
