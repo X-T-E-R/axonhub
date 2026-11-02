@@ -36,10 +36,13 @@ test('request index stays body-free while exact detail queries select evidence',
   const source = readFileSync(join(featureRoot, 'data', 'requests.ts'), 'utf8');
 
   const indexQuery = source.slice(source.indexOf('function buildRequestsQuery'), source.indexOf('function buildRequestDetailQuery'));
-  const detailQuery = source.slice(source.indexOf('function buildRequestDetailQuery'), source.indexOf('function buildRequestDetailPollingQuery'));
+  const detailQuery = source.slice(
+    source.indexOf('function buildRequestDetailQuery'),
+    source.indexOf('function buildRequestDetailPollingQuery')
+  );
   const executionQuery = source.slice(source.indexOf('function buildRequestExecutionsQuery'), source.indexOf('// Query hooks'));
 
   assert.doesNotMatch(indexQuery, /\b(?:requestBody|responseBody|responseChunks)\b/);
-  assert.match(detailQuery, /requestHeaders\s+requestBody\s+responseBody\s+responseChunks/);
-  assert.match(executionQuery, /requestHeaders\s+requestBody\s+responseBody\s+responseChunks/);
+  assert.match(detailQuery, /requestHeaders\s+requestBody\s+requestBodyRaw\s+responseBody\s+responseBodyRaw\s+responseChunks/);
+  assert.match(executionQuery, /requestHeaders\s+requestBody\s+requestBodyRaw\s+responseBody\s+responseBodyRaw\s+responseChunks/);
 });

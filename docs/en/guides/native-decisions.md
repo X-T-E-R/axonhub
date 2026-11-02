@@ -4,7 +4,7 @@ Use `/v1/systemone` or `/v1/decisions` to send structured questions through Axon
 
 ## Configure a channel
 
-In **Channels → Add Channel**, select one of these presets. Each channel uses its own provider API key.
+In **Channels → Add Channel**, select one of these presets. Each channel uses its own provider API key. Switching providers to or from a native preset clears the old credentials; editing or duplicating across providers also requires new credentials. Same-provider edits can leave credentials empty to keep the saved value, and duplicates initially carry the source channel's credentials.
 
 | Preset | Provider Base URL | Endpoint format / path | Suggested model |
 | --- | --- | --- | --- |
@@ -67,8 +67,10 @@ OpenAI Decisions accepts **1–400 questions**. Ordered arrays, boolean/string c
 
 ## Read results and usage
 
-Request details open native responses as JSON and generate cURL with the native endpoint. The request and execution records use the existing storage policy.
+Request details open native responses as original JSON text and generate cURL with the native endpoint. Request/execution details and drawers display, copy and download the stored text, preserving large integers and boolean/null values and types. The request and execution records use the existing storage policy.
 
 Complete upstream input/output counts enter the token ledger, including real zeros. Cached and cache-write tokens are subsets of input, not additional tokens. Missing or partial usage remains unchanged in the response and is shown as **Usage unknown** instead of a zero-cost call. Such responses provide generic HTTP forwarding; a missing required SDK field is not repaired with fabricated values. Unreported cache or pricing fields are shown as **Not reported**.
 
-Provider error bodies, status codes, `Retry-After` and request-ID headers are preserved. Existing retry policy still applies; this feature does not add cross-protocol fallback or extra request replay.
+Provider error bodies, status codes, `Retry-After`, `X-Request-Id` and `X-Typesafe-Request-Id` are preserved. HTTP calls follow the existing channel and system retry settings: an upstream account-quota 429 skips same-channel retries, but may fail over to another independently authorized channel within the retry budget. Your own budget and permissions are checked before sending. Models and protocols are not silently changed.
+
+If the HTTP upstream reads the request and then disconnects (for example with EOF), configured retries may send it again, producing another upstream call and Execution. Disable retries in the channel settings when you need to prevent those resends. Native HTTP does not provide the Responses WebSocket single-send guarantee.

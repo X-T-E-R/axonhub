@@ -1,18 +1,9 @@
 'use client';
 
 import { useMemo, useState, useEffect } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { format } from 'date-fns';
-import {
-  ChevronRight,
-  ExternalLink,
-  FileText,
-  History,
-  ChevronsDownUp,
-  ChevronsUpDown,
-  Copy,
-  Terminal,
-} from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { ChevronRight, ExternalLink, FileText, History, ChevronsDownUp, ChevronsUpDown, Copy, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { extractNumberID } from '@/lib/utils';
@@ -22,11 +13,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { JsonViewer } from '@/components/json-tree-view';
-import { useRequests, useRequest } from '@/features/requests/data';
+import { BodyEvidenceViewer } from '@/features/requests/components/body-evidence-viewer';
 import { CurlPreviewDialog } from '@/features/requests/components/curl-preview-dialog';
-import { generateRequestCurl } from '@/features/requests/utils/curl-generator';
 import { getStatusColor } from '@/features/requests/components/help';
+import { useRequests, useRequest } from '@/features/requests/data';
+import { bodyEvidence, formatBodyEvidence } from '@/features/requests/utils/body-evidence';
+import { generateRequestCurl } from '@/features/requests/utils/curl-generator';
 import { Channel } from '../data/schema';
 
 interface Props {
@@ -77,18 +69,18 @@ export function ChannelsTestHistoryDrawer({ open, onOpenChange, channel }: Props
     enabled: open && !!selectedRequestId,
   });
 
-  const copyBody = (data: any) => {
+  const copyBody = (body: string) => {
     try {
-      navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+      navigator.clipboard.writeText(body);
     } catch {
-      navigator.clipboard.writeText(String(data));
+      navigator.clipboard.writeText(String(body));
     }
     toast.success(t('requests.actions.copy'));
   };
 
   const handleCurlPreview = () => {
     if (!request) return;
-    const curl = generateRequestCurl(request.requestHeaders, request.requestBody, request.format as any);
+    const curl = generateRequestCurl(request.requestHeaders, bodyEvidence(request, 'requestBody'), request.format as any);
     setCurlCommand(curl);
     setShowCurlPreview(true);
   };
@@ -104,7 +96,7 @@ export function ChannelsTestHistoryDrawer({ open, onOpenChange, channel }: Props
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side='right' className='w-[80vw] min-w-[720px] max-w-[1200px] p-0 sm:max-w-[1200px]'>
+      <SheetContent side='right' className='w-[80vw] max-w-[1200px] min-w-[720px] p-0 sm:max-w-[1200px]'>
         <div className='flex h-full'>
           <div className='flex w-[360px] flex-shrink-0 flex-col border-r'>
             <SheetHeader className='border-b px-6 py-4 text-left'>
@@ -216,7 +208,7 @@ export function ChannelsTestHistoryDrawer({ open, onOpenChange, channel }: Props
                     variant='outline'
                     size='icon'
                     className='h-9 w-9 flex-shrink-0'
-                    onClick={() => copyBody(activeTab === 'request' ? request.requestBody : request.responseBody)}
+                    onClick={() => copyBody(formatBodyEvidence(request, activeTab === 'request' ? 'requestBody' : 'responseBody'))}
                     title={t('requests.actions.copy')}
                   >
                     <Copy className='h-4 w-4' />
@@ -234,12 +226,13 @@ export function ChannelsTestHistoryDrawer({ open, onOpenChange, channel }: Props
                   )}
                 </div>
 
-                <div className='min-h-0 flex-1 px-6 pb-6 pt-4'>
+                <div className='min-h-0 flex-1 px-6 pt-4 pb-6'>
                   {activeTab === 'request' ? (
                     <ScrollArea className='bg-muted/20 h-full w-full rounded-lg border p-4'>
-                      {request.requestBody ? (
-                        <JsonViewer
-                          data={request.requestBody}
+                      {bodyEvidence(request, 'requestBody') ? (
+                        <BodyEvidenceViewer
+                          evidence={request}
+                          kind='requestBody'
                           rootName=''
                           defaultExpanded={true}
                           expandDepth='all'
@@ -255,9 +248,10 @@ export function ChannelsTestHistoryDrawer({ open, onOpenChange, channel }: Props
                     </ScrollArea>
                   ) : (
                     <ScrollArea className='bg-muted/20 h-full w-full rounded-lg border p-4'>
-                      {request.responseBody ? (
-                        <JsonViewer
-                          data={request.responseBody}
+                      {bodyEvidence(request, 'responseBody') ? (
+                        <BodyEvidenceViewer
+                          evidence={request}
+                          kind='responseBody'
                           rootName=''
                           defaultExpanded={true}
                           expandDepth='all'

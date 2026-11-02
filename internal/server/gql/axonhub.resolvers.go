@@ -980,6 +980,55 @@ func (r *queryResolver) APIKeyQuotaUsages(ctx context.Context, apiKeyID objects.
 	return result, nil
 }
 
+// RequestBodyRaw is the resolver for the requestBodyRaw field.
+func (r *requestResolver) RequestBodyRaw(ctx context.Context, obj *ent.Request) (string, error) {
+	// Raw-only selections do not select the underlying Ent payload columns.
+	row, err := r.client.Request.Get(ctx, obj.ID)
+	if err != nil {
+		return "", err
+	}
+	value, err := r.RequestBody(ctx, row)
+	return string(value), err
+}
+
+// ResponseBodyRaw is the resolver for the responseBodyRaw field.
+func (r *requestResolver) ResponseBodyRaw(ctx context.Context, obj *ent.Request) (*string, error) {
+	row, err := r.client.Request.Get(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	value, err := r.ResponseBody(ctx, row)
+	if err != nil || value == nil {
+		return nil, err
+	}
+	text := string(value)
+	return &text, nil
+}
+
+// RequestBodyRaw is the resolver for the requestBodyRaw field.
+func (r *requestExecutionResolver) RequestBodyRaw(ctx context.Context, obj *ent.RequestExecution) (string, error) {
+	row, err := r.client.RequestExecution.Get(ctx, obj.ID)
+	if err != nil {
+		return "", err
+	}
+	value, err := r.RequestBody(ctx, row)
+	return string(value), err
+}
+
+// ResponseBodyRaw is the resolver for the responseBodyRaw field.
+func (r *requestExecutionResolver) ResponseBodyRaw(ctx context.Context, obj *ent.RequestExecution) (*string, error) {
+	row, err := r.client.RequestExecution.Get(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	value, err := r.ResponseBody(ctx, row)
+	if err != nil || value == nil {
+		return nil, err
+	}
+	text := string(value)
+	return &text, nil
+}
+
 // ID is the resolver for the id field.
 func (r *segmentResolver) ID(ctx context.Context, obj *biz.Segment) (*objects.GUID, error) {
 	return &objects.GUID{Type: ent.TypeRequest, ID: obj.ID}, nil

@@ -526,6 +526,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     () => getNativeDecisionPreset(initialRow) || (initialRow && getProviderFromChannelType(initialRow.type)) || 'openai'
   );
   const [nativeEndpoints, setNativeEndpoints] = useState(initialRow?.endpoints);
+  // Once an identity transition invalidates credentials, empty edit/duplicate
+  // inputs must not fall back to the source channel's key (even after switching back).
+  const credentialsResetRef = useRef(false);
   const [selectedApiFormat, setSelectedApiFormat] = useState<ApiFormat>(() => {
     const preset = getNativeDecisionPreset(initialRow);
     if (preset) return NATIVE_DECISION_PRESETS[preset].apiFormat;
@@ -552,6 +555,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   });
 
   useEffect(() => {
+    credentialsResetRef.current = false;
     if (!initialRow) return;
 
     const preset = getNativeDecisionPreset(initialRow);
@@ -588,6 +592,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   useEffect(() => {
     if (!open) {
       hasAutoSetDuplicateNameRef.current = false;
+      credentialsResetRef.current = false;
       codexOAuth.reset();
       claudecodeOAuth.reset();
       antigravityOAuth.reset();
@@ -934,12 +939,13 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         setUseKimiCoding(false);
       }
 
+      if (provider !== selectedProvider && (isNativeDecisionPreset(provider) || isNativeDecisionPreset(selectedProvider))) {
+        credentialsResetRef.current = true;
+        form.setValue('credentials', { apiKey: undefined, apiKeys: [] }, { shouldDirty: true });
+      }
+
       if (isNativeDecisionPreset(provider)) {
         const preset = NATIVE_DECISION_PRESETS[provider];
-        if (provider !== selectedProvider) {
-          form.setValue('credentials.apiKey', undefined);
-          form.setValue('credentials.apiKeys', []);
-        }
         setSelectedApiFormat(preset.apiFormat);
         setNativeEndpoints(nativeDecisionEndpoints(provider));
         applyAxonHubChannelTransition('openai');
@@ -1008,8 +1014,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       if (newChannelType) {
         applyAxonHubChannelTransition(newChannelType);
         form.setValue('type', newChannelType);
-        if (!isEdit) {
-          if (!isDuplicate) {
+        if (!isEdit || isNativeDecisionPreset(selectedProvider)) {
+          if (!isDuplicate || isNativeDecisionPreset(selectedProvider)) {
             const baseURL = getDefaultBaseURL(newChannelType);
             if (baseURL) {
               form.resetField('baseURL', { defaultValue: baseURL });
@@ -1320,11 +1326,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         values.credentials.apiKeys = [...new Set(values.credentials.apiKeys.filter((k) => k.trim().length > 0))];
       }
 
+      const hasExplicitCredentials = !!(
+        values.credentials?.apiKey?.trim() ||
+        values.credentials?.apiKeys?.some((key) => key.trim()) ||
+        (values.credentials?.gcp?.region?.trim() && values.credentials.gcp.projectID?.trim() && values.credentials.gcp.jsonData?.trim())
+      );
       if (
-        isNativeDecisionPreset(selectedProvider) &&
-        getNativeDecisionPreset(initialRow) !== selectedProvider &&
-        !values.credentials?.apiKey?.trim() &&
-        !values.credentials?.apiKeys?.some((key) => key.trim())
+        (credentialsResetRef.current ||
+          (isNativeDecisionPreset(selectedProvider) && getNativeDecisionPreset(initialRow) !== selectedProvider)) &&
+        !hasExplicitCredentials
       ) {
         toast.error(t('channels.nativeDecisions.providerKeyRequired'));
         return;
@@ -1409,19 +1419,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           ...(isOAuthChannel ? { type: undefined } : {}),
         } as z.infer<typeof updateChannelInputSchema>;
 
-        const apiKey = values.credentials?.apiKey || '';
-        const hasApiKey = apiKey.trim().length > 0;
-        const apiKeys = values.credentials?.apiKeys || [];
-        const hasApiKeys = apiKeys.length > 0 && apiKeys.some((k) => k.trim() !== '');
-        const hasGcpCredentials =
-          values.credentials?.gcp?.region &&
-          values.credentials.gcp.region.trim() !== '' &&
-          values.credentials?.gcp?.projectID &&
-          values.credentials.gcp.projectID.trim() !== '' &&
-          values.credentials?.gcp?.jsonData &&
-          values.credentials.gcp.jsonData.trim() !== '';
-
-        if (!hasApiKey && !hasApiKeys && !hasGcpCredentials) {
+        if (!hasExplicitCredentials) {
           delete updateInput.credentials;
         }
 

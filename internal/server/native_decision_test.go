@@ -36,6 +36,7 @@ import (
 	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/api"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/internal/server/gql"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/llm"
@@ -51,6 +52,10 @@ type nativeDecisionFixture struct {
 	key, blockedKey, projectBlockedKey *ent.APIKey
 	channels                           []*ent.Channel
 	requests                           *biz.RequestService
+	system                             *biz.SystemService
+	channelService                     *biz.ChannelService
+	keyService                         *biz.APIKeyService
+	adminToken                         string
 	tester                             *orchestrator.TestChannelOrchestrator
 	calls                              atomic.Int32
 	started, canceled                  chan struct{}
@@ -82,6 +87,9 @@ func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
 		var model string
 		_ = json.Unmarshal(fields["model"], &model)
 		expectedKey := map[string]string{"jev-1.14.0": "typesafe-key", "typesafe/jev-1.14.0": "command-key", "gpt-6-luna": "openai-key", "agr-flash": "agr-key"}[model]
+		if strings.HasPrefix(r.URL.Path, "/backup/") {
+			expectedKey = "backup-key"
+		}
 		if r.Header.Get("Authorization") != "Bearer "+expectedKey {
 			t.Errorf("wrong upstream auth for %s: %q", model, r.Header.Get("Authorization"))
 			w.WriteHeader(401)
@@ -99,6 +107,17 @@ func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
 		if r.Header.Get("X-Cmd-Zdr") == "1" {
 			w.WriteHeader(422)
 			fmt.Fprint(w, `{"error":{"message":"No ZDR provider","code":"cmd_zdr_no_providers","type":"invalid_request_error","param":null}}`)
+			return
+		}
+		retryCase := string(fields["retry_case"])
+		if retryCase == `"quota_all"` || ((retryCase == `"quota_first"` || retryCase == `"rate_first"`) && f.calls.Load() == 1) {
+			code := "insufficient_quota"
+			if retryCase == `"rate_first"` {
+				code = "rate_limit_exceeded"
+			}
+			w.Header().Set("Retry-After", "3")
+			w.WriteHeader(429)
+			fmt.Fprintf(w, `{"error":{"message":"synthetic exhausted quota/rate","type":%q,"code":%q,"param":null}}`, code, code)
 			return
 		}
 		if v := fields["test_error"]; len(v) > 0 {
@@ -141,7 +160,7 @@ func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
 	t.Cleanup(func() { require.NoError(t, f.db.Close()) })
 	f.ctx = ent.NewContext(authz.WithTestBypass(t.Context()), f.db)
 	proj := f.db.Project.Create().SetName("native-project").SetStatus(project.StatusActive).SaveX(f.ctx)
-	owner := f.db.User.Create().SetEmail(uuid.NewString() + "@example.com").SetPassword("synthetic").SetStatus(user.StatusActivated).SaveX(f.ctx)
+	owner := f.db.User.Create().SetEmail(uuid.NewString() + "@example.com").SetPassword("synthetic").SetIsOwner(true).SetStatus(user.StatusActivated).SaveX(f.ctx)
 	f.db.DataStorage.Create().SetName("primary").SetDescription("synthetic native fixture").SetType(datastorage.TypeDatabase).SetPrimary(true).SetStatus(datastorage.StatusActive).SetSettings(&objects.DataStorageSettings{}).SaveX(f.ctx)
 	cache := xcache.Config{Mode: xcache.ModeMemory}
 	system := biz.NewSystemService(biz.SystemServiceParams{CacheConfig: cache, Ent: f.db})
@@ -183,11 +202,19 @@ func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
 	projects := biz.NewProjectService(biz.ProjectServiceParams{CacheConfig: cache, Ent: f.db})
 	keys := biz.NewAPIKeyService(biz.APIKeyServiceParams{CacheConfig: cache, Ent: f.db, ProjectService: projects, KeyPrefix: "ah"})
 	t.Cleanup(keys.Stop)
-	auth := &biz.AuthService{APIKeyService: keys, SystemService: system}
+	f.keyService = keys
+	f.system = system
+	require.NoError(t, system.SetSecretKey(f.ctx, "synthetic-native-admin-signing-key"))
+	users := biz.NewUserService(biz.UserServiceParams{CacheConfig: cache, Ent: f.db})
+	auth := &biz.AuthService{APIKeyService: keys, SystemService: system, UserService: users}
+	token, err := auth.GenerateJWTToken(f.ctx, owner)
+	require.NoError(t, err)
+	f.adminToken = token
 	hc := httpclient.NewHttpClient()
 	t.Cleanup(hc.CloseIdleConnections)
 	channels := biz.NewChannelService(biz.ChannelServiceParams{CacheConfig: cache, Ent: f.db, SystemService: system, WebhookNotifier: biz.NewWebhookNotifier(system, hc), HttpClient: hc})
 	t.Cleanup(channels.Stop)
+	f.channelService = channels
 	require.NoError(t, channels.ReloadEnabledChannelsCache(f.ctx))
 	models := biz.NewModelService(biz.ModelServiceParams{ChannelService: channels, SystemService: system, Ent: f.db})
 	selector := orchestrator.NewDefaultSelector(channels, models, system)
@@ -205,7 +232,8 @@ func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
 	gateway := New(Config{Debug: true, RequestTimeout: 5 * time.Second, LLMRequestTimeout: 5 * time.Second})
 	ipAccess, err := middleware.NewIPAccessControlConfig(false, nil, "")
 	require.NoError(t, err)
-	SetupRoutes(gateway, Handlers{OpenAI: openai}, f.db, Services{TraceService: traces, ThreadService: biz.NewThreadService(f.db, traces), AuthService: auth, SystemService: system}, ipAccess)
+	admin := gql.NewGraphqlHandlers(gql.Dependencies{Ent: f.db, AuthService: auth, APIKeyService: keys, UserService: users, SystemService: system, ChannelService: channels, RequestService: requests, ProjectService: projects, DataStorageService: storage, UsageLogService: usage, ModelService: models, HttpClient: hc})
+	SetupRoutes(gateway, Handlers{OpenAI: openai, Graphql: admin}, f.db, Services{TraceService: traces, ThreadService: biz.NewThreadService(f.db, traces), AuthService: auth, SystemService: system}, ipAccess)
 	f.server = httptest.NewServer(gateway.Engine)
 	t.Cleanup(f.server.Close)
 	return f

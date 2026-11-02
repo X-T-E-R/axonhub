@@ -66,7 +66,13 @@ func requestEvidenceFieldPath(ctx context.Context) []requestEvidencePathField {
 		if field.Field.Field == nil {
 			continue
 		}
-		path = append(path, requestEvidencePathField{object: field.Object, name: field.Field.Name})
+		name := field.Field.Name
+		if name == "requestBodyRaw" {
+			name = "requestBody"
+		} else if name == "responseBodyRaw" {
+			name = "responseBody"
+		}
+		path = append(path, requestEvidencePathField{object: field.Object, name: name})
 	}
 	return path
 }
@@ -124,7 +130,7 @@ func (r *queryResolver) hydrateExactRequestEvidenceMetadata(ctx context.Context,
 	executionNodes := make(map[int][]*ent.RequestExecution)
 	for _, field := range requestFields {
 		switch field.Name {
-		case "requestBody", "responseBody":
+		case "requestBody", "responseBody", "requestBodyRaw", "responseBodyRaw":
 			loadParentMetadata = isFailedOrCanceledRequest(req.Status)
 		case "executions":
 			nodes, err := req.NamedExecutions(field.Alias)

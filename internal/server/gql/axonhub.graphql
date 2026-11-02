@@ -1212,6 +1212,18 @@ type UsageMetadata {
   totalCost: Decimal!
 }
 
+# Original JSON text, with the same storage, permissions and retention policy
+# as requestBody / responseBody. The legacy JSON scalar remains unchanged.
+extend type Request {
+  requestBodyRaw: String! @goField(forceResolver: true)
+  responseBodyRaw: String @goField(forceResolver: true)
+}
+
+extend type RequestExecution {
+  requestBodyRaw: String! @goField(forceResolver: true)
+  responseBodyRaw: String @goField(forceResolver: true)
+}
+
 extend type Trace {
   rootSegment: Segment
   rawRootSegment: JSONRawMessage

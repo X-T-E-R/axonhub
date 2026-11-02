@@ -1756,8 +1756,10 @@ type ComplexityRoot struct {
 		ProjectID                   func(childComplexity int) int
 		ReasoningEffort             func(childComplexity int) int
 		RequestBody                 func(childComplexity int) int
+		RequestBodyRaw              func(childComplexity int) int
 		RequestHeaders              func(childComplexity int) int
 		ResponseBody                func(childComplexity int) int
+		ResponseBodyRaw             func(childComplexity int) int
 		ResponseChunks              func(childComplexity int) int
 		SelectedChannelAPIKeyMasked func(childComplexity int) int
 		Source                      func(childComplexity int) int
@@ -1798,10 +1800,12 @@ type ComplexityRoot struct {
 		ProjectID                   func(childComplexity int) int
 		Request                     func(childComplexity int) int
 		RequestBody                 func(childComplexity int) int
+		RequestBodyRaw              func(childComplexity int) int
 		RequestHeaders              func(childComplexity int) int
 		RequestID                   func(childComplexity int) int
 		RequestURL                  func(childComplexity int) int
 		ResponseBody                func(childComplexity int) int
+		ResponseBodyRaw             func(childComplexity int) int
 		ResponseChunks              func(childComplexity int) int
 		ResponseStatusCode          func(childComplexity int) int
 		SelectedChannelAPIKeyMasked func(childComplexity int) int
@@ -2763,6 +2767,9 @@ type RequestResolver interface {
 	SelectedChannelAPIKeyMasked(ctx context.Context, obj *ent.Request) (*string, error)
 
 	Channel(ctx context.Context, obj *ent.Request) (*ent.Channel, error)
+
+	RequestBodyRaw(ctx context.Context, obj *ent.Request) (string, error)
+	ResponseBodyRaw(ctx context.Context, obj *ent.Request) (*string, error)
 }
 type RequestExecutionResolver interface {
 	ID(ctx context.Context, obj *ent.RequestExecution) (*objects.GUID, error)
@@ -2778,6 +2785,9 @@ type RequestExecutionResolver interface {
 	SelectedChannelAPIKeyMasked(ctx context.Context, obj *ent.RequestExecution) (*string, error)
 
 	Channel(ctx context.Context, obj *ent.RequestExecution) (*ent.Channel, error)
+
+	RequestBodyRaw(ctx context.Context, obj *ent.RequestExecution) (string, error)
+	ResponseBodyRaw(ctx context.Context, obj *ent.RequestExecution) (*string, error)
 }
 type RoleResolver interface {
 	ID(ctx context.Context, obj *ent.Role) (*objects.GUID, error)
@@ -10589,6 +10599,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Request.RequestBody(childComplexity), true
+	case "Request.requestBodyRaw":
+		if e.complexity.Request.RequestBodyRaw == nil {
+			break
+		}
+
+		return e.complexity.Request.RequestBodyRaw(childComplexity), true
 	case "Request.requestHeaders":
 		if e.complexity.Request.RequestHeaders == nil {
 			break
@@ -10601,6 +10617,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Request.ResponseBody(childComplexity), true
+	case "Request.responseBodyRaw":
+		if e.complexity.Request.ResponseBodyRaw == nil {
+			break
+		}
+
+		return e.complexity.Request.ResponseBodyRaw(childComplexity), true
 	case "Request.responseChunks":
 		if e.complexity.Request.ResponseChunks == nil {
 			break
@@ -10795,6 +10817,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RequestExecution.RequestBody(childComplexity), true
+	case "RequestExecution.requestBodyRaw":
+		if e.complexity.RequestExecution.RequestBodyRaw == nil {
+			break
+		}
+
+		return e.complexity.RequestExecution.RequestBodyRaw(childComplexity), true
 	case "RequestExecution.requestHeaders":
 		if e.complexity.RequestExecution.RequestHeaders == nil {
 			break
@@ -10819,6 +10847,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RequestExecution.ResponseBody(childComplexity), true
+	case "RequestExecution.responseBodyRaw":
+		if e.complexity.RequestExecution.ResponseBodyRaw == nil {
+			break
+		}
+
+		return e.complexity.RequestExecution.ResponseBodyRaw(childComplexity), true
 	case "RequestExecution.responseChunks":
 		if e.complexity.RequestExecution.ResponseChunks == nil {
 			break
@@ -57469,6 +57503,64 @@ func (ec *executionContext) fieldContext_Request_usageLogs(ctx context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _Request_requestBodyRaw(ctx context.Context, field graphql.CollectedField, obj *ent.Request) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Request_requestBodyRaw,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Request().RequestBodyRaw(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Request_requestBodyRaw(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Request",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Request_responseBodyRaw(ctx context.Context, field graphql.CollectedField, obj *ent.Request) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Request_responseBodyRaw,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Request().ResponseBodyRaw(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Request_responseBodyRaw(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Request",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _RequestConnection_edges(ctx context.Context, field graphql.CollectedField, obj *ent.RequestConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -57666,6 +57758,10 @@ func (ec *executionContext) fieldContext_RequestEdge_node(_ context.Context, fie
 				return ec.fieldContext_Request_channel(ctx, field)
 			case "usageLogs":
 				return ec.fieldContext_Request_usageLogs(ctx, field)
+			case "requestBodyRaw":
+				return ec.fieldContext_Request_requestBodyRaw(ctx, field)
+			case "responseBodyRaw":
+				return ec.fieldContext_Request_responseBodyRaw(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Request", field.Name)
 		},
@@ -58492,6 +58588,10 @@ func (ec *executionContext) fieldContext_RequestExecution_request(_ context.Cont
 				return ec.fieldContext_Request_channel(ctx, field)
 			case "usageLogs":
 				return ec.fieldContext_Request_usageLogs(ctx, field)
+			case "requestBodyRaw":
+				return ec.fieldContext_Request_requestBodyRaw(ctx, field)
+			case "responseBodyRaw":
+				return ec.fieldContext_Request_responseBodyRaw(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Request", field.Name)
 		},
@@ -58640,6 +58740,64 @@ func (ec *executionContext) fieldContext_RequestExecution_dataStorage(_ context.
 				return ec.fieldContext_DataStorage_executions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type DataStorage", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RequestExecution_requestBodyRaw(ctx context.Context, field graphql.CollectedField, obj *ent.RequestExecution) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RequestExecution_requestBodyRaw,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.RequestExecution().RequestBodyRaw(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RequestExecution_requestBodyRaw(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RequestExecution",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RequestExecution_responseBodyRaw(ctx context.Context, field graphql.CollectedField, obj *ent.RequestExecution) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RequestExecution_responseBodyRaw,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.RequestExecution().ResponseBodyRaw(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_RequestExecution_responseBodyRaw(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RequestExecution",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -58826,6 +58984,10 @@ func (ec *executionContext) fieldContext_RequestExecutionEdge_node(_ context.Con
 				return ec.fieldContext_RequestExecution_channel(ctx, field)
 			case "dataStorage":
 				return ec.fieldContext_RequestExecution_dataStorage(ctx, field)
+			case "requestBodyRaw":
+				return ec.fieldContext_RequestExecution_requestBodyRaw(ctx, field)
+			case "responseBodyRaw":
+				return ec.fieldContext_RequestExecution_responseBodyRaw(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type RequestExecution", field.Name)
 		},
@@ -67361,6 +67523,10 @@ func (ec *executionContext) fieldContext_UsageLog_request(_ context.Context, fie
 				return ec.fieldContext_Request_channel(ctx, field)
 			case "usageLogs":
 				return ec.fieldContext_Request_usageLogs(ctx, field)
+			case "requestBodyRaw":
+				return ec.fieldContext_Request_requestBodyRaw(ctx, field)
+			case "responseBodyRaw":
+				return ec.fieldContext_Request_responseBodyRaw(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Request", field.Name)
 		},
@@ -117366,6 +117532,75 @@ func (ec *executionContext) _Request(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "requestBodyRaw":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Request_requestBodyRaw(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "responseBodyRaw":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Request_responseBodyRaw(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -117895,6 +118130,75 @@ func (ec *executionContext) _RequestExecution(ctx context.Context, sel ast.Selec
 					}
 				}()
 				res = ec._RequestExecution_dataStorage(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "requestBodyRaw":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._RequestExecution_requestBodyRaw(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "responseBodyRaw":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._RequestExecution_responseBodyRaw(ctx, field, obj)
 				return res
 			}
 
