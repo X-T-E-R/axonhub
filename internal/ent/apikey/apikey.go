@@ -33,6 +33,8 @@ const (
 	FieldKey = "key"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
+	// FieldPortalManaged holds the string denoting the portal_managed field in the database.
+	FieldPortalManaged = "portal_managed"
 	// FieldType holds the string denoting the type field in the database.
 	FieldType = "type"
 	// FieldStatus holds the string denoting the status field in the database.
@@ -84,6 +86,7 @@ var Columns = []string{
 	FieldProjectID,
 	FieldKey,
 	FieldName,
+	FieldPortalManaged,
 	FieldType,
 	FieldStatus,
 	FieldScopes,
@@ -120,6 +123,8 @@ var (
 	DefaultDeletedAt int
 	// DefaultProjectID holds the default value on creation for the "project_id" field.
 	DefaultProjectID int
+	// DefaultPortalManaged holds the default value on creation for the "portal_managed" field.
+	DefaultPortalManaged bool
 	// DefaultScopes holds the default value on creation for the "scopes" field.
 	DefaultScopes []string
 	// DefaultProfiles holds the default value on creation for the "profiles" field.
@@ -224,6 +229,11 @@ func ByKey(opts ...sql.OrderTermOption) OrderOption {
 // ByName orders the results by the name field.
 func ByName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldName, opts...).ToFunc()
+}
+
+// ByPortalManaged orders the results by the portal_managed field.
+func ByPortalManaged(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPortalManaged, opts...).ToFunc()
 }
 
 // ByType orders the results by the type field.

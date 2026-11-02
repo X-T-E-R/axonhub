@@ -15,6 +15,7 @@ export const userSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   isOwner: z.boolean().optional(),
+  accessMode: z.enum(['legacy', 'portal']).default('legacy'),
   scopes: z.array(z.string()).optional().nullable(),
   roles: z
     .object({

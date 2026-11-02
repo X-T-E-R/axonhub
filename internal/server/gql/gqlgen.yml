@@ -17,6 +17,7 @@ schema:
   - price.graphql
   - cost.graphql
   - analytics.graphql
+  - portal_settings.graphql
 
 omit_gqlgen_version_in_file_notice: true
 
@@ -72,6 +73,14 @@ converters:
 
 # This section declares type mapping between the GraphQL and Go type systems.
 models:
+  PortalSettings:
+    model: github.com/looplj/axonhub/internal/objects.PortalSettings
+  PortalSettingsInput:
+    model: github.com/looplj/axonhub/internal/objects.PortalSettings
+  PortalDocument:
+    model: github.com/looplj/axonhub/internal/objects.PortalDocument
+  PortalDocumentInput:
+    model: github.com/looplj/axonhub/internal/objects.PortalDocument
   # Defines the ID field as Go 'int'.
   ID:
     model:
@@ -460,6 +469,9 @@ models:
   ProjectProfile:
     model:
       - github.com/looplj/axonhub/internal/objects.ProjectProfile
+    fields:
+      modelIDs:
+        resolver: true
   ChannelTagsMatchMode:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelTagsMatchMode

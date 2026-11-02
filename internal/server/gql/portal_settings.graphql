@@ -1,0 +1,6 @@
+type PortalDocument { slug: String!, title: String!, markdown: String!, published: Boolean!, pinned: Boolean!, order: Int! }
+input PortalDocumentInput { slug: String!, title: String!, markdown: String!, published: Boolean!, pinned: Boolean!, order: Int! }
+type PortalSettings { announcements: [PortalDocument!]!, guides: [PortalDocument!]! }
+input PortalSettingsInput { announcements: [PortalDocumentInput!]!, guides: [PortalDocumentInput!]! }
+extend type Query { portalSettings: PortalSettings! }
+extend type Mutation { updatePortalSettings(input: PortalSettingsInput!): PortalSettings! }

@@ -167,6 +167,20 @@ func (_c *UserCreate) SetNillableIsOwner(v *bool) *UserCreate {
 	return _c
 }
 
+// SetAccessMode sets the "access_mode" field.
+func (_c *UserCreate) SetAccessMode(v user.AccessMode) *UserCreate {
+	_c.mutation.SetAccessMode(v)
+	return _c
+}
+
+// SetNillableAccessMode sets the "access_mode" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAccessMode(v *user.AccessMode) *UserCreate {
+	if v != nil {
+		_c.SetAccessMode(*v)
+	}
+	return _c
+}
+
 // SetScopes sets the "scopes" field.
 func (_c *UserCreate) SetScopes(v []string) *UserCreate {
 	_c.mutation.SetScopes(v)
@@ -353,6 +367,10 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultIsOwner
 		_c.mutation.SetIsOwner(v)
 	}
+	if _, ok := _c.mutation.AccessMode(); !ok {
+		v := user.DefaultAccessMode
+		_c.mutation.SetAccessMode(v)
+	}
 	if _, ok := _c.mutation.Scopes(); !ok {
 		v := user.DefaultScopes
 		_c.mutation.SetScopes(v)
@@ -390,6 +408,14 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsOwner(); !ok {
 		return &ValidationError{Name: "is_owner", err: errors.New(`ent: missing required field "User.is_owner"`)}
+	}
+	if _, ok := _c.mutation.AccessMode(); !ok {
+		return &ValidationError{Name: "access_mode", err: errors.New(`ent: missing required field "User.access_mode"`)}
+	}
+	if v, ok := _c.mutation.AccessMode(); ok {
+		if err := user.AccessModeValidator(v); err != nil {
+			return &ValidationError{Name: "access_mode", err: fmt.Errorf(`ent: validator failed for field "User.access_mode": %w`, err)}
+		}
 	}
 	return nil
 }
@@ -461,6 +487,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.IsOwner(); ok {
 		_spec.SetField(user.FieldIsOwner, field.TypeBool, value)
 		_node.IsOwner = value
+	}
+	if value, ok := _c.mutation.AccessMode(); ok {
+		_spec.SetField(user.FieldAccessMode, field.TypeEnum, value)
+		_node.AccessMode = value
 	}
 	if value, ok := _c.mutation.Scopes(); ok {
 		_spec.SetField(user.FieldScopes, field.TypeJSON, value)
@@ -770,6 +800,18 @@ func (u *UserUpsert) UpdateIsOwner() *UserUpsert {
 	return u
 }
 
+// SetAccessMode sets the "access_mode" field.
+func (u *UserUpsert) SetAccessMode(v user.AccessMode) *UserUpsert {
+	u.Set(user.FieldAccessMode, v)
+	return u
+}
+
+// UpdateAccessMode sets the "access_mode" field to the value that was provided on create.
+func (u *UserUpsert) UpdateAccessMode() *UserUpsert {
+	u.SetExcluded(user.FieldAccessMode)
+	return u
+}
+
 // SetScopes sets the "scopes" field.
 func (u *UserUpsert) SetScopes(v []string) *UserUpsert {
 	u.Set(user.FieldScopes, v)
@@ -984,6 +1026,20 @@ func (u *UserUpsertOne) SetIsOwner(v bool) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateIsOwner() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateIsOwner()
+	})
+}
+
+// SetAccessMode sets the "access_mode" field.
+func (u *UserUpsertOne) SetAccessMode(v user.AccessMode) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAccessMode(v)
+	})
+}
+
+// UpdateAccessMode sets the "access_mode" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateAccessMode() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAccessMode()
 	})
 }
 
@@ -1370,6 +1426,20 @@ func (u *UserUpsertBulk) SetIsOwner(v bool) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateIsOwner() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateIsOwner()
+	})
+}
+
+// SetAccessMode sets the "access_mode" field.
+func (u *UserUpsertBulk) SetAccessMode(v user.AccessMode) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAccessMode(v)
+	})
+}
+
+// UpdateAccessMode sets the "access_mode" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateAccessMode() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAccessMode()
 	})
 }
 

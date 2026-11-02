@@ -1,4 +1,5 @@
 import { useUsers } from '../context/users-context';
+import { UsersAccessModeDialog } from './users-access-mode-dialog';
 import { UsersActionDialog } from './users-action-dialog';
 import { UsersAddToProjectDialog } from './users-add-to-project-dialog';
 import { UsersChangePasswordDialog } from './users-change-password-dialog';
@@ -16,6 +17,12 @@ export function UsersDialogs() {
 
       {currentRow && (
         <>
+          <UsersAccessModeDialog
+            key={`user-mode-${currentRow.id}`}
+            currentRow={currentRow}
+            open={open === 'accessMode'}
+            onOpenChange={() => setOpen('accessMode')}
+          />
           <UsersActionDialog
             key={`user-edit-${currentRow.id}`}
             open={open === 'edit'}

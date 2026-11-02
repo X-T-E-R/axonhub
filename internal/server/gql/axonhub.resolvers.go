@@ -556,6 +556,11 @@ func (r *mutationResolver) UpdateUserStatus(ctx context.Context, id objects.GUID
 	return r.userService.UpdateUserStatus(ctx, id.ID, status)
 }
 
+// SetUserAccessMode is the resolver for the setUserAccessMode field.
+func (r *mutationResolver) SetUserAccessMode(ctx context.Context, id objects.GUID, mode user.AccessMode, disableLegacyKeys bool) (*ent.User, error) {
+	return r.authService.SetUserAccessMode(ctx, id.ID, mode, disableLegacyKeys)
+}
+
 // DeleteUser is the resolver for the deleteUser field.
 func (r *mutationResolver) DeleteUser(ctx context.Context, id objects.GUID) (bool, error) {
 	if err := r.userService.DeleteUser(ctx, id.ID); err != nil {
@@ -831,6 +836,14 @@ func (r *mutationResolver) UnretainThread(ctx context.Context, id objects.GUID) 
 	return true, nil
 }
 
+// ModelIDs is the resolver for the modelIDs field.
+func (r *projectProfileResolver) ModelIDs(ctx context.Context, obj *objects.ProjectProfile) ([]string, error) {
+	if obj.ModelIDs == nil {
+		return nil, nil
+	}
+	return *obj.ModelIDs, nil
+}
+
 // ChannelAPIKeyInventory is the resolver for the channelAPIKeyInventory field.
 func (r *queryResolver) ChannelAPIKeyInventory(ctx context.Context, channelID objects.GUID) ([]*biz.ChannelAPIKeyInventoryItem, error) {
 	return r.channelService.ChannelAPIKeyInventory(ctx, channelID.ID)
@@ -1101,6 +1114,9 @@ func (r *Resolver) ChannelSettings() ChannelSettingsResolver { return &channelSe
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
+// ProjectProfile returns ProjectProfileResolver implementation.
+func (r *Resolver) ProjectProfile() ProjectProfileResolver { return &projectProfileResolver{r} }
+
 // Segment returns SegmentResolver implementation.
 func (r *Resolver) Segment() SegmentResolver { return &segmentResolver{r} }
 
@@ -1131,6 +1147,7 @@ type channelKeyHealthCheckHistoryEntryResolver struct{ *Resolver }
 type channelKeyMetadataResolver struct{ *Resolver }
 type channelSettingsResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
+type projectProfileResolver struct{ *Resolver }
 type segmentResolver struct{ *Resolver }
 type channelArchivedAPIKeyInputResolver struct{ *Resolver }
 type channelKeyBalanceSnapshotInputResolver struct{ *Resolver }

@@ -35,6 +35,8 @@ type APIKey struct {
 	Key string `json:"key,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
+	// PortalManaged holds the value of the "portal_managed" field.
+	PortalManaged bool `json:"portal_managed,omitempty"`
 	// API Key type: user, service_account, noauth, or personal
 	Type apikey.Type `json:"type,omitempty"`
 	// Status holds the value of the "status" field.
@@ -106,6 +108,8 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case apikey.FieldScopes, apikey.FieldProfiles, apikey.FieldAllowedIps:
 			values[i] = new([]byte)
+		case apikey.FieldPortalManaged:
+			values[i] = new(sql.NullBool)
 		case apikey.FieldID, apikey.FieldDeletedAt, apikey.FieldUserID, apikey.FieldProjectID:
 			values[i] = new(sql.NullInt64)
 		case apikey.FieldKey, apikey.FieldName, apikey.FieldType, apikey.FieldStatus:
@@ -174,6 +178,12 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field name", values[i])
 			} else if value.Valid {
 				_m.Name = value.String
+			}
+		case apikey.FieldPortalManaged:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field portal_managed", values[i])
+			} else if value.Valid {
+				_m.PortalManaged = value.Bool
 			}
 		case apikey.FieldType:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -282,6 +292,9 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("name=")
 	builder.WriteString(_m.Name)
+	builder.WriteString(", ")
+	builder.WriteString("portal_managed=")
+	builder.WriteString(fmt.Sprintf("%v", _m.PortalManaged))
 	builder.WriteString(", ")
 	builder.WriteString("type=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Type))

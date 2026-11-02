@@ -33,6 +33,14 @@ export default defineConfig({
   server: {
     port: process.env.VITE_PORT ? parseInt(process.env.VITE_PORT) : 5173,
     proxy: {
+      '/portal/oidc': {
+        target: process.env.VITE_API_URL || 'http://localhost:8090',
+        changeOrigin: true,
+      },
+      '/portal/graphql': {
+        target: process.env.VITE_API_URL || 'http://localhost:8090',
+        changeOrigin: true,
+      },
       '/admin': {
         target: process.env.VITE_API_URL || 'http://localhost:8090',
         changeOrigin: true,

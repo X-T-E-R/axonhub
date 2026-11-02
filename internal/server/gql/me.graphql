@@ -5,6 +5,7 @@ type UserInfo {
   firstName: String!
   lastName: String!
   isOwner: Boolean!
+  accessMode: String!
   preferLanguage: String!
   avatar: String
   scopes: [String!]!

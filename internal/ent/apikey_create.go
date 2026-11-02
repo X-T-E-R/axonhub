@@ -108,6 +108,20 @@ func (_c *APIKeyCreate) SetName(v string) *APIKeyCreate {
 	return _c
 }
 
+// SetPortalManaged sets the "portal_managed" field.
+func (_c *APIKeyCreate) SetPortalManaged(v bool) *APIKeyCreate {
+	_c.mutation.SetPortalManaged(v)
+	return _c
+}
+
+// SetNillablePortalManaged sets the "portal_managed" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillablePortalManaged(v *bool) *APIKeyCreate {
+	if v != nil {
+		_c.SetPortalManaged(*v)
+	}
+	return _c
+}
+
 // SetType sets the "type" field.
 func (_c *APIKeyCreate) SetType(v apikey.Type) *APIKeyCreate {
 	_c.mutation.SetType(v)
@@ -238,6 +252,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultProjectID
 		_c.mutation.SetProjectID(v)
 	}
+	if _, ok := _c.mutation.PortalManaged(); !ok {
+		v := apikey.DefaultPortalManaged
+		_c.mutation.SetPortalManaged(v)
+	}
 	if _, ok := _c.mutation.GetType(); !ok {
 		v := apikey.DefaultType
 		_c.mutation.SetType(v)
@@ -274,6 +292,9 @@ func (_c *APIKeyCreate) check() error {
 	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "APIKey.name"`)}
+	}
+	if _, ok := _c.mutation.PortalManaged(); !ok {
+		return &ValidationError{Name: "portal_managed", err: errors.New(`ent: missing required field "APIKey.portal_managed"`)}
 	}
 	if _, ok := _c.mutation.GetType(); !ok {
 		return &ValidationError{Name: "type", err: errors.New(`ent: missing required field "APIKey.type"`)}
@@ -340,6 +361,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
 		_node.Name = value
+	}
+	if value, ok := _c.mutation.PortalManaged(); ok {
+		_spec.SetField(apikey.FieldPortalManaged, field.TypeBool, value)
+		_node.PortalManaged = value
 	}
 	if value, ok := _c.mutation.GetType(); ok {
 		_spec.SetField(apikey.FieldType, field.TypeEnum, value)
@@ -614,6 +639,9 @@ func (u *APIKeyUpsertOne) UpdateNewValues() *APIKeyUpsertOne {
 		}
 		if _, exists := u.create.mutation.ProjectID(); exists {
 			s.SetIgnore(apikey.FieldProjectID)
+		}
+		if _, exists := u.create.mutation.PortalManaged(); exists {
+			s.SetIgnore(apikey.FieldPortalManaged)
 		}
 	}))
 	return u
@@ -984,6 +1012,9 @@ func (u *APIKeyUpsertBulk) UpdateNewValues() *APIKeyUpsertBulk {
 			}
 			if _, exists := b.mutation.ProjectID(); exists {
 				s.SetIgnore(apikey.FieldProjectID)
+			}
+			if _, exists := b.mutation.PortalManaged(); exists {
+				s.SetIgnore(apikey.FieldPortalManaged)
 			}
 		}
 	}))

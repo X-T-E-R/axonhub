@@ -14,6 +14,7 @@ type APIKey implements Node {
   projectID: ID!
   key: String!
   name: String!
+  portalManaged: Boolean!
   """
   API Key type: user, service_account, noauth, or personal
   """
@@ -373,6 +374,11 @@ input APIKeyWhereInput {
   nameHasSuffix: String
   nameEqualFold: String
   nameContainsFold: String
+  """
+  portal_managed field predicates
+  """
+  portalManaged: Boolean
+  portalManagedNEQ: Boolean
   """
   type field predicates
   """
@@ -7482,6 +7488,7 @@ type User implements Node {
   """
   avatar: String
   isOwner: Boolean!
+  accessMode: UserAccessMode!
   """
   User scopes in system level: write_channels, read_channels, add_users, read_users, etc.
   """
@@ -7643,6 +7650,13 @@ type User implements Node {
   ): OIDCIdentityConnection!
   projectUsers: [UserProject!]
   userRoles: [UserRole!]
+}
+"""
+UserAccessMode is enum for the field access_mode
+"""
+enum UserAccessMode @goModel(model: "github.com/looplj/axonhub/internal/ent/user.AccessMode") {
+  legacy
+  portal
 }
 """
 A connection to a list of items.
@@ -7995,6 +8009,13 @@ input UserWhereInput {
   """
   isOwner: Boolean
   isOwnerNEQ: Boolean
+  """
+  access_mode field predicates
+  """
+  accessMode: UserAccessMode
+  accessModeNEQ: UserAccessMode
+  accessModeIn: [UserAccessMode!]
+  accessModeNotIn: [UserAccessMode!]
   """
   projects edge predicates
   """

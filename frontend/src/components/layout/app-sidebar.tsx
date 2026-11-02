@@ -6,9 +6,10 @@ import { SidebarData } from './types';
 
 type IProps = React.ComponentProps<typeof Sidebar> & {
   sidebarData: SidebarData;
+  showMobileControls?: boolean;
 };
 
-export function AppSidebar({ sidebarData, ...props }: IProps) {
+export function AppSidebar({ sidebarData, showMobileControls = true, ...props }: IProps) {
   const { isMobile } = useSidebar();
 
   return (
@@ -19,7 +20,7 @@ export function AppSidebar({ sidebarData, ...props }: IProps) {
         ))}
       </SidebarContent>
       <SidebarFooter>
-        {isMobile && <MobileHeaderControls />}
+        {isMobile && showMobileControls && <MobileHeaderControls />}
         <NavUser user={sidebarData.user} />
       </SidebarFooter>
       <SidebarRail />

@@ -54,6 +54,8 @@ func (APIKey) Fields() []ent.Field {
 				entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput),
 			),
 		field.String("name"),
+		field.Bool("portal_managed").Default(false).Immutable().
+			Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
 		field.Enum("type").
 			Values("user", "service_account", "noauth", "personal").
 			Default("user").

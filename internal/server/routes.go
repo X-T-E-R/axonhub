@@ -4,6 +4,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
+	"net/http"
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -12,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/gql"
 	"github.com/looplj/axonhub/internal/server/gql/openapi"
 	"github.com/looplj/axonhub/internal/server/middleware"
+	"github.com/looplj/axonhub/internal/server/portalgql"
 	"github.com/looplj/axonhub/internal/server/static"
 )
 
@@ -20,6 +22,7 @@ type Handlers struct {
 
 	Graphql        *gql.GraphqlHandler
 	OpenAPIGraphql *openapi.GraphqlHandler
+	PortalGraphql  *portalgql.GraphqlHandler
 	OpenAI         *api.OpenAIHandlers
 	Doubao         *api.DoubaoHandlers
 	Anthropic      *api.AnthropicHandlers
@@ -101,7 +104,14 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		handlers.OIDC.RegisterRoutes(oauthGroup)
 	}
 
-	adminGroup := server.Group("/admin", middleware.WithJWTAuth(services.AuthService), middleware.WithProjectID())
+	server.GET("/portal/oidc/link/:provider", middleware.WithJWTAuth(services.AuthService), handlers.OIDC.GetLinkAuthorizeURL)
+	server.POST("/portal/graphql", middleware.WithJWTAuth(services.AuthService), middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024*1024)
+		c.Header("Cache-Control", "no-store")
+		handlers.PortalGraphql.Graphql.ServeHTTP(c.Writer, c.Request)
+	})
+
+	adminGroup := server.Group("/admin", middleware.WithJWTAuth(services.AuthService), middleware.WithLegacyUser(), middleware.WithProjectID())
 	// 管理员路由 - 使用 JWT 认证
 	{
 		adminGroup.GET("/playground", middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
@@ -151,6 +161,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 	server.POST(
 		"/admin/diagnostics/v1/pull",
 		middleware.WithJWTAuthResponder(services.AuthService, handlers.Diagnostics.MiddlewareError),
+		middleware.WithLegacyUserResponder(handlers.Diagnostics.MiddlewareError),
 		middleware.WithProjectIDResponder(handlers.Diagnostics.MiddlewareError),
 		middleware.WithTimeout(server.Config.RequestTimeout),
 		handlers.Diagnostics.Pull,

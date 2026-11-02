@@ -90,6 +90,11 @@ func Name(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldName, v))
 }
 
+// PortalManaged applies equality check predicate on the "portal_managed" field. It's identical to PortalManagedEQ.
+func PortalManaged(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldPortalManaged, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldCreatedAt, v))
@@ -388,6 +393,16 @@ func NameEqualFold(v string) predicate.APIKey {
 // NameContainsFold applies the ContainsFold predicate on the "name" field.
 func NameContainsFold(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldContainsFold(FieldName, v))
+}
+
+// PortalManagedEQ applies the EQ predicate on the "portal_managed" field.
+func PortalManagedEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldPortalManaged, v))
+}
+
+// PortalManagedNEQ applies the NEQ predicate on the "portal_managed" field.
+func PortalManagedNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldPortalManaged, v))
 }
 
 // TypeEQ applies the EQ predicate on the "type" field.

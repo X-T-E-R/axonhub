@@ -6,6 +6,7 @@ export const ME_QUERY = `
       firstName
       lastName
       isOwner
+      accessMode
       scopes
       preferLanguage
       avatar
@@ -47,6 +48,7 @@ export const USERS_QUERY = `
           firstName
           lastName
           isOwner
+          accessMode
           preferLanguage
           scopes
           roles {

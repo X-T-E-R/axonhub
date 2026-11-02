@@ -182,6 +182,20 @@ func (_u *UserUpdate) SetNillableIsOwner(v *bool) *UserUpdate {
 	return _u
 }
 
+// SetAccessMode sets the "access_mode" field.
+func (_u *UserUpdate) SetAccessMode(v user.AccessMode) *UserUpdate {
+	_u.mutation.SetAccessMode(v)
+	return _u
+}
+
+// SetNillableAccessMode sets the "access_mode" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableAccessMode(v *user.AccessMode) *UserUpdate {
+	if v != nil {
+		_u.SetAccessMode(*v)
+	}
+	return _u
+}
+
 // SetScopes sets the "scopes" field.
 func (_u *UserUpdate) SetScopes(v []string) *UserUpdate {
 	_u.mutation.SetScopes(v)
@@ -506,6 +520,11 @@ func (_u *UserUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "User.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.AccessMode(); ok {
+		if err := user.AccessModeValidator(v); err != nil {
+			return &ValidationError{Name: "access_mode", err: fmt.Errorf(`ent: validator failed for field "User.access_mode": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -562,6 +581,9 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.IsOwner(); ok {
 		_spec.SetField(user.FieldIsOwner, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AccessMode(); ok {
+		_spec.SetField(user.FieldAccessMode, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.Scopes(); ok {
 		_spec.SetField(user.FieldScopes, field.TypeJSON, value)
@@ -1080,6 +1102,20 @@ func (_u *UserUpdateOne) SetNillableIsOwner(v *bool) *UserUpdateOne {
 	return _u
 }
 
+// SetAccessMode sets the "access_mode" field.
+func (_u *UserUpdateOne) SetAccessMode(v user.AccessMode) *UserUpdateOne {
+	_u.mutation.SetAccessMode(v)
+	return _u
+}
+
+// SetNillableAccessMode sets the "access_mode" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableAccessMode(v *user.AccessMode) *UserUpdateOne {
+	if v != nil {
+		_u.SetAccessMode(*v)
+	}
+	return _u
+}
+
 // SetScopes sets the "scopes" field.
 func (_u *UserUpdateOne) SetScopes(v []string) *UserUpdateOne {
 	_u.mutation.SetScopes(v)
@@ -1417,6 +1453,11 @@ func (_u *UserUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "User.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.AccessMode(); ok {
+		if err := user.AccessModeValidator(v); err != nil {
+			return &ValidationError{Name: "access_mode", err: fmt.Errorf(`ent: validator failed for field "User.access_mode": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -1490,6 +1531,9 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.IsOwner(); ok {
 		_spec.SetField(user.FieldIsOwner, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AccessMode(); ok {
+		_spec.SetField(user.FieldAccessMode, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.Scopes(); ok {
 		_spec.SetField(user.FieldScopes, field.TypeJSON, value)

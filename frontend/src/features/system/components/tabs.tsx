@@ -2,21 +2,34 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AboutSettings } from './about-settings';
+import { BackupSettings } from './backup-settings';
 import { BrandSettings } from './brand-settings';
 import { DiagnosticsSettings } from './diagnostics-settings';
 import { GeneralSettings } from './general-settings';
+import { PortalSettings } from './portal-settings';
+import { ProxyPresetsSettings } from './proxy-presets-settings';
 import { QuotaSettings } from './quota-settings';
 import { RetrySettings } from './retry-settings';
 import { SecuritySettings } from './security-settings';
 import { StorageSettings } from './storage-settings';
-import { BackupSettings } from './backup-settings';
-import { ProxyPresetsSettings } from './proxy-presets-settings';
 import { WebhookSettings } from './webhook-settings';
-import { usePermissions } from '@/hooks/usePermissions';
 
-type SystemTabKey = 'general' | 'security' | 'brand' | 'storage' | 'retry' | 'webhook' | 'proxy' | 'quota' | 'backup' | 'diagnostics' | 'about';
+type SystemTabKey =
+  | 'portal'
+  | 'general'
+  | 'security'
+  | 'brand'
+  | 'storage'
+  | 'retry'
+  | 'webhook'
+  | 'proxy'
+  | 'quota'
+  | 'backup'
+  | 'diagnostics'
+  | 'about';
 
 interface SystemSettingsTabsProps {
   initialTab?: SystemTabKey;
@@ -53,7 +66,7 @@ export function SystemSettingsTabs({ initialTab }: SystemSettingsTabsProps) {
       }}
       className='w-full'
     >
-      <TabsList className='shadow-soft border-border bg-background flex w-full rounded-2xl border overflow-x-auto scrollbar-hide'>
+      <TabsList className='shadow-soft border-border bg-background scrollbar-hide flex w-full overflow-x-auto rounded-2xl border'>
         <TabsTrigger value='general' data-value='general'>
           {t('system.tabs.general')}
         </TabsTrigger>
@@ -88,6 +101,9 @@ export function SystemSettingsTabs({ initialTab }: SystemSettingsTabsProps) {
             {t('system.tabs.backup')}
           </TabsTrigger>
         )}
+        <TabsTrigger value='portal' data-value='portal'>
+          {t('portal.portalSettings')}
+        </TabsTrigger>
         <TabsTrigger value='about' data-value='about'>
           {t('system.tabs.about')}
         </TabsTrigger>
@@ -127,6 +143,9 @@ export function SystemSettingsTabs({ initialTab }: SystemSettingsTabsProps) {
             <BackupSettings />
           </TabsContent>
         )}
+        <TabsContent value='portal' className='mt-0 p-0'>
+          <PortalSettings />
+        </TabsContent>
         <TabsContent value='about' className='mt-0 p-0'>
           <AboutSettings />
         </TabsContent>

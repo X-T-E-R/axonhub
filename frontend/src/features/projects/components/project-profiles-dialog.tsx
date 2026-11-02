@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
+import { useQueryModels } from '@/gql/models';
 import { useTranslation } from 'react-i18next';
 import { extractNumberID } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { TagsAutocompleteInput } from '@/components/ui/tags-autocomplete-input';
 import { useAllChannelSummarys } from '@/features/channels/data/channels';
 import { updateProjectProfilesInputSchemaFactory, type ProjectProfile, type UpdateProjectProfilesInput } from '../data/schema';
+
+type ModelAccessMode = 'unconfigured' | 'deny-all' | 'allow-list';
+
+function getModelAccessMode(modelIDs: ProjectProfile['modelIDs']): ModelAccessMode {
+  if (modelIDs == null) return 'unconfigured';
+  return modelIDs.length === 0 ? 'deny-all' : 'allow-list';
+}
 
 interface ProjectProfilesDialogProps {
   open: boolean;
@@ -27,7 +35,22 @@ interface ProjectProfilesDialogProps {
 
 export function ProjectProfilesDialog({ open, onOpenChange, onSubmit, loading = false, initialData }: ProjectProfilesDialogProps) {
   const { t } = useTranslation();
+  const [dialogContainer, setDialogContainer] = useState<HTMLDivElement | null>(null);
   const { data: channelsData } = useAllChannelSummarys(undefined, { enabled: open });
+  const { data: availableModels, mutateAsync: fetchModels, isPending: modelsLoading } = useQueryModels();
+  const [modelAccessModes, setModelAccessModes] = useState<Record<string, ModelAccessMode>>({});
+
+  useEffect(() => {
+    if (open) {
+      fetchModels({
+        statusIn: ['enabled'],
+        includeMapping: true,
+        includePrefix: true,
+      });
+    }
+  }, [open, fetchModels]);
+
+  const availableModelIDs = useMemo(() => availableModels?.map((model) => model.id) || [], [availableModels]);
 
   const allTags = useMemo(() => {
     if (!channelsData?.edges) return [];
@@ -62,15 +85,17 @@ export function ProjectProfilesDialog({ open, onOpenChange, onSubmit, loading = 
     const dataKey = JSON.stringify(initialData);
     if (dataKey === lastInitialDataRef.current) return;
     lastInitialDataRef.current = dataKey;
+    setModelAccessModes({});
 
     if (initialData && initialData.profiles.length > 0) {
       form.reset({
         activeProfile: initialData.activeProfile || '',
         profiles: initialData.profiles.map((p) => ({
           name: p.name || '',
-          channelIDs: p.channelIDs || [],
-          channelTags: p.channelTags || [],
-          channelTagsMatchMode: p.channelTagsMatchMode || 'any',
+          modelIDs: p.modelIDs,
+          channelIDs: p.channelIDs,
+          channelTags: p.channelTags,
+          channelTagsMatchMode: p.channelTagsMatchMode,
         })),
       });
     } else {
@@ -90,6 +115,7 @@ export function ProjectProfilesDialog({ open, onOpenChange, onSubmit, loading = 
     const newName = `Profile ${fields.length + 1}`;
     append({
       name: newName,
+      modelIDs: [],
       channelIDs: [],
       channelTags: [],
       channelTagsMatchMode: 'any',
@@ -102,25 +128,48 @@ export function ProjectProfilesDialog({ open, onOpenChange, onSubmit, loading = 
   const handleRemoveProfile = useCallback(
     (index: number) => {
       const removedName = watchedProfiles[index]?.name;
+      const removedId = fields[index]?.id;
+      if (removedId) {
+        setModelAccessModes((previous) => {
+          if (!(removedId in previous)) return previous;
+          const next = { ...previous };
+          delete next[removedId];
+          return next;
+        });
+      }
       remove(index);
       if (removedName === activeProfile) {
         const remaining = watchedProfiles.filter((_, i) => i !== index);
         form.setValue('activeProfile', remaining[0]?.name || '');
       }
     },
-    [watchedProfiles, activeProfile, form, remove]
+    [watchedProfiles, activeProfile, fields, form, remove]
   );
 
   const handleSubmit = useCallback(
     (data: UpdateProjectProfilesInput) => {
+      const incompleteProfileIndex = data.profiles.findIndex((profile, index) => {
+        const fieldId = fields[index]?.id;
+        const mode = fieldId ? modelAccessModes[fieldId] : getModelAccessMode(profile.modelIDs);
+        return mode === 'allow-list' && !profile.modelIDs?.length;
+      });
+
+      if (incompleteProfileIndex >= 0) {
+        form.setError(`profiles.${incompleteProfileIndex}.modelIDs`, {
+          type: 'manual',
+          message: t('projects.profiles.validation.modelsRequired'),
+        });
+        return;
+      }
+
       onSubmit(data);
     },
-    [onSubmit]
+    [fields, form, modelAccessModes, onSubmit, t]
   );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex max-h-[90vh] flex-col sm:max-w-4xl'>
+      <DialogContent ref={setDialogContainer} className='flex max-h-[90vh] flex-col sm:max-w-4xl'>
         <DialogHeader className='shrink-0 text-left'>
           <DialogTitle>{t('projects.profiles.title')}</DialogTitle>
           <DialogDescription>{t('projects.profiles.description')}</DialogDescription>
@@ -150,127 +199,212 @@ export function ProjectProfilesDialog({ open, onOpenChange, onSubmit, loading = 
                   <div className='space-y-4'>
                     {fields.map((field, profileIndex) => {
                       const isExcludeMode = form.watch(`profiles.${profileIndex}.channelTagsMatchMode`) === 'none';
+                      const modelAccessMode = modelAccessModes[field.id] ?? getModelAccessMode(watchedProfiles[profileIndex]?.modelIDs);
 
                       return (
-              <Card key={field.id}>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-base'>
-                    {watchedProfiles[profileIndex]?.name || `Profile ${profileIndex + 1}`}
-                    {watchedProfiles[profileIndex]?.name === activeProfile && (
-                      <span className='bg-primary/10 text-primary ml-2 rounded-full px-2 py-0.5 text-xs'>
-                        {t('projects.profiles.activeProfile')}
-                      </span>
-                    )}
-                  </CardTitle>
-                  <Button type='button' variant='ghost' size='icon' onClick={() => handleRemoveProfile(profileIndex)}>
-                    <IconTrash className='h-4 w-4' />
-                  </Button>
-                </CardHeader>
-                <CardContent className='space-y-6'>
-                  {/* Profile Name */}
-                  <FormField
-                    control={form.control}
-                    name={`profiles.${profileIndex}.name`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('projects.profiles.profileName')}</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder={t('projects.profiles.profileNamePlaceholder')} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  {/* Channel IDs */}
-                  <div className='border-t pt-6'>
-                    <h4 className='mb-3 text-sm font-medium'>{t('projects.profiles.allowedChannels')}</h4>
-                    <p className='text-muted-foreground mb-3 text-xs'>{t('projects.profiles.allowedChannelsDescription')}</p>
-                    <FormField
-                      control={form.control}
-                      name={`profiles.${profileIndex}.channelIDs`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <TagsAutocompleteInput
-                              value={(field.value || []).map((id) => {
-                                const channel = channelsData?.edges?.find((edge) => parseInt(extractNumberID(edge.node.id), 10) === id);
-                                return channel?.node.name || id.toString();
-                              })}
-                              onChange={(tags) => {
-                                const ids = tags
-                                  .map((tag) => {
-                                    const channel = channelsData?.edges?.find((edge) => edge.node.name === tag);
-                                    return channel ? parseInt(extractNumberID(channel.node.id), 10) : parseInt(tag);
-                                  })
-                                  .filter((id) => !isNaN(id));
-                                field.onChange(ids);
-                              }}
-                              placeholder={t('projects.profiles.allowedChannels')}
-                              suggestions={channelsData?.edges?.map((edge) => edge.node.name) || []}
-                              className='h-auto min-h-9 py-1'
+                        <Card key={field.id}>
+                          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                            <CardTitle className='text-base'>
+                              {watchedProfiles[profileIndex]?.name || `Profile ${profileIndex + 1}`}
+                              {watchedProfiles[profileIndex]?.name === activeProfile && (
+                                <span className='bg-primary/10 text-primary ml-2 rounded-full px-2 py-0.5 text-xs'>
+                                  {t('projects.profiles.activeProfile')}
+                                </span>
+                              )}
+                            </CardTitle>
+                            <Button type='button' variant='ghost' size='icon' onClick={() => handleRemoveProfile(profileIndex)}>
+                              <IconTrash className='h-4 w-4' />
+                            </Button>
+                          </CardHeader>
+                          <CardContent className='space-y-6'>
+                            {/* Profile Name */}
+                            <FormField
+                              control={form.control}
+                              name={`profiles.${profileIndex}.name`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>{t('projects.profiles.profileName')}</FormLabel>
+                                  <FormControl>
+                                    <Input {...field} placeholder={t('projects.profiles.profileNamePlaceholder')} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
                             />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
 
-                  {/* Channel Tags */}
-                  <div className='border-t pt-6'>
-                    <div className='mb-3 flex items-start justify-between gap-3'>
-                      <div>
-                        <h4 className='text-sm font-medium'>
-                          {t(isExcludeMode ? 'projects.profiles.excludedChannelTags' : 'projects.profiles.allowedChannelTags')}
-                        </h4>
-                        <p className='text-muted-foreground mt-1 text-xs'>
-                          {t(isExcludeMode ? 'projects.profiles.excludedChannelTagsDescription' : 'projects.profiles.allowedChannelTagsDescription')}
-                        </p>
-                      </div>
-                      <FormField
-                        control={form.control}
-                        name={`profiles.${profileIndex}.channelTagsMatchMode`}
-                        render={({ field }) => (
-                          <FormItem className='w-[180px]'>
-                            <FormLabel>{t('projects.profiles.allowedChannelTagsMatchMode')}</FormLabel>
-                            <FormControl>
-                              <Select value={field.value || 'any'} onValueChange={field.onChange}>
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value='any'>{t('projects.profiles.allowedChannelTagsMatchModeAny')}</SelectItem>
-                                  <SelectItem value='all'>{t('projects.profiles.allowedChannelTagsMatchModeAll')}</SelectItem>
-                                  <SelectItem value='none'>{t('projects.profiles.allowedChannelTagsMatchModeNone')}</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <FormField
-                      control={form.control}
-                      name={`profiles.${profileIndex}.channelTags`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <TagsAutocompleteInput
-                              value={field.value || []}
-                              onChange={field.onChange}
-                              placeholder={t(isExcludeMode ? 'projects.profiles.excludedChannelTags' : 'projects.profiles.allowedChannelTags')}
-                              suggestions={allTags}
-                              className='h-auto min-h-9 py-1'
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+                            {/* Model Access */}
+                            <div className='border-t pt-6'>
+                              <div className='mb-3 flex items-start justify-between gap-3'>
+                                <div>
+                                  <h4 className='text-sm font-medium'>{t('projects.profiles.modelAccessTitle')}</h4>
+                                  <p className='text-muted-foreground mt-1 text-xs'>{t('projects.profiles.modelAccessDescription')}</p>
+                                </div>
+                                <FormField
+                                  control={form.control}
+                                  name={`profiles.${profileIndex}.modelIDs`}
+                                  render={({ field: modelIDsField }) => (
+                                    <FormItem className='w-[220px] shrink-0'>
+                                      <FormLabel>{t('projects.profiles.modelAccessMode')}</FormLabel>
+                                      <FormControl>
+                                        <Select
+                                          value={modelAccessMode}
+                                          onValueChange={(value) => {
+                                            const nextMode = value as ModelAccessMode;
+                                            setModelAccessModes((previous) => ({ ...previous, [field.id]: nextMode }));
+                                            form.clearErrors(`profiles.${profileIndex}.modelIDs`);
+                                            if (nextMode === 'unconfigured') {
+                                              modelIDsField.onChange(null);
+                                            } else if (nextMode === 'deny-all') {
+                                              modelIDsField.onChange([]);
+                                            } else if (!modelIDsField.value?.length) {
+                                              modelIDsField.onChange([]);
+                                            }
+                                          }}
+                                        >
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value='unconfigured'>{t('projects.profiles.modelAccessUnconfigured')}</SelectItem>
+                                            <SelectItem value='deny-all'>{t('projects.profiles.modelAccessDenyAll')}</SelectItem>
+                                            <SelectItem value='allow-list'>{t('projects.profiles.modelAccessAllowList')}</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              {modelAccessMode === 'allow-list' && (
+                                <FormField
+                                  control={form.control}
+                                  name={`profiles.${profileIndex}.modelIDs`}
+                                  render={({ field: modelIDsField }) => (
+                                    <FormItem>
+                                      <FormLabel>{t('projects.profiles.allowedModels')}</FormLabel>
+                                      <FormControl>
+                                        <TagsAutocompleteInput
+                                          value={modelIDsField.value ?? []}
+                                          onChange={(modelIDs) => {
+                                            setModelAccessModes((previous) => ({ ...previous, [field.id]: 'allow-list' }));
+                                            modelIDsField.onChange(modelIDs);
+                                            if (modelIDs.length > 0) {
+                                              form.clearErrors(`profiles.${profileIndex}.modelIDs`);
+                                            }
+                                          }}
+                                          placeholder={t('projects.profiles.allowedModels')}
+                                          suggestions={availableModelIDs}
+                                          isLoading={modelsLoading}
+                                          portalContainer={dialogContainer}
+                                          className='h-auto min-h-9 py-1'
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                            </div>
+
+                            {/* Channel IDs */}
+                            <div className='border-t pt-6'>
+                              <h4 className='mb-3 text-sm font-medium'>{t('projects.profiles.allowedChannels')}</h4>
+                              <p className='text-muted-foreground mb-3 text-xs'>{t('projects.profiles.allowedChannelsDescription')}</p>
+                              <FormField
+                                control={form.control}
+                                name={`profiles.${profileIndex}.channelIDs`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormControl>
+                                      <TagsAutocompleteInput
+                                        value={(field.value || []).map((id) => {
+                                          const channel = channelsData?.edges?.find(
+                                            (edge) => parseInt(extractNumberID(edge.node.id), 10) === id
+                                          );
+                                          return channel?.node.name || id.toString();
+                                        })}
+                                        onChange={(tags) => {
+                                          const ids = tags
+                                            .map((tag) => {
+                                              const channel = channelsData?.edges?.find((edge) => edge.node.name === tag);
+                                              return channel ? parseInt(extractNumberID(channel.node.id), 10) : parseInt(tag);
+                                            })
+                                            .filter((id) => !isNaN(id));
+                                          field.onChange(ids);
+                                        }}
+                                        placeholder={t('projects.profiles.allowedChannels')}
+                                        suggestions={channelsData?.edges?.map((edge) => edge.node.name) || []}
+                                        className='h-auto min-h-9 py-1'
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            {/* Channel Tags */}
+                            <div className='border-t pt-6'>
+                              <div className='mb-3 flex items-start justify-between gap-3'>
+                                <div>
+                                  <h4 className='text-sm font-medium'>
+                                    {t(isExcludeMode ? 'projects.profiles.excludedChannelTags' : 'projects.profiles.allowedChannelTags')}
+                                  </h4>
+                                  <p className='text-muted-foreground mt-1 text-xs'>
+                                    {t(
+                                      isExcludeMode
+                                        ? 'projects.profiles.excludedChannelTagsDescription'
+                                        : 'projects.profiles.allowedChannelTagsDescription'
+                                    )}
+                                  </p>
+                                </div>
+                                <FormField
+                                  control={form.control}
+                                  name={`profiles.${profileIndex}.channelTagsMatchMode`}
+                                  render={({ field }) => (
+                                    <FormItem className='w-[180px]'>
+                                      <FormLabel>{t('projects.profiles.allowedChannelTagsMatchMode')}</FormLabel>
+                                      <FormControl>
+                                        <Select value={field.value || 'any'} onValueChange={field.onChange}>
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value='any'>{t('projects.profiles.allowedChannelTagsMatchModeAny')}</SelectItem>
+                                            <SelectItem value='all'>{t('projects.profiles.allowedChannelTagsMatchModeAll')}</SelectItem>
+                                            <SelectItem value='none'>{t('projects.profiles.allowedChannelTagsMatchModeNone')}</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              <FormField
+                                control={form.control}
+                                name={`profiles.${profileIndex}.channelTags`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormControl>
+                                      <TagsAutocompleteInput
+                                        value={field.value || []}
+                                        onChange={field.onChange}
+                                        placeholder={t(
+                                          isExcludeMode ? 'projects.profiles.excludedChannelTags' : 'projects.profiles.allowedChannelTags'
+                                        )}
+                                        suggestions={allTags}
+                                        className='h-auto min-h-9 py-1'
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          </CardContent>
+                        </Card>
                       );
                     })}
                   </div>
@@ -289,10 +423,7 @@ export function ProjectProfilesDialog({ open, onOpenChange, onSubmit, loading = 
                   <FormItem className='flex items-center space-y-0 gap-x-3'>
                     <FormLabel className='shrink-0 font-medium'>{t('projects.profiles.activeProfile')}</FormLabel>
                     <FormControl>
-                      <Select
-                        value={field.value || 'none'}
-                        onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}
-                      >
+                      <Select value={field.value || 'none'} onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}>
                         <SelectTrigger>
                           <SelectValue placeholder={t('projects.profiles.noRestriction')} />
                         </SelectTrigger>

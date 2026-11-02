@@ -52,6 +52,7 @@ func AuthenticateAPIKeyContext(c *gin.Context, auth *biz.AuthService, config *AP
 		apiKey, err = auth.AuthenticateAPIKey(ctx, key)
 	}
 	if err != nil {
+		// AuthenticateNoAuth rejects anonymous fallback whenever portal subjects exist.
 		apiKey, err = auth.AuthenticateNoAuth(ctx)
 	}
 	if err != nil {

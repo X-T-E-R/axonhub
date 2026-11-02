@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -136,6 +137,12 @@ func (s *VideoService) loadTask(ctx context.Context, requestID int) (*ent.Reques
 	ch, err := s.ChannelService.GetChannel(ctx, task.ChannelID)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	if key, ok := contexts.GetAPIKey(ctx); ok && key.PortalManaged {
+		if task.APIKeyID != key.ID || task.ProjectID != key.ProjectID || !KeyAllowsModel(key, task.ModelID) || !KeyAllowsChannel(key, ch.ID, ch.Tags) {
+			return nil, nil, nil, fmt.Errorf("%w: task unavailable", ErrInvalidAPIKey)
+		}
 	}
 
 	var outbound transformer.VideoTaskOutbound

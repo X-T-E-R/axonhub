@@ -222,6 +222,9 @@ export function useSidebarData(): SidebarData {
         // plan: t('sidebar.team.plan'),
       },
     ],
-    navGroups: filteredNavGroups,
+    navGroups: [
+      ...filteredNavGroups,
+      { title: t('portal.title'), items: [{ title: t('portal.title'), url: '/portal', icon: IconLayoutDashboard }] },
+    ],
   };
 }

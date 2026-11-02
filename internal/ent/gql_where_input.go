@@ -116,6 +116,10 @@ type APIKeyWhereInput struct {
 	NameEqualFold    *string  `json:"nameEqualFold,omitempty"`
 	NameContainsFold *string  `json:"nameContainsFold,omitempty"`
 
+	// "portal_managed" field predicates.
+	PortalManaged    *bool `json:"portalManaged,omitempty"`
+	PortalManagedNEQ *bool `json:"portalManagedNEQ,omitempty"`
+
 	// "type" field predicates.
 	Type      *apikey.Type  `json:"type,omitempty"`
 	TypeNEQ   *apikey.Type  `json:"typeNEQ,omitempty"`
@@ -391,6 +395,12 @@ func (i *APIKeyWhereInput) P() (predicate.APIKey, error) {
 	}
 	if i.NameContainsFold != nil {
 		predicates = append(predicates, apikey.NameContainsFold(*i.NameContainsFold))
+	}
+	if i.PortalManaged != nil {
+		predicates = append(predicates, apikey.PortalManagedEQ(*i.PortalManaged))
+	}
+	if i.PortalManagedNEQ != nil {
+		predicates = append(predicates, apikey.PortalManagedNEQ(*i.PortalManagedNEQ))
 	}
 	if i.Type != nil {
 		predicates = append(predicates, apikey.TypeEQ(*i.Type))
@@ -12106,6 +12116,12 @@ type UserWhereInput struct {
 	IsOwner    *bool `json:"isOwner,omitempty"`
 	IsOwnerNEQ *bool `json:"isOwnerNEQ,omitempty"`
 
+	// "access_mode" field predicates.
+	AccessMode      *user.AccessMode  `json:"accessMode,omitempty"`
+	AccessModeNEQ   *user.AccessMode  `json:"accessModeNEQ,omitempty"`
+	AccessModeIn    []user.AccessMode `json:"accessModeIn,omitempty"`
+	AccessModeNotIn []user.AccessMode `json:"accessModeNotIn,omitempty"`
+
 	// "projects" edge predicates.
 	HasProjects     *bool                `json:"hasProjects,omitempty"`
 	HasProjectsWith []*ProjectWhereInput `json:"hasProjectsWith,omitempty"`
@@ -12535,6 +12551,18 @@ func (i *UserWhereInput) P() (predicate.User, error) {
 	}
 	if i.IsOwnerNEQ != nil {
 		predicates = append(predicates, user.IsOwnerNEQ(*i.IsOwnerNEQ))
+	}
+	if i.AccessMode != nil {
+		predicates = append(predicates, user.AccessModeEQ(*i.AccessMode))
+	}
+	if i.AccessModeNEQ != nil {
+		predicates = append(predicates, user.AccessModeNEQ(*i.AccessModeNEQ))
+	}
+	if len(i.AccessModeIn) > 0 {
+		predicates = append(predicates, user.AccessModeIn(i.AccessModeIn...))
+	}
+	if len(i.AccessModeNotIn) > 0 {
+		predicates = append(predicates, user.AccessModeNotIn(i.AccessModeNotIn...))
 	}
 
 	if i.HasProjects != nil {

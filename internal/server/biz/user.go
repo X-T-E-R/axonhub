@@ -105,6 +105,15 @@ func (s *UserService) UpdateUser(ctx context.Context, id int, input ent.UpdateUs
 
 	client := s.entFromContext(ctx)
 
+	if input.IsOwner != nil && *input.IsOwner {
+		existing, err := client.User.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if existing.AccessMode == user.AccessModePortal {
+			return nil, fmt.Errorf("switch access mode to legacy before promoting an owner")
+		}
+	}
 	mut := client.User.UpdateOneID(id).
 		SetNillableEmail(input.Email).
 		SetNillableFirstName(input.FirstName).
@@ -259,7 +268,7 @@ func (s *UserService) GetUserByID(ctx context.Context, id int) (*ent.User, error
 }
 
 func buildUserCacheKey(id int) string {
-	return fmt.Sprintf("user:%d", id)
+	return fmt.Sprintf("user:v2:%d", id)
 }
 
 // invalidateUserCache removes a user from cache.
@@ -353,6 +362,7 @@ func ConvertUserToUserInfo(ctx context.Context, u *ent.User) *objects.UserInfo {
 		FirstName:      u.FirstName,
 		LastName:       u.LastName,
 		IsOwner:        u.IsOwner,
+		AccessMode:     string(u.AccessMode),
 		PreferLanguage: u.PreferLanguage,
 		Avatar:         &u.Avatar,
 		Scopes:         lo.Keys(allScopes),

@@ -86,6 +86,9 @@ func (svc *BackupService) Restore(ctx context.Context, data []byte, opts Restore
 }
 
 func (svc *BackupService) restore(ctx context.Context, db *ent.Client, backupData BackupData, opts RestoreOptions) error {
+	if err := restorePortalState(ctx, db, backupData, opts); err != nil {
+		return err
+	}
 	if opts.IncludeChannels {
 		if err := svc.restoreChannels(ctx, db, backupData.Channels, opts); err != nil {
 			return err
@@ -387,6 +390,23 @@ func (svc *BackupService) restoreProjects(ctx context.Context, db *ent.Client, p
 				log.Error(ctx, "project already exists", log.String("name", projData.Name))
 				return fmt.Errorf("project %s already exists", projData.Name)
 			case ConflictStrategyOverwrite:
+				if existing.Profiles != nil {
+					if projData.Profiles == nil {
+						projData.Profiles = existing.Profiles
+					} else {
+						for i := range projData.Profiles.Profiles {
+							p := &projData.Profiles.Profiles[i]
+							if p.ModelIDs == nil {
+								for _, old := range existing.Profiles.Profiles {
+									if old.Name == p.Name {
+										p.ModelIDs = old.ModelIDs
+										break
+									}
+								}
+							}
+						}
+					}
+				}
 				_, err = db.Project.UpdateOneID(existing.ID).
 					SetName(projData.Name).
 					SetDescription(projData.Description).
@@ -764,6 +784,14 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 			continue
 		}
 
+		ownerID := user.ID
+		if akData.PortalManaged {
+			var err error
+			ownerID, err = resolvePortalOwner(ctx, db, akData)
+			if err != nil {
+				return err
+			}
+		}
 		remapAPIKeyProfilesChannelIDs(akData.Profiles, channelIDMap)
 
 		existing, err := db.APIKey.Query().
@@ -774,6 +802,15 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 		}
 
 		if existing != nil {
+			if existing.PortalManaged != akData.PortalManaged {
+				return fmt.Errorf("restore cannot change managed credential provenance")
+			}
+			if akData.PortalManaged {
+				group, err := db.Project.Get(ctx, existing.ProjectID)
+				if err != nil || existing.UserID != ownerID || group.Name != akData.ProjectName {
+					return fmt.Errorf("managed credential owner/group mismatch")
+				}
+			}
 			switch opts.APIKeyConflictStrategy {
 			case ConflictStrategySkip:
 				log.Info(ctx, "skipping existing API key", log.String("name", akData.Name))
@@ -829,8 +866,14 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 				SetScopes(akData.Scopes).
 				SetAllowedIps(akData.AllowedIps).
 				SetProfiles(akData.Profiles).
-				SetUserID(user.ID).
+				SetUserID(ownerID).
+				SetPortalManaged(akData.PortalManaged).
 				SetProjectID(proj.ID)
+			if akData.PortalManaged {
+				// Restored portal credentials are quarantined until the administrator
+				// reviews membership and current group routes in the target instance.
+				create.SetStatus(apikey.StatusDisabled)
+			}
 
 			if _, err := create.Save(ctx); err != nil {
 				log.Error(ctx, "failed to create API key",

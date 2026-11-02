@@ -62,6 +62,7 @@ func selectCandidates(inbound *PersistentInboundTransformer, quotaProvider Provi
 			selector = WithAnthropicNativeToolsSelector(selector)
 		}
 
+		selector = &GroupAccessSelector{wrapped: selector, key: inbound.state.APIKey}
 		selector = WithStreamPolicySelector(selector)
 
 		quotaSelector := WithProviderQuotaSelector(selector, quotaProvider, systemService)
