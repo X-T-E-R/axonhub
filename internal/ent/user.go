@@ -40,6 +40,8 @@ type User struct {
 	Avatar string `json:"avatar,omitempty"`
 	// IsOwner holds the value of the "is_owner" field.
 	IsOwner bool `json:"is_owner,omitempty"`
+	// AccessMode holds the value of the "access_mode" field.
+	AccessMode user.AccessMode `json:"access_mode,omitempty"`
 	// User scopes in system level: write_channels, read_channels, add_users, read_users, etc.
 	Scopes []string `json:"scopes,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -153,7 +155,7 @@ func (*User) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case user.FieldID, user.FieldDeletedAt:
 			values[i] = new(sql.NullInt64)
-		case user.FieldEmail, user.FieldStatus, user.FieldPreferLanguage, user.FieldPassword, user.FieldFirstName, user.FieldLastName, user.FieldAvatar:
+		case user.FieldEmail, user.FieldStatus, user.FieldPreferLanguage, user.FieldPassword, user.FieldFirstName, user.FieldLastName, user.FieldAvatar, user.FieldAccessMode:
 			values[i] = new(sql.NullString)
 		case user.FieldCreatedAt, user.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -243,6 +245,12 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field is_owner", values[i])
 			} else if value.Valid {
 				_m.IsOwner = value.Bool
+			}
+		case user.FieldAccessMode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field access_mode", values[i])
+			} else if value.Valid {
+				_m.AccessMode = user.AccessMode(value.String)
 			}
 		case user.FieldScopes:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -354,6 +362,9 @@ func (_m *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("is_owner=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IsOwner))
+	builder.WriteString(", ")
+	builder.WriteString("access_mode=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AccessMode))
 	builder.WriteString(", ")
 	builder.WriteString("scopes=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Scopes))

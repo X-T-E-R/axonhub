@@ -190,7 +190,8 @@ func (s *AuthService) AuthenticateJWTToken(ctx context.Context, tokenString stri
 	}
 
 	u, err := authz.RunWithSystemBypass(ctx, "auth-lookup", func(bypassCtx context.Context) (*ent.User, error) {
-		return s.UserService.GetUserByID(bypassCtx, int(userID))
+		return s.entFromContext(bypassCtx).User.Query().Where(user.IDEQ(int(userID))).
+			WithRoles().WithProjects().WithProjectUsers().WithOidcIdentities().Only(bypassCtx)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to get user: %w", ErrInvalidJWT, err)
@@ -204,24 +205,9 @@ func (s *AuthService) AuthenticateJWTToken(ctx context.Context, tokenString stri
 }
 
 func (s *AuthService) AuthenticateAPIKey(ctx context.Context, key string) (*ent.APIKey, error) {
-	apiKey, err := authz.RunWithSystemBypass(ctx, "auth-lookup", func(bypassCtx context.Context) (*ent.APIKey, error) {
-		return s.APIKeyService.GetAPIKey(bypassCtx, key)
-	})
+	apiKey, err := RefreshAPIKeyAuthorization(ctx, s.entFromContext(ctx), key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get api key: %w", err)
-	}
-
-	if apiKey.Status != apikey.StatusEnabled {
-		return nil, fmt.Errorf("api key not enabled: %w", ErrInvalidAPIKey)
-	}
-
-	proj, err := apiKey.Project(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get api key project: %w", err)
-	}
-
-	if proj == nil || proj.Status != project.StatusActive {
-		return nil, fmt.Errorf("api key project not valid: %w", ErrInvalidAPIKey)
 	}
 
 	if apiKey.Type == apikey.TypeNoauth {
@@ -234,6 +220,14 @@ func (s *AuthService) AuthenticateAPIKey(ctx context.Context, key string) (*ent.
 func (s *AuthService) AuthenticateNoAuth(ctx context.Context) (*ent.APIKey, error) {
 	if !s.AllowNoAuth {
 		return nil, fmt.Errorf("%w: API key required", ErrInvalidAPIKey)
+	}
+
+	enabled, err := s.PortalEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if enabled {
+		return nil, fmt.Errorf("%w: anonymous API access conflicts with user portal", ErrInvalidAPIKey)
 	}
 
 	apiKey, err := authz.RunWithSystemBypass(ctx, "auth-noauth", func(bypassCtx context.Context) (*ent.APIKey, error) {

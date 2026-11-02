@@ -655,6 +655,26 @@ func IsOwnerNEQ(v bool) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldIsOwner, v))
 }
 
+// AccessModeEQ applies the EQ predicate on the "access_mode" field.
+func AccessModeEQ(v AccessMode) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAccessMode, v))
+}
+
+// AccessModeNEQ applies the NEQ predicate on the "access_mode" field.
+func AccessModeNEQ(v AccessMode) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldAccessMode, v))
+}
+
+// AccessModeIn applies the In predicate on the "access_mode" field.
+func AccessModeIn(vs ...AccessMode) predicate.User {
+	return predicate.User(sql.FieldIn(FieldAccessMode, vs...))
+}
+
+// AccessModeNotIn applies the NotIn predicate on the "access_mode" field.
+func AccessModeNotIn(vs ...AccessMode) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldAccessMode, vs...))
+}
+
 // ScopesIsNil applies the IsNil predicate on the "scopes" field.
 func ScopesIsNil() predicate.User {
 	return predicate.User(sql.FieldIsNull(FieldScopes))

@@ -1,0 +1,40 @@
+schema:
+  - portal.graphql
+omit_gqlgen_version_in_file_notice: true
+resolver:
+  layout: follow-schema
+  dir: .
+autobind:
+  - github.com/looplj/axonhub/internal/objects
+models:
+  Int64:
+    model:
+      - github.com/99designs/gqlgen/graphql.Int64
+  PortalIdentity:
+    model: github.com/looplj/axonhub/internal/objects.PortalIdentity
+  PortalGroup:
+    model: github.com/looplj/axonhub/internal/objects.PortalGroup
+  PortalKeyInput:
+    model: github.com/looplj/axonhub/internal/objects.PortalKeyInput
+  PortalKey:
+    model: github.com/looplj/axonhub/internal/objects.PortalKey
+  PortalKeyPage:
+    model: github.com/looplj/axonhub/internal/objects.PortalKeyPage
+  PortalQuota:
+    model: github.com/looplj/axonhub/internal/objects.PortalQuota
+  PortalModel:
+    model: github.com/looplj/axonhub/internal/objects.PortalModel
+  PortalModelChannel:
+    model: github.com/looplj/axonhub/internal/objects.PortalModelChannel
+  PortalSettings:
+    model: github.com/looplj/axonhub/internal/objects.PortalSettings
+  PortalDocument:
+    model: github.com/looplj/axonhub/internal/objects.PortalDocument
+  PortalDashboard:
+    model: github.com/looplj/axonhub/internal/objects.PortalDashboard
+  PortalModelUsage:
+    model: github.com/looplj/axonhub/internal/objects.PortalModelUsage
+  PortalDayUsage:
+    model: github.com/looplj/axonhub/internal/objects.PortalDayUsage
+  PortalRequest:
+    model: github.com/looplj/axonhub/internal/objects.PortalRequest

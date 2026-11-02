@@ -6,6 +6,7 @@ type UserInfo struct {
 	FirstName      string             `json:"firstName"`
 	LastName       string             `json:"lastName"`
 	IsOwner        bool               `json:"isOwner"`
+	AccessMode     string             `json:"accessMode"`
 	PreferLanguage string             `json:"preferLanguage"`
 	Avatar         *string            `json:"avatar,omitempty"`
 	Scopes         []string           `json:"scopes"`

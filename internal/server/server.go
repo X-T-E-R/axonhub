@@ -20,6 +20,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/gql/openapi"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
+	"github.com/looplj/axonhub/internal/server/portalgql"
 	"github.com/looplj/axonhub/internal/server/scheduler"
 	"github.com/looplj/axonhub/internal/server/video_storage"
 	"github.com/looplj/axonhub/internal/tracing"
@@ -89,6 +90,7 @@ func Run(opts ...fx.Option) {
 	constructors := []any{
 		openapi.NewGraphqlHandlers,
 		gql.NewGraphqlHandlers,
+		portalgql.NewGraphqlHandlers,
 		gc.NewWorker,
 		New,
 		NewDebugListener,

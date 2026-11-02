@@ -7,6 +7,7 @@ export type ChannelTagsMatchMode = z.infer<typeof channelTagsMatchModeSchema>;
 // Project Profile schema
 export const projectProfileSchema = z.object({
   name: z.string(),
+  modelIDs: z.array(z.string()).optional().nullable(),
   channelIDs: z.array(z.number()).optional().nullable(),
   channelTags: z.array(z.string()).optional().nullable(),
   channelTagsMatchMode: channelTagsMatchModeSchema.optional().nullable(),
@@ -86,6 +87,7 @@ export const updateProjectProfilesInputSchemaFactory = (t: (key: string) => stri
         .array(
           z.object({
             name: z.string().min(1, t('projects.profiles.validation.nameRequired')),
+            modelIDs: z.array(z.string()).optional().nullable(),
             channelIDs: z.array(z.number()).optional().nullable(),
             channelTags: z.array(z.string()).optional().nullable(),
             channelTagsMatchMode: channelTagsMatchModeSchema.optional().nullable(),

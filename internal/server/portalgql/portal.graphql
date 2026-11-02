@@ -1,0 +1,37 @@
+scalar Time
+scalar Int64
+
+type Query {
+  currencyCode: String!
+  me: PortalIdentity!
+  groups: [PortalGroup!]!
+  keys(projectID: Int, first: Int! = 50, after: Int): PortalKeyPage!
+  models(projectID: Int!, keyID: Int, search: String, type: String): [PortalModel!]!
+  modelChannels(projectID: Int!, keyID: Int, search: String, type: String): [PortalModelChannel!]!
+  dashboard(projectID: Int, period: String! = "month", keyID: Int): PortalDashboard!
+  content: PortalSettings!
+}
+type Mutation {
+  createKey(projectID: Int!, input: PortalKeyInput!): PortalKey!
+  updateKey(id: Int!, input: PortalKeyInput!): PortalKey!
+  setKeyStatus(id: Int!, status: String!): PortalKey!
+  rotateKey(id: Int!): PortalKey!
+  revealKey(id: Int!): String!
+  updateProfile(firstName: String, lastName: String, preferLanguage: String): PortalIdentity!
+  updatePassword(oldPassword: String, newPassword: String!): Boolean!
+  unlinkOIDCIdentity(id: Int!): Boolean!
+}
+type PortalIdentity { id: Int!, email: String!, firstName: String!, lastName: String!, preferLanguage: String!, accessMode: String!, avatar: String!, hasPassword: Boolean! }
+type PortalGroup { id: Int!, name: String!, callable: Boolean!, member: Boolean! }
+input PortalKeyInput { name: String!, modelIDs: [String!]! = [], allowedIPs: [String!]! = [] }
+type PortalKeyPage { items: [PortalKey!]!, totalCount: Int!, nextCursor: Int }
+type PortalKey { id: Int!, projectID: Int!, name: String!, maskedKey: String!, status: String!, modelIDs: [String!]!, allowedIPs: [String!]!, createdAt: Time!, quotas: [PortalQuota!]! }
+type PortalQuota { profileName: String!, active: Boolean!, requests: Int64, totalTokens: Int64, cost: String, usedRequests: Int64!, usedTokens: Int64!, usedCost: String!, start: Time, end: Time }
+type PortalModel { id: String!, name: String!, type: String!, developer: String!, icon: String!, remark: String, vision: Boolean!, toolCall: Boolean!, reasoning: Boolean!, contextLength: Int, maxOutputTokens: Int, inputPrice: Float, outputPrice: Float, apiFormats: [String!]! }
+type PortalModelChannel { id: String!, name: String!, models: [PortalModel!]! }
+type PortalSettings { announcements: [PortalDocument!]!, guides: [PortalDocument!]! }
+type PortalDocument { slug: String!, title: String!, markdown: String!, published: Boolean!, pinned: Boolean!, order: Int! }
+type PortalDashboard { requests: Int!, successfulRequests: Int!, usageCount: Int!, inputTokens: Int64!, outputTokens: Int64!, cachedTokens: Int64!, totalTokens: Int64!, pricedCount: Int!, cost: Float, models: [PortalModelUsage!]!, days: [PortalDayUsage!]!, recentRequests: [PortalRequest!]! }
+type PortalModelUsage { modelID: String!, usageCount: Int!, inputTokens: Int64!, outputTokens: Int64!, cachedTokens: Int64!, totalTokens: Int64!, pricedCount: Int!, cost: Float }
+type PortalDayUsage { day: String!, totalTokens: Int64! }
+type PortalRequest { id: Int!, createdAt: Time!, status: String!, modelID: String!, usageReported: Boolean!, totalTokens: Int64, cost: Float }

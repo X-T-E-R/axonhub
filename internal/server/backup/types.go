@@ -18,6 +18,8 @@ type BackupData struct {
 	Models             []*BackupModel             `json:"models"`
 	ChannelModelPrices []*BackupChannelModelPrice `json:"channel_model_prices,omitempty"`
 	APIKeys            []*BackupAPIKey            `json:"api_keys,omitempty"`
+	PortalOwners       []*BackupPortalOwner       `json:"portal_owners,omitempty"`
+	PortalSettings     *objects.PortalSettings    `json:"portal_settings,omitempty"`
 	UsageRequests      []*BackupUsageRequest      `json:"usage_requests,omitempty"`
 	UsageLogs          []*BackupUsageLog          `json:"usage_logs,omitempty"`
 }
@@ -40,6 +42,14 @@ type BackupAPIKey struct {
 	ent.APIKey
 
 	ProjectName string `json:"project_name"`
+	OwnerEmail  string `json:"owner_email,omitempty"`
+}
+
+// Accounts/passwords are not restored implicitly. Provision the same stable
+// identity and mode on the destination before restoring managed credentials.
+type BackupPortalOwner struct {
+	Email      string `json:"email"`
+	AccessMode string `json:"access_mode"`
 }
 
 type BackupChannelModelPrice struct {

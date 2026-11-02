@@ -49,6 +49,8 @@ func (User) Fields() []ent.Field {
 			},
 		),
 		field.Bool("is_owner").Default(false),
+		field.Enum("access_mode").Values("legacy", "portal").Default("legacy").
+			Annotations(entgql.Skip(entgql.SkipMutationCreateInput, entgql.SkipMutationUpdateInput)),
 		field.Strings("scopes").
 			Comment("User scopes in system level: write_channels, read_channels, add_users, read_users, etc.").
 			Default([]string{}).

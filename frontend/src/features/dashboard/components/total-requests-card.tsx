@@ -4,6 +4,7 @@ import { formatNumber } from '@/utils/format-number';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDashboardStats } from '../data/dashboard';
+import { DashboardMetricCard } from './dashboard-metric-card';
 
 export function TotalRequestsCard() {
   const { t } = useTranslation();
@@ -57,56 +58,16 @@ export function TotalRequestsCard() {
   }
 
   return (
-    <Card className='hover-card relative overflow-hidden'>
-      <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-        <div className='flex items-center gap-2'>
-          <div className='bg-primary/10 text-primary dark:bg-primary/20 rounded-lg p-1.5'>
-            <Database className='h-4 w-4' />
-          </div>
-          <CardTitle className='text-sm font-medium'>{t('dashboard.stats.allTimeRequests')}</CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className='space-y-2'>
-          <div className='font-mono text-3xl font-bold'>{formatNumber(stats?.totalRequests || 0)}</div>
-          <div className={`flex items-center gap-1 text-xs font-medium ${growth.isPositive ? 'text-primary' : 'text-red-500'}`}>
-            <span
-              className={`rounded-md px-1.5 py-0.5 ${growth.isPositive ? 'bg-primary/10 border-primary/20 border' : 'border border-red-500/20 bg-red-500/10'}`}
-            >
-              {growth.isPositive ? '+' : ''}
-              {growth.percentage.toFixed(0)}%
-            </span>
-            <span className='text-muted-foreground'>{t('dashboard.stats.vsLastWeek')}</span>
-          </div>
-        </div>
-      </CardContent>
-      <div className='text-primary/5 absolute -right-4 -bottom-4 opacity-50'>
-        <div className='h-24 w-24'>
-          <svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>
-            <path
-              d='M3 13.5C3 13.5 7 19 12 19C17 19 21 13.5 21 13.5'
-              stroke='currentColor'
-              strokeWidth='2'
-              strokeLinecap='round'
-              strokeLinejoin='round'
-            />
-            <path
-              d='M3 9C3 9 7 14 12 14C17 14 21 9 21 9'
-              stroke='currentColor'
-              strokeWidth='2'
-              strokeLinecap='round'
-              strokeLinejoin='round'
-            />
-            <path
-              d='M3 4.5C3 4.5 7 10 12 10C17 10 21 4.5 21 4.5'
-              stroke='currentColor'
-              strokeWidth='2'
-              strokeLinecap='round'
-              strokeLinejoin='round'
-            />
-          </svg>
-        </div>
+    <DashboardMetricCard title={t('dashboard.stats.allTimeRequests')} icon={Database} value={formatNumber(stats?.totalRequests || 0)}>
+      <div className={`flex items-center gap-1 text-xs font-medium ${growth.isPositive ? 'text-primary' : 'text-red-500'}`}>
+        <span
+          className={`rounded-md px-1.5 py-0.5 ${growth.isPositive ? 'bg-primary/10 border-primary/20 border' : 'border border-red-500/20 bg-red-500/10'}`}
+        >
+          {growth.isPositive ? '+' : ''}
+          {growth.percentage.toFixed(0)}%
+        </span>
+        <span className='text-muted-foreground'>{t('dashboard.stats.vsLastWeek')}</span>
       </div>
-    </Card>
+    </DashboardMetricCard>
   );
 }

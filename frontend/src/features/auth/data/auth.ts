@@ -8,6 +8,8 @@ import { useAuthStore, setTokenToStorage, removeTokenFromStorage } from '@/store
 import { AuthUser } from '@/stores/authStore';
 import { authApi } from '@/lib/api-client';
 import i18n from '@/lib/i18n';
+import { portalRequest, IDENTITY_QUERY, type PortalIdentity } from '@/features/portal/data';
+import { userLandingPath } from '@/features/portal/entry';
 
 export interface SignInInput {
   email: string;
@@ -22,8 +24,12 @@ export function useMe(enabled = true) {
   const { setUser } = useAuthStore((state) => state.auth);
 
   const query = useQuery({
-    queryKey: ['me'],
-    queryFn: async () => {
+    queryKey: ['me', useAuthStore.getState().auth.accessToken],
+    queryFn: async (): Promise<AuthUser> => {
+      const { me } = await portalRequest<{ me: PortalIdentity }>(IDENTITY_QUERY);
+      if (me.accessMode === 'portal') {
+        return { ...me, id: String(me.id), isOwner: false, scopes: [], roles: [], projects: [] };
+      }
       const data = await graphqlRequest<MeResponse>(ME_QUERY);
       return data.me;
     },
@@ -75,7 +81,7 @@ export function useSignIn() {
 
       // Redirect based on user role
       // Owner users go to dashboard, non-owner users go to requests page
-      const redirectPath = data.user.isOwner ? '/' : '/project/playground';
+      const redirectPath = userLandingPath(data.user);
       router.navigate({ to: redirectPath });
     },
     onError: (error: any) => {
@@ -102,7 +108,6 @@ export function useSignOut() {
     router.navigate({ to: '/sign-in' });
   };
 }
-
 
 export function useOIDCProviders() {
   return useQuery({
@@ -145,7 +150,7 @@ export function useOIDCExchange() {
     },
     onSuccess: (response) => {
       const data = response.data;
-      
+
       // Store token in localStorage
       setTokenToStorage(data.token);
 
@@ -163,7 +168,7 @@ export function useOIDCExchange() {
       toast.success(i18n.t('common.success.signedIn'));
 
       // Redirect based on user role
-      const redirectPath = data.user.isOwner ? '/' : '/project/playground';
+      const redirectPath = userLandingPath(data.user);
       router.navigate({ to: redirectPath });
     },
     onError: (error: unknown) => {

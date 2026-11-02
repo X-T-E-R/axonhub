@@ -1,5 +1,6 @@
 import Cookies from 'js-cookie';
-import { Outlet } from '@tanstack/react-router';
+import { Outlet, Navigate, useRouterState } from '@tanstack/react-router';
+import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
 import { useVersionCheck } from '@/hooks/use-version-check';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -7,6 +8,8 @@ import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import SkipToMain from '@/components/skip-to-main';
 import { OnboardingProvider } from '@/features/onboarding';
+import { managementLandingPath } from '@/features/portal/entry';
+import { PortalLayout } from '@/features/portal/layout';
 import { useSidebarData } from './sidebar';
 
 interface Props {
@@ -14,6 +17,16 @@ interface Props {
 }
 
 export function AuthenticatedLayout({ children }: Props) {
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const user = useAuthStore((s) => s.auth.user);
+  if (path.startsWith('/portal') || (user?.accessMode === 'portal' && path === '/settings/profile'))
+    return <PortalLayout>{children}</PortalLayout>;
+  if (user?.accessMode === 'portal' || (!managementLandingPath(user) && !path.startsWith('/settings')))
+    return <Navigate to='/portal' replace />;
+  return <ConsoleLayout>{children}</ConsoleLayout>;
+}
+
+function ConsoleLayout({ children }: Props) {
   const defaultOpen = Cookies.get('sidebar_state') !== 'false';
   const sidebarData = useSidebarData();
 

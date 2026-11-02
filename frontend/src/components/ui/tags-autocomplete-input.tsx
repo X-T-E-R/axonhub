@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { forwardRef, useEffect, useRef, useState, useMemo } from 'react';
 import { Check } from 'lucide-react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,16 +16,16 @@ interface TagsAutocompleteInputProps {
   className?: string;
   suggestions?: string[];
   isLoading?: boolean;
+  portalContainer?: HTMLElement | null;
 }
 
 export const TagsAutocompleteInput = forwardRef<HTMLDivElement, TagsAutocompleteInputProps>(
-  ({ value = [], onChange, placeholder, className, suggestions = [], isLoading }, ref) => {
+  ({ value = [], onChange, placeholder, className, suggestions = [], isLoading, portalContainer }, ref) => {
     const [inputValue, setInputValue] = useState('');
     const [open, setOpen] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-
 
     // Filter suggestions based on input and not already selected (capped for performance)
     const filteredSuggestions = useMemo(() => {
@@ -113,7 +113,11 @@ export const TagsAutocompleteInput = forwardRef<HTMLDivElement, TagsAutocomplete
 
     return (
       <div
-        ref={containerRef}
+        ref={(node) => {
+          containerRef.current = node;
+          if (typeof ref === 'function') ref(node);
+          else if (ref) ref.current = node;
+        }}
         data-tags-input-container
         className={cn(
           'border-input bg-background ring-offset-background focus-within:ring-ring flex min-h-10 w-full flex-wrap gap-1 rounded-md border px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-offset-2',
@@ -159,7 +163,7 @@ export const TagsAutocompleteInput = forwardRef<HTMLDivElement, TagsAutocomplete
               className='w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popover-trigger-width)] p-0'
               align='start'
               onOpenAutoFocus={(e) => e.preventDefault()}
-              container={containerRef.current ?? undefined}
+              container={portalContainer ?? containerRef.current ?? undefined}
             >
               <div className='max-h-[200px] overflow-y-auto p-1'>
                 {isLoading ? (

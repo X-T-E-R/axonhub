@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { BarChart4 } from 'lucide-react';
 import { IconInfoCircle } from '@tabler/icons-react';
+import { BarChart4 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { formatNumber } from '@/utils/format-number';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useTokenStats } from '../data/dashboard';
+import { TokenStatsValues } from './token-stats-values';
 
 type TimeRange = 'allTime' | 'thisMonth' | 'thisWeek' | 'thisDay';
 
@@ -39,11 +39,11 @@ function LastUpdatedInfo({ lastUpdated, locale, t }: LastUpdatedInfoProps) {
 
   return (
     <>
-      <div className='hidden sm:block w-6 h-6'>
+      <div className='hidden h-6 w-6 sm:block'>
         <TooltipProvider delayDuration={0}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button className='text-muted-foreground hover:text-foreground transition-colors w-6 h-6 flex items-center justify-center'>
+              <button className='text-muted-foreground hover:text-foreground flex h-6 w-6 items-center justify-center transition-colors'>
                 <IconInfoCircle className='h-4 w-4' />
               </button>
             </TooltipTrigger>
@@ -53,10 +53,10 @@ function LastUpdatedInfo({ lastUpdated, locale, t }: LastUpdatedInfoProps) {
           </Tooltip>
         </TooltipProvider>
       </div>
-      <div className='sm:hidden w-11 h-11'>
+      <div className='h-11 w-11 sm:hidden'>
         <Popover>
           <PopoverTrigger asChild>
-            <button className='text-muted-foreground hover:text-foreground transition-colors w-11 h-11 flex items-center justify-center'>
+            <button className='text-muted-foreground hover:text-foreground flex h-11 w-11 items-center justify-center transition-colors'>
               <IconInfoCircle className='h-5 w-5' />
             </button>
           </PopoverTrigger>
@@ -83,19 +83,19 @@ export function TokenStatsCard() {
         </CardHeader>
         <CardContent>
           <div className='flex items-end justify-between gap-2 sm:flex-col sm:gap-2 xl:flex-row xl:items-end xl:justify-between'>
-            <div className='text-center w-full sm:min-w-0 sm:flex sm:items-center sm:justify-between xl:block xl:flex-1 xl:text-center'>
+            <div className='w-full text-center sm:flex sm:min-w-0 sm:items-center sm:justify-between xl:block xl:flex-1 xl:text-center'>
               <Skeleton className='h-4 w-[40px] sm:mb-0 xl:mb-1' />
               <Skeleton className='h-6 w-[60px]' />
             </div>
             <div className='bg-border h-8 w-px shrink-0 sm:hidden xl:block'></div>
-            <div className='bg-border h-px w-full shrink-0 hidden sm:block xl:hidden'></div>
-            <div className='text-center w-full sm:min-w-0 sm:flex sm:items-center sm:justify-between xl:block xl:flex-1 xl:text-center'>
+            <div className='bg-border hidden h-px w-full shrink-0 sm:block xl:hidden'></div>
+            <div className='w-full text-center sm:flex sm:min-w-0 sm:items-center sm:justify-between xl:block xl:flex-1 xl:text-center'>
               <Skeleton className='h-4 w-[40px] sm:mb-0 xl:mb-1' />
               <Skeleton className='h-6 w-[60px]' />
             </div>
             <div className='bg-border h-8 w-px shrink-0 sm:hidden xl:block'></div>
-            <div className='bg-border h-px w-full shrink-0 hidden sm:block xl:hidden'></div>
-            <div className='text-center w-full sm:min-w-0 sm:flex sm:items-center sm:justify-between xl:block xl:flex-1 xl:text-center'>
+            <div className='bg-border hidden h-px w-full shrink-0 sm:block xl:hidden'></div>
+            <div className='w-full text-center sm:flex sm:min-w-0 sm:items-center sm:justify-between xl:block xl:flex-1 xl:text-center'>
               <Skeleton className='h-4 w-[40px] sm:mb-0 xl:mb-1' />
               <Skeleton className='h-6 w-[60px]' />
             </div>
@@ -108,14 +108,14 @@ export function TokenStatsCard() {
   if (error) {
     return (
       <Card className='hover-card min-w-0'>
-        <CardHeader className='flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0 pb-2'>
-          <div className='flex items-center gap-2 min-w-0'>
-            <div className='bg-primary/10 text-primary dark:bg-primary/20 rounded-lg p-1.5 shrink-0'>
+        <CardHeader className='flex flex-col space-y-2 pb-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0'>
+          <div className='flex min-w-0 items-center gap-2'>
+            <div className='bg-primary/10 text-primary dark:bg-primary/20 shrink-0 rounded-lg p-1.5'>
               <BarChart4 className='h-4 w-4' />
             </div>
-            <CardTitle className='text-sm font-medium truncate'>{t('dashboard.cards.tokenStats')}</CardTitle>
+            <CardTitle className='truncate text-sm font-medium'>{t('dashboard.cards.tokenStats')}</CardTitle>
           </div>
-          <div className='flex items-center gap-1 shrink-0'>
+          <div className='flex shrink-0 items-center gap-1'>
             <span className='bg-primary/10 text-primary dark:bg-primary/20 rounded-md px-2 py-1 text-xs'>{t('dashboard.stats.month')}</span>
           </div>
         </CardHeader>
@@ -159,14 +159,14 @@ export function TokenStatsCard() {
 
   return (
     <Card className='hover-card min-w-0'>
-      <CardHeader className='flex flex-wrap items-start sm:items-center justify-between gap-2 pb-2'>
+      <CardHeader className='flex flex-wrap items-start justify-between gap-2 pb-2 sm:items-center'>
         <div className='flex items-center gap-2'>
-          <div className='bg-primary/10 text-primary dark:bg-primary/20 rounded-lg p-1.5 shrink-0'>
+          <div className='bg-primary/10 text-primary dark:bg-primary/20 shrink-0 rounded-lg p-1.5'>
             <BarChart4 className='h-4 w-4' />
           </div>
-          <CardTitle className='text-sm font-medium whitespace-normal leading-tight'>{t('dashboard.cards.tokenStats')}</CardTitle>
+          <CardTitle className='text-sm leading-tight font-medium whitespace-normal'>{t('dashboard.cards.tokenStats')}</CardTitle>
         </div>
-        <div className='flex items-center gap-2 shrink-0'>
+        <div className='flex shrink-0 items-center gap-2'>
           {/* <span className='text-xs text-muted-foreground'>{t('dashboard.stats.this')}</span> */}
           <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
             <TabsList className='h-6 p-0.5'>
@@ -184,34 +184,11 @@ export function TokenStatsCard() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          {timeRange === 'allTime' && (
-            <LastUpdatedInfo
-              lastUpdated={stats?.lastUpdated ?? null}
-              locale={i18n.language}
-              t={t}
-            />
-          )}
+          {timeRange === 'allTime' && <LastUpdatedInfo lastUpdated={stats?.lastUpdated ?? null} locale={i18n.language} t={t} />}
         </div>
       </CardHeader>
       <CardContent>
-        <div className='flex items-end justify-between gap-2 sm:flex-col sm:gap-2 xl:flex-row xl:items-end xl:justify-between'>
-          <div className='text-center min-w-0 sm:flex sm:items-center sm:justify-between sm:w-full xl:block xl:text-center xl:flex-1'>
-            <div className='text-muted-foreground text-xs sm:mb-0 xl:mb-1'>{t('dashboard.stats.input')}</div>
-            <div className='font-mono text-lg font-bold'>{formatNumber(tokens.input)}</div>
-          </div>
-          <div className='bg-border h-8 w-px shrink-0 sm:hidden xl:block'></div>
-          <div className='bg-border h-px w-full shrink-0 hidden sm:block xl:hidden'></div>
-          <div className='text-center min-w-0 sm:flex sm:items-center sm:justify-between sm:w-full xl:block xl:text-center xl:flex-1'>
-            <div className='text-muted-foreground text-xs sm:mb-0 xl:mb-1'>{t('dashboard.stats.output')}</div>
-            <div className='font-mono text-lg font-bold'>{formatNumber(tokens.output)}</div>
-          </div>
-          <div className='bg-border h-8 w-px shrink-0 sm:hidden xl:block'></div>
-          <div className='bg-border h-px w-full shrink-0 hidden sm:block xl:hidden'></div>
-          <div className='text-center min-w-0 sm:flex sm:items-center sm:justify-between sm:w-full xl:block xl:text-center xl:flex-1'>
-            <div className='text-muted-foreground text-xs sm:mb-0 xl:mb-1'>{t('dashboard.stats.cached')}</div>
-            <div className='text-muted-foreground font-mono text-lg font-bold'>{formatNumber(tokens.cached)}</div>
-          </div>
-        </div>
+        <TokenStatsValues tokens={tokens} />
       </CardContent>
     </Card>
   );

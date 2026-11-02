@@ -82,16 +82,20 @@ func init() {
 	apikeyDescProjectID := apikeyFields[1].Descriptor()
 	// apikey.DefaultProjectID holds the default value on creation for the project_id field.
 	apikey.DefaultProjectID = apikeyDescProjectID.Default.(int)
+	// apikeyDescPortalManaged is the schema descriptor for portal_managed field.
+	apikeyDescPortalManaged := apikeyFields[4].Descriptor()
+	// apikey.DefaultPortalManaged holds the default value on creation for the portal_managed field.
+	apikey.DefaultPortalManaged = apikeyDescPortalManaged.Default.(bool)
 	// apikeyDescScopes is the schema descriptor for scopes field.
-	apikeyDescScopes := apikeyFields[6].Descriptor()
+	apikeyDescScopes := apikeyFields[7].Descriptor()
 	// apikey.DefaultScopes holds the default value on creation for the scopes field.
 	apikey.DefaultScopes = apikeyDescScopes.Default.([]string)
 	// apikeyDescProfiles is the schema descriptor for profiles field.
-	apikeyDescProfiles := apikeyFields[7].Descriptor()
+	apikeyDescProfiles := apikeyFields[8].Descriptor()
 	// apikey.DefaultProfiles holds the default value on creation for the profiles field.
 	apikey.DefaultProfiles = apikeyDescProfiles.Default.(*objects.APIKeyProfiles)
 	// apikeyDescAllowedIps is the schema descriptor for allowed_ips field.
-	apikeyDescAllowedIps := apikeyFields[8].Descriptor()
+	apikeyDescAllowedIps := apikeyFields[9].Descriptor()
 	// apikey.DefaultAllowedIps holds the default value on creation for the allowed_ips field.
 	apikey.DefaultAllowedIps = apikeyDescAllowedIps.Default.([]string)
 	apikeyprofiletemplateMixin := schema.APIKeyProfileTemplate{}.Mixin()
@@ -1031,7 +1035,7 @@ func init() {
 	// user.DefaultIsOwner holds the default value on creation for the is_owner field.
 	user.DefaultIsOwner = userDescIsOwner.Default.(bool)
 	// userDescScopes is the schema descriptor for scopes field.
-	userDescScopes := userFields[8].Descriptor()
+	userDescScopes := userFields[9].Descriptor()
 	// user.DefaultScopes holds the default value on creation for the scopes field.
 	user.DefaultScopes = userDescScopes.Default.([]string)
 	userprojectMixin := schema.UserProject{}.Mixin()

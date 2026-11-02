@@ -86,6 +86,7 @@ type ResolverRoot interface {
 	Mutation() MutationResolver
 	OIDCIdentity() OIDCIdentityResolver
 	Project() ProjectResolver
+	ProjectProfile() ProjectProfileResolver
 	Prompt() PromptResolver
 	PromptProtectionRule() PromptProtectionRuleResolver
 	ProviderQuotaStatus() ProviderQuotaStatusResolver
@@ -113,21 +114,22 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	APIKey struct {
-		AllowedIps func(childComplexity int) int
-		CreatedAt  func(childComplexity int) int
-		ID         func(childComplexity int) int
-		Key        func(childComplexity int) int
-		Name       func(childComplexity int) int
-		Profiles   func(childComplexity int) int
-		Project    func(childComplexity int) int
-		ProjectID  func(childComplexity int) int
-		Requests   func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
-		Scopes     func(childComplexity int) int
-		Status     func(childComplexity int) int
-		Type       func(childComplexity int) int
-		UpdatedAt  func(childComplexity int) int
-		User       func(childComplexity int) int
-		UserID     func(childComplexity int) int
+		AllowedIps    func(childComplexity int) int
+		CreatedAt     func(childComplexity int) int
+		ID            func(childComplexity int) int
+		Key           func(childComplexity int) int
+		Name          func(childComplexity int) int
+		PortalManaged func(childComplexity int) int
+		Profiles      func(childComplexity int) int
+		Project       func(childComplexity int) int
+		ProjectID     func(childComplexity int) int
+		Requests      func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
+		Scopes        func(childComplexity int) int
+		Status        func(childComplexity int) int
+		Type          func(childComplexity int) int
+		UpdatedAt     func(childComplexity int) int
+		User          func(childComplexity int) int
+		UserID        func(childComplexity int) int
 	}
 
 	APIKeyConnection struct {
@@ -1310,6 +1312,7 @@ type ComplexityRoot struct {
 		SaveChannelEndpoints                 func(childComplexity int, input biz.SaveChannelEndpointsInput) int
 		SaveChannelModelPrices               func(childComplexity int, channelID objects.GUID, input []*biz.SaveChannelModelPriceInput) int
 		SaveProxyPreset                      func(childComplexity int, input biz.ProxyPreset) int
+		SetUserAccessMode                    func(childComplexity int, id objects.GUID, mode user.AccessMode, disableLegacyKeys bool) int
 		SyncChannelModels                    func(childComplexity int, channelID objects.GUID, pattern *string) int
 		TestChannel                          func(childComplexity int, input TestChannelInput) int
 		TestChannelAPIKey                    func(childComplexity int, channelID objects.GUID, key string, modelID *string) int
@@ -1338,6 +1341,7 @@ type ComplexityRoot struct {
 		UpdateMonitoringSettings             func(childComplexity int, input biz.MonitoringSettings) int
 		UpdateMyPassword                     func(childComplexity int, input UpdateMyPasswordInput) int
 		UpdatePassThroughSettings            func(childComplexity int, input UpdatePassThroughSettingsInput) int
+		UpdatePortalSettings                 func(childComplexity int, input objects.PortalSettings) int
 		UpdateProject                        func(childComplexity int, id objects.GUID, input ent.UpdateProjectInput) int
 		UpdateProjectProfiles                func(childComplexity int, id objects.GUID, input objects.ProjectProfiles) int
 		UpdateProjectStatus                  func(childComplexity int, id objects.GUID, status project.Status) int
@@ -1443,6 +1447,20 @@ type ComplexityRoot struct {
 		Enabled func(childComplexity int) int
 	}
 
+	PortalDocument struct {
+		Markdown  func(childComplexity int) int
+		Order     func(childComplexity int) int
+		Pinned    func(childComplexity int) int
+		Published func(childComplexity int) int
+		Slug      func(childComplexity int) int
+		Title     func(childComplexity int) int
+	}
+
+	PortalSettings struct {
+		Announcements func(childComplexity int) int
+		Guides        func(childComplexity int) int
+	}
+
 	PriceTier struct {
 		PricePerUnit func(childComplexity int) int
 		UpTo         func(childComplexity int) int
@@ -1490,6 +1508,7 @@ type ComplexityRoot struct {
 		ChannelIDs           func(childComplexity int) int
 		ChannelTags          func(childComplexity int) int
 		ChannelTagsMatchMode func(childComplexity int) int
+		ModelIDs             func(childComplexity int) int
 		Name                 func(childComplexity int) int
 	}
 
@@ -1655,6 +1674,7 @@ type ComplexityRoot struct {
 		OidcIdentities               func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.OIDCIdentityOrder, where *ent.OIDCIdentityWhereInput) int
 		OnboardingInfo               func(childComplexity int) int
 		PassThroughSettings          func(childComplexity int) int
+		PortalSettings               func(childComplexity int) int
 		PreviewGcCleanup             func(childComplexity int, input gc.TriggerGcCleanupInput) int
 		Projects                     func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.ProjectOrder, where *ent.ProjectWhereInput) int
 		PromptProtectionRules        func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.PromptProtectionRuleOrder, where *ent.PromptProtectionRuleWhereInput) int
@@ -2283,6 +2303,7 @@ type ComplexityRoot struct {
 
 	User struct {
 		APIKeys                  func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.APIKeyOrder, where *ent.APIKeyWhereInput) int
+		AccessMode               func(childComplexity int) int
 		Avatar                   func(childComplexity int) int
 		ChannelOverrideTemplates func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.ChannelOverrideTemplateOrder, where *ent.ChannelOverrideTemplateWhereInput) int
 		CreatedAt                func(childComplexity int) int
@@ -2318,6 +2339,7 @@ type ComplexityRoot struct {
 	}
 
 	UserInfo struct {
+		AccessMode     func(childComplexity int) int
 		Avatar         func(childComplexity int) int
 		Email          func(childComplexity int) int
 		FirstName      func(childComplexity int) int
@@ -2528,6 +2550,7 @@ type MutationResolver interface {
 	CreateUser(ctx context.Context, input ent.CreateUserInput) (*ent.User, error)
 	UpdateUser(ctx context.Context, id objects.GUID, input ent.UpdateUserInput) (*ent.User, error)
 	UpdateUserStatus(ctx context.Context, id objects.GUID, status user.Status) (*ent.User, error)
+	SetUserAccessMode(ctx context.Context, id objects.GUID, mode user.AccessMode, disableLegacyKeys bool) (*ent.User, error)
 	DeleteUser(ctx context.Context, id objects.GUID) (bool, error)
 	CreateRole(ctx context.Context, input ent.CreateRoleInput) (*ent.Role, error)
 	UpdateRole(ctx context.Context, id objects.GUID, input ent.UpdateRoleInput) (*ent.Role, error)
@@ -2617,6 +2640,7 @@ type MutationResolver interface {
 	BulkDisablePromptProtectionRules(ctx context.Context, ids []*objects.GUID) (bool, error)
 	PreviewPromptProtectionRule(ctx context.Context, input PromptProtectionRulePreviewInput) (*PromptProtectionRulePreviewResult, error)
 	SaveChannelModelPrices(ctx context.Context, channelID objects.GUID, input []*biz.SaveChannelModelPriceInput) ([]*ent.ChannelModelPrice, error)
+	UpdatePortalSettings(ctx context.Context, input objects.PortalSettings) (*objects.PortalSettings, error)
 }
 type OIDCIdentityResolver interface {
 	ID(ctx context.Context, obj *ent.OIDCIdentity) (*objects.GUID, error)
@@ -2627,6 +2651,9 @@ type ProjectResolver interface {
 	ID(ctx context.Context, obj *ent.Project) (*objects.GUID, error)
 
 	ProjectUsers(ctx context.Context, obj *ent.Project) ([]*ent.UserProject, error)
+}
+type ProjectProfileResolver interface {
+	ModelIDs(ctx context.Context, obj *objects.ProjectProfile) ([]string, error)
 }
 type PromptResolver interface {
 	ID(ctx context.Context, obj *ent.Prompt) (*objects.GUID, error)
@@ -2722,6 +2749,7 @@ type QueryResolver interface {
 	AnalyticsOverview(ctx context.Context, filter *AnalyticsFilter) (*AnalyticsOverview, error)
 	AnalyticsDailyStats(ctx context.Context, filter *AnalyticsFilter) ([]*AnalyticsDailyStat, error)
 	AnalyticsDimensionStats(ctx context.Context, filter *AnalyticsFilter, dimension string) ([]*AnalyticsDimensionStat, error)
+	PortalSettings(ctx context.Context) (*objects.PortalSettings, error)
 }
 type RequestResolver interface {
 	ID(ctx context.Context, obj *ent.Request) (*objects.GUID, error)
@@ -2890,6 +2918,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.APIKey.Name(childComplexity), true
+	case "APIKey.portalManaged":
+		if e.complexity.APIKey.PortalManaged == nil {
+			break
+		}
+
+		return e.complexity.APIKey.PortalManaged(childComplexity), true
 	case "APIKey.profiles":
 		if e.complexity.APIKey.Profiles == nil {
 			break
@@ -8043,6 +8077,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.SaveProxyPreset(childComplexity, args["input"].(biz.ProxyPreset)), true
+	case "Mutation.setUserAccessMode":
+		if e.complexity.Mutation.SetUserAccessMode == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setUserAccessMode_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetUserAccessMode(childComplexity, args["id"].(objects.GUID), args["mode"].(user.AccessMode), args["disableLegacyKeys"].(bool)), true
 	case "Mutation.syncChannelModels":
 		if e.complexity.Mutation.SyncChannelModels == nil {
 			break
@@ -8346,6 +8391,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdatePassThroughSettings(childComplexity, args["input"].(UpdatePassThroughSettingsInput)), true
+	case "Mutation.updatePortalSettings":
+		if e.complexity.Mutation.UpdatePortalSettings == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updatePortalSettings_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpdatePortalSettings(childComplexity, args["input"].(objects.PortalSettings)), true
 	case "Mutation.updateProject":
 		if e.complexity.Mutation.UpdateProject == nil {
 			break
@@ -8888,6 +8944,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.PassThroughSettings.Enabled(childComplexity), true
 
+	case "PortalDocument.markdown":
+		if e.complexity.PortalDocument.Markdown == nil {
+			break
+		}
+
+		return e.complexity.PortalDocument.Markdown(childComplexity), true
+	case "PortalDocument.order":
+		if e.complexity.PortalDocument.Order == nil {
+			break
+		}
+
+		return e.complexity.PortalDocument.Order(childComplexity), true
+	case "PortalDocument.pinned":
+		if e.complexity.PortalDocument.Pinned == nil {
+			break
+		}
+
+		return e.complexity.PortalDocument.Pinned(childComplexity), true
+	case "PortalDocument.published":
+		if e.complexity.PortalDocument.Published == nil {
+			break
+		}
+
+		return e.complexity.PortalDocument.Published(childComplexity), true
+	case "PortalDocument.slug":
+		if e.complexity.PortalDocument.Slug == nil {
+			break
+		}
+
+		return e.complexity.PortalDocument.Slug(childComplexity), true
+	case "PortalDocument.title":
+		if e.complexity.PortalDocument.Title == nil {
+			break
+		}
+
+		return e.complexity.PortalDocument.Title(childComplexity), true
+
+	case "PortalSettings.announcements":
+		if e.complexity.PortalSettings.Announcements == nil {
+			break
+		}
+
+		return e.complexity.PortalSettings.Announcements(childComplexity), true
+	case "PortalSettings.guides":
+		if e.complexity.PortalSettings.Guides == nil {
+			break
+		}
+
+		return e.complexity.PortalSettings.Guides(childComplexity), true
+
 	case "PriceTier.pricePerUnit":
 		if e.complexity.PriceTier.PricePerUnit == nil {
 			break
@@ -9124,6 +9230,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ProjectProfile.ChannelTagsMatchMode(childComplexity), true
+	case "ProjectProfile.modelIDs":
+		if e.complexity.ProjectProfile.ModelIDs == nil {
+			break
+		}
+
+		return e.complexity.ProjectProfile.ModelIDs(childComplexity), true
 	case "ProjectProfile.name":
 		if e.complexity.ProjectProfile.Name == nil {
 			break
@@ -9953,6 +10065,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.PassThroughSettings(childComplexity), true
+	case "Query.portalSettings":
+		if e.complexity.Query.PortalSettings == nil {
+			break
+		}
+
+		return e.complexity.Query.PortalSettings(childComplexity), true
 	case "Query.previewGcCleanup":
 		if e.complexity.Query.PreviewGcCleanup == nil {
 			break
@@ -12598,6 +12716,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.User.APIKeys(childComplexity, args["after"].(*entgql.Cursor[int]), args["first"].(*int), args["before"].(*entgql.Cursor[int]), args["last"].(*int), args["orderBy"].(*ent.APIKeyOrder), args["where"].(*ent.APIKeyWhereInput)), true
+	case "User.accessMode":
+		if e.complexity.User.AccessMode == nil {
+			break
+		}
+
+		return e.complexity.User.AccessMode(childComplexity), true
 	case "User.avatar":
 		if e.complexity.User.Avatar == nil {
 			break
@@ -12760,6 +12884,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.UserEdge.Node(childComplexity), true
 
+	case "UserInfo.accessMode":
+		if e.complexity.UserInfo.AccessMode == nil {
+			break
+		}
+
+		return e.complexity.UserInfo.AccessMode(childComplexity), true
 	case "UserInfo.avatar":
 		if e.complexity.UserInfo.Avatar == nil {
 			break
@@ -13240,6 +13370,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputOpenCodeGoQuotaSettingsInput,
 		ec.unmarshalInputOverrideMatchInput,
 		ec.unmarshalInputOverrideOperationInput,
+		ec.unmarshalInputPortalDocumentInput,
+		ec.unmarshalInputPortalSettingsInput,
 		ec.unmarshalInputPriceTierInput,
 		ec.unmarshalInputPricingInput,
 		ec.unmarshalInputProjectOrder,
@@ -13439,7 +13571,7 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 	return introspection.WrapTypeFromDef(ec.Schema(), ec.Schema().Types[name]), nil
 }
 
-//go:embed "axonhub.graphql" "ent.graphql" "dashboard.graphql" "scopes.graphql" "me.graphql" "system.graphql" "filter.graphql" "model.graphql" "backup.graphql" "channel_probe.graphql" "prompt.graphql" "prompt_protection_rule.graphql" "price.graphql" "cost.graphql" "analytics.graphql"
+//go:embed "axonhub.graphql" "ent.graphql" "dashboard.graphql" "scopes.graphql" "me.graphql" "system.graphql" "filter.graphql" "model.graphql" "backup.graphql" "channel_probe.graphql" "prompt.graphql" "prompt_protection_rule.graphql" "price.graphql" "cost.graphql" "analytics.graphql" "portal_settings.graphql"
 var sourcesFS embed.FS
 
 func sourceData(filename string) string {
@@ -13466,6 +13598,7 @@ var sources = []*ast.Source{
 	{Name: "price.graphql", Input: sourceData("price.graphql"), BuiltIn: false},
 	{Name: "cost.graphql", Input: sourceData("cost.graphql"), BuiltIn: false},
 	{Name: "analytics.graphql", Input: sourceData("analytics.graphql"), BuiltIn: false},
+	{Name: "portal_settings.graphql", Input: sourceData("portal_settings.graphql"), BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
@@ -14636,6 +14769,27 @@ func (ec *executionContext) field_Mutation_saveProxyPreset_args(ctx context.Cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setUserAccessMode_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "mode", ec.unmarshalNUserAccessMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode)
+	if err != nil {
+		return nil, err
+	}
+	args["mode"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "disableLegacyKeys", ec.unmarshalNBoolean2bool)
+	if err != nil {
+		return nil, err
+	}
+	args["disableLegacyKeys"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_syncChannelModels_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -15001,6 +15155,17 @@ func (ec *executionContext) field_Mutation_updatePassThroughSettings_args(ctx co
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNUpdatePassThroughSettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐUpdatePassThroughSettingsInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_updatePortalSettings_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNPortalSettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -17285,6 +17450,35 @@ func (ec *executionContext) fieldContext_APIKey_name(_ context.Context, field gr
 	return fc, nil
 }
 
+func (ec *executionContext) _APIKey_portalManaged(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_portalManaged,
+		func(ctx context.Context) (any, error) {
+			return obj.PortalManaged, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_portalManaged(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _APIKey_type(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -17480,6 +17674,8 @@ func (ec *executionContext) fieldContext_APIKey_user(_ context.Context, field gr
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -17758,6 +17954,8 @@ func (ec *executionContext) fieldContext_APIKeyEdge_node(_ context.Context, fiel
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -30377,6 +30575,8 @@ func (ec *executionContext) fieldContext_ChannelOverrideTemplate_user(_ context.
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -36542,6 +36742,8 @@ func (ec *executionContext) fieldContext_InitializeSystemPayload_user(_ context.
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -41566,6 +41768,8 @@ func (ec *executionContext) fieldContext_Mutation_createAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -41639,6 +41843,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -41712,6 +41918,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyStatus(ctx context
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -41785,6 +41993,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyProfiles(ctx conte
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -41858,6 +42068,8 @@ func (ec *executionContext) fieldContext_Mutation_rotateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -42060,6 +42272,8 @@ func (ec *executionContext) fieldContext_Mutation_createUser(ctx context.Context
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -42139,6 +42353,8 @@ func (ec *executionContext) fieldContext_Mutation_updateUser(ctx context.Context
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -42218,6 +42434,8 @@ func (ec *executionContext) fieldContext_Mutation_updateUserStatus(ctx context.C
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -42246,6 +42464,87 @@ func (ec *executionContext) fieldContext_Mutation_updateUserStatus(ctx context.C
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_updateUserStatus_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setUserAccessMode(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_setUserAccessMode,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().SetUserAccessMode(ctx, fc.Args["id"].(objects.GUID), fc.Args["mode"].(user.AccessMode), fc.Args["disableLegacyKeys"].(bool))
+		},
+		nil,
+		ec.marshalNUser2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐUser,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setUserAccessMode(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_User_id(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_User_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_User_updatedAt(ctx, field)
+			case "email":
+				return ec.fieldContext_User_email(ctx, field)
+			case "status":
+				return ec.fieldContext_User_status(ctx, field)
+			case "preferLanguage":
+				return ec.fieldContext_User_preferLanguage(ctx, field)
+			case "firstName":
+				return ec.fieldContext_User_firstName(ctx, field)
+			case "lastName":
+				return ec.fieldContext_User_lastName(ctx, field)
+			case "avatar":
+				return ec.fieldContext_User_avatar(ctx, field)
+			case "isOwner":
+				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
+			case "scopes":
+				return ec.fieldContext_User_scopes(ctx, field)
+			case "projects":
+				return ec.fieldContext_User_projects(ctx, field)
+			case "apiKeys":
+				return ec.fieldContext_User_apiKeys(ctx, field)
+			case "roles":
+				return ec.fieldContext_User_roles(ctx, field)
+			case "channelOverrideTemplates":
+				return ec.fieldContext_User_channelOverrideTemplates(ctx, field)
+			case "oidcIdentities":
+				return ec.fieldContext_User_oidcIdentities(ctx, field)
+			case "projectUsers":
+				return ec.fieldContext_User_projectUsers(ctx, field)
+			case "userRoles":
+				return ec.fieldContext_User_userRoles(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setUserAccessMode_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -43675,6 +43974,8 @@ func (ec *executionContext) fieldContext_Mutation_loadApiKeyProfileTemplate(ctx 
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -44082,6 +44383,8 @@ func (ec *executionContext) fieldContext_Mutation_updateMe(ctx context.Context, 
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -46579,6 +46882,53 @@ func (ec *executionContext) fieldContext_Mutation_saveChannelModelPrices(ctx con
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_updatePortalSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_updatePortalSettings,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().UpdatePortalSettings(ctx, fc.Args["input"].(objects.PortalSettings))
+		},
+		nil,
+		ec.marshalNPortalSettings2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalSettings,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updatePortalSettings(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "announcements":
+				return ec.fieldContext_PortalSettings_announcements(ctx, field)
+			case "guides":
+				return ec.fieldContext_PortalSettings_guides(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PortalSettings", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updatePortalSettings_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _OAuthCredentials_accessToken(ctx context.Context, field graphql.CollectedField, obj *oauth.OAuthCredentials) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -47058,6 +47408,8 @@ func (ec *executionContext) fieldContext_OIDCIdentity_user(_ context.Context, fi
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -48060,6 +48412,266 @@ func (ec *executionContext) fieldContext_PassThroughSettings_enabled(_ context.C
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalDocument_slug(ctx context.Context, field graphql.CollectedField, obj *objects.PortalDocument) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalDocument_slug,
+		func(ctx context.Context) (any, error) {
+			return obj.Slug, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalDocument_slug(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalDocument",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalDocument_title(ctx context.Context, field graphql.CollectedField, obj *objects.PortalDocument) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalDocument_title,
+		func(ctx context.Context) (any, error) {
+			return obj.Title, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalDocument_title(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalDocument",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalDocument_markdown(ctx context.Context, field graphql.CollectedField, obj *objects.PortalDocument) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalDocument_markdown,
+		func(ctx context.Context) (any, error) {
+			return obj.Markdown, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalDocument_markdown(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalDocument",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalDocument_published(ctx context.Context, field graphql.CollectedField, obj *objects.PortalDocument) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalDocument_published,
+		func(ctx context.Context) (any, error) {
+			return obj.Published, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalDocument_published(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalDocument",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalDocument_pinned(ctx context.Context, field graphql.CollectedField, obj *objects.PortalDocument) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalDocument_pinned,
+		func(ctx context.Context) (any, error) {
+			return obj.Pinned, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalDocument_pinned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalDocument",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalDocument_order(ctx context.Context, field graphql.CollectedField, obj *objects.PortalDocument) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalDocument_order,
+		func(ctx context.Context) (any, error) {
+			return obj.Order, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalDocument_order(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalDocument",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalSettings_announcements(ctx context.Context, field graphql.CollectedField, obj *objects.PortalSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalSettings_announcements,
+		func(ctx context.Context) (any, error) {
+			return obj.Announcements, nil
+		},
+		nil,
+		ec.marshalNPortalDocument2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocumentᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalSettings_announcements(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "slug":
+				return ec.fieldContext_PortalDocument_slug(ctx, field)
+			case "title":
+				return ec.fieldContext_PortalDocument_title(ctx, field)
+			case "markdown":
+				return ec.fieldContext_PortalDocument_markdown(ctx, field)
+			case "published":
+				return ec.fieldContext_PortalDocument_published(ctx, field)
+			case "pinned":
+				return ec.fieldContext_PortalDocument_pinned(ctx, field)
+			case "order":
+				return ec.fieldContext_PortalDocument_order(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PortalDocument", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PortalSettings_guides(ctx context.Context, field graphql.CollectedField, obj *objects.PortalSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PortalSettings_guides,
+		func(ctx context.Context) (any, error) {
+			return obj.Guides, nil
+		},
+		nil,
+		ec.marshalNPortalDocument2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocumentᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PortalSettings_guides(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PortalSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "slug":
+				return ec.fieldContext_PortalDocument_slug(ctx, field)
+			case "title":
+				return ec.fieldContext_PortalDocument_title(ctx, field)
+			case "markdown":
+				return ec.fieldContext_PortalDocument_markdown(ctx, field)
+			case "published":
+				return ec.fieldContext_PortalDocument_published(ctx, field)
+			case "pinned":
+				return ec.fieldContext_PortalDocument_pinned(ctx, field)
+			case "order":
+				return ec.fieldContext_PortalDocument_order(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PortalDocument", field.Name)
 		},
 	}
 	return fc, nil
@@ -49168,6 +49780,35 @@ func (ec *executionContext) fieldContext_ProjectProfile_name(_ context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _ProjectProfile_modelIDs(ctx context.Context, field graphql.CollectedField, obj *objects.ProjectProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ProjectProfile_modelIDs,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ProjectProfile().ModelIDs(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ProjectProfile_modelIDs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ProjectProfile",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ProjectProfile_channelIDs(ctx context.Context, field graphql.CollectedField, obj *objects.ProjectProfile) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -49310,6 +49951,8 @@ func (ec *executionContext) fieldContext_ProjectProfiles_profiles(_ context.Cont
 			switch field.Name {
 			case "name":
 				return ec.fieldContext_ProjectProfile_name(ctx, field)
+			case "modelIDs":
+				return ec.fieldContext_ProjectProfile_modelIDs(ctx, field)
 			case "channelIDs":
 				return ec.fieldContext_ProjectProfile_channelIDs(ctx, field)
 			case "channelTags":
@@ -53852,6 +54495,8 @@ func (ec *executionContext) fieldContext_Query_me(_ context.Context, field graph
 				return ec.fieldContext_UserInfo_lastName(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_UserInfo_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_UserInfo_accessMode(ctx, field)
 			case "preferLanguage":
 				return ec.fieldContext_UserInfo_preferLanguage(ctx, field)
 			case "avatar":
@@ -55288,6 +55933,41 @@ func (ec *executionContext) fieldContext_Query_analyticsDimensionStats(ctx conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_portalSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_portalSettings,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().PortalSettings(ctx)
+		},
+		nil,
+		ec.marshalNPortalSettings2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalSettings,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_portalSettings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "announcements":
+				return ec.fieldContext_PortalSettings_announcements(ctx, field)
+			case "guides":
+				return ec.fieldContext_PortalSettings_guides(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PortalSettings", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -56428,6 +57108,8 @@ func (ec *executionContext) fieldContext_Request_apiKey(_ context.Context, field
 				return ec.fieldContext_APIKey_key(ctx, field)
 			case "name":
 				return ec.fieldContext_APIKey_name(ctx, field)
+			case "portalManaged":
+				return ec.fieldContext_APIKey_portalManaged(ctx, field)
 			case "type":
 				return ec.fieldContext_APIKey_type(ctx, field)
 			case "status":
@@ -60602,6 +61284,8 @@ func (ec *executionContext) fieldContext_SignInPayload_user(_ context.Context, f
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -67836,6 +68520,35 @@ func (ec *executionContext) fieldContext_User_isOwner(_ context.Context, field g
 	return fc, nil
 }
 
+func (ec *executionContext) _User_accessMode(ctx context.Context, field graphql.CollectedField, obj *ent.User) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_User_accessMode,
+		func(ctx context.Context) (any, error) {
+			return obj.AccessMode, nil
+		},
+		nil,
+		ec.marshalNUserAccessMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_User_accessMode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "User",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UserAccessMode does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _User_scopes(ctx context.Context, field graphql.CollectedField, obj *ent.User) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -68380,6 +69093,8 @@ func (ec *executionContext) fieldContext_UserEdge_node(_ context.Context, field 
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -68572,6 +69287,35 @@ func (ec *executionContext) fieldContext_UserInfo_isOwner(_ context.Context, fie
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _UserInfo_accessMode(ctx context.Context, field graphql.CollectedField, obj *objects.UserInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_UserInfo_accessMode,
+		func(ctx context.Context) (any, error) {
+			return obj.AccessMode, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_UserInfo_accessMode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "UserInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -69053,6 +69797,8 @@ func (ec *executionContext) fieldContext_UserProject_user(_ context.Context, fie
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -69450,6 +70196,8 @@ func (ec *executionContext) fieldContext_UserRole_user(_ context.Context, field 
 				return ec.fieldContext_User_avatar(ctx, field)
 			case "isOwner":
 				return ec.fieldContext_User_isOwner(ctx, field)
+			case "accessMode":
+				return ec.fieldContext_User_accessMode(ctx, field)
 			case "scopes":
 				return ec.fieldContext_User_scopes(ctx, field)
 			case "projects":
@@ -72537,7 +73285,7 @@ func (ec *executionContext) unmarshalInputAPIKeyWhereInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "userID", "userIDNEQ", "userIDIn", "userIDNotIn", "userIDIsNil", "userIDNotNil", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "key", "keyNEQ", "keyIn", "keyNotIn", "keyGT", "keyGTE", "keyLT", "keyLTE", "keyContains", "keyHasPrefix", "keyHasSuffix", "keyEqualFold", "keyContainsFold", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "type", "typeNEQ", "typeIn", "typeNotIn", "status", "statusNEQ", "statusIn", "statusNotIn", "hasUser", "hasUserWith", "hasProject", "hasProjectWith", "hasRequests", "hasRequestsWith"}
+	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "userID", "userIDNEQ", "userIDIn", "userIDNotIn", "userIDIsNil", "userIDNotNil", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "key", "keyNEQ", "keyIn", "keyNotIn", "keyGT", "keyGTE", "keyLT", "keyLTE", "keyContains", "keyHasPrefix", "keyHasSuffix", "keyEqualFold", "keyContainsFold", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "portalManaged", "portalManagedNEQ", "type", "typeNEQ", "typeIn", "typeNotIn", "status", "statusNEQ", "statusIn", "statusNotIn", "hasUser", "hasUserWith", "hasProject", "hasProjectWith", "hasRequests", "hasRequestsWith"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -73049,6 +73797,20 @@ func (ec *executionContext) unmarshalInputAPIKeyWhereInput(ctx context.Context, 
 				return it, err
 			}
 			it.NameContainsFold = data
+		case "portalManaged":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("portalManaged"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PortalManaged = data
+		case "portalManagedNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("portalManagedNEQ"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PortalManagedNEQ = data
 		case "type":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("type"))
 			data, err := ec.unmarshalOAPIKeyType2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋapikeyᚐType(ctx, v)
@@ -86380,6 +87142,102 @@ func (ec *executionContext) unmarshalInputOverrideOperationInput(ctx context.Con
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputPortalDocumentInput(ctx context.Context, obj any) (objects.PortalDocument, error) {
+	var it objects.PortalDocument
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"slug", "title", "markdown", "published", "pinned", "order"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "slug":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("slug"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Slug = data
+		case "title":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("title"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Title = data
+		case "markdown":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("markdown"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Markdown = data
+		case "published":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("published"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Published = data
+		case "pinned":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("pinned"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Pinned = data
+		case "order":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("order"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Order = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputPortalSettingsInput(ctx context.Context, obj any) (objects.PortalSettings, error) {
+	var it objects.PortalSettings
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"announcements", "guides"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "announcements":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("announcements"))
+			data, err := ec.unmarshalNPortalDocumentInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocumentᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Announcements = data
+		case "guides":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("guides"))
+			data, err := ec.unmarshalNPortalDocumentInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocumentᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Guides = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputPriceTierInput(ctx context.Context, obj any) (objects.PriceTier, error) {
 	var it objects.PriceTier
 	asMap := map[string]any{}
@@ -86507,7 +87365,7 @@ func (ec *executionContext) unmarshalInputProjectProfileInput(ctx context.Contex
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "channelIDs", "channelTags", "channelTagsMatchMode"}
+	fieldsInOrder := [...]string{"name", "modelIDs", "channelIDs", "channelTags", "channelTagsMatchMode"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -86521,6 +87379,13 @@ func (ec *executionContext) unmarshalInputProjectProfileInput(ctx context.Contex
 				return it, err
 			}
 			it.Name = data
+		case "modelIDs":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("modelIDs"))
+			data, err := ec.unmarshalOString2ᚖᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ModelIDs = data
 		case "channelIDs":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("channelIDs"))
 			data, err := ec.unmarshalOInt2ᚕintᚄ(ctx, v)
@@ -100291,7 +101156,7 @@ func (ec *executionContext) unmarshalInputUserWhereInput(ctx context.Context, ob
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "email", "emailNEQ", "emailIn", "emailNotIn", "emailGT", "emailGTE", "emailLT", "emailLTE", "emailContains", "emailHasPrefix", "emailHasSuffix", "emailEqualFold", "emailContainsFold", "status", "statusNEQ", "statusIn", "statusNotIn", "preferLanguage", "preferLanguageNEQ", "preferLanguageIn", "preferLanguageNotIn", "preferLanguageGT", "preferLanguageGTE", "preferLanguageLT", "preferLanguageLTE", "preferLanguageContains", "preferLanguageHasPrefix", "preferLanguageHasSuffix", "preferLanguageEqualFold", "preferLanguageContainsFold", "firstName", "firstNameNEQ", "firstNameIn", "firstNameNotIn", "firstNameGT", "firstNameGTE", "firstNameLT", "firstNameLTE", "firstNameContains", "firstNameHasPrefix", "firstNameHasSuffix", "firstNameEqualFold", "firstNameContainsFold", "lastName", "lastNameNEQ", "lastNameIn", "lastNameNotIn", "lastNameGT", "lastNameGTE", "lastNameLT", "lastNameLTE", "lastNameContains", "lastNameHasPrefix", "lastNameHasSuffix", "lastNameEqualFold", "lastNameContainsFold", "avatar", "avatarNEQ", "avatarIn", "avatarNotIn", "avatarGT", "avatarGTE", "avatarLT", "avatarLTE", "avatarContains", "avatarHasPrefix", "avatarHasSuffix", "avatarIsNil", "avatarNotNil", "avatarEqualFold", "avatarContainsFold", "isOwner", "isOwnerNEQ", "hasProjects", "hasProjectsWith", "hasAPIKeys", "hasAPIKeysWith", "hasRoles", "hasRolesWith", "hasChannelOverrideTemplates", "hasChannelOverrideTemplatesWith", "hasOidcIdentities", "hasOidcIdentitiesWith", "hasProjectUsers", "hasProjectUsersWith", "hasUserRoles", "hasUserRolesWith"}
+	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "email", "emailNEQ", "emailIn", "emailNotIn", "emailGT", "emailGTE", "emailLT", "emailLTE", "emailContains", "emailHasPrefix", "emailHasSuffix", "emailEqualFold", "emailContainsFold", "status", "statusNEQ", "statusIn", "statusNotIn", "preferLanguage", "preferLanguageNEQ", "preferLanguageIn", "preferLanguageNotIn", "preferLanguageGT", "preferLanguageGTE", "preferLanguageLT", "preferLanguageLTE", "preferLanguageContains", "preferLanguageHasPrefix", "preferLanguageHasSuffix", "preferLanguageEqualFold", "preferLanguageContainsFold", "firstName", "firstNameNEQ", "firstNameIn", "firstNameNotIn", "firstNameGT", "firstNameGTE", "firstNameLT", "firstNameLTE", "firstNameContains", "firstNameHasPrefix", "firstNameHasSuffix", "firstNameEqualFold", "firstNameContainsFold", "lastName", "lastNameNEQ", "lastNameIn", "lastNameNotIn", "lastNameGT", "lastNameGTE", "lastNameLT", "lastNameLTE", "lastNameContains", "lastNameHasPrefix", "lastNameHasSuffix", "lastNameEqualFold", "lastNameContainsFold", "avatar", "avatarNEQ", "avatarIn", "avatarNotIn", "avatarGT", "avatarGTE", "avatarLT", "avatarLTE", "avatarContains", "avatarHasPrefix", "avatarHasSuffix", "avatarIsNil", "avatarNotNil", "avatarEqualFold", "avatarContainsFold", "isOwner", "isOwnerNEQ", "accessMode", "accessModeNEQ", "accessModeIn", "accessModeNotIn", "hasProjects", "hasProjectsWith", "hasAPIKeys", "hasAPIKeysWith", "hasRoles", "hasRolesWith", "hasChannelOverrideTemplates", "hasChannelOverrideTemplatesWith", "hasOidcIdentities", "hasOidcIdentitiesWith", "hasProjectUsers", "hasProjectUsersWith", "hasUserRoles", "hasUserRolesWith"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -101030,6 +101895,34 @@ func (ec *executionContext) unmarshalInputUserWhereInput(ctx context.Context, ob
 				return it, err
 			}
 			it.IsOwnerNEQ = data
+		case "accessMode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessMode"))
+			data, err := ec.unmarshalOUserAccessMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessMode = data
+		case "accessModeNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessModeNEQ"))
+			data, err := ec.unmarshalOUserAccessMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessModeNEQ = data
+		case "accessModeIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessModeIn"))
+			data, err := ec.unmarshalOUserAccessMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessModeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessModeIn = data
+		case "accessModeNotIn":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("accessModeNotIn"))
+			data, err := ec.unmarshalOUserAccessMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessModeᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AccessModeNotIn = data
 		case "hasProjects":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasProjects"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -101601,6 +102494,11 @@ func (ec *executionContext) _APIKey(ctx context.Context, sel ast.SelectionSet, o
 			}
 		case "name":
 			out.Values[i] = ec._APIKey_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "portalManaged":
+			out.Values[i] = ec._APIKey_portalManaged(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -110841,6 +111739,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "setUserAccessMode":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setUserAccessMode(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "deleteUser":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_deleteUser(ctx, field)
@@ -111460,6 +112365,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "saveChannelModelPrices":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_saveChannelModelPrices(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updatePortalSettings":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updatePortalSettings(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -112090,6 +113002,114 @@ func (ec *executionContext) _PassThroughSettings(ctx context.Context, sel ast.Se
 			out.Values[i] = graphql.MarshalString("PassThroughSettings")
 		case "enabled":
 			out.Values[i] = ec._PassThroughSettings_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var portalDocumentImplementors = []string{"PortalDocument"}
+
+func (ec *executionContext) _PortalDocument(ctx context.Context, sel ast.SelectionSet, obj *objects.PortalDocument) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, portalDocumentImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PortalDocument")
+		case "slug":
+			out.Values[i] = ec._PortalDocument_slug(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "title":
+			out.Values[i] = ec._PortalDocument_title(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "markdown":
+			out.Values[i] = ec._PortalDocument_markdown(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "published":
+			out.Values[i] = ec._PortalDocument_published(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pinned":
+			out.Values[i] = ec._PortalDocument_pinned(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "order":
+			out.Values[i] = ec._PortalDocument_order(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var portalSettingsImplementors = []string{"PortalSettings"}
+
+func (ec *executionContext) _PortalSettings(ctx context.Context, sel ast.SelectionSet, obj *objects.PortalSettings) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, portalSettingsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PortalSettings")
+		case "announcements":
+			out.Values[i] = ec._PortalSettings_announcements(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "guides":
+			out.Values[i] = ec._PortalSettings_guides(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -112757,8 +113777,41 @@ func (ec *executionContext) _ProjectProfile(ctx context.Context, sel ast.Selecti
 		case "name":
 			out.Values[i] = ec._ProjectProfile_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "modelIDs":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ProjectProfile_modelIDs(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "channelIDs":
 			out.Values[i] = ec._ProjectProfile_channelIDs(ctx, field, obj)
 		case "channelTags":
@@ -115632,6 +116685,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_analyticsDimensionStats(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "portalSettings":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_portalSettings(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -121725,6 +122800,11 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "accessMode":
+			out.Values[i] = ec._User_accessMode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "scopes":
 			out.Values[i] = ec._User_scopes(ctx, field, obj)
 		case "projects":
@@ -122155,6 +123235,11 @@ func (ec *executionContext) _UserInfo(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "isOwner":
 			out.Values[i] = ec._UserInfo_isOwner(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "accessMode":
+			out.Values[i] = ec._UserInfo_accessMode(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -127454,6 +128539,99 @@ func (ec *executionContext) marshalNPassThroughSettings2ᚖgithubᚗcomᚋlooplj
 	return ec._PassThroughSettings(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNPortalDocument2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocumentᚄ(ctx context.Context, sel ast.SelectionSet, v []*objects.PortalDocument) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNPortalDocument2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocument(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNPortalDocument2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocument(ctx context.Context, sel ast.SelectionSet, v *objects.PortalDocument) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._PortalDocument(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNPortalDocumentInput2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocumentᚄ(ctx context.Context, v any) ([]*objects.PortalDocument, error) {
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]*objects.PortalDocument, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNPortalDocumentInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocument(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalNPortalDocumentInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalDocument(ctx context.Context, v any) (*objects.PortalDocument, error) {
+	res, err := ec.unmarshalInputPortalDocumentInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNPortalSettings2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalSettings(ctx context.Context, sel ast.SelectionSet, v objects.PortalSettings) graphql.Marshaler {
+	return ec._PortalSettings(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPortalSettings2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalSettings(ctx context.Context, sel ast.SelectionSet, v *objects.PortalSettings) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._PortalSettings(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNPortalSettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPortalSettings(ctx context.Context, v any) (objects.PortalSettings, error) {
+	res, err := ec.unmarshalInputPortalSettingsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNPriceItemCode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐPriceItemCode(ctx context.Context, v any) (objects.PriceItemCode, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := objects.PriceItemCode(tmp)
@@ -129719,6 +130897,16 @@ func (ec *executionContext) marshalNUser2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋin
 		return graphql.Null
 	}
 	return ec._User(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNUserAccessMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx context.Context, v any) (user.AccessMode, error) {
+	var res user.AccessMode
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNUserAccessMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx context.Context, sel ast.SelectionSet, v user.AccessMode) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNUserAgentPassThroughSettings2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐUserAgentPassThroughSettings(ctx context.Context, sel ast.SelectionSet, v UserAgentPassThroughSettings) graphql.Marshaler {
@@ -136877,6 +138065,18 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	return res
 }
 
+func (ec *executionContext) unmarshalOString2ᚖᚕstringᚄ(ctx context.Context, v any) (*[]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOString2ᚖᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v *[]string) graphql.Marshaler {
+	return ec.marshalOString2ᚕstringᚄ(ctx, sel, *v)
+}
+
 func (ec *executionContext) marshalOSystem2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐSystem(ctx context.Context, sel ast.SelectionSet, v *ent.System) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -137675,6 +138875,87 @@ func (ec *executionContext) marshalOUser2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋin
 		return graphql.Null
 	}
 	return ec._User(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOUserAccessMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessModeᚄ(ctx context.Context, v any) ([]user.AccessMode, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]user.AccessMode, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNUserAccessMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalOUserAccessMode2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessModeᚄ(ctx context.Context, sel ast.SelectionSet, v []user.AccessMode) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNUserAccessMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOUserAccessMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx context.Context, v any) (*user.AccessMode, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(user.AccessMode)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOUserAccessMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋuserᚐAccessMode(ctx context.Context, sel ast.SelectionSet, v *user.AccessMode) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) marshalOUserEdge2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐUserEdge(ctx context.Context, sel ast.SelectionSet, v []*ent.UserEdge) graphql.Marshaler {

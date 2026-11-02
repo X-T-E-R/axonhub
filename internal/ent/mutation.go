@@ -92,6 +92,7 @@ type APIKeyMutation struct {
 	adddeleted_at     *int
 	key               *string
 	name              *string
+	portal_managed    *bool
 	_type             *apikey.Type
 	status            *apikey.Status
 	scopes            *[]string
@@ -495,6 +496,42 @@ func (m *APIKeyMutation) ResetName() {
 	m.name = nil
 }
 
+// SetPortalManaged sets the "portal_managed" field.
+func (m *APIKeyMutation) SetPortalManaged(b bool) {
+	m.portal_managed = &b
+}
+
+// PortalManaged returns the value of the "portal_managed" field in the mutation.
+func (m *APIKeyMutation) PortalManaged() (r bool, exists bool) {
+	v := m.portal_managed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPortalManaged returns the old "portal_managed" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldPortalManaged(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPortalManaged is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPortalManaged requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPortalManaged: %w", err)
+	}
+	return oldValue.PortalManaged, nil
+}
+
+// ResetPortalManaged resets all changes to the "portal_managed" field.
+func (m *APIKeyMutation) ResetPortalManaged() {
+	m.portal_managed = nil
+}
+
 // SetType sets the "type" field.
 func (m *APIKeyMutation) SetType(a apikey.Type) {
 	m._type = &a
@@ -888,7 +925,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -909,6 +946,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.name != nil {
 		fields = append(fields, apikey.FieldName)
+	}
+	if m.portal_managed != nil {
+		fields = append(fields, apikey.FieldPortalManaged)
 	}
 	if m._type != nil {
 		fields = append(fields, apikey.FieldType)
@@ -947,6 +987,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Key()
 	case apikey.FieldName:
 		return m.Name()
+	case apikey.FieldPortalManaged:
+		return m.PortalManaged()
 	case apikey.FieldType:
 		return m.GetType()
 	case apikey.FieldStatus:
@@ -980,6 +1022,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldKey(ctx)
 	case apikey.FieldName:
 		return m.OldName(ctx)
+	case apikey.FieldPortalManaged:
+		return m.OldPortalManaged(ctx)
 	case apikey.FieldType:
 		return m.OldType(ctx)
 	case apikey.FieldStatus:
@@ -1047,6 +1091,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetName(v)
+		return nil
+	case apikey.FieldPortalManaged:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPortalManaged(v)
 		return nil
 	case apikey.FieldType:
 		v, ok := value.(apikey.Type)
@@ -1194,6 +1245,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldName:
 		m.ResetName()
+		return nil
+	case apikey.FieldPortalManaged:
+		m.ResetPortalManaged()
 		return nil
 	case apikey.FieldType:
 		m.ResetType()
@@ -29810,6 +29864,7 @@ type UserMutation struct {
 	last_name                         *string
 	avatar                            *string
 	is_owner                          *bool
+	access_mode                       *user.AccessMode
 	scopes                            *[]string
 	appendscopes                      []string
 	clearedFields                     map[string]struct{}
@@ -30366,6 +30421,42 @@ func (m *UserMutation) ResetIsOwner() {
 	m.is_owner = nil
 }
 
+// SetAccessMode sets the "access_mode" field.
+func (m *UserMutation) SetAccessMode(um user.AccessMode) {
+	m.access_mode = &um
+}
+
+// AccessMode returns the value of the "access_mode" field in the mutation.
+func (m *UserMutation) AccessMode() (r user.AccessMode, exists bool) {
+	v := m.access_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccessMode returns the old "access_mode" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldAccessMode(ctx context.Context) (v user.AccessMode, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccessMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccessMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccessMode: %w", err)
+	}
+	return oldValue.AccessMode, nil
+}
+
+// ResetAccessMode resets all changes to the "access_mode" field.
+func (m *UserMutation) ResetAccessMode() {
+	m.access_mode = nil
+}
+
 // SetScopes sets the "scopes" field.
 func (m *UserMutation) SetScopes(s []string) {
 	m.scopes = &s
@@ -30843,7 +30934,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -30876,6 +30967,9 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.is_owner != nil {
 		fields = append(fields, user.FieldIsOwner)
+	}
+	if m.access_mode != nil {
+		fields = append(fields, user.FieldAccessMode)
 	}
 	if m.scopes != nil {
 		fields = append(fields, user.FieldScopes)
@@ -30910,6 +31004,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.Avatar()
 	case user.FieldIsOwner:
 		return m.IsOwner()
+	case user.FieldAccessMode:
+		return m.AccessMode()
 	case user.FieldScopes:
 		return m.Scopes()
 	}
@@ -30943,6 +31039,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldAvatar(ctx)
 	case user.FieldIsOwner:
 		return m.OldIsOwner(ctx)
+	case user.FieldAccessMode:
+		return m.OldAccessMode(ctx)
 	case user.FieldScopes:
 		return m.OldScopes(ctx)
 	}
@@ -31030,6 +31128,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIsOwner(v)
+		return nil
+	case user.FieldAccessMode:
+		v, ok := value.(user.AccessMode)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccessMode(v)
 		return nil
 	case user.FieldScopes:
 		v, ok := value.([]string)
@@ -31149,6 +31254,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldIsOwner:
 		m.ResetIsOwner()
+		return nil
+	case user.FieldAccessMode:
+		m.ResetAccessMode()
 		return nil
 	case user.FieldScopes:
 		m.ResetScopes()

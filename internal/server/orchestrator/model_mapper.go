@@ -51,6 +51,9 @@ func (m *apiKeyModelMappingMiddleware) OnInboundLlmRequest(ctx context.Context, 
 	originalModel := llmRequest.Model
 	mappedModel := m.inbound.state.ModelMapper.MapModel(ctx, m.inbound.state.APIKey, originalModel)
 
+	if !biz.GroupAllowsModel(m.inbound.state.APIKey, mappedModel) {
+		return nil, fmt.Errorf("%w: mapped model is outside group authorization", biz.ErrInvalidModel)
+	}
 	if mappedModel != originalModel {
 		llmRequest.Model = mappedModel
 		log.Debug(ctx, "applied model mapping from API key profile",
@@ -127,7 +130,7 @@ func (m *ModelMapper) MapModel(ctx context.Context, apiKey *ent.APIKey, original
 	}
 
 	// Apply model mapping
-	mappedModel := m.applyModelMapping(activeProfile.ModelMappings, originalModel)
+	mappedModel := biz.KeyMappedModel(apiKey, originalModel)
 
 	if mappedModel != originalModel {
 		log.Debug(ctx, "Model mapped using API key profile",

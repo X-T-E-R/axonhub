@@ -957,6 +957,7 @@ input UpdateProjectProfilesInput {
 
 input ProjectProfileInput {
   name: String!
+  modelIDs: [String!]
   channelIDs: [Int!]
   channelTags: [String!]
   channelTagsMatchMode: ChannelTagsMatchMode
@@ -969,6 +970,7 @@ type ProjectProfiles {
 
 type ProjectProfile {
   name: String!
+  modelIDs: [String!]
   channelIDs: [Int!]
   channelTags: [String!]
   channelTagsMatchMode: ChannelTagsMatchMode
@@ -1449,6 +1451,7 @@ type Mutation {
   createUser(input: CreateUserInput!): User!
   updateUser(id: ID!, input: UpdateUserInput!): User!
   updateUserStatus(id: ID!, status: UserStatus!): User!
+  setUserAccessMode(id: ID!, mode: UserAccessMode!, disableLegacyKeys: Boolean! = false): User!
   deleteUser(id: ID!): Boolean!
 
   createRole(input: CreateRoleInput!): Role!

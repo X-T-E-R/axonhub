@@ -40,6 +40,8 @@ const (
 	FieldAvatar = "avatar"
 	// FieldIsOwner holds the string denoting the is_owner field in the database.
 	FieldIsOwner = "is_owner"
+	// FieldAccessMode holds the string denoting the access_mode field in the database.
+	FieldAccessMode = "access_mode"
 	// FieldScopes holds the string denoting the scopes field in the database.
 	FieldScopes = "scopes"
 	// EdgeProjects holds the string denoting the projects edge name in mutations.
@@ -119,6 +121,7 @@ var Columns = []string{
 	FieldLastName,
 	FieldAvatar,
 	FieldIsOwner,
+	FieldAccessMode,
 	FieldScopes,
 }
 
@@ -196,6 +199,32 @@ func StatusValidator(s Status) error {
 	}
 }
 
+// AccessMode defines the type for the "access_mode" enum field.
+type AccessMode string
+
+// AccessModeLegacy is the default value of the AccessMode enum.
+const DefaultAccessMode = AccessModeLegacy
+
+// AccessMode values.
+const (
+	AccessModeLegacy AccessMode = "legacy"
+	AccessModePortal AccessMode = "portal"
+)
+
+func (am AccessMode) String() string {
+	return string(am)
+}
+
+// AccessModeValidator is a validator for the "access_mode" field enum values. It is called by the builders before save.
+func AccessModeValidator(am AccessMode) error {
+	switch am {
+	case AccessModeLegacy, AccessModePortal:
+		return nil
+	default:
+		return fmt.Errorf("user: invalid enum value for access_mode field: %q", am)
+	}
+}
+
 // OrderOption defines the ordering options for the User queries.
 type OrderOption func(*sql.Selector)
 
@@ -257,6 +286,11 @@ func ByAvatar(opts ...sql.OrderTermOption) OrderOption {
 // ByIsOwner orders the results by the is_owner field.
 func ByIsOwner(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsOwner, opts...).ToFunc()
+}
+
+// ByAccessMode orders the results by the access_mode field.
+func ByAccessMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccessMode, opts...).ToFunc()
 }
 
 // ByProjectsCount orders the results by projects count.
@@ -420,6 +454,24 @@ func (e *Status) UnmarshalGQL(val interface{}) error {
 	*e = Status(str)
 	if err := StatusValidator(*e); err != nil {
 		return fmt.Errorf("%s is not a valid Status", str)
+	}
+	return nil
+}
+
+// MarshalGQL implements graphql.Marshaler interface.
+func (e AccessMode) MarshalGQL(w io.Writer) {
+	io.WriteString(w, strconv.Quote(e.String()))
+}
+
+// UnmarshalGQL implements graphql.Unmarshaler interface.
+func (e *AccessMode) UnmarshalGQL(val interface{}) error {
+	str, ok := val.(string)
+	if !ok {
+		return fmt.Errorf("enum %T must be a string", val)
+	}
+	*e = AccessMode(str)
+	if err := AccessModeValidator(*e); err != nil {
+		return fmt.Errorf("%s is not a valid AccessMode", str)
 	}
 	return nil
 }

@@ -93,6 +93,9 @@ func (svc *BackupService) doBackupToWriter(ctx context.Context, opts BackupOptio
 		return err
 	}
 
+	if err := svc.backupPortalState(ctx, o, opts); err != nil {
+		return err
+	}
 	_, err := w.Write([]byte("}"))
 	return err
 }
@@ -209,7 +212,7 @@ func (svc *BackupService) streamAPIKeys(ctx context.Context, o *objWriter, opts 
 	return streamArrayField(o, "api_keys", opts.IncludeAPIKeys, true,
 		func(lastID int) ([]*ent.APIKey, int, error) {
 			rows, err := svc.db.APIKey.Query().
-				WithProject().
+				WithProject().WithUser().
 				Where(apikey.IDGT(lastID)).
 				Order(ent.Asc(apikey.FieldID)).
 				Limit(backupBatchSize).
@@ -228,9 +231,17 @@ func (svc *BackupService) streamAPIKeys(ctx context.Context, o *objWriter, opts 
 			if ak.Edges.Project != nil {
 				projectName = ak.Edges.Project.Name
 			}
+			ownerEmail := ""
+			if ak.PortalManaged {
+				if ak.Edges.User == nil {
+					return nil, false, fmt.Errorf("managed key owner unavailable")
+				}
+				ownerEmail = ak.Edges.User.Email
+			}
+			copy := *ak
+			copy.Edges = ent.APIKeyEdges{}
 			b, err := json.Marshal(&BackupAPIKey{
-				APIKey:      *ak,
-				ProjectName: projectName,
+				APIKey: copy, ProjectName: projectName, OwnerEmail: ownerEmail,
 			})
 			return b, true, err
 		},

@@ -52,18 +52,19 @@ var schemaGraph = func() *sqlgraph.Schema {
 		},
 		Type: "APIKey",
 		Fields: map[string]*sqlgraph.FieldSpec{
-			apikey.FieldCreatedAt:  {Type: field.TypeTime, Column: apikey.FieldCreatedAt},
-			apikey.FieldUpdatedAt:  {Type: field.TypeTime, Column: apikey.FieldUpdatedAt},
-			apikey.FieldDeletedAt:  {Type: field.TypeInt, Column: apikey.FieldDeletedAt},
-			apikey.FieldUserID:     {Type: field.TypeInt, Column: apikey.FieldUserID},
-			apikey.FieldProjectID:  {Type: field.TypeInt, Column: apikey.FieldProjectID},
-			apikey.FieldKey:        {Type: field.TypeString, Column: apikey.FieldKey},
-			apikey.FieldName:       {Type: field.TypeString, Column: apikey.FieldName},
-			apikey.FieldType:       {Type: field.TypeEnum, Column: apikey.FieldType},
-			apikey.FieldStatus:     {Type: field.TypeEnum, Column: apikey.FieldStatus},
-			apikey.FieldScopes:     {Type: field.TypeJSON, Column: apikey.FieldScopes},
-			apikey.FieldProfiles:   {Type: field.TypeJSON, Column: apikey.FieldProfiles},
-			apikey.FieldAllowedIps: {Type: field.TypeJSON, Column: apikey.FieldAllowedIps},
+			apikey.FieldCreatedAt:     {Type: field.TypeTime, Column: apikey.FieldCreatedAt},
+			apikey.FieldUpdatedAt:     {Type: field.TypeTime, Column: apikey.FieldUpdatedAt},
+			apikey.FieldDeletedAt:     {Type: field.TypeInt, Column: apikey.FieldDeletedAt},
+			apikey.FieldUserID:        {Type: field.TypeInt, Column: apikey.FieldUserID},
+			apikey.FieldProjectID:     {Type: field.TypeInt, Column: apikey.FieldProjectID},
+			apikey.FieldKey:           {Type: field.TypeString, Column: apikey.FieldKey},
+			apikey.FieldName:          {Type: field.TypeString, Column: apikey.FieldName},
+			apikey.FieldPortalManaged: {Type: field.TypeBool, Column: apikey.FieldPortalManaged},
+			apikey.FieldType:          {Type: field.TypeEnum, Column: apikey.FieldType},
+			apikey.FieldStatus:        {Type: field.TypeEnum, Column: apikey.FieldStatus},
+			apikey.FieldScopes:        {Type: field.TypeJSON, Column: apikey.FieldScopes},
+			apikey.FieldProfiles:      {Type: field.TypeJSON, Column: apikey.FieldProfiles},
+			apikey.FieldAllowedIps:    {Type: field.TypeJSON, Column: apikey.FieldAllowedIps},
 		},
 	}
 	graph.Nodes[1] = &sqlgraph.Node{
@@ -655,6 +656,7 @@ var schemaGraph = func() *sqlgraph.Schema {
 			user.FieldLastName:       {Type: field.TypeString, Column: user.FieldLastName},
 			user.FieldAvatar:         {Type: field.TypeString, Column: user.FieldAvatar},
 			user.FieldIsOwner:        {Type: field.TypeBool, Column: user.FieldIsOwner},
+			user.FieldAccessMode:     {Type: field.TypeEnum, Column: user.FieldAccessMode},
 			user.FieldScopes:         {Type: field.TypeJSON, Column: user.FieldScopes},
 		},
 	}
@@ -1616,6 +1618,11 @@ func (f *APIKeyFilter) WhereKey(p entql.StringP) {
 // WhereName applies the entql string predicate on the name field.
 func (f *APIKeyFilter) WhereName(p entql.StringP) {
 	f.Where(p.Field(apikey.FieldName))
+}
+
+// WherePortalManaged applies the entql bool predicate on the portal_managed field.
+func (f *APIKeyFilter) WherePortalManaged(p entql.BoolP) {
+	f.Where(p.Field(apikey.FieldPortalManaged))
 }
 
 // WhereType applies the entql string predicate on the type field.
@@ -4822,6 +4829,11 @@ func (f *UserFilter) WhereAvatar(p entql.StringP) {
 // WhereIsOwner applies the entql bool predicate on the is_owner field.
 func (f *UserFilter) WhereIsOwner(p entql.BoolP) {
 	f.Where(p.Field(user.FieldIsOwner))
+}
+
+// WhereAccessMode applies the entql string predicate on the access_mode field.
+func (f *UserFilter) WhereAccessMode(p entql.StringP) {
+	f.Where(p.Field(user.FieldAccessMode))
 }
 
 // WhereScopes applies the entql json.RawMessage predicate on the scopes field.

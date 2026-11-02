@@ -668,6 +668,11 @@ func (svc *ModelService) ListEnabledModels(ctx context.Context) ([]ModelFacade, 
 	)
 
 	ctx = authz.WithScopeDecision(ctx, scopes.ScopeReadChannels)
+	if key, ok := contexts.GetAPIKey(ctx); ok && key != nil {
+		if p := key.GetActiveProfile(); p != nil && len(p.ModelMappings) > 0 {
+			return svc.listMappedModelFacades(ctx, key)
+		}
+	}
 
 	if apiKey, ok := contexts.GetAPIKey(ctx); ok && apiKey != nil {
 		// Project-level profile filtering (upper boundary)
@@ -712,9 +717,17 @@ func (svc *ModelService) ListEnabledModels(ctx context.Context) ([]ModelFacade, 
 		return nil, err
 	}
 
+	filterAccess := func(models []ModelFacade) []ModelFacade {
+		if key, ok := contexts.GetAPIKey(ctx); ok {
+			return lo.Filter(models, func(m ModelFacade, _ int) bool {
+				return KeyAllowsModel(key, m.ID) && GroupAllowsModel(key, KeyMappedModel(key, m.ID))
+			})
+		}
+		return models
+	}
 	settings := svc.systemService.ModelSettingsOrDefault(ctx)
 	if !settings.QueryAllChannelModels {
-		return configuredModels, nil
+		return filterAccess(configuredModels), nil
 	}
 
 	// QueryAllChannelModels=true: merge configured models (higher priority) with channel models
@@ -764,7 +777,7 @@ func (svc *ModelService) ListEnabledModels(ctx context.Context) ([]ModelFacade, 
 		})
 	}
 
-	return models, nil
+	return filterAccess(models), nil
 }
 
 // queryConfiguredModelFacades queries enabled Model entities and returns them as ModelFacades
@@ -789,6 +802,11 @@ func (svc *ModelService) queryConfiguredModelFacades(ctx context.Context, allowe
 	for _, m := range enabledModels {
 		effectiveAssociations := EffectiveModelAssociations(systemSettings, m)
 		associations := MatchConnections(effectiveAssociations, channels)
+		if key, ok := contexts.GetAPIKey(ctx); ok {
+			associations = lo.Filter(associations, func(conn *ModelChannelConnection, _ int) bool {
+				return KeyAllowsChannel(key, conn.Channel.ID, conn.Channel.Tags) && lo.SomeBy(conn.Models, func(entry ChannelModelEntry) bool { return GroupAllowsModel(key, entry.RequestModel) })
+			})
+		}
 		if len(associations) > 0 {
 			models = append(models, ModelFacade{
 				ID:          m.ModelID,

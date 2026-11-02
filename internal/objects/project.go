@@ -6,7 +6,9 @@ type ProjectProfiles struct {
 }
 
 type ProjectProfile struct {
-	Name                 string               `json:"name"`
+	Name string `json:"name"`
+	// Nil preserves legacy configuration; a non-nil empty list denies every model.
+	ModelIDs             *[]string            `json:"modelIDs,omitempty"`
 	ChannelIDs           []int                `json:"channelIDs,omitempty"`
 	ChannelTags          []string             `json:"channelTags,omitempty"`
 	ChannelTagsMatchMode ChannelTagsMatchMode `json:"channelTagsMatchMode,omitempty"`

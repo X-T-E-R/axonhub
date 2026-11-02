@@ -21,6 +21,10 @@ func checkApiKeyModelAccess(inbound *PersistentInboundTransformer) pipeline.Midd
 			return llmRequest, nil
 		}
 
+		if !biz.GroupAllowsModel(inbound.state.APIKey, llmRequest.Model) {
+			return nil, fmt.Errorf("%w: model is outside group authorization", biz.ErrInvalidModel)
+		}
+
 		profile := inbound.state.APIKey.GetActiveProfile()
 		if profile == nil {
 			return llmRequest, nil

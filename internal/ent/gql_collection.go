@@ -207,6 +207,11 @@ func (_q *APIKeyQuery) collectField(ctx context.Context, oneNode bool, opCtx *gr
 				selectedFields = append(selectedFields, apikey.FieldName)
 				fieldSeen[apikey.FieldName] = struct{}{}
 			}
+		case "portalManaged":
+			if _, ok := fieldSeen[apikey.FieldPortalManaged]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldPortalManaged)
+				fieldSeen[apikey.FieldPortalManaged] = struct{}{}
+			}
 		case "type":
 			if _, ok := fieldSeen[apikey.FieldType]; !ok {
 				selectedFields = append(selectedFields, apikey.FieldType)
@@ -6356,6 +6361,11 @@ func (_q *UserQuery) collectField(ctx context.Context, oneNode bool, opCtx *grap
 			if _, ok := fieldSeen[user.FieldIsOwner]; !ok {
 				selectedFields = append(selectedFields, user.FieldIsOwner)
 				fieldSeen[user.FieldIsOwner] = struct{}{}
+			}
+		case "accessMode":
+			if _, ok := fieldSeen[user.FieldAccessMode]; !ok {
+				selectedFields = append(selectedFields, user.FieldAccessMode)
+				fieldSeen[user.FieldAccessMode] = struct{}{}
 			}
 		case "scopes":
 			if _, ok := fieldSeen[user.FieldScopes]; !ok {
