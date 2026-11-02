@@ -140,6 +140,9 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 			_ = liveness.writeError(c, httpErr)
 			liveness.finish(sseCloseUpstreamError)
 		} else {
+			if inbound, ok := handlers.ChatCompletionOrchestrator.Inbound.(interface{ APIFormat() llm.APIFormat }); ok && llm.IsDecisionAPIFormat(inbound.APIFormat()) {
+				copyProviderResponseHeaders(c.Writer.Header(), httpErr.Headers, false)
+			}
 			if value := httpclient.RetryAfterHeader(httpErr.Headers); value != "" {
 				c.Header("Retry-After", value)
 			}

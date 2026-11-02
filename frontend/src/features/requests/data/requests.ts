@@ -148,7 +148,9 @@ function buildRequestDetailQuery(permissions: { canViewApiKeys: boolean; canView
           contentStorageKey
           requestHeaders
           requestBody
+          requestBodyRaw
           responseBody
+          responseBodyRaw
           responseChunks
           status
           format
@@ -248,7 +250,9 @@ function buildRequestExecutionsQuery(permissions: { canViewChannels: boolean }) 
                 dataStorageID
                 requestHeaders
                 requestBody
+                requestBodyRaw
                 responseBody
+                responseBodyRaw
                 responseChunks
                 errorMessage
                 responseStatusCode
@@ -387,7 +391,9 @@ export function useRequest(
           ...parsedRequest,
           requestHeaders: previousRequest?.requestHeaders,
           requestBody: previousRequest?.requestBody,
+          requestBodyRaw: previousRequest?.requestBodyRaw,
           responseBody: previousRequest?.responseBody,
+          responseBodyRaw: previousRequest?.responseBodyRaw,
           responseChunks: previousRequest?.responseChunks,
           usageLogs: previousRequest?.usageLogs,
         });

@@ -94,10 +94,10 @@ test('create/edit/duplicate use shared endpoint payload and query endpoint echoe
   assert.match(dialog, /getNativeDecisionPreset\(initialRow\)/);
   assert.match(dialog, /getNativeDecisionPreset\(initialRow\)\s*\? \{ endpoints: \[\] \}/);
   assert.match(dialog, /if \(isNativeDecisionPreset\(selectedProvider\)\) return false/);
-  assert.match(
-    dialog,
-    /if \(provider !== selectedProvider\)\s*\{\s*form.setValue\('credentials.apiKey', undefined\);\s*form.setValue\('credentials.apiKeys', \[\]\)/
-  );
+  // Behavioral provider/submit coverage lives in TestNativeDecisionAdminUI:
+  // production RHF state, callbacks, mutations and persisted GraphQL reread.
+  assert.match(dialog, /credentialsResetRef\.current = true/);
+  assert.match(dialog, /form\.setValue\('credentials', \{ apiKey: undefined, apiKeys: \[\] \}/);
   assert.match(dialog, /getNativeDecisionPreset\(initialRow\) !== selectedProvider/);
   assert.match(dialog, /channels.nativeDecisions.providerKeyRequired/);
   const endpointSelections = operations.match(/\bendpoints\s*\{[^}]*\}/g) || [];
@@ -158,4 +158,19 @@ test('native capability and unknown-usage strings exist in both locale bundles',
     assert.equal(typeof requests['requests.nativeDecisions.usageUnknown'], 'string');
     assert.equal(typeof requests['requests.nativeDecisions.notReported'], 'string');
   }
+});
+
+test('native evidence never falls back to rounded JSON; legacy scalar consumers are unchanged', () => {
+  const { bodyEvidence, formatBodyEvidence } = load('features/requests/utils/body-evidence.ts');
+  const rounded = { n: 9007199254740992, choice: true, name: null };
+  const raw = '{"n":9007199254740993,"choice":true,"name":null}';
+  for (const format of ['typesafe/systemone', 'commandcode/systemone', 'openai/decisions']) {
+    const record = { format, requestBody: rounded, requestBodyRaw: raw };
+    assert.equal(bodyEvidence(record, 'requestBody'), raw);
+    assert.equal(formatBodyEvidence(record, 'requestBody'), raw);
+    assert.equal(bodyEvidence({ format, requestBody: rounded }, 'requestBody'), '');
+  }
+  const ordinary = { format: 'openai/chat_completions', requestBody: rounded, requestBodyRaw: raw };
+  assert.equal(bodyEvidence(ordinary, 'requestBody'), rounded);
+  assert.equal(formatBodyEvidence(ordinary, 'requestBody'), JSON.stringify(rounded, null, 2));
 });

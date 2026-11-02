@@ -15,10 +15,12 @@ import { JsonViewer } from '@/components/json-tree-view';
 import { useGeneralSettings } from '@/features/system/data/system';
 import { type Request, useRequest, useRequestExecutions } from '../data';
 import { useUsageLogs } from '../data/usage-logs';
+import { bodyEvidence, formatBodyEvidence } from '../utils/body-evidence';
 import { generateRequestCurl, generateExecutionCurl } from '../utils/curl-generator';
 import { nativeDecisionUsage } from '../utils/native-decision-usage';
 import { formatLatencyMs, resolveExecutionLatencyMs } from '../utils/request-latency';
 import { parseResponse } from '../utils/response-parser';
+import { BodyEvidenceViewer } from './body-evidence-viewer';
 import { ChunksDialog } from './chunks-dialog';
 import { CurlPreviewDialog } from './curl-preview-dialog';
 import { getStatusColor } from './help';
@@ -84,7 +86,11 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
 
   const hasPreviewData = !!(parsedResponse.content || parsedResponse.reasoning || parsedResponse.toolCalls.length > 0);
   const isLive = isPreviewStreaming || !!(request?.status === 'processing' && request?.stream);
-  const hasResponseBody = !!(request?.responseBody && Object.keys(request.responseBody).length > 0);
+  const responseBodyEvidence = request ? bodyEvidence(request, 'responseBody') : undefined;
+  const hasResponseBody = !!(
+    responseBodyEvidence &&
+    (typeof responseBodyEvidence !== 'object' || Object.keys(responseBodyEvidence).length > 0)
+  );
   const hasResponseChunks = !!(request?.responseChunks && request.responseChunks.length > 0);
 
   const extractResponseText = useCallback(() => {
@@ -533,7 +539,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                 <Button
                   variant='outline'
                   size='sm'
-                  onClick={() => showRequestCurlPreview(request.requestHeaders, request.requestBody, request.format)}
+                  onClick={() => showRequestCurlPreview(request.requestHeaders, bodyEvidence(request, 'requestBody'), request.format)}
                   className='hover:bg-primary hover:text-primary-foreground'
                 >
                   <Terminal className='mr-2 h-4 w-4' />
@@ -590,7 +596,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                     <Button
                       variant='outline'
                       size='sm'
-                      onClick={() => copyToClipboard(formatJson(request.requestBody))}
+                      onClick={() => copyToClipboard(formatBodyEvidence(request, 'requestBody'))}
                       className='hover:bg-primary hover:text-primary-foreground'
                     >
                       <Copy className='mr-2 h-4 w-4' />
@@ -599,7 +605,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                     <Button
                       variant='outline'
                       size='sm'
-                      onClick={() => downloadFile(formatJson(request.requestBody), `request-body-${request.id}.json`)}
+                      onClick={() => downloadFile(formatBodyEvidence(request, 'requestBody'), `request-body-${request.id}.json`)}
                       className='hover:bg-primary hover:text-primary-foreground'
                     >
                       <Download className='mr-2 h-4 w-4' />
@@ -608,8 +614,9 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                   </div>
                 </div>
                 <div className='bg-muted/20 h-[500px] w-full overflow-auto rounded-lg border p-4'>
-                  <JsonViewer
-                    data={request.requestBody}
+                  <BodyEvidenceViewer
+                    evidence={request}
+                    kind='requestBody'
                     rootName=''
                     defaultExpanded={true}
                     expandDepth='all'
@@ -672,7 +679,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                         if (responseView === 'preview') {
                           copyToClipboard(extractResponseText());
                         } else {
-                          copyToClipboard(formatJson(request.responseBody));
+                          copyToClipboard(formatBodyEvidence(request, 'responseBody'));
                         }
                       }}
                       disabled={responseView === 'preview' ? !extractResponseText() : !hasResponseBody}
@@ -684,7 +691,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                     <Button
                       variant='outline'
                       size='sm'
-                      onClick={() => downloadFile(formatJson(request.responseBody), `response-body-${request.id}.json`)}
+                      onClick={() => downloadFile(formatBodyEvidence(request, 'responseBody'), `response-body-${request.id}.json`)}
                       disabled={!hasResponseBody}
                       className='hover:bg-primary hover:text-primary-foreground disabled:opacity-50'
                     >
@@ -747,8 +754,9 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                   <TabsContent value='json' className='mt-0 focus-visible:outline-none'>
                     {hasResponseBody ? (
                       <div className='bg-muted/20 h-[500px] w-full overflow-auto rounded-lg border p-4'>
-                        <JsonViewer
-                          data={request.responseBody}
+                        <BodyEvidenceViewer
+                          evidence={request}
+                          kind='responseBody'
                           rootName=''
                           defaultExpanded={true}
                           expandDepth='all'
@@ -902,7 +910,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                             </div>
                           )}
 
-                          {(execution.requestHeaders || execution.requestBody) && (
+                          {(execution.requestHeaders || bodyEvidence(execution, 'requestBody')) && (
                             <div className='flex justify-end'>
                               <Button
                                 variant='outline'
@@ -910,7 +918,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                                 onClick={() =>
                                   showExecutionCurlPreview(
                                     execution.requestHeaders,
-                                    execution.requestBody,
+                                    bodyEvidence(execution, 'requestBody'),
                                     execution.channel,
                                     execution.format,
                                     execution.requestURL
@@ -966,7 +974,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                             </div>
                           )}
 
-                          {execution.requestBody && (
+                          {bodyEvidence(execution, 'requestBody') && (
                             <div className='space-y-3'>
                               <div className='flex items-center justify-between'>
                                 <span className='flex items-center gap-2 text-sm font-semibold'>
@@ -977,7 +985,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                                   <Button
                                     variant='outline'
                                     size='sm'
-                                    onClick={() => copyToClipboard(formatJson(execution.requestBody))}
+                                    onClick={() => copyToClipboard(formatBodyEvidence(execution, 'requestBody'))}
                                     className='hover:bg-primary hover:text-primary-foreground'
                                   >
                                     <Copy className='mr-2 h-4 w-4' />
@@ -987,7 +995,10 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                                     variant='outline'
                                     size='sm'
                                     onClick={() =>
-                                      downloadFile(formatJson(execution.requestBody), `execution-${execution.id}-request-body.json`)
+                                      downloadFile(
+                                        formatBodyEvidence(execution, 'requestBody'),
+                                        `execution-${execution.id}-request-body.json`
+                                      )
                                     }
                                     className='hover:bg-primary hover:text-primary-foreground'
                                   >
@@ -997,8 +1008,9 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                                 </div>
                               </div>
                               <div className='bg-background h-80 w-full overflow-auto rounded-lg border p-3'>
-                                <JsonViewer
-                                  data={execution.requestBody}
+                                <BodyEvidenceViewer
+                                  evidence={execution}
+                                  kind='requestBody'
                                   rootName=''
                                   defaultExpanded={false}
                                   hideArrayIndices={true}
@@ -1008,7 +1020,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                             </div>
                           )}
 
-                          {execution.responseBody && (
+                          {bodyEvidence(execution, 'responseBody') && (
                             <div className='space-y-3'>
                               <div className='flex items-center justify-between'>
                                 <span className='flex items-center gap-2 text-sm font-semibold'>
@@ -1019,7 +1031,7 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                                   <Button
                                     variant='outline'
                                     size='sm'
-                                    onClick={() => copyToClipboard(formatJson(execution.responseBody))}
+                                    onClick={() => copyToClipboard(formatBodyEvidence(execution, 'responseBody'))}
                                     className='hover:bg-primary hover:text-primary-foreground'
                                   >
                                     <Copy className='mr-2 h-4 w-4' />
@@ -1029,7 +1041,10 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                                     variant='outline'
                                     size='sm'
                                     onClick={() =>
-                                      downloadFile(formatJson(execution.responseBody), `execution-${execution.id}-response-body.json`)
+                                      downloadFile(
+                                        formatBodyEvidence(execution, 'responseBody'),
+                                        `execution-${execution.id}-response-body.json`
+                                      )
                                     }
                                     className='hover:bg-primary hover:text-primary-foreground'
                                   >
@@ -1049,8 +1064,9 @@ export function RequestDetailContent({ requestId, projectId, previewRequest, isP
                                 </div>
                               </div>
                               <div className='bg-background h-80 w-full overflow-auto rounded-lg border p-3'>
-                                <JsonViewer
-                                  data={execution.responseBody}
+                                <BodyEvidenceViewer
+                                  evidence={execution}
+                                  kind='responseBody'
                                   rootName=''
                                   defaultExpanded={false}
                                   hideArrayIndices={true}

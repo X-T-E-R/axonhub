@@ -397,6 +397,17 @@ func TestAdminExactRequestDetailLoadsExternalTerminalEvidence(t *testing.T) {
 	executionNode := requireExecutionNode(t, node)
 	require.Equal(t, map[string]any{"external": "execution-request"}, requireObject(t, executionNode["requestBody"]))
 	require.Equal(t, map[string]any{"external": "execution-response"}, requireObject(t, executionNode["responseBody"]))
+
+	// Raw-only selections must use the same external/terminal evidence policy,
+	// without relying on the legacy JSON scalar being selected beside them.
+	rawQuery := strings.ReplaceAll(exactRequestEvidenceQuery, "requestBody responseBody", "requestBodyRaw responseBodyRaw")
+	rawResponse, rawText := e.graphQL(t, e.ctx, rawQuery, map[string]any{"id": requestGUID(req.ID)})
+	rawNode := requireGraphQLNode(t, rawResponse, rawText)
+	require.Equal(t, `{"external":"parent-request"}`, rawNode["requestBodyRaw"])
+	require.Equal(t, `{"external":"parent-response"}`, rawNode["responseBodyRaw"])
+	rawExecution := requireExecutionNode(t, rawNode)
+	require.Equal(t, `{"external":"execution-request"}`, rawExecution["requestBodyRaw"])
+	require.Equal(t, `{"external":"execution-response"}`, rawExecution["responseBodyRaw"])
 }
 
 func externalStoredDisposition(storageID int, requestKey, responseKey string) *objects.EvidenceDisposition {
@@ -850,6 +861,16 @@ func TestAdminExactRequestEvidenceHonorsProjectRequestScope(t *testing.T) {
 	denied, raw := e.graphQL(t, deniedCtx, exactRequestEvidenceQuery, map[string]any{"id": requestGUID(req.ID)})
 	require.NotContains(t, raw, `"scope":"allowed"`)
 	require.NotEmpty(t, denied["errors"])
+
+	rawQuery := strings.ReplaceAll(exactRequestEvidenceQuery, "requestBody responseBody", "requestBodyRaw responseBodyRaw")
+	rawAllowed, raw := e.graphQL(t, allowedCtx, rawQuery, map[string]any{"id": requestGUID(req.ID)})
+	require.Equal(t, `{"scope":"allowed"}`, requireGraphQLNode(t, rawAllowed, raw)["responseBodyRaw"])
+	rawForeign, raw := e.graphQL(t, foreignCtx, rawQuery, map[string]any{"id": requestGUID(req.ID)})
+	require.NotContains(t, raw, `allowed`)
+	require.Nil(t, requireObject(t, rawForeign["data"])["node"])
+	rawDenied, raw := e.graphQL(t, deniedCtx, rawQuery, map[string]any{"id": requestGUID(req.ID)})
+	require.NotContains(t, raw, `allowed`)
+	require.NotEmpty(t, rawDenied["errors"])
 }
 
 func requestEvidenceUserContext(client *ent.Client, user *ent.User, projectID int) context.Context {
