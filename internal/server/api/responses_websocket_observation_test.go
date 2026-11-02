@@ -33,7 +33,9 @@ import (
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/internal/tracing"
+	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
 
@@ -49,6 +51,16 @@ type wsObservationFixture struct {
 	received chan []byte
 	started  chan struct{}
 	canceled chan struct{}
+	selector *wsObservationSelector
+	routes   []*orchestrator.ChannelModelsCandidate
+}
+
+type wsObservationSelector struct {
+	selected atomic.Pointer[orchestrator.ChannelModelsCandidate]
+}
+
+func (s *wsObservationSelector) Select(context.Context, *llm.Request) ([]*orchestrator.ChannelModelsCandidate, error) {
+	return []*orchestrator.ChannelModelsCandidate{s.selected.Load()}, nil
 }
 
 // Unlike the original pipeline fixture, this includes the production route's
@@ -87,6 +99,15 @@ func newWSObservationFixture(t *testing.T) *wsObservationFixture {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		f.received <- body
+		var payload struct {
+			Model string `json:"model"`
+		}
+		require.NoError(t, json.Unmarshal(body, &payload))
+		account := "synthetic-0"
+		if payload.Model == "other-upstream-m" {
+			account = "synthetic-1"
+		}
+		require.Equal(t, "Bearer "+account, r.Header.Get("Authorization"))
 		if strings.Contains(string(body), "force_failure") {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			fmt.Fprint(w, `{"error":{"type":"server_error","message":"synthetic failure"}}`)
@@ -101,17 +122,23 @@ func newWSObservationFixture(t *testing.T) *wsObservationFixture {
 			f.canceled <- struct{}{}
 			return
 		}
-		fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_%d\",\"object\":\"response\",\"model\":\"upstream-m\",\"status\":\"completed\",\"created_at\":1,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"id\":\"msg_%d\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}],\"usage\":{\"input_tokens\":103,\"input_tokens_details\":{\"cached_tokens\":64},\"output_tokens\":2,\"total_tokens\":105}}}\n\n", n, n)
+		fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_%d\",\"object\":\"response\",\"model\":%q,\"status\":\"completed\",\"created_at\":1,\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"id\":\"msg_%d\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}],\"usage\":{\"input_tokens\":103,\"input_tokens_details\":{\"cached_tokens\":64},\"output_tokens\":2,\"total_tokens\":105}}}\n\n", n, payload.Model, n)
 	}))
 	t.Cleanup(upstream.Close)
-	row := f.client.Channel.Create().SetType(channel.TypeOpenai).SetName("native").SetBaseURL(upstream.URL).
-		SetCredentials(objects.ChannelCredentials{APIKey: "synthetic"}).SetSupportedModels([]string{"m"}).SetDefaultTestModel("m").SaveX(f.ctx)
-	provider, err := responses.NewOutboundTransformer(upstream.URL, "synthetic")
-	require.NoError(t, err)
+	f.selector = &wsObservationSelector{}
+	for i, actualModel := range []string{"upstream-m", "other-upstream-m"} {
+		account := fmt.Sprintf("synthetic-%d", i)
+		row := f.client.Channel.Create().SetType(channel.TypeOpenai).SetName(account).SetBaseURL(upstream.URL).
+			SetCredentials(objects.ChannelCredentials{APIKey: account}).SetSupportedModels([]string{"m"}).SetDefaultTestModel("m").SaveX(f.ctx)
+		provider, err := responses.NewOutboundTransformer(upstream.URL, account)
+		require.NoError(t, err)
+		f.routes = append(f.routes, &orchestrator.ChannelModelsCandidate{
+			Channel: &biz.Channel{Channel: row, Outbound: provider}, Models: []biz.ChannelModelEntry{{RequestModel: "m", ActualModel: actualModel, Source: "direct"}},
+		})
+	}
+	f.selector.selected.Store(f.routes[0])
 	processor := orchestrator.NewChatCompletionOrchestrator(channels, nil, requests, httpclient.NewHttpClient(), responses.NewInboundTransformer(), system, usage, nil, nil, nil,
-		legacy.LiveStreamRegistry, orchestrator.NewChannelLimiterManager(), nil).WithChannelSelector(&speechAPISelector{candidates: []*orchestrator.ChannelModelsCandidate{{
-		Channel: &biz.Channel{Channel: row, Outbound: provider}, Models: []biz.ChannelModelEntry{{RequestModel: "m", ActualModel: "upstream-m", Source: "direct"}},
-	}}})
+		legacy.LiveStreamRegistry, orchestrator.NewChannelLimiterManager(), nil).WithChannelSelector(f.selector)
 	processor.PromptProtecter = nil
 	processor.PromptProvider = observationNoPrompts{}
 	f.handler = newResponsesWebSocketHandler(NewChatCompletionHandlers(processor), auth)
@@ -172,6 +199,9 @@ func (f *wsObservationFixture) assertCompleted(t *testing.T, key *ent.APIKey, co
 		billing := parent.QueryUsageLogs().OnlyX(f.ctx)
 		require.Equal(t, key.ID, billing.APIKeyID)
 		require.Equal(t, key.ProjectID, billing.ProjectID)
+		require.Equal(t, execution.ChannelID, parent.ChannelID)
+		require.Equal(t, execution.ChannelID, billing.ChannelID)
+		require.Equal(t, execution.ModelID, billing.ModelID, "usage model_id is the execution's ActualModelID")
 		require.Equal(t, int64(103), billing.PromptTokens)
 		require.Equal(t, int64(64), billing.PromptCachedTokens)
 		require.Equal(t, int64(2), billing.CompletionTokens)
@@ -303,5 +333,112 @@ func TestResponsesWebSocketObservationDisconnectAndIdentityIsolation(t *testing.
 	require.Zero(t, canceled.QueryUsageLogs().CountX(f.ctx))
 	require.Equal(t, 4, f.client.Request.Query().CountX(f.ctx))
 	require.Equal(t, 4, f.client.RequestExecution.Query().CountX(f.ctx))
+	require.Equal(t, 3, f.client.UsageLog.Query().CountX(f.ctx))
+}
+
+// The real provider's completion is the first event. Hold the next read until
+// this generation is canceled, fixing the completion-before-EOF race from F1.
+type wsObservationTerminalCancellationStream struct {
+	streams.Stream[*httpclient.StreamEvent]
+	ctx    context.Context
+	cancel context.CancelFunc
+	first  bool
+	closed *atomic.Int32
+}
+
+func (s *wsObservationTerminalCancellationStream) Next() bool {
+	if s.first {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		<-s.ctx.Done()
+	}
+	s.first = true
+	return s.Stream.Next()
+}
+
+func (s *wsObservationTerminalCancellationStream) Close() error {
+	s.closed.Add(1)
+	return s.Stream.Close()
+}
+
+func TestResponsesWebSocketObservationCompletionSurvivesCancellationBeforeEOF(t *testing.T) {
+	for _, mode := range []string{"deadline", "cancel"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newWSObservationFixture(t)
+			f.handler.turnTimeout = 200 * time.Millisecond
+			var cancelGeneration context.CancelFunc
+			if mode == "cancel" {
+				authenticate := f.handler.authenticate
+				f.handler.authenticate = func(c *gin.Context) (context.Context, int, error) {
+					ctx, status, err := authenticate(c)
+					if err == nil {
+						ctx, cancelGeneration = context.WithCancel(ctx)
+					}
+					return ctx, status, err
+				}
+			}
+			var closed atomic.Int32
+			process := f.handler.process
+			f.handler.process = func(ctx context.Context, req *httpclient.Request, obs orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error) {
+				result, err := process(ctx, req, obs)
+				if err == nil && result.ChatCompletionStream != nil {
+					result.ChatCompletionStream = &wsObservationTerminalCancellationStream{Stream: result.ChatCompletionStream, ctx: ctx, cancel: cancelGeneration, closed: &closed}
+				}
+				return result, err
+			}
+			conn := f.dial(t, f.key)
+			for _, frame := range []string{
+				`{"type":"response.create","model":"m","input":"full"}`,
+				`{"type":"response.create","model":"m","previous_response_id":"resp_1","input":"suffix"}`,
+			} {
+				require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(frame)))
+				require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
+				wsObservationBarrier(t, conn) // No second incomplete_stream may precede this barrier.
+			}
+			f.drain(t)
+			f.assertCompleted(t, f.key, 2)
+			require.Equal(t, int32(2), f.calls.Load(), "suffix must reach the provider again")
+			require.Equal(t, int32(2), closed.Load(), "each raw stream must close/join exactly once")
+			require.Equal(t, 2, f.client.Request.Query().CountX(f.ctx))
+			require.Equal(t, 2, f.client.RequestExecution.Query().CountX(f.ctx))
+			require.Equal(t, 2, f.client.UsageLog.Query().CountX(f.ctx))
+			<-f.received
+			var expanded struct {
+				Input []json.RawMessage `json:"input"`
+			}
+			require.NoError(t, json.Unmarshal(<-f.received, &expanded))
+			require.Len(t, expanded.Input, 3)
+			require.Contains(t, string(expanded.Input[1]), "answer")
+			require.Contains(t, string(expanded.Input[2]), "suffix")
+		})
+	}
+}
+
+func TestResponsesWebSocketObservationChannelSwitchPerGeneration(t *testing.T) {
+	f := newWSObservationFixture(t)
+	conn := f.dial(t, f.key)
+	for i, routeIndex := range []int{0, 1, 0} {
+		route := f.routes[routeIndex]
+		f.selector.selected.Store(route)
+		frame := map[string]any{"type": "response.create", "model": "m", "input": fmt.Sprintf("turn-%d", i)}
+		if i > 0 {
+			frame["previous_response_id"] = fmt.Sprintf("resp_%d", i)
+		}
+		require.NoError(t, conn.WriteJSON(frame))
+		require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
+		wsObservationBarrier(t, conn)
+		f.drain(t)
+		parent := f.client.Request.Query().Where(request.ExternalIDEQ(fmt.Sprintf("resp_%d", i+1))).OnlyX(f.ctx)
+		execution := parent.QueryExecutions().OnlyX(f.ctx)
+		billing := parent.QueryUsageLogs().OnlyX(f.ctx)
+		require.Equal(t, route.Channel.ID, parent.ChannelID)
+		require.Equal(t, route.Channel.ID, execution.ChannelID)
+		require.Equal(t, route.Channel.ID, billing.ChannelID)
+		require.Equal(t, route.Models[0].ActualModel, execution.ModelID)
+		require.Equal(t, route.Models[0].ActualModel, billing.ModelID)
+	}
+	f.assertCompleted(t, f.key, 3)
+	require.Equal(t, int32(3), f.calls.Load())
 	require.Equal(t, 3, f.client.UsageLog.Query().CountX(f.ctx))
 }

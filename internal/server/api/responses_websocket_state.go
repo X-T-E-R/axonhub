@@ -165,20 +165,31 @@ func (s *responsesWSState) prepare(f responsesWSCreate, now time.Time) ([]byte, 
 	}
 	return body, input, nil
 }
-func (s *responsesWSState) commit(f responsesWSCreate, input []json.RawMessage, completed json.RawMessage, now time.Time) bool {
-	var response struct {
-		ID     string            `json:"id"`
-		Status string            `json:"status"`
-		Output []json.RawMessage `json:"output"`
-	}
+
+type responsesWSCompletion struct {
+	ID     string            `json:"id"`
+	Status string            `json:"status"`
+	Output []json.RawMessage `json:"output"`
+}
+
+func parseResponsesWSCompletion(completed json.RawMessage) *responsesWSCompletion {
+	var response responsesWSCompletion
 	if json.Unmarshal(completed, &response) != nil || response.ID == "" || response.Status != "completed" || response.Output == nil {
-		return false
+		return nil
 	}
 	for _, item := range response.Output {
 		trimmed := bytes.TrimSpace(item)
 		if len(trimmed) == 0 || trimmed[0] != '{' {
-			return false
+			return nil
 		}
+	}
+	return &response
+}
+
+func (s *responsesWSState) commit(f responsesWSCreate, input []json.RawMessage, completed json.RawMessage, now time.Time) bool {
+	response := parseResponsesWSCompletion(completed)
+	if response == nil {
+		return false
 	}
 	next := append(copyRawItems(input), response.Output...)
 	size := rawItemsBytes(next) + len(response.ID) + len(f.model)

@@ -414,13 +414,51 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 	// their terminal errors or committing a continuation baseline.
 	closeErr := stream.Close()
 	streamErr := stream.Err()
-	if failed || streamErr != nil || closeErr != nil || !terminal {
+	streamFailed := streamErr != nil || closeErr != nil
+	if streamFailed && !failed && terminal && parseResponsesWSCompletion(completed) != nil {
+		// A valid completion already delivered to the client survives its own
+		// generation deadline/cancellation. Concrete stream or join failures still
+		// reject the checkpoint, even when cancellation happens at the same time.
+		cause := context.Cause(authenticated)
+		streamFailed = !responsesWSOnlyRequestCancellation(streamErr, cause) || !responsesWSOnlyRequestCancellation(closeErr, cause)
+	}
+	if failed || streamFailed || !terminal {
 		_ = writer.failure(frame.streamID, &responsesWSError{status: 502, kind: "server_error", code: "incomplete_stream", message: "The response stream ended without a valid terminal. Delivery may be unknown; do not automatically replay."})
 		return
 	}
 	if len(completed) > 0 {
 		state.commit(frame, input, completed, time.Now())
 	}
+}
+
+// Match every error leaf so a joined provider/transform failure cannot disappear
+// merely because another leaf is the request's cancellation cause.
+func responsesWSOnlyRequestCancellation(err, cause error) bool {
+	if err == nil {
+		return true
+	}
+	if cause != context.Canceled && cause != context.DeadlineExceeded {
+		return false
+	}
+	if err == cause {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !responsesWSOnlyRequestCancellation(child, cause) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped := errors.Unwrap(err); wrapped != nil {
+		return responsesWSOnlyRequestCancellation(wrapped, cause)
+	}
+	return false
 }
 
 type responsesWSObserver struct{ selected atomic.Bool }

@@ -290,3 +290,72 @@ func TestResponsesWebSocketStateEvictsAndNeverCommitsFakeTerminal(t *testing.T) 
 	require.NotContains(t, state.lanes, "")
 	require.Contains(t, state.lanes, "named")
 }
+
+// Cancellation races with the second read, but concrete stream/Close errors
+// must remain visible even when a completion event was delivered first.
+type wsCompletedErrorStream struct {
+	*errorAfterStream
+	cancel   context.CancelFunc
+	closeErr error
+	closed   *atomic.Int32
+}
+
+func (s *wsCompletedErrorStream) Next() bool {
+	if s.idx > 0 {
+		s.cancel()
+	}
+	return s.errorAfterStream.Next()
+}
+
+func (s *wsCompletedErrorStream) Close() error {
+	s.closed.Add(1)
+	return s.closeErr
+}
+
+func TestResponsesWebSocketCompletedCancellationKeepsConcreteErrors(t *testing.T) {
+	providerErr := errors.New("provider stream failed")
+	transformErr := errors.New("transform drain failed")
+	for _, tc := range []struct {
+		name                string
+		streamErr, closeErr error
+		invalidCompletion   bool
+	}{
+		{name: "provider error", streamErr: providerErr},
+		{name: "transform join error", streamErr: context.Canceled, closeErr: transformErr},
+		{name: "provider error joined with cancellation", streamErr: errors.Join(context.Canceled, providerErr)},
+		{name: "transform error joined with cancellation", closeErr: errors.Join(context.Canceled, transformErr)},
+		{name: "different cancellation cause", streamErr: context.DeadlineExceeded},
+		{name: "invalid completed snapshot", streamErr: context.Canceled, invalidCompletion: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls, closed atomic.Int32
+			var cancelGeneration context.CancelFunc
+			h := wsTestHandler(func(context.Context, *httpclient.Request, orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error) {
+				calls.Add(1)
+				output := `[]`
+				if tc.invalidCompletion {
+					output = `null`
+				}
+				stream := &wsCompletedErrorStream{
+					errorAfterStream: &errorAfterStream{items: []*httpclient.StreamEvent{wsCompletion("r", output)}, err: tc.streamErr},
+					cancel:           cancelGeneration, closeErr: tc.closeErr, closed: &closed,
+				}
+				return orchestrator.ChatCompletionResult{ChatCompletionStream: stream}, nil
+			})
+			h.authenticate = func(c *gin.Context) (context.Context, int, error) {
+				ctx, cancel := context.WithCancel(c.Request.Context())
+				cancelGeneration = cancel
+				return ctx, http.StatusOK, nil
+			}
+			conn := wsTestDial(t, wsTestServer(t, h))
+			require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": "full"}))
+			require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
+			require.Equal(t, "incomplete_stream", wsErrorCode(wsRead(t, conn)))
+			wsObservationBarrier(t, conn)
+			require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "previous_response_id": "r", "input": "suffix"}))
+			require.Equal(t, "previous_response_not_found", wsErrorCode(wsRead(t, conn)))
+			require.Equal(t, int32(1), calls.Load())
+			require.Equal(t, int32(1), closed.Load())
+		})
+	}
+}
