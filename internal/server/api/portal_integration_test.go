@@ -2,16 +2,20 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -22,6 +26,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/enttest"
+	entmodel "github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/ent/userproject"
@@ -80,6 +85,7 @@ func TestPortalJWTGraphQLPipelineIsolationAndRevocation(t *testing.T) {
 	}))
 	defer upstream.Close()
 	ch := client.Channel.Create().SetName("internal-route").SetType(channel.TypeOpenaiResponses).SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{APIKey: "synthetic-upstream"}).SetSupportedModels([]string{"provider-model", "other"}).SetDefaultTestModel("m").SetSettings(&objects.ChannelSettings{ModelMappings: []objects.ModelMapping{{From: "m", To: "provider-model"}}}).SaveX(ctx)
+	client.Model.Create().SetModelID("m").SetName("Portal model").SetType(entmodel.TypeChat).SetStatus(entmodel.StatusEnabled).SetDeveloper("synthetic").SetIcon("OpenAI").SetGroup("portal").SetModelCard(&objects.ModelCard{}).SetSettings(&objects.ModelSettings{Associations: []*objects.ModelAssociation{{Type: "channel_model", ChannelModel: &objects.ChannelModelAssociation{ChannelID: ch.ID, ModelID: "m"}}}}).SaveX(ctx)
 	outbound, err := responses.NewOutboundTransformer(upstream.URL, "synthetic-upstream")
 	require.NoError(t, err)
 	channels := biz.NewChannelServiceForTest(client)
@@ -323,6 +329,18 @@ func TestPortalJWTGraphQLPipelineIsolationAndRevocation(t *testing.T) {
 	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": "WS"}))
 	require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
 	require.Equal(t, int32(3), calls.Load())
+	if node := os.Getenv("AXON_PORTAL_NODE"); node != "" {
+		script, err := filepath.Abs("../../../integration_test/portal/portal_client.mjs")
+		require.NoError(t, err)
+		nodeCtx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(nodeCtx, node, script, server.URL)
+		cmd.Env = append(os.Environ(), "AXON_PORTAL_TOKEN="+ta, fmt.Sprintf("AXON_PORTAL_USER=%d", a.ID), fmt.Sprintf("AXON_PORTAL_PROJECT=%d", g.ID))
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+		t.Log(string(output))
+		require.Equal(t, int32(3), calls.Load(), "portal UI data/actions must not call the provider")
+	}
 	// A direct DB mutation intentionally leaves all old auth/key/project caches hot.
 	client.Project.UpdateOne(g).SetProfiles(profile([]string{})).SaveX(ctx)
 	require.Contains(t, string(okGraph(ta, `query($p:Int!){models(projectID:$p){id}}`, map[string]any{"p": g.ID})), `"models":[]`)
