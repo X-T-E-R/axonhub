@@ -12,6 +12,7 @@ import { GeneralSettings } from './general-settings';
 import { PortalSettings } from './portal-settings';
 import { ProxyPresetsSettings } from './proxy-presets-settings';
 import { QuotaSettings } from './quota-settings';
+import { RegistrationSettings } from './registration-settings';
 import { RetrySettings } from './retry-settings';
 import { SecuritySettings } from './security-settings';
 import { StorageSettings } from './storage-settings';
@@ -112,7 +113,8 @@ export function SystemSettingsTabs({ initialTab }: SystemSettingsTabsProps) {
         <TabsContent value='general' className='mt-0 p-0'>
           <GeneralSettings />
         </TabsContent>
-        <TabsContent value='security' className='mt-0 p-0'>
+        <TabsContent value='security' className='mt-0 space-y-6 p-0'>
+          <RegistrationSettings />
           <SecuritySettings />
         </TabsContent>
         <TabsContent value='brand' className='mt-0 p-0'>

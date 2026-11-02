@@ -601,6 +601,33 @@ var (
 			},
 		},
 	}
+	// RegistrationInvitesColumns holds the columns for the "registration_invites" table.
+	RegistrationInvitesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "digest", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "created_by_id", Type: field.TypeInt},
+		{Name: "max_uses", Type: field.TypeInt},
+		{Name: "used_uses", Type: field.TypeInt, Default: 0},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "revoked", Type: field.TypeBool, Default: false},
+		{Name: "project_id", Type: field.TypeInt},
+	}
+	// RegistrationInvitesTable holds the schema information for the "registration_invites" table.
+	RegistrationInvitesTable = &schema.Table{
+		Name:       "registration_invites",
+		Columns:    RegistrationInvitesColumns,
+		PrimaryKey: []*schema.Column{RegistrationInvitesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "registration_invites_projects_project",
+				Columns:    []*schema.Column{RegistrationInvitesColumns[9]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// RequestsColumns holds the columns for the "requests" table.
 	RequestsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -1177,6 +1204,7 @@ var (
 		PromptsTable,
 		PromptProtectionRulesTable,
 		ProviderQuotaStatusTable,
+		RegistrationInvitesTable,
 		RequestsTable,
 		RequestExecutionsTable,
 		RolesTable,
@@ -1203,6 +1231,7 @@ func init() {
 	OidcIdentitiesTable.ForeignKeys[0].RefTable = UsersTable
 	ObservabilityPayloadsTable.ForeignKeys[0].RefTable = RequestsTable
 	ProviderQuotaStatusTable.ForeignKeys[0].RefTable = ChannelsTable
+	RegistrationInvitesTable.ForeignKeys[0].RefTable = ProjectsTable
 	RequestsTable.ForeignKeys[0].RefTable = APIKeysTable
 	RequestsTable.ForeignKeys[1].RefTable = ChannelsTable
 	RequestsTable.ForeignKeys[2].RefTable = DataStoragesTable

@@ -18,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/migrate"
 	"github.com/looplj/axonhub/internal/ent/migrate/schemahook"
+	"github.com/looplj/axonhub/internal/ent/registrationinvite"
 	_ "github.com/looplj/axonhub/internal/ent/runtime"
 	"github.com/looplj/axonhub/internal/ent/user"
 	_ "github.com/looplj/axonhub/internal/pkg/sqlite"
@@ -140,6 +141,29 @@ func TestPortalMigrationSchemaDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, createdKey.PortalManaged)
 	assert.Equal(t, projectID, createdKey.ProjectID)
+}
+
+func TestRegistrationMigrationFromPortalSchema(t *testing.T) {
+	client, _ := newPortalMigrationClient(t)
+	ctx := authz.WithTestBypass(t.Context())
+	old, err := entschema.CopyTables(migrate.Tables)
+	require.NoError(t, err)
+	filtered := old[:0]
+	for _, table := range old {
+		if table.Name != registrationinvite.Table {
+			filtered = append(filtered, table)
+		}
+	}
+	require.NoError(t, createPortalSchema(ctx, client, filtered))
+	u := client.User.Create().SetEmail("existing-portal@example.test").SetPassword("synthetic").SetAccessMode(user.AccessModePortal).SaveX(ctx)
+	g := client.Project.Create().SetName("Existing group").SaveX(ctx)
+	client.UserProject.Create().SetUserID(u.ID).SetProjectID(g.ID).SaveX(ctx)
+	tables, err := entschema.CopyTables(migrate.Tables)
+	require.NoError(t, err)
+	require.NoError(t, createPortalSchema(ctx, client, tables))
+	require.Zero(t, client.RegistrationInvite.Query().CountX(ctx))
+	require.Equal(t, user.AccessModePortal, client.User.GetX(ctx, u.ID).AccessMode)
+	require.Equal(t, 1, client.UserProject.Query().CountX(ctx))
 }
 
 func newPortalMigrationClient(t *testing.T) (*ent.Client, *sql.DB) {

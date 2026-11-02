@@ -26,6 +26,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
+	"github.com/looplj/axonhub/internal/ent/registrationinvite"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/ent/role"
@@ -553,6 +554,33 @@ func (f TraverseProviderQuotaStatus) Traverse(ctx context.Context, q ent.Query) 
 	return fmt.Errorf("unexpected query type %T. expect *ent.ProviderQuotaStatusQuery", q)
 }
 
+// The RegistrationInviteFunc type is an adapter to allow the use of ordinary function as a Querier.
+type RegistrationInviteFunc func(context.Context, *ent.RegistrationInviteQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f RegistrationInviteFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.RegistrationInviteQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.RegistrationInviteQuery", q)
+}
+
+// The TraverseRegistrationInvite type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseRegistrationInvite func(context.Context, *ent.RegistrationInviteQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseRegistrationInvite) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseRegistrationInvite) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.RegistrationInviteQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.RegistrationInviteQuery", q)
+}
+
 // The RequestFunc type is an adapter to allow the use of ordinary function as a Querier.
 type RequestFunc func(context.Context, *ent.RequestQuery) (ent.Value, error)
 
@@ -860,6 +888,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.PromptProtectionRuleQuery, predicate.PromptProtectionRule, promptprotectionrule.OrderOption]{typ: ent.TypePromptProtectionRule, tq: q}, nil
 	case *ent.ProviderQuotaStatusQuery:
 		return &query[*ent.ProviderQuotaStatusQuery, predicate.ProviderQuotaStatus, providerquotastatus.OrderOption]{typ: ent.TypeProviderQuotaStatus, tq: q}, nil
+	case *ent.RegistrationInviteQuery:
+		return &query[*ent.RegistrationInviteQuery, predicate.RegistrationInvite, registrationinvite.OrderOption]{typ: ent.TypeRegistrationInvite, tq: q}, nil
 	case *ent.RequestQuery:
 		return &query[*ent.RequestQuery, predicate.Request, request.OrderOption]{typ: ent.TypeRequest, tq: q}, nil
 	case *ent.RequestExecutionQuery:

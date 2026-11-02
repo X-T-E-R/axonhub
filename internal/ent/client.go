@@ -32,6 +32,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
+	"github.com/looplj/axonhub/internal/ent/registrationinvite"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/ent/role"
@@ -83,6 +84,8 @@ type Client struct {
 	PromptProtectionRule *PromptProtectionRuleClient
 	// ProviderQuotaStatus is the client for interacting with the ProviderQuotaStatus builders.
 	ProviderQuotaStatus *ProviderQuotaStatusClient
+	// RegistrationInvite is the client for interacting with the RegistrationInvite builders.
+	RegistrationInvite *RegistrationInviteClient
 	// Request is the client for interacting with the Request builders.
 	Request *RequestClient
 	// RequestExecution is the client for interacting with the RequestExecution builders.
@@ -133,6 +136,7 @@ func (c *Client) init() {
 	c.Prompt = NewPromptClient(c.config)
 	c.PromptProtectionRule = NewPromptProtectionRuleClient(c.config)
 	c.ProviderQuotaStatus = NewProviderQuotaStatusClient(c.config)
+	c.RegistrationInvite = NewRegistrationInviteClient(c.config)
 	c.Request = NewRequestClient(c.config)
 	c.RequestExecution = NewRequestExecutionClient(c.config)
 	c.Role = NewRoleClient(c.config)
@@ -252,6 +256,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Prompt:                    NewPromptClient(cfg),
 		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
 		ProviderQuotaStatus:       NewProviderQuotaStatusClient(cfg),
+		RegistrationInvite:        NewRegistrationInviteClient(cfg),
 		Request:                   NewRequestClient(cfg),
 		RequestExecution:          NewRequestExecutionClient(cfg),
 		Role:                      NewRoleClient(cfg),
@@ -298,6 +303,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Prompt:                    NewPromptClient(cfg),
 		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
 		ProviderQuotaStatus:       NewProviderQuotaStatusClient(cfg),
+		RegistrationInvite:        NewRegistrationInviteClient(cfg),
 		Request:                   NewRequestClient(cfg),
 		RequestExecution:          NewRequestExecutionClient(cfg),
 		Role:                      NewRoleClient(cfg),
@@ -341,9 +347,9 @@ func (c *Client) Use(hooks ...Hook) {
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
 		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
 		c.OIDCIdentity, c.ObservabilityPayload, c.Project, c.Prompt,
-		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
-		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
-		c.UserRole,
+		c.PromptProtectionRule, c.ProviderQuotaStatus, c.RegistrationInvite, c.Request,
+		c.RequestExecution, c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User,
+		c.UserProject, c.UserRole,
 	} {
 		n.Use(hooks...)
 	}
@@ -357,9 +363,9 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
 		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
 		c.OIDCIdentity, c.ObservabilityPayload, c.Project, c.Prompt,
-		c.PromptProtectionRule, c.ProviderQuotaStatus, c.Request, c.RequestExecution,
-		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
-		c.UserRole,
+		c.PromptProtectionRule, c.ProviderQuotaStatus, c.RegistrationInvite, c.Request,
+		c.RequestExecution, c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User,
+		c.UserProject, c.UserRole,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -402,6 +408,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.PromptProtectionRule.mutate(ctx, m)
 	case *ProviderQuotaStatusMutation:
 		return c.ProviderQuotaStatus.mutate(ctx, m)
+	case *RegistrationInviteMutation:
+		return c.RegistrationInvite.mutate(ctx, m)
 	case *RequestMutation:
 		return c.Request.mutate(ctx, m)
 	case *RequestExecutionMutation:
@@ -3275,6 +3283,156 @@ func (c *ProviderQuotaStatusClient) mutate(ctx context.Context, m *ProviderQuota
 	}
 }
 
+// RegistrationInviteClient is a client for the RegistrationInvite schema.
+type RegistrationInviteClient struct {
+	config
+}
+
+// NewRegistrationInviteClient returns a client for the RegistrationInvite from the given config.
+func NewRegistrationInviteClient(c config) *RegistrationInviteClient {
+	return &RegistrationInviteClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `registrationinvite.Hooks(f(g(h())))`.
+func (c *RegistrationInviteClient) Use(hooks ...Hook) {
+	c.hooks.RegistrationInvite = append(c.hooks.RegistrationInvite, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `registrationinvite.Intercept(f(g(h())))`.
+func (c *RegistrationInviteClient) Intercept(interceptors ...Interceptor) {
+	c.inters.RegistrationInvite = append(c.inters.RegistrationInvite, interceptors...)
+}
+
+// Create returns a builder for creating a RegistrationInvite entity.
+func (c *RegistrationInviteClient) Create() *RegistrationInviteCreate {
+	mutation := newRegistrationInviteMutation(c.config, OpCreate)
+	return &RegistrationInviteCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of RegistrationInvite entities.
+func (c *RegistrationInviteClient) CreateBulk(builders ...*RegistrationInviteCreate) *RegistrationInviteCreateBulk {
+	return &RegistrationInviteCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *RegistrationInviteClient) MapCreateBulk(slice any, setFunc func(*RegistrationInviteCreate, int)) *RegistrationInviteCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &RegistrationInviteCreateBulk{err: fmt.Errorf("calling to RegistrationInviteClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*RegistrationInviteCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &RegistrationInviteCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for RegistrationInvite.
+func (c *RegistrationInviteClient) Update() *RegistrationInviteUpdate {
+	mutation := newRegistrationInviteMutation(c.config, OpUpdate)
+	return &RegistrationInviteUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *RegistrationInviteClient) UpdateOne(_m *RegistrationInvite) *RegistrationInviteUpdateOne {
+	mutation := newRegistrationInviteMutation(c.config, OpUpdateOne, withRegistrationInvite(_m))
+	return &RegistrationInviteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *RegistrationInviteClient) UpdateOneID(id int) *RegistrationInviteUpdateOne {
+	mutation := newRegistrationInviteMutation(c.config, OpUpdateOne, withRegistrationInviteID(id))
+	return &RegistrationInviteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for RegistrationInvite.
+func (c *RegistrationInviteClient) Delete() *RegistrationInviteDelete {
+	mutation := newRegistrationInviteMutation(c.config, OpDelete)
+	return &RegistrationInviteDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *RegistrationInviteClient) DeleteOne(_m *RegistrationInvite) *RegistrationInviteDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *RegistrationInviteClient) DeleteOneID(id int) *RegistrationInviteDeleteOne {
+	builder := c.Delete().Where(registrationinvite.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &RegistrationInviteDeleteOne{builder}
+}
+
+// Query returns a query builder for RegistrationInvite.
+func (c *RegistrationInviteClient) Query() *RegistrationInviteQuery {
+	return &RegistrationInviteQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeRegistrationInvite},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a RegistrationInvite entity by its id.
+func (c *RegistrationInviteClient) Get(ctx context.Context, id int) (*RegistrationInvite, error) {
+	return c.Query().Where(registrationinvite.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *RegistrationInviteClient) GetX(ctx context.Context, id int) *RegistrationInvite {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryProject queries the project edge of a RegistrationInvite.
+func (c *RegistrationInviteClient) QueryProject(_m *RegistrationInvite) *ProjectQuery {
+	query := (&ProjectClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(registrationinvite.Table, registrationinvite.FieldID, id),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, registrationinvite.ProjectTable, registrationinvite.ProjectColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *RegistrationInviteClient) Hooks() []Hook {
+	hooks := c.hooks.RegistrationInvite
+	return append(hooks[:len(hooks):len(hooks)], registrationinvite.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *RegistrationInviteClient) Interceptors() []Interceptor {
+	return c.inters.RegistrationInvite
+}
+
+func (c *RegistrationInviteClient) mutate(ctx context.Context, m *RegistrationInviteMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&RegistrationInviteCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&RegistrationInviteUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&RegistrationInviteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&RegistrationInviteDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown RegistrationInvite mutation op: %q", m.Op())
+	}
+}
+
 // RequestClient is a client for the Request schema.
 type RequestClient struct {
 	config
@@ -5183,15 +5341,15 @@ type (
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
 		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
 		ObservabilityPayload, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
-		UsageLog, User, UserProject, UserRole []ent.Hook
+		ProviderQuotaStatus, RegistrationInvite, Request, RequestExecution, Role,
+		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Hook
 	}
 	inters struct {
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
 		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
 		ObservabilityPayload, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, Request, RequestExecution, Role, System, Thread, Trace,
-		UsageLog, User, UserProject, UserRole []ent.Interceptor
+		ProviderQuotaStatus, RegistrationInvite, Request, RequestExecution, Role,
+		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Interceptor
 	}
 )

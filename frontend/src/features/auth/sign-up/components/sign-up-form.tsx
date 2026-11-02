@@ -1,69 +1,73 @@
-import { HTMLAttributes, useState } from 'react';
+import type { HTMLAttributes } from 'react';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { IconBrandFacebook, IconBrandGithub } from '@tabler/icons-react';
+import { useMutation } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import { authApi } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { passwordSchema } from '@/lib/validation';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/password-input';
+import { useSignIn } from '../../data/auth';
 
-type SignUpFormProps = HTMLAttributes<HTMLFormElement>;
-
-const formSchema = z
-  .object({
-    email: z.string().min(1, { message: 'Please enter your email' }).email({ message: 'Invalid email address' }),
-    password: z
-      .string()
-      .min(1, {
-        message: 'Please enter your password',
-      })
-      .min(7, {
-        message: 'Password must be at least 7 characters long',
-      }),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match.",
-    path: ['confirmPassword'],
-  });
-
-import { useTranslation } from 'react-i18next';
-
-export function SignUpForm({ className, ...props }: SignUpFormProps) {
+export function SignUpForm({ className, ...props }: HTMLAttributes<HTMLFormElement>) {
   const { t } = useTranslation();
-
-  const [isLoading, setIsLoading] = useState(false);
-
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-      confirmPassword: '',
+  const schema = z
+    .object({
+      firstName: z.string().trim().min(1, t('users.validation.firstNameRequired')).max(128),
+      lastName: z.string().trim().min(1, t('users.validation.lastNameRequired')).max(128),
+      email: z.email().max(254),
+      password: passwordSchema(t).refine((value) => new TextEncoder().encode(value).length <= 72, t('registration.passwordTooLong')),
+      confirmPassword: z.string(),
+      inviteCode: z.string().trim().min(1),
+    })
+    .refine((data) => data.password === data.confirmPassword, {
+      message: t('users.validation.passwordsNotMatch'),
+      path: ['confirmPassword'],
+    });
+  const form = useForm<z.infer<typeof schema>>({
+    resolver: zodResolver(schema),
+    defaultValues: { firstName: '', lastName: '', email: '', password: '', confirmPassword: '', inviteCode: '' },
+  });
+  const signIn = useSignIn();
+  const register = useMutation({
+    mutationFn: (data: z.infer<typeof schema>) => authApi.signUp(data),
+    onSuccess: async (_, data) => {
+      await signIn.mutateAsync({ email: data.email.trim().toLowerCase(), password: data.password });
     },
   });
-
-  function onSubmit(data: z.infer<typeof formSchema>) {
-    setIsLoading(true);
-
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 3000);
-  }
-
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className={cn('grid gap-3', className)} {...props}>
+      <form onSubmit={form.handleSubmit((data) => register.mutate(data))} className={cn('grid gap-4', className)} {...props}>
+        <div className='grid grid-cols-2 gap-3'>
+          {(['firstName', 'lastName'] as const).map((name) => (
+            <FormField
+              key={name}
+              control={form.control}
+              name={name}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t(`portal.${name}`)}</FormLabel>
+                  <FormControl>
+                    <Input autoComplete={name === 'firstName' ? 'given-name' : 'family-name'} {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ))}
+        </div>
         <FormField
           control={form.control}
           name='email'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>{t('auth.signIn.form.email.label')}</FormLabel>
               <FormControl>
-                <Input placeholder='name@example.com' {...field} />
+                <Input type='email' autoComplete='email' {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -74,9 +78,9 @@ export function SignUpForm({ className, ...props }: SignUpFormProps) {
           name='password'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>{t('auth.signIn.form.password.label')}</FormLabel>
               <FormControl>
-                <PasswordInput placeholder='********' {...field} />
+                <PasswordInput autoComplete='new-password' {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -89,45 +93,33 @@ export function SignUpForm({ className, ...props }: SignUpFormProps) {
             <FormItem>
               <FormLabel>{t('users.form.confirmPassword')}</FormLabel>
               <FormControl>
-                <PasswordInput placeholder='********' {...field} />
+                <PasswordInput autoComplete='new-password' {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        <Button className='mt-2' disabled={isLoading}>
-          Create Account
+        <FormField
+          control={form.control}
+          name='inviteCode'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{t('registration.inviteCode')}</FormLabel>
+              <FormControl>
+                <Input autoComplete='off' spellCheck={false} {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        {(register.error || signIn.error) && (
+          <p role='alert' className='text-destructive text-sm'>
+            {(register.error || signIn.error)?.message}
+          </p>
+        )}
+        <Button type='submit' disabled={register.isPending || signIn.isPending}>
+          {t('registration.signUp')}
         </Button>
-
-        {/* <div className='relative my-2'>
-          <div className='absolute inset-0 flex items-center'>
-            <span className='w-full border-t' />
-          </div>
-          <div className='relative flex justify-center text-xs uppercase'>
-            <span className='bg-background text-muted-foreground px-2'>
-              Or continue with
-            </span>
-          </div>
-        </div>
-
-        <div className='grid grid-cols-2 gap-2'>
-          <Button
-            variant='outline'
-            className='w-full'
-            type='button'
-            disabled={isLoading}
-          >
-            <IconBrandGithub className='h-4 w-4' /> GitHub
-          </Button>
-          <Button
-            variant='outline'
-            className='w-full'
-            type='button'
-            disabled={isLoading}
-          >
-            <IconBrandFacebook className='h-4 w-4' /> Facebook
-          </Button>
-        </div> */}
       </form>
     </Form>
   );

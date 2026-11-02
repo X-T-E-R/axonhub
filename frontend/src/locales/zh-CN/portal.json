@@ -104,5 +104,28 @@
     "noUsage": "创建个人 Key 并产生调用后，此处将展示您的模型消耗。",
     "noMatches": "没有匹配的模型",
     "guideSelect": "选择教程"
+  },
+  "registration": {
+    "title": "邀请码注册",
+    "signUp": "注册账号",
+    "signIn": "登录",
+    "inviteCode": "邀请码",
+    "invites": "邀请码",
+    "generate": "生成邀请码",
+    "group": "分组",
+    "maxUses": "可使用次数",
+    "expiresAt": "到期时间（可选）",
+    "noExpiry": "不过期",
+    "usage": "已用 / 次数",
+    "valid": "有效",
+    "used": "已用完",
+    "expired": "已到期",
+    "revoked": "已撤销",
+    "revoke": "撤销",
+    "closed": "注册未开放",
+    "copyOnce": "请现在复制，此码仅展示一次。",
+    "passwordTooLong": "密码不能超过 72 字节。",
+    "unavailable": "分组不可用",
+    "selectGroup": "选择分组"
   }
 }

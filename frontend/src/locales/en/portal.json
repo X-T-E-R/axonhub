@@ -104,5 +104,28 @@
     "noUsage": "Create a personal key and make a request to see usage here.",
     "noMatches": "No matching models",
     "guideSelect": "Choose a guide"
+  },
+  "registration": {
+    "title": "Invitation registration",
+    "signUp": "Create account",
+    "signIn": "Sign in",
+    "inviteCode": "Invitation code",
+    "invites": "Invitation codes",
+    "generate": "Generate code",
+    "group": "Group",
+    "maxUses": "Uses",
+    "expiresAt": "Expires at (optional)",
+    "noExpiry": "No expiry",
+    "usage": "Used / limit",
+    "valid": "Valid",
+    "used": "Used up",
+    "expired": "Expired",
+    "revoked": "Revoked",
+    "revoke": "Revoke",
+    "closed": "Registration is closed",
+    "copyOnce": "Copy this code now. It is shown only once.",
+    "passwordTooLong": "Password must not exceed 72 bytes.",
+    "unavailable": "Group unavailable",
+    "selectGroup": "Select a group"
   }
 }

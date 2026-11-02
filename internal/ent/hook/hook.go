@@ -213,6 +213,18 @@ func (f ProviderQuotaStatusFunc) Mutate(ctx context.Context, m ent.Mutation) (en
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ProviderQuotaStatusMutation", m)
 }
 
+// The RegistrationInviteFunc type is an adapter to allow the use of ordinary
+// function as RegistrationInvite mutator.
+type RegistrationInviteFunc func(context.Context, *ent.RegistrationInviteMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RegistrationInviteFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RegistrationInviteMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RegistrationInviteMutation", m)
+}
+
 // The RequestFunc type is an adapter to allow the use of ordinary
 // function as Request mutator.
 type RequestFunc func(context.Context, *ent.RequestMutation) (ent.Value, error)

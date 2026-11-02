@@ -97,6 +97,8 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		unSecureAdminGroup.POST("/system/initialize", handlers.System.InitializeSystem)
 		// User Login - DO NOT AUTH
 		unSecureAdminGroup.POST("/auth/signin", handlers.Auth.SignIn)
+		unSecureAdminGroup.GET("/auth/registration", handlers.Auth.RegistrationStatus)
+		unSecureAdminGroup.POST("/auth/signup", handlers.Auth.SignUp)
 	}
 
 	oauthGroup := server.Group("/oauth", middleware.WithTimeout(server.Config.RequestTimeout))
@@ -118,6 +120,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			handlers.Graphql.Playground.ServeHTTP(c.Writer, c.Request)
 		})
 		adminGroup.POST("/graphql", middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
+			c.Header("Cache-Control", "no-store")
 			handlers.Graphql.Graphql.ServeHTTP(c.Writer, c.Request)
 		})
 

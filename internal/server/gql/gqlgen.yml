@@ -18,6 +18,7 @@ schema:
   - cost.graphql
   - analytics.graphql
   - portal_settings.graphql
+  - registration.graphql
 
 omit_gqlgen_version_in_file_notice: true
 
@@ -73,6 +74,14 @@ converters:
 
 # This section declares type mapping between the GraphQL and Go type systems.
 models:
+  RegistrationGroup:
+    model: github.com/looplj/axonhub/internal/objects.RegistrationGroup
+  RegistrationInvite:
+    model: github.com/looplj/axonhub/internal/objects.RegistrationInvite
+  RegistrationInviteInput:
+    model: github.com/looplj/axonhub/internal/objects.RegistrationInviteInput
+  GeneratedRegistrationInvite:
+    model: github.com/looplj/axonhub/internal/objects.GeneratedRegistrationInvite
   PortalSettings:
     model: github.com/looplj/axonhub/internal/objects.PortalSettings
   PortalSettingsInput:

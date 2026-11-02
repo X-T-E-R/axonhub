@@ -1,38 +1,36 @@
 import { Link } from '@tanstack/react-router';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { useTranslation } from 'react-i18next';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import AuthLayout from '../auth-layout';
+import { useRegistrationStatus } from '../data/registration';
 import { SignUpForm } from './components/sign-up-form';
 
 export default function SignUp() {
+  const { t } = useTranslation();
+  const status = useRegistrationStatus();
   return (
     <AuthLayout>
-      <Card className='gap-4'>
+      <Card className='w-full max-w-md gap-4'>
         <CardHeader>
-          <CardTitle className='text-lg tracking-tight'>Create an account</CardTitle>
-          <CardDescription>
-            Enter your email and password to create an account. <br />
-            Already have an account?{' '}
-            <Link to='/sign-in' className='hover:text-primary underline underline-offset-4'>
-              Sign In
-            </Link>
-          </CardDescription>
+          <CardTitle className='text-lg tracking-tight'>{t('registration.signUp')}</CardTitle>
         </CardHeader>
-        <CardContent>
-          <SignUpForm />
+        <CardContent className='space-y-5'>
+          {status.isLoading ? (
+            <Skeleton className='h-48 w-full' />
+          ) : status.error ? (
+            <p role='alert' className='text-destructive text-sm'>
+              {status.error.message}
+            </p>
+          ) : status.data?.enabled ? (
+            <SignUpForm />
+          ) : (
+            <p className='text-muted-foreground text-sm'>{t('registration.closed')}</p>
+          )}
+          <Link to='/sign-in' className='text-primary block text-center text-sm hover:underline'>
+            {t('registration.signIn')}
+          </Link>
         </CardContent>
-        <CardFooter>
-          <p className='text-muted-foreground px-8 text-center text-sm'>
-            By creating an account, you agree to our{' '}
-            <a href='/terms' className='hover:text-primary underline underline-offset-4'>
-              Terms of Service
-            </a>{' '}
-            and{' '}
-            <a href='/privacy' className='hover:text-primary underline underline-offset-4'>
-              Privacy Policy
-            </a>
-            .
-          </p>
-        </CardFooter>
       </Card>
     </AuthLayout>
   );

@@ -1037,6 +1037,11 @@ type ComplexityRoot struct {
 		RetentionDays  func(childComplexity int) int
 	}
 
+	GeneratedRegistrationInvite struct {
+		Code   func(childComplexity int) int
+		Invite func(childComplexity int) int
+	}
+
 	GetCacheDiagnosticsPayload struct {
 		Content  func(childComplexity int) int
 		FileName func(childComplexity int) int
@@ -1280,6 +1285,7 @@ type ComplexityRoot struct {
 		CreateProject                        func(childComplexity int, input ent.CreateProjectInput) int
 		CreatePrompt                         func(childComplexity int, input ent.CreatePromptInput) int
 		CreatePromptProtectionRule           func(childComplexity int, input ent.CreatePromptProtectionRuleInput) int
+		CreateRegistrationInvite             func(childComplexity int, input objects.RegistrationInviteInput) int
 		CreateRole                           func(childComplexity int, input ent.CreateRoleInput) int
 		CreateUser                           func(childComplexity int, input ent.CreateUserInput) int
 		DeleteAPIKeyProfileTemplate          func(childComplexity int, id objects.GUID) int
@@ -1307,11 +1313,13 @@ type ComplexityRoot struct {
 		RestoreChannelAPIKey                 func(childComplexity int, channelID objects.GUID, keyID string) int
 		RetainThread                         func(childComplexity int, id objects.GUID) int
 		RetainTrace                          func(childComplexity int, id objects.GUID) int
+		RevokeRegistrationInvite             func(childComplexity int, id int) int
 		RotateAPIKey                         func(childComplexity int, id objects.GUID) int
 		RunChannelAPIKeyHealthCheck          func(childComplexity int, channelID objects.GUID, keyIDs []string, mode *objects.ChannelAPIKeyHealthCheckMode) int
 		SaveChannelEndpoints                 func(childComplexity int, input biz.SaveChannelEndpointsInput) int
 		SaveChannelModelPrices               func(childComplexity int, channelID objects.GUID, input []*biz.SaveChannelModelPriceInput) int
 		SaveProxyPreset                      func(childComplexity int, input biz.ProxyPreset) int
+		SetInvitationRegistration            func(childComplexity int, enabled bool) int
 		SetUserAccessMode                    func(childComplexity int, id objects.GUID, mode user.AccessMode, disableLegacyKeys bool) int
 		SyncChannelModels                    func(childComplexity int, channelID objects.GUID, pattern *string) int
 		TestChannel                          func(childComplexity int, input TestChannelInput) int
@@ -1685,6 +1693,8 @@ type ComplexityRoot struct {
 		QueryModels                  func(childComplexity int, input QueryModelsInput) int
 		QueryUnassociatedChannels    func(childComplexity int) int
 		QuotaEnforcementSettings     func(childComplexity int) int
+		RegistrationGroups           func(childComplexity int) int
+		RegistrationInvites          func(childComplexity int) int
 		RequestObservabilitySettings func(childComplexity int) int
 		RequestStats                 func(childComplexity int) int
 		RequestStatsByAPIKey         func(childComplexity int, timeWindow *string) int
@@ -1729,6 +1739,22 @@ type ComplexityRoot struct {
 	RegexAssociation struct {
 		Exclude func(childComplexity int) int
 		Pattern func(childComplexity int) int
+	}
+
+	RegistrationGroup struct {
+		ID   func(childComplexity int) int
+		Name func(childComplexity int) int
+	}
+
+	RegistrationInvite struct {
+		CreatedAt func(childComplexity int) int
+		ExpiresAt func(childComplexity int) int
+		GroupName func(childComplexity int) int
+		ID        func(childComplexity int) int
+		MaxUses   func(childComplexity int) int
+		ProjectID func(childComplexity int) int
+		Status    func(childComplexity int) int
+		UsedUses  func(childComplexity int) int
 	}
 
 	Request struct {
@@ -2641,6 +2667,9 @@ type MutationResolver interface {
 	PreviewPromptProtectionRule(ctx context.Context, input PromptProtectionRulePreviewInput) (*PromptProtectionRulePreviewResult, error)
 	SaveChannelModelPrices(ctx context.Context, channelID objects.GUID, input []*biz.SaveChannelModelPriceInput) ([]*ent.ChannelModelPrice, error)
 	UpdatePortalSettings(ctx context.Context, input objects.PortalSettings) (*objects.PortalSettings, error)
+	SetInvitationRegistration(ctx context.Context, enabled bool) (bool, error)
+	CreateRegistrationInvite(ctx context.Context, input objects.RegistrationInviteInput) (*objects.GeneratedRegistrationInvite, error)
+	RevokeRegistrationInvite(ctx context.Context, id int) (*objects.RegistrationInvite, error)
 }
 type OIDCIdentityResolver interface {
 	ID(ctx context.Context, obj *ent.OIDCIdentity) (*objects.GUID, error)
@@ -2750,6 +2779,8 @@ type QueryResolver interface {
 	AnalyticsDailyStats(ctx context.Context, filter *AnalyticsFilter) ([]*AnalyticsDailyStat, error)
 	AnalyticsDimensionStats(ctx context.Context, filter *AnalyticsFilter, dimension string) ([]*AnalyticsDimensionStat, error)
 	PortalSettings(ctx context.Context) (*objects.PortalSettings, error)
+	RegistrationInvites(ctx context.Context) ([]*objects.RegistrationInvite, error)
+	RegistrationGroups(ctx context.Context) ([]*objects.RegistrationGroup, error)
 }
 type RequestResolver interface {
 	ID(ctx context.Context, obj *ent.Request) (*objects.GUID, error)
@@ -6529,6 +6560,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.GcCleanupPreviewItem.RetentionDays(childComplexity), true
 
+	case "GeneratedRegistrationInvite.code":
+		if e.complexity.GeneratedRegistrationInvite.Code == nil {
+			break
+		}
+
+		return e.complexity.GeneratedRegistrationInvite.Code(childComplexity), true
+	case "GeneratedRegistrationInvite.invite":
+		if e.complexity.GeneratedRegistrationInvite.Invite == nil {
+			break
+		}
+
+		return e.complexity.GeneratedRegistrationInvite.Invite(childComplexity), true
+
 	case "GetCacheDiagnosticsPayload.content":
 		if e.complexity.GetCacheDiagnosticsPayload.Content == nil {
 			break
@@ -7725,6 +7769,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.CreatePromptProtectionRule(childComplexity, args["input"].(ent.CreatePromptProtectionRuleInput)), true
+	case "Mutation.createRegistrationInvite":
+		if e.complexity.Mutation.CreateRegistrationInvite == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createRegistrationInvite_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.CreateRegistrationInvite(childComplexity, args["input"].(objects.RegistrationInviteInput)), true
 	case "Mutation.createRole":
 		if e.complexity.Mutation.CreateRole == nil {
 			break
@@ -8022,6 +8077,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.RetainTrace(childComplexity, args["id"].(objects.GUID)), true
+	case "Mutation.revokeRegistrationInvite":
+		if e.complexity.Mutation.RevokeRegistrationInvite == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_revokeRegistrationInvite_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.RevokeRegistrationInvite(childComplexity, args["id"].(int)), true
 	case "Mutation.rotateAPIKey":
 		if e.complexity.Mutation.RotateAPIKey == nil {
 			break
@@ -8077,6 +8143,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.SaveProxyPreset(childComplexity, args["input"].(biz.ProxyPreset)), true
+	case "Mutation.setInvitationRegistration":
+		if e.complexity.Mutation.SetInvitationRegistration == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setInvitationRegistration_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetInvitationRegistration(childComplexity, args["enabled"].(bool)), true
 	case "Mutation.setUserAccessMode":
 		if e.complexity.Mutation.SetUserAccessMode == nil {
 			break
@@ -10166,6 +10243,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.QuotaEnforcementSettings(childComplexity), true
+	case "Query.registrationGroups":
+		if e.complexity.Query.RegistrationGroups == nil {
+			break
+		}
+
+		return e.complexity.Query.RegistrationGroups(childComplexity), true
+	case "Query.registrationInvites":
+		if e.complexity.Query.RegistrationInvites == nil {
+			break
+		}
+
+		return e.complexity.Query.RegistrationInvites(childComplexity), true
 	case "Query.requestObservabilitySettings":
 		if e.complexity.Query.RequestObservabilitySettings == nil {
 			break
@@ -10449,6 +10538,68 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RegexAssociation.Pattern(childComplexity), true
+
+	case "RegistrationGroup.id":
+		if e.complexity.RegistrationGroup.ID == nil {
+			break
+		}
+
+		return e.complexity.RegistrationGroup.ID(childComplexity), true
+	case "RegistrationGroup.name":
+		if e.complexity.RegistrationGroup.Name == nil {
+			break
+		}
+
+		return e.complexity.RegistrationGroup.Name(childComplexity), true
+
+	case "RegistrationInvite.createdAt":
+		if e.complexity.RegistrationInvite.CreatedAt == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.CreatedAt(childComplexity), true
+	case "RegistrationInvite.expiresAt":
+		if e.complexity.RegistrationInvite.ExpiresAt == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.ExpiresAt(childComplexity), true
+	case "RegistrationInvite.groupName":
+		if e.complexity.RegistrationInvite.GroupName == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.GroupName(childComplexity), true
+	case "RegistrationInvite.id":
+		if e.complexity.RegistrationInvite.ID == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.ID(childComplexity), true
+	case "RegistrationInvite.maxUses":
+		if e.complexity.RegistrationInvite.MaxUses == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.MaxUses(childComplexity), true
+	case "RegistrationInvite.projectID":
+		if e.complexity.RegistrationInvite.ProjectID == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.ProjectID(childComplexity), true
+	case "RegistrationInvite.status":
+		if e.complexity.RegistrationInvite.Status == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.Status(childComplexity), true
+	case "RegistrationInvite.usedUses":
+		if e.complexity.RegistrationInvite.UsedUses == nil {
+			break
+		}
+
+		return e.complexity.RegistrationInvite.UsedUses(childComplexity), true
 
 	case "Request.apiKey":
 		if e.complexity.Request.APIKey == nil {
@@ -13395,6 +13546,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputQueryModelsInput,
 		ec.unmarshalInputReasoningEffortMappingInput,
 		ec.unmarshalInputRegexAssociationInput,
+		ec.unmarshalInputRegistrationInviteInput,
 		ec.unmarshalInputRemoveUserFromProjectInput,
 		ec.unmarshalInputRequestExecutionOrder,
 		ec.unmarshalInputRequestExecutionWhereInput,
@@ -13571,7 +13723,7 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 	return introspection.WrapTypeFromDef(ec.Schema(), ec.Schema().Types[name]), nil
 }
 
-//go:embed "axonhub.graphql" "ent.graphql" "dashboard.graphql" "scopes.graphql" "me.graphql" "system.graphql" "filter.graphql" "model.graphql" "backup.graphql" "channel_probe.graphql" "prompt.graphql" "prompt_protection_rule.graphql" "price.graphql" "cost.graphql" "analytics.graphql" "portal_settings.graphql"
+//go:embed "axonhub.graphql" "ent.graphql" "dashboard.graphql" "scopes.graphql" "me.graphql" "system.graphql" "filter.graphql" "model.graphql" "backup.graphql" "channel_probe.graphql" "prompt.graphql" "prompt_protection_rule.graphql" "price.graphql" "cost.graphql" "analytics.graphql" "portal_settings.graphql" "registration.graphql"
 var sourcesFS embed.FS
 
 func sourceData(filename string) string {
@@ -13599,6 +13751,7 @@ var sources = []*ast.Source{
 	{Name: "cost.graphql", Input: sourceData("cost.graphql"), BuiltIn: false},
 	{Name: "analytics.graphql", Input: sourceData("analytics.graphql"), BuiltIn: false},
 	{Name: "portal_settings.graphql", Input: sourceData("portal_settings.graphql"), BuiltIn: false},
+	{Name: "registration.graphql", Input: sourceData("registration.graphql"), BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
@@ -14362,6 +14515,17 @@ func (ec *executionContext) field_Mutation_createPrompt_args(ctx context.Context
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_createRegistrationInvite_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNRegistrationInviteInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInviteInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createRole_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -14699,6 +14863,17 @@ func (ec *executionContext) field_Mutation_retainTrace_args(ctx context.Context,
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_revokeRegistrationInvite_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNInt2int)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_rotateAPIKey_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -14766,6 +14941,17 @@ func (ec *executionContext) field_Mutation_saveProxyPreset_args(ctx context.Cont
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setInvitationRegistration_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "enabled", ec.unmarshalNBoolean2bool)
+	if err != nil {
+		return nil, err
+	}
+	args["enabled"] = arg0
 	return args, nil
 }
 
@@ -36437,6 +36623,82 @@ func (ec *executionContext) fieldContext_GcCleanupPreviewItem_retentionDays(_ co
 	return fc, nil
 }
 
+func (ec *executionContext) _GeneratedRegistrationInvite_code(ctx context.Context, field graphql.CollectedField, obj *objects.GeneratedRegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_GeneratedRegistrationInvite_code,
+		func(ctx context.Context) (any, error) {
+			return obj.Code, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_GeneratedRegistrationInvite_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "GeneratedRegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _GeneratedRegistrationInvite_invite(ctx context.Context, field graphql.CollectedField, obj *objects.GeneratedRegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_GeneratedRegistrationInvite_invite,
+		func(ctx context.Context) (any, error) {
+			return obj.Invite, nil
+		},
+		nil,
+		ec.marshalNRegistrationInvite2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInvite,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_GeneratedRegistrationInvite_invite(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "GeneratedRegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_RegistrationInvite_id(ctx, field)
+			case "projectID":
+				return ec.fieldContext_RegistrationInvite_projectID(ctx, field)
+			case "groupName":
+				return ec.fieldContext_RegistrationInvite_groupName(ctx, field)
+			case "maxUses":
+				return ec.fieldContext_RegistrationInvite_maxUses(ctx, field)
+			case "usedUses":
+				return ec.fieldContext_RegistrationInvite_usedUses(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_RegistrationInvite_expiresAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_RegistrationInvite_createdAt(ctx, field)
+			case "status":
+				return ec.fieldContext_RegistrationInvite_status(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RegistrationInvite", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _GetCacheDiagnosticsPayload_fileName(ctx context.Context, field graphql.CollectedField, obj *GetCacheDiagnosticsPayload) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -46929,6 +47191,153 @@ func (ec *executionContext) fieldContext_Mutation_updatePortalSettings(ctx conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_setInvitationRegistration(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_setInvitationRegistration,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().SetInvitationRegistration(ctx, fc.Args["enabled"].(bool))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setInvitationRegistration(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setInvitationRegistration_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createRegistrationInvite(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_createRegistrationInvite,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().CreateRegistrationInvite(ctx, fc.Args["input"].(objects.RegistrationInviteInput))
+		},
+		nil,
+		ec.marshalNGeneratedRegistrationInvite2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGeneratedRegistrationInvite,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createRegistrationInvite(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "code":
+				return ec.fieldContext_GeneratedRegistrationInvite_code(ctx, field)
+			case "invite":
+				return ec.fieldContext_GeneratedRegistrationInvite_invite(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type GeneratedRegistrationInvite", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createRegistrationInvite_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_revokeRegistrationInvite(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_revokeRegistrationInvite,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().RevokeRegistrationInvite(ctx, fc.Args["id"].(int))
+		},
+		nil,
+		ec.marshalNRegistrationInvite2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInvite,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_revokeRegistrationInvite(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_RegistrationInvite_id(ctx, field)
+			case "projectID":
+				return ec.fieldContext_RegistrationInvite_projectID(ctx, field)
+			case "groupName":
+				return ec.fieldContext_RegistrationInvite_groupName(ctx, field)
+			case "maxUses":
+				return ec.fieldContext_RegistrationInvite_maxUses(ctx, field)
+			case "usedUses":
+				return ec.fieldContext_RegistrationInvite_usedUses(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_RegistrationInvite_expiresAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_RegistrationInvite_createdAt(ctx, field)
+			case "status":
+				return ec.fieldContext_RegistrationInvite_status(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RegistrationInvite", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_revokeRegistrationInvite_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _OAuthCredentials_accessToken(ctx context.Context, field graphql.CollectedField, obj *oauth.OAuthCredentials) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -55968,6 +56377,88 @@ func (ec *executionContext) fieldContext_Query_portalSettings(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_registrationInvites(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_registrationInvites,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().RegistrationInvites(ctx)
+		},
+		nil,
+		ec.marshalNRegistrationInvite2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInviteᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_registrationInvites(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_RegistrationInvite_id(ctx, field)
+			case "projectID":
+				return ec.fieldContext_RegistrationInvite_projectID(ctx, field)
+			case "groupName":
+				return ec.fieldContext_RegistrationInvite_groupName(ctx, field)
+			case "maxUses":
+				return ec.fieldContext_RegistrationInvite_maxUses(ctx, field)
+			case "usedUses":
+				return ec.fieldContext_RegistrationInvite_usedUses(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_RegistrationInvite_expiresAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_RegistrationInvite_createdAt(ctx, field)
+			case "status":
+				return ec.fieldContext_RegistrationInvite_status(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RegistrationInvite", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_registrationGroups(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_registrationGroups,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().RegistrationGroups(ctx)
+		},
+		nil,
+		ec.marshalNRegistrationGroup2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationGroupᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_registrationGroups(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_RegistrationGroup_id(ctx, field)
+			case "name":
+				return ec.fieldContext_RegistrationGroup_name(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RegistrationGroup", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -56253,6 +56744,296 @@ func (ec *executionContext) fieldContext_RegexAssociation_exclude(_ context.Cont
 				return ec.fieldContext_ExcludeAssociation_channelTags(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ExcludeAssociation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationGroup_id(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationGroup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationGroup_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationGroup_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationGroup",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationGroup_name(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationGroup) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationGroup_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationGroup_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationGroup",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_id(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_projectID(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_projectID,
+		func(ctx context.Context) (any, error) {
+			return obj.ProjectID, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_projectID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_groupName(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_groupName,
+		func(ctx context.Context) (any, error) {
+			return obj.GroupName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_groupName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_maxUses(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_maxUses,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxUses, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_maxUses(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_usedUses(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_usedUses,
+		func(ctx context.Context) (any, error) {
+			return obj.UsedUses, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_usedUses(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_expiresAt(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_expiresAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ExpiresAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_expiresAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_createdAt(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RegistrationInvite_status(ctx context.Context, field graphql.CollectedField, obj *objects.RegistrationInvite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RegistrationInvite_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RegistrationInvite_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RegistrationInvite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -90413,6 +91194,51 @@ func (ec *executionContext) unmarshalInputRegexAssociationInput(ctx context.Cont
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputRegistrationInviteInput(ctx context.Context, obj any) (objects.RegistrationInviteInput, error) {
+	var it objects.RegistrationInviteInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["maxUses"]; !present {
+		asMap["maxUses"] = 1
+	}
+
+	fieldsInOrder := [...]string{"projectID", "maxUses", "expiresAt"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "projectID":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectID"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProjectID = data
+		case "maxUses":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxUses"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxUses = data
+		case "expiresAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expiresAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExpiresAt = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputRemoveUserFromProjectInput(ctx context.Context, obj any) (RemoveUserFromProjectInput, error) {
 	var it RemoveUserFromProjectInput
 	asMap := map[string]any{}
@@ -109947,6 +110773,50 @@ func (ec *executionContext) _GcCleanupPreviewItem(ctx context.Context, sel ast.S
 	return out
 }
 
+var generatedRegistrationInviteImplementors = []string{"GeneratedRegistrationInvite"}
+
+func (ec *executionContext) _GeneratedRegistrationInvite(ctx context.Context, sel ast.SelectionSet, obj *objects.GeneratedRegistrationInvite) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, generatedRegistrationInviteImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("GeneratedRegistrationInvite")
+		case "code":
+			out.Values[i] = ec._GeneratedRegistrationInvite_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "invite":
+			out.Values[i] = ec._GeneratedRegistrationInvite_invite(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var getCacheDiagnosticsPayloadImplementors = []string{"GetCacheDiagnosticsPayload"}
 
 func (ec *executionContext) _GetCacheDiagnosticsPayload(ctx context.Context, sel ast.SelectionSet, obj *GetCacheDiagnosticsPayload) graphql.Marshaler {
@@ -112372,6 +113242,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "updatePortalSettings":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_updatePortalSettings(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setInvitationRegistration":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setInvitationRegistration(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createRegistrationInvite":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createRegistrationInvite(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "revokeRegistrationInvite":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_revokeRegistrationInvite(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -116719,6 +117610,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "registrationInvites":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_registrationInvites(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "registrationGroups":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_registrationGroups(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -116856,6 +117791,121 @@ func (ec *executionContext) _RegexAssociation(ctx context.Context, sel ast.Selec
 			}
 		case "exclude":
 			out.Values[i] = ec._RegexAssociation_exclude(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var registrationGroupImplementors = []string{"RegistrationGroup"}
+
+func (ec *executionContext) _RegistrationGroup(ctx context.Context, sel ast.SelectionSet, obj *objects.RegistrationGroup) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, registrationGroupImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RegistrationGroup")
+		case "id":
+			out.Values[i] = ec._RegistrationGroup_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._RegistrationGroup_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var registrationInviteImplementors = []string{"RegistrationInvite"}
+
+func (ec *executionContext) _RegistrationInvite(ctx context.Context, sel ast.SelectionSet, obj *objects.RegistrationInvite) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, registrationInviteImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RegistrationInvite")
+		case "id":
+			out.Values[i] = ec._RegistrationInvite_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "projectID":
+			out.Values[i] = ec._RegistrationInvite_projectID(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "groupName":
+			out.Values[i] = ec._RegistrationInvite_groupName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxUses":
+			out.Values[i] = ec._RegistrationInvite_maxUses(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "usedUses":
+			out.Values[i] = ec._RegistrationInvite_usedUses(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expiresAt":
+			out.Values[i] = ec._RegistrationInvite_expiresAt(ctx, field, obj)
+		case "createdAt":
+			out.Values[i] = ec._RegistrationInvite_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "status":
+			out.Values[i] = ec._RegistrationInvite_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -127412,6 +128462,20 @@ func (ec *executionContext) marshalNGcCleanupPreviewItem2ᚖgithubᚗcomᚋloopl
 	return ec._GcCleanupPreviewItem(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNGeneratedRegistrationInvite2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGeneratedRegistrationInvite(ctx context.Context, sel ast.SelectionSet, v objects.GeneratedRegistrationInvite) graphql.Marshaler {
+	return ec._GeneratedRegistrationInvite(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNGeneratedRegistrationInvite2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGeneratedRegistrationInvite(ctx context.Context, sel ast.SelectionSet, v *objects.GeneratedRegistrationInvite) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._GeneratedRegistrationInvite(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNGetCacheDiagnosticsPayload2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐGetCacheDiagnosticsPayload(ctx context.Context, sel ast.SelectionSet, v GetCacheDiagnosticsPayload) graphql.Marshaler {
 	return ec._GetCacheDiagnosticsPayload(ctx, sel, &v)
 }
@@ -129358,6 +130422,123 @@ func (ec *executionContext) marshalNReasoningEffortMapping2githubᚗcomᚋlooplj
 
 func (ec *executionContext) unmarshalNReasoningEffortMappingInput2githubᚗcomᚋloopljᚋaxonhubᚋllmᚐReasoningEffortMapping(ctx context.Context, v any) (llm.ReasoningEffortMapping, error) {
 	res, err := ec.unmarshalInputReasoningEffortMappingInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRegistrationGroup2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationGroupᚄ(ctx context.Context, sel ast.SelectionSet, v []*objects.RegistrationGroup) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNRegistrationGroup2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationGroup(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNRegistrationGroup2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationGroup(ctx context.Context, sel ast.SelectionSet, v *objects.RegistrationGroup) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RegistrationGroup(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNRegistrationInvite2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInvite(ctx context.Context, sel ast.SelectionSet, v objects.RegistrationInvite) graphql.Marshaler {
+	return ec._RegistrationInvite(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNRegistrationInvite2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInviteᚄ(ctx context.Context, sel ast.SelectionSet, v []*objects.RegistrationInvite) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNRegistrationInvite2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInvite(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNRegistrationInvite2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInvite(ctx context.Context, sel ast.SelectionSet, v *objects.RegistrationInvite) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RegistrationInvite(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNRegistrationInviteInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationInviteInput(ctx context.Context, v any) (objects.RegistrationInviteInput, error) {
+	res, err := ec.unmarshalInputRegistrationInviteInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 

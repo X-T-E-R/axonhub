@@ -133,6 +133,15 @@ export const systemApi = {
 
 // Auth API endpoints
 export const authApi = {
+  registrationStatus: (): Promise<{ enabled: boolean }> => apiRequest('/admin/auth/registration'),
+  signUp: (data: {
+    email: string;
+    password: string;
+    confirmPassword: string;
+    firstName: string;
+    lastName: string;
+    inviteCode: string;
+  }): Promise<{ success: boolean }> => apiRequest('/admin/auth/signup', { method: 'POST', body: data }),
   signIn: (data: {
     email: string;
     password: string;
@@ -167,11 +176,13 @@ export const authApi = {
   getOIDCLinkAuthorizeURL: (provider: string): Promise<{ data: { url: string; state: string } }> =>
     apiRequest(`/admin/oidc/link/${provider}`, { requireAuth: true }),
 
-  exchangeOIDCCode: (code: string): Promise<{
+  exchangeOIDCCode: (
+    code: string
+  ): Promise<{
     data: {
       user: AuthUser;
       token: string;
-    }
+    };
   }> =>
     apiRequest('/oauth/oidc/exchange', {
       method: 'POST',

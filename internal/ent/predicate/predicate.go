@@ -57,6 +57,9 @@ type PromptProtectionRule func(*sql.Selector)
 // ProviderQuotaStatus is the predicate function for providerquotastatus builders.
 type ProviderQuotaStatus func(*sql.Selector)
 
+// RegistrationInvite is the predicate function for registrationinvite builders.
+type RegistrationInvite func(*sql.Selector)
+
 // Request is the predicate function for request builders.
 type Request func(*sql.Selector)
 

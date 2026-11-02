@@ -22,6 +22,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
+	"github.com/looplj/axonhub/internal/ent/registrationinvite"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/ent/role"
@@ -686,6 +687,62 @@ func init() {
 	providerquotastatusDescReady := providerquotastatusFields[5].Descriptor()
 	// providerquotastatus.DefaultReady holds the default value on creation for the ready field.
 	providerquotastatus.DefaultReady = providerquotastatusDescReady.Default.(bool)
+	registrationinviteMixin := schema.RegistrationInvite{}.Mixin()
+	registrationinvite.Policy = privacy.NewPolicies(schema.RegistrationInvite{})
+	registrationinvite.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := registrationinvite.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	registrationinviteMixinFields0 := registrationinviteMixin[0].Fields()
+	_ = registrationinviteMixinFields0
+	registrationinviteFields := schema.RegistrationInvite{}.Fields()
+	_ = registrationinviteFields
+	// registrationinviteDescCreatedAt is the schema descriptor for created_at field.
+	registrationinviteDescCreatedAt := registrationinviteMixinFields0[0].Descriptor()
+	// registrationinvite.DefaultCreatedAt holds the default value on creation for the created_at field.
+	registrationinvite.DefaultCreatedAt = registrationinviteDescCreatedAt.Default.(func() time.Time)
+	// registrationinviteDescUpdatedAt is the schema descriptor for updated_at field.
+	registrationinviteDescUpdatedAt := registrationinviteMixinFields0[1].Descriptor()
+	// registrationinvite.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	registrationinvite.DefaultUpdatedAt = registrationinviteDescUpdatedAt.Default.(func() time.Time)
+	// registrationinvite.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	registrationinvite.UpdateDefaultUpdatedAt = registrationinviteDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// registrationinviteDescDigest is the schema descriptor for digest field.
+	registrationinviteDescDigest := registrationinviteFields[0].Descriptor()
+	// registrationinvite.DigestValidator is a validator for the "digest" field. It is called by the builders before save.
+	registrationinvite.DigestValidator = func() func(string) error {
+		validators := registrationinviteDescDigest.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(digest string) error {
+			for _, fn := range fns {
+				if err := fn(digest); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// registrationinviteDescMaxUses is the schema descriptor for max_uses field.
+	registrationinviteDescMaxUses := registrationinviteFields[3].Descriptor()
+	// registrationinvite.MaxUsesValidator is a validator for the "max_uses" field. It is called by the builders before save.
+	registrationinvite.MaxUsesValidator = registrationinviteDescMaxUses.Validators[0].(func(int) error)
+	// registrationinviteDescUsedUses is the schema descriptor for used_uses field.
+	registrationinviteDescUsedUses := registrationinviteFields[4].Descriptor()
+	// registrationinvite.DefaultUsedUses holds the default value on creation for the used_uses field.
+	registrationinvite.DefaultUsedUses = registrationinviteDescUsedUses.Default.(int)
+	// registrationinvite.UsedUsesValidator is a validator for the "used_uses" field. It is called by the builders before save.
+	registrationinvite.UsedUsesValidator = registrationinviteDescUsedUses.Validators[0].(func(int) error)
+	// registrationinviteDescRevoked is the schema descriptor for revoked field.
+	registrationinviteDescRevoked := registrationinviteFields[6].Descriptor()
+	// registrationinvite.DefaultRevoked holds the default value on creation for the revoked field.
+	registrationinvite.DefaultRevoked = registrationinviteDescRevoked.Default.(bool)
 	requestMixin := schema.Request{}.Mixin()
 	request.Policy = privacy.NewPolicies(schema.Request{})
 	request.Hooks[0] = func(next ent.Mutator) ent.Mutator {

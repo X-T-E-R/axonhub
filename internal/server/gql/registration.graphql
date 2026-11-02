@@ -1,0 +1,23 @@
+type RegistrationInvite {
+  id: Int!
+  projectID: Int!
+  groupName: String!
+  maxUses: Int!
+  usedUses: Int!
+  expiresAt: Time
+  createdAt: Time!
+  status: String!
+}
+input RegistrationInviteInput {
+  projectID: Int!
+  maxUses: Int! = 1
+  expiresAt: Time
+}
+type GeneratedRegistrationInvite { code: String!, invite: RegistrationInvite! }
+type RegistrationGroup { id: Int!, name: String! }
+extend type Query { registrationInvites: [RegistrationInvite!]!, registrationGroups: [RegistrationGroup!]! }
+extend type Mutation {
+  setInvitationRegistration(enabled: Boolean!): Boolean!
+  createRegistrationInvite(input: RegistrationInviteInput!): GeneratedRegistrationInvite!
+  revokeRegistrationInvite(id: Int!): RegistrationInvite!
+}
