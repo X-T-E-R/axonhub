@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -153,6 +153,13 @@ export default function PortalKeys() {
   const [previous, setPrevious] = useState<PortalKey[]>([]);
   const [editor, setEditor] = useState<PortalKey | null | undefined>(undefined);
   const [history, setHistory] = useState<PortalKey | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const page = usePortalQuery<{ keys: { items: PortalKey[]; totalCount: number; nextCursor: number | null } }>(
     'keys',
     KEYS_QUERY,
@@ -176,6 +183,7 @@ export default function PortalKeys() {
   async function copyKey(id: number) {
     try {
       const result = await portalRequest<{ revealKey: string }>('mutation Reveal($id: Int!) { revealKey(id: $id) }', { id });
+      if (!mounted.current) return;
       await navigator.clipboard.writeText(result.revealKey);
       toast.success(t('portal.copied'));
     } catch (error) {

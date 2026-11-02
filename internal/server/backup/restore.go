@@ -112,12 +112,16 @@ func (svc *BackupService) restore(ctx context.Context, db *ent.Client, backupDat
 		}
 	}
 
+	portalChannelIDs := portalResolvedChannelIDs(backupData.Channels, channelIDMap)
 	if opts.IncludeProjects {
 		for _, projData := range backupData.Projects {
 			if projData == nil {
 				continue
 			}
 
+			if err := validatePortalProjectChannels(ctx, db, projData, backupData, opts, portalChannelIDs); err != nil {
+				return err
+			}
 			remapProjectProfilesChannelIDs(projData.Profiles, channelIDMap)
 		}
 
@@ -127,7 +131,7 @@ func (svc *BackupService) restore(ctx context.Context, db *ent.Client, backupDat
 	}
 
 	if opts.IncludeAPIKeys {
-		if err := svc.restoreAPIKeys(ctx, db, backupData.APIKeys, opts, channelIDMap); err != nil {
+		if err := svc.restoreAPIKeys(ctx, db, backupData.APIKeys, opts, channelIDMap, portalChannelIDs); err != nil {
 			return err
 		}
 	}
@@ -773,7 +777,7 @@ func (svc *BackupService) restoreModels(ctx context.Context, db *ent.Client, mod
 	return nil
 }
 
-func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, apiKeys []*BackupAPIKey, opts RestoreOptions, channelIDMap map[int]int) error {
+func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, apiKeys []*BackupAPIKey, opts RestoreOptions, channelIDMap, portalChannelIDs map[int]int) error {
 	user, ok := contexts.GetUser(ctx)
 	if !ok || user == nil {
 		return fmt.Errorf("user not found in context for restoring API keys")
@@ -790,6 +794,13 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 			ownerID, err = resolvePortalOwner(ctx, db, akData)
 			if err != nil {
 				return err
+			}
+			if akData.Profiles != nil {
+				for _, p := range akData.Profiles.Profiles {
+					if err := requirePortalChannelIDs(p.ChannelIDs, portalChannelIDs); err != nil {
+						return fmt.Errorf("restore portal key %q profile %q: %w", akData.Name, p.Name, err)
+					}
+				}
 			}
 		}
 		remapAPIKeyProfilesChannelIDs(akData.Profiles, channelIDMap)
@@ -848,6 +859,9 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 				First(ctx)
 			if err != nil {
 				if ent.IsNotFound(err) {
+					if akData.PortalManaged {
+						return fmt.Errorf("restore portal key %q: group %q is unavailable", akData.Name, projectName)
+					}
 					log.Warn(ctx, "project not found, skipping API key",
 						log.String("project", projectName),
 						log.String("api_key", akData.Name))

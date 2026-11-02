@@ -10,6 +10,8 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/system"
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/objects"
@@ -304,4 +306,128 @@ func TestBackupService_BackupRestore_PortalSettingsPreservesPublished(t *testing
 	var restored objects.PortalSettings
 	require.NoError(t, json.Unmarshal([]byte(restoredRow.Value), &restored))
 	require.Equal(t, original, restored)
+}
+
+// F-01: a source ID collision must not change an existing enabled credential's
+// authorization, even when no managed credential is present in the backup.
+func TestPortalRestoreGroupChannelReferences(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+	owner := createPortalBackupOwner(t, client, ctx, "restore-channels@example.test", false, user.AccessModePortal)
+	allowed := createBackupTestChannel(t, client, ctx, "destination-approved", channel.TypeOpenai)
+	unrelated := createBackupTestChannel(t, client, ctx, "destination-unrelated", channel.TypeOpenai)
+	models := []string{"gpt-4"}
+	group := client.Project.Create().SetName("Portal reference group").SetProfiles(&objects.ProjectProfiles{ActiveProfile: "active", Profiles: []objects.ProjectProfile{{Name: "active", ModelIDs: &models, ChannelIDs: []int{allowed.ID}}}}).SaveX(ctx)
+	client.UserProject.Create().SetUserID(owner.ID).SetProjectID(group.ID).SaveX(ctx)
+	key := createPortalBackupKey(t, client, ctx, owner, group, "Existing key", "ah-existing-channel-key", true)
+	data := BackupData{Version: BackupVersion,
+		Channels: []*BackupChannel{{Channel: ent.Channel{ID: unrelated.ID, Name: "missing-source-route"}}},
+		// ModelIDs omitted intentionally: old backups preserve the existing model
+		// limit, so existing managed keys must also trigger reference validation.
+		Projects:       []*BackupProject{{Project: ent.Project{Name: group.Name, Status: group.Status, Profiles: &objects.ProjectProfiles{ActiveProfile: "active", Profiles: []objects.ProjectProfile{{Name: "active", ChannelIDs: []int{unrelated.ID}}}}}}},
+		PortalSettings: &objects.PortalSettings{Guides: []*objects.PortalDocument{{Slug: "rollback", Title: "Rollback", Markdown: "must not persist"}}},
+	}
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+	err = service.Restore(ctx, raw, RestoreOptions{IncludeProjects: true, ProjectConflictStrategy: ConflictStrategyOverwrite})
+	require.ErrorContains(t, err, "cannot be resolved by source name")
+	require.Equal(t, []int{allowed.ID}, client.Project.GetX(ctx, group.ID).GetActiveProfile().ChannelIDs)
+	require.Equal(t, apikey.StatusEnabled, client.APIKey.GetX(ctx, key.ID).Status)
+	require.False(t, client.System.Query().Where(system.KeyEQ(biz.SystemKeyPortalSettings)).ExistX(ctx), "earlier content writes must roll back")
+	current, err := biz.RefreshAPIKeyAuthorization(ctx, client, key.Key)
+	require.NoError(t, err)
+	require.True(t, biz.KeyAllowsChannel(current, allowed.ID, allowed.Tags))
+	require.False(t, biz.KeyAllowsChannel(current, unrelated.ID, unrelated.Tags))
+
+	// The same source ID is valid when its manifest name resolves to a different
+	// target ID. All profile channel IDs and the model limit survive the remap.
+	data.Channels[0].Name = allowed.Name
+	raw, err = json.Marshal(data)
+	require.NoError(t, err)
+	require.NoError(t, service.Restore(ctx, raw, RestoreOptions{IncludeProjects: true, ProjectConflictStrategy: ConflictStrategyOverwrite}))
+	restored := client.Project.GetX(ctx, group.ID).GetActiveProfile()
+	require.Equal(t, []int{allowed.ID}, restored.ChannelIDs)
+	require.Equal(t, models, *restored.ModelIDs)
+
+	// An explicitly configured destination group needs the same protection even
+	// before its first managed key is created; old backups retain its ModelIDs.
+	emptyGroup := client.Project.Create().SetName("Portal group without keys").SetProfiles(group.Profiles).SaveX(ctx)
+	data.PortalSettings = nil
+	data.Projects[0].Name = emptyGroup.Name
+	data.Channels[0].Name = "missing-source-route"
+	raw, err = json.Marshal(data)
+	require.NoError(t, err)
+	err = service.Restore(ctx, raw, RestoreOptions{IncludeProjects: true, ProjectConflictStrategy: ConflictStrategyOverwrite})
+	require.ErrorContains(t, err, "cannot be resolved by source name")
+	require.Equal(t, []int{allowed.ID}, client.Project.GetX(ctx, emptyGroup.ID).GetActiveProfile().ChannelIDs)
+
+	// A legacy-only project still retains the previous partial-restore contract.
+	data.Projects[0].Name = "Legacy reference group"
+	raw, err = json.Marshal(data)
+	require.NoError(t, err)
+	require.NoError(t, service.Restore(ctx, raw, RestoreOptions{IncludeProjects: true}))
+	legacy := client.Project.Query().Where(project.NameEQ("Legacy reference group")).OnlyX(ctx)
+	require.Equal(t, []int{unrelated.ID}, legacy.GetActiveProfile().ChannelIDs)
+}
+
+func TestPortalRestoreKeyChannelReferences(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+	owner := createPortalBackupOwner(t, client, ctx, "restore-key-channels@example.test", false, user.AccessModePortal)
+	group := createBackupTestProject(t, client, ctx, "Key reference group", "destination")
+	allowed := createBackupTestChannel(t, client, ctx, "key-approved", channel.TypeOpenai)
+	unrelated := createBackupTestChannel(t, client, ctx, "key-unrelated", channel.TypeOpenai)
+	key := createPortalBackupKey(t, client, ctx, owner, group, "Original key", "ah-key-reference", true)
+	original := &objects.APIKeyProfiles{ActiveProfile: "personal", Profiles: []objects.APIKeyProfile{{Name: "personal", ChannelIDs: []int{allowed.ID}}}}
+	client.APIKey.UpdateOne(key).SetProfiles(original).SaveX(ctx)
+	data := BackupData{Version: BackupVersion,
+		Channels: []*BackupChannel{{Channel: ent.Channel{ID: unrelated.ID, Name: "missing-key-source"}}},
+		APIKeys:  []*BackupAPIKey{{APIKey: ent.APIKey{Key: key.Key, Name: "Replacement key", Type: apikey.TypePersonal, PortalManaged: true, Status: apikey.StatusEnabled, Profiles: &objects.APIKeyProfiles{ActiveProfile: "personal", Profiles: []objects.APIKeyProfile{{Name: "personal", ChannelIDs: []int{unrelated.ID}}, {Name: "inactive", ChannelIDs: []int{unrelated.ID}}}}}, ProjectName: group.Name, OwnerEmail: owner.Email}},
+	}
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+	err = service.Restore(ctx, raw, RestoreOptions{IncludeAPIKeys: true, APIKeyConflictStrategy: ConflictStrategyOverwrite})
+	require.ErrorContains(t, err, "cannot be resolved by source name")
+	require.Equal(t, "Original key", client.APIKey.GetX(ctx, key.ID).Name)
+	require.Equal(t, original, client.APIKey.GetX(ctx, key.ID).Profiles)
+	data.Channels[0].Name = allowed.Name
+	raw, err = json.Marshal(data)
+	require.NoError(t, err)
+	require.NoError(t, service.Restore(ctx, raw, RestoreOptions{IncludeAPIKeys: true, APIKeyConflictStrategy: ConflictStrategyOverwrite}))
+	restored := client.APIKey.GetX(ctx, key.ID)
+	for _, p := range restored.Profiles.Profiles {
+		require.Equal(t, []int{allowed.ID}, p.ChannelIDs)
+	}
+	require.Equal(t, owner.ID, restored.UserID)
+}
+
+// F-02: a missing non-empty managed group reference is a failed transaction,
+// while the legacy warning/skip contract remains unchanged.
+func TestPortalRestoreMissingGroupRollsBack(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+	owner := createPortalBackupOwner(t, client, ctx, "restore-missing-group@example.test", false, user.AccessModePortal)
+	existing := createBackupTestProject(t, client, ctx, "Existing legacy group", "destination")
+	data := BackupData{Version: BackupVersion, PortalOwners: []*BackupPortalOwner{{Email: owner.Email, AccessMode: "portal"}}, APIKeys: []*BackupAPIKey{
+		{APIKey: ent.APIKey{Key: "ah-prior-legacy", Name: "Earlier restored key", Type: apikey.TypeUser, Status: apikey.StatusEnabled}, ProjectName: existing.Name},
+		{APIKey: ent.APIKey{Key: "ah-missing-group", Name: "Managed missing group", Type: apikey.TypePersonal, Status: apikey.StatusEnabled, PortalManaged: true}, ProjectName: "Not provisioned", OwnerEmail: owner.Email},
+	}}
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+	err = service.Restore(ctx, raw, RestoreOptions{IncludeAPIKeys: true, APIKeyConflictStrategy: ConflictStrategyOverwrite})
+	require.ErrorContains(t, err, `group "Not provisioned" is unavailable`)
+	require.Zero(t, client.APIKey.Query().CountX(ctx), "earlier inserts must roll back too")
+	group := createBackupTestProject(t, client, ctx, "Not provisioned", "provisioned explicitly")
+	require.NoError(t, service.Restore(ctx, raw, RestoreOptions{IncludeAPIKeys: true, APIKeyConflictStrategy: ConflictStrategyOverwrite}))
+	key := client.APIKey.Query().Where(apikey.KeyEQ("ah-missing-group")).OnlyX(ctx)
+	require.Equal(t, owner.ID, key.UserID)
+	require.Equal(t, group.ID, key.ProjectID)
+	require.True(t, key.PortalManaged)
+	require.Equal(t, apikey.StatusDisabled, key.Status)
+	data.PortalOwners = nil
+	data.APIKeys = []*BackupAPIKey{{APIKey: ent.APIKey{Key: "ah-legacy-missing-group", Name: "Legacy missing group", Type: apikey.TypeUser}, ProjectName: "Still absent"}}
+	raw, err = json.Marshal(data)
+	require.NoError(t, err)
+	require.NoError(t, service.Restore(ctx, raw, RestoreOptions{IncludeAPIKeys: true}))
+	require.False(t, client.APIKey.Query().Where(apikey.KeyEQ("ah-legacy-missing-group")).ExistX(ctx))
 }

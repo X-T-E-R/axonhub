@@ -7,6 +7,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/system"
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/objects"
@@ -106,4 +107,83 @@ func resolvePortalOwner(ctx context.Context, db *ent.Client, data *BackupAPIKey)
 		return 0, fmt.Errorf("managed key owner identity unavailable")
 	}
 	return owner.ID, nil
+}
+
+// Portal references require a source identity from the channel manifest and a
+// name-resolved destination. A coincidentally equal destination ID is not proof.
+func portalResolvedChannelIDs(channels []*BackupChannel, idMap map[int]int) map[int]int {
+	byID := map[int]string{}
+	byName := map[string]int{}
+	ambiguous := map[int]bool{}
+	for _, ch := range channels {
+		if ch == nil || ch.ID == 0 || ch.Name == "" {
+			continue
+		}
+		if name, ok := byID[ch.ID]; ok && name != ch.Name {
+			ambiguous[ch.ID] = true
+		}
+		if id, ok := byName[ch.Name]; ok && id != ch.ID {
+			ambiguous[id], ambiguous[ch.ID] = true, true
+		}
+		byID[ch.ID], byName[ch.Name] = ch.Name, ch.ID
+	}
+	resolved := map[int]int{}
+	for id := range byID {
+		if target, ok := idMap[id]; ok && !ambiguous[id] {
+			resolved[id] = target
+		}
+	}
+	return resolved
+}
+
+func requirePortalChannelIDs(ids []int, resolved map[int]int) error {
+	for _, id := range ids {
+		if _, ok := resolved[id]; !ok {
+			return fmt.Errorf("portal channel reference %d cannot be resolved by source name", id)
+		}
+	}
+	return nil
+}
+
+func validatePortalProjectChannels(ctx context.Context, db *ent.Client, data *BackupProject, backup BackupData, opts RestoreOptions, resolved map[int]int) error {
+	if data.Profiles == nil {
+		return nil // Existing destination profiles are kept, not source references.
+	}
+	existing, err := db.Project.Query().Where(project.NameEQ(data.Name)).Only(ctx)
+	if err != nil && !ent.IsNotFound(err) {
+		return err
+	}
+	if existing != nil && opts.ProjectConflictStrategy != ConflictStrategyOverwrite {
+		return nil
+	}
+	portal := false
+	for _, p := range data.Profiles.Profiles {
+		portal = portal || p.ModelIDs != nil
+	}
+	// Legacy backups omit ModelIDs; restoreProjects preserves the destination's
+	// explicit model limit, so its new channel references also need validation.
+	if existing != nil && existing.Profiles != nil {
+		for _, p := range existing.Profiles.Profiles {
+			portal = portal || p.ModelIDs != nil
+		}
+	}
+	if opts.IncludeAPIKeys {
+		for _, key := range backup.APIKeys {
+			portal = portal || (key != nil && key.PortalManaged && key.ProjectName == data.Name)
+		}
+	}
+	if !portal && existing != nil {
+		portal, err = db.APIKey.Query().Where(apikey.ProjectIDEQ(existing.ID), apikey.PortalManagedEQ(true)).Exist(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if portal {
+		for _, p := range data.Profiles.Profiles {
+			if err := requirePortalChannelIDs(p.ChannelIDs, resolved); err != nil {
+				return fmt.Errorf("restore portal group %q profile %q: %w", data.Name, p.Name, err)
+			}
+		}
+	}
+	return nil
 }

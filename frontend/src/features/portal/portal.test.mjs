@@ -82,6 +82,8 @@ const { PortalMarkdown, safePortalURL } = load('features/portal/markdown.tsx');
 const { accessTemplates } = load('features/portal/templates.ts');
 const { highlightCode } = codeBlockModule;
 const quickStartSource = readFileSync(join(sourceRoot, 'features/portal/quick-start.tsx'), 'utf8');
+const portalKeysPath = join(sourceRoot, 'features/portal/keys.tsx');
+const portalKeysSource = readFileSync(portalKeysPath, 'utf8');
 
 function renderMarkdown(markdown) {
   return renderToStaticMarkup(React.createElement(PortalMarkdown, { children: markdown }));
@@ -108,6 +110,24 @@ function parseCurlCommand(command) {
   assert.ok(url, `expected a quoted curl URL in ${command}`);
   assert.ok(bodyText, `expected a quoted JSON curl body in ${command}`);
   return { url, body: JSON.parse(bodyText) };
+}
+
+function extractCopyKey({ portalRequest, navigator, toast, t }) {
+  const sourceFile = ts.createSourceFile(portalKeysPath, portalKeysSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let declaration;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'copyKey') declaration = node.getText(sourceFile);
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  assert.ok(declaration, 'keys.tsx copyKey function should remain extractable for the counterexample harness');
+  const module = { exports: {} };
+  const output = ts.transpileModule(
+    `module.exports = (function () { const mounted = { current: true }; ${declaration}; return { copyKey, mounted }; })();`,
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2023 } }
+  ).outputText;
+  new Function('module', 'portalRequest', 'navigator', 'toast', 't', output)(module, portalRequest, navigator, toast, t);
+  return module.exports;
 }
 
 test('portal markdown blocks raw HTML and dangerous protocols while securing normal external links', () => {
@@ -191,6 +211,58 @@ test('real CodeBlockCopyButton onClick copies the CodeBlock source through a moc
   }
 
   assert.equal(copied, observedCodeBlocks[0].code, 'clipboard should receive the exact source held by CodeBlock context');
+});
+
+// Execute the production copy closure with explicit lifecycle and clipboard stubs.
+test('keys copyKey reveals and writes the active group secret exactly once', async () => {
+  const writes = [];
+  let successCount = 0;
+  const { copyKey, mounted } = extractCopyKey({
+    portalRequest: async () => ({ revealKey: 'ah-synthetic-active-group-secret' }),
+    navigator: { clipboard: { writeText: async (value) => writes.push(value) } },
+    toast: {
+      success: () => {
+        successCount += 1;
+      },
+      error: () => assert.fail('active copy should not report an error'),
+    },
+    t: (key) => key,
+  });
+
+  await copyKey(42);
+  assert.equal(mounted.current, true);
+  assert.deepEqual(writes, ['ah-synthetic-active-group-secret']);
+  assert.equal(successCount, 1);
+  assert.match(quickStartSource, /const mounted = useRef\(true\)/);
+  assert.match(quickStartSource, /if \(!mounted\.current \|\| !template \|\| !model\) return;/);
+});
+
+test('keys copyKey drops a delayed reveal after the group subtree unmounts', async () => {
+  let resolveRequest;
+  const request = new Promise((resolve) => {
+    resolveRequest = resolve;
+  });
+  const writes = [];
+  let successCount = 0;
+  const { copyKey, mounted } = extractCopyKey({
+    portalRequest: () => request,
+    navigator: { clipboard: { writeText: async (value) => writes.push(value) } },
+    toast: {
+      success: () => {
+        successCount += 1;
+      },
+      error: () => assert.fail('stale copy should not report an error'),
+    },
+    t: (key) => key,
+  });
+
+  const pending = copyKey(42);
+  mounted.current = false;
+  resolveRequest({ revealKey: 'ah-synthetic-old-group-secret' });
+  await pending;
+
+  assert.deepEqual(writes, [], 'a delayed reveal from an unmounted group must not reach clipboard');
+  assert.equal(successCount, 0);
 });
 
 test('Codex is emitted only for Responses-capable chat models', () => {

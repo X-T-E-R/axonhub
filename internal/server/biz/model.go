@@ -668,6 +668,11 @@ func (svc *ModelService) ListEnabledModels(ctx context.Context) ([]ModelFacade, 
 	)
 
 	ctx = authz.WithScopeDecision(ctx, scopes.ScopeReadChannels)
+	if key, ok := contexts.GetAPIKey(ctx); ok && key != nil {
+		if p := key.GetActiveProfile(); p != nil && len(p.ModelMappings) > 0 {
+			return svc.listMappedModelFacades(ctx, key)
+		}
+	}
 
 	if apiKey, ok := contexts.GetAPIKey(ctx); ok && apiKey != nil {
 		// Project-level profile filtering (upper boundary)
@@ -714,7 +719,9 @@ func (svc *ModelService) ListEnabledModels(ctx context.Context) ([]ModelFacade, 
 
 	filterAccess := func(models []ModelFacade) []ModelFacade {
 		if key, ok := contexts.GetAPIKey(ctx); ok {
-			return lo.Filter(models, func(m ModelFacade, _ int) bool { return KeyAllowsModel(key, m.ID) && GroupAllowsModel(key, KeyMappedModel(key, m.ID)) })
+			return lo.Filter(models, func(m ModelFacade, _ int) bool {
+				return KeyAllowsModel(key, m.ID) && GroupAllowsModel(key, KeyMappedModel(key, m.ID))
+			})
 		}
 		return models
 	}

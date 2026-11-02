@@ -48,6 +48,9 @@ func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, s
 	if search != nil && len(*search) > 200 {
 		return nil, fmt.Errorf("search too long")
 	}
+	for _, facade := range available {
+		ids = append(ids, KeyMappedModel(key, facade.ID))
+	}
 	configured, err := s.entFromContext(ctx).Model.Query().Where(model.ModelIDIn(ids...), model.StatusEQ(model.StatusEnabled)).All(ctx)
 	if err != nil {
 		return nil, err
@@ -57,6 +60,13 @@ func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, s
 	channels := lo.Filter(s.models.channelService.GetEnabledChannels(), func(ch *Channel, _ int) bool { return KeyAllowsChannel(key, ch.ID, ch.Tags) })
 	for _, facade := range available {
 		m := byID[facade.ID]
+		if m == nil {
+			if target := byID[KeyMappedModel(key, facade.ID)]; target != nil {
+				copy := *target
+				copy.ModelID, copy.Name = facade.ID, facade.DisplayName
+				m = &copy
+			}
+		}
 		// Channel-derived identifiers have no invented capabilities or price metadata.
 		if m == nil {
 			m = &ent.Model{ModelID: facade.ID, Name: facade.ID, Type: "unknown"}
@@ -79,13 +89,9 @@ func (s *PortalService) Models(ctx context.Context, projectID int, keyID *int, s
 				dto.MaxOutputTokens = lo.ToPtr(card.Limit.Output)
 			}
 		}
-		connections := MatchConnections(EffectiveModelAssociations(s.models.modelSettingsOrDefault(ctx), m), channels)
-		if byID[facade.ID] == nil {
-			for _, ch := range channels {
-				if entry, ok := ch.GetModelEntries()[facade.ID]; ok {
-					connections = append(connections, &ModelChannelConnection{Channel: ch.Channel, Models: []ChannelModelEntry{entry}})
-				}
-			}
+		connections, err := s.models.modelConnectionsForKey(ctx, key, facade.ID)
+		if err != nil {
+			return nil, err
 		}
 		var prices []*ent.ChannelModelPrice
 		for _, conn := range connections {
