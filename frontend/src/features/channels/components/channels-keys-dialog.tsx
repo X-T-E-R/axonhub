@@ -2052,13 +2052,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                             <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-3 lg:flex-row lg:items-center lg:justify-between'>
                               <div className='space-y-1'>
                                 <div className='text-sm font-medium'>{t('channels.dialogs.keys.manualTest.title')}</div>
-                                <div className='text-muted-foreground text-sm'>
-                                  {t(
-                                    canRunRealRequest
-                                      ? 'channels.dialogs.keys.manualTest.description'
-                                      : 'channels.dialogs.keys.manualTest.modes.balance_probe.description'
-                                  )}
-                                </div>
+                                {canRunRealRequest && (
+                                  <div className='text-muted-foreground text-sm'>{t('channels.dialogs.keys.manualTest.description')}</div>
+                                )}
                               </div>
                               <div className='flex flex-wrap gap-2'>
                                 {canRunRealRequest && (
