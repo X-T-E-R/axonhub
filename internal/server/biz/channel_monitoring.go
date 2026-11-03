@@ -232,6 +232,10 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 		return channelKeyHealthCheckChannelResult{}, err
 	}
 
+	targets, results = supportedChannelKeyHealthChecks(targets, results)
+	if len(targets) == 0 {
+		return svc.recordMonitoringSkippedChannel(ctx, rule, ch, ErrRawHTTPBuiltinTestUnsupported.Error(), now)
+	}
 	failed := 0
 	for i := range targets {
 		if !results[i].Success {

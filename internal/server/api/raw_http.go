@@ -74,7 +74,7 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 	base.RawPath = escapedPrefix + suffix
 	base.RawQuery = c.Request.URL.RawQuery
 	base.ForceQuery = c.Request.URL.ForceQuery
-	upstreamKey := ch.RawHTTPAPIKey(ctx)
+	upstreamKey := h.channels.RawHTTPAPIKey(ctx, ch)
 	native := ch.HTTPClient.GetNativeClient()
 	transport := native.Transport
 	if transport == nil {

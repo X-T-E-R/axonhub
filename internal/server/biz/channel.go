@@ -164,6 +164,10 @@ type ChannelService struct {
 
 	keyHealthCheckTester ChannelKeyHealthCheckTester
 
+	// Raw routes reload authorization/configuration per request, but key provider
+	// counters and affinity caches have the same service lifetime as LLM providers.
+	rawHTTPKeyProviders sync.Map // channel ID -> *rawHTTPKeyProvider
+
 	enabledChannelsCache *live.Cache[[]*Channel]
 	channelNotifier      watcher.Notifier[live.CacheEvent[struct{}]]
 
@@ -986,6 +990,7 @@ func (svc *ChannelService) DeleteChannel(ctx context.Context, id int) error {
 	}
 
 	svc.forgetLimiter(id)
+	svc.rawHTTPKeyProviders.Delete(id)
 	svc.asyncReloadChannels()
 
 	return nil

@@ -202,7 +202,13 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		middleware.WithIPBlocklist(services.SystemService),
 		middleware.WithAPIKeyConfig(services.AuthService, nil),
 	)
-	rawGroup.Any("/:channelID/*path", handlers.RawHTTP.Proxy)
+	rawMethods := []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodHead, http.MethodDelete, http.MethodConnect, http.MethodTrace}
+	// CORS owns the global OPTIONS catch-all when enabled. Without CORS, OPTIONS
+	// remains an authenticated, opaque upstream request like the other raw methods.
+	if !server.Config.CORS.Enabled {
+		rawMethods = append(rawMethods, http.MethodOptions)
+	}
+	rawGroup.Match(rawMethods, "/:channelID/*path", handlers.RawHTTP.Proxy)
 
 	responsesWebSocketGroup := server.Group("/",
 		middleware.WithIPBlocklist(services.SystemService),

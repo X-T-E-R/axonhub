@@ -63,7 +63,7 @@ type nativeDecisionFixture struct {
 	bodies                             chan []byte
 }
 
-func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
+func newNativeDecisionFixture(t *testing.T, corsConfig ...CORS) *nativeDecisionFixture {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	meterProvider := sdkmetric.NewMeterProvider()
@@ -229,7 +229,11 @@ func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
 	f.tester = orchestrator.NewTestChannelOrchestrator(channels, requests, system, usage, protection, hc)
 	traces := biz.NewTraceService(biz.TraceServiceParams{Ent: f.db, RequestService: requests})
 	openai := api.NewOpenAIHandlers(api.OpenAIHandlersParams{AuthService: auth, ChannelService: channels, ModelService: models, DefaultSelector: selector, RequestService: requests, SystemService: system, UsageLogService: usage, PromptService: prompts, PromptProtectionRuleService: protection, QuotaService: biz.NewQuotaService(f.db, system), HttpClient: hc, LiveStreamRegistry: live, ChannelLimiterManager: orchestrator.NewChannelLimiterManager(), Client: f.db})
-	gateway := New(Config{Debug: true, RequestTimeout: 5 * time.Second, LLMRequestTimeout: 5 * time.Second})
+	config := Config{Debug: true, RequestTimeout: 5 * time.Second, LLMRequestTimeout: 5 * time.Second}
+	if len(corsConfig) > 0 {
+		config.CORS = corsConfig[0]
+	}
+	gateway := New(config)
 	ipAccess, err := middleware.NewIPAccessControlConfig(false, nil, "")
 	require.NoError(t, err)
 	admin := gql.NewGraphqlHandlers(gql.Dependencies{Ent: f.db, AuthService: auth, APIKeyService: keys, UserService: users, SystemService: system, ChannelService: channels, RequestService: requests, ProjectService: projects, DataStorageService: storage, UsageLogService: usage, ModelService: models, HttpClient: hc})

@@ -133,7 +133,7 @@ interface KeyInventoryRow {
   history?: ChannelKeyHealthCheckHistoryEntry[] | null;
 }
 
-type BatchKeyAction = 'health' | 'disable' | 'enable' | 'archive' | 'restore' | 'delete';
+type BatchKeyAction = 'disable' | 'enable' | 'archive' | 'restore' | 'delete';
 const KEY_STATUS_FILTERS: KeyInventoryStatus[] = ['active', 'disabled', 'archived'];
 const DEFAULT_KEY_STATUS_FILTERS: KeyInventoryStatus[] = ['active', 'disabled'];
 type KeyHistoryTooltipProps = TooltipProps<number, string> & {
@@ -1654,6 +1654,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   );
   const channelFailureHistory = useMemo(() => channelHistory.filter(isRequestFailureHistory), [channelHistory]);
   const canRunBalanceProbe = useMemo(() => channelSupportsManualBalanceProbe(currentRow), [currentRow]);
+  const canRunRealRequest = !currentRow.settings?.rawHTTP?.enabled;
   const globalRoutingStrategy = channelSetting?.routing?.strategy ?? 'trace_sticky';
   const isPending =
     keyInventory.isFetching ||
@@ -1847,7 +1848,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
   const handleBatchAction = async (action: BatchKeyAction) => {
     const actionMap = {
-      health: selectedHealthCheckKeyIDs,
       disable: selectedActiveKeyIDs,
       enable: selectedDisabledKeyIDs,
       archive: [...selectedActiveKeyIDs, ...selectedDisabledKeyIDs],
@@ -1856,11 +1856,6 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     };
     const keyIDs = actionMap[action];
     if (keyIDs.length === 0) {
-      return;
-    }
-
-    if (action === 'health') {
-      await handleRunChecks(keyIDs, 'real_request');
       return;
     }
 
@@ -2053,34 +2048,44 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                             <AlertDescription>{t('channels.dialogs.keys.inventory.statusCopy')}</AlertDescription>
                           </Alert>
 
-                          <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-3 lg:flex-row lg:items-center lg:justify-between'>
-                            <div className='space-y-1'>
-                              <div className='text-sm font-medium'>{t('channels.dialogs.keys.manualTest.title')}</div>
-                              <div className='text-muted-foreground text-sm'>{t('channels.dialogs.keys.manualTest.description')}</div>
+                          {(canRunRealRequest || canRunBalanceProbe) && (
+                            <div className='bg-muted/30 flex flex-col gap-3 rounded-md border px-3 py-3 lg:flex-row lg:items-center lg:justify-between'>
+                              <div className='space-y-1'>
+                                <div className='text-sm font-medium'>{t('channels.dialogs.keys.manualTest.title')}</div>
+                                <div className='text-muted-foreground text-sm'>
+                                  {t(
+                                    canRunRealRequest
+                                      ? 'channels.dialogs.keys.manualTest.description'
+                                      : 'channels.dialogs.keys.manualTest.modes.balance_probe.description'
+                                  )}
+                                </div>
+                              </div>
+                              <div className='flex flex-wrap gap-2'>
+                                {canRunRealRequest && (
+                                  <Button
+                                    type='button'
+                                    variant='outline'
+                                    onClick={() => handleRunChecks(undefined, 'real_request')}
+                                    disabled={isPending || inventory.length === 0}
+                                  >
+                                    <IconPlayerPlay className='mr-2 h-4 w-4' />
+                                    {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
+                                  </Button>
+                                )}
+                                {canRunBalanceProbe ? (
+                                  <Button
+                                    type='button'
+                                    variant='outline'
+                                    onClick={() => handleRunChecks(undefined, 'balance_probe')}
+                                    disabled={isPending || inventory.length === 0}
+                                  >
+                                    <IconChartLine className='mr-2 h-4 w-4' />
+                                    {t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
-                            <div className='flex flex-wrap gap-2'>
-                              <Button
-                                type='button'
-                                variant='outline'
-                                onClick={() => handleRunChecks(undefined, 'real_request')}
-                                disabled={isPending || inventory.length === 0}
-                              >
-                                <IconPlayerPlay className='mr-2 h-4 w-4' />
-                                {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
-                              </Button>
-                              {canRunBalanceProbe ? (
-                                <Button
-                                  type='button'
-                                  variant='outline'
-                                  onClick={() => handleRunChecks(undefined, 'balance_probe')}
-                                  disabled={isPending || inventory.length === 0}
-                                >
-                                  <IconChartLine className='mr-2 h-4 w-4' />
-                                  {t('channels.dialogs.keys.manualTest.modes.balance_probe.label')}
-                                </Button>
-                              ) : null}
-                            </div>
-                          </div>
+                          )}
 
                           <div className='bg-muted/30 grid gap-3 rounded-md border px-3 py-3 lg:grid-cols-[minmax(14rem,1fr)_auto] lg:items-end'>
                             <div className='space-y-2'>
@@ -2130,16 +2135,18 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                             <div className='bg-muted/40 flex flex-col gap-2 rounded-md border px-3 py-2'>
                               <span className='text-sm'>{t('channels.dialogs.keys.selectedCount', { count: selectedRows.length })}</span>
                               <div className='flex flex-wrap gap-2'>
-                                <Button
-                                  type='button'
-                                  variant='outline'
-                                  size='sm'
-                                  onClick={() => handleRunChecks(selectedHealthCheckKeyIDs, 'real_request')}
-                                  disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
-                                >
-                                  <IconPlayerPlay className='mr-2 h-4 w-4' />
-                                  {t('channels.dialogs.keys.actions.testSelected', { count: selectedHealthCheckKeyIDs.length })}
-                                </Button>
+                                {canRunRealRequest && (
+                                  <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    onClick={() => handleRunChecks(selectedHealthCheckKeyIDs, 'real_request')}
+                                    disabled={isPending || selectedHealthCheckKeyIDs.length === 0}
+                                  >
+                                    <IconPlayerPlay className='mr-2 h-4 w-4' />
+                                    {t('channels.dialogs.keys.actions.testSelected', { count: selectedHealthCheckKeyIDs.length })}
+                                  </Button>
+                                )}
                                 {canRunBalanceProbe ? (
                                   <Button
                                     type='button'
@@ -2365,23 +2372,25 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                         </TableCell>
                                         <TableCell>
                                           <div className='flex justify-end gap-1'>
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <Button
-                                                  type='button'
-                                                  size='icon'
-                                                  variant='ghost'
-                                                  onClick={() => handleRunChecks([item.id], 'real_request')}
-                                                  disabled={isPending || item.status === 'archived'}
-                                                  aria-label={t('channels.dialogs.keys.manualTest.modes.real_request.label')}
-                                                >
-                                                  <IconPlayerPlay className='h-4 w-4' aria-hidden='true' />
-                                                </Button>
-                                              </TooltipTrigger>
-                                              <TooltipContent>
-                                                {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
-                                              </TooltipContent>
-                                            </Tooltip>
+                                            {canRunRealRequest && (
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Button
+                                                    type='button'
+                                                    size='icon'
+                                                    variant='ghost'
+                                                    onClick={() => handleRunChecks([item.id], 'real_request')}
+                                                    disabled={isPending || item.status === 'archived'}
+                                                    aria-label={t('channels.dialogs.keys.manualTest.modes.real_request.label')}
+                                                  >
+                                                    <IconPlayerPlay className='h-4 w-4' aria-hidden='true' />
+                                                  </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                  {t('channels.dialogs.keys.manualTest.modes.real_request.label')}
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            )}
                                             {canRunBalanceProbe ? (
                                               <Tooltip>
                                                 <TooltipTrigger asChild>

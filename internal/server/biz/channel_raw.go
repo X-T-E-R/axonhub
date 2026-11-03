@@ -7,7 +7,9 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 
+	"github.com/looplj/axonhub/llm/auth"
 	"golang.org/x/net/http/httpguts"
 
 	"github.com/looplj/axonhub/internal/ent"
@@ -67,8 +69,41 @@ func RawHTTPPathAllowed(path string) bool {
 	return true
 }
 
-// RawHTTPAPIKey uses the existing enabled-key and key-selection policies.
-func (c *Channel) RawHTTPAPIKey(ctx context.Context) string { return getAPIKeyProvider(c).Get(ctx) }
+type rawHTTPKeyProviderConfig struct {
+	strategy         objects.ChannelKeySelectionStrategy
+	likelyTTLMinutes int
+	exactTTLMinutes  int
+}
+
+type rawHTTPKeyProvider struct {
+	mu       sync.Mutex
+	keys     []string
+	config   rawHTTPKeyProviderConfig
+	provider auth.APIKeyProvider
+}
+
+// RawHTTPAPIKey retains the existing providers' counters and affinity caches
+// across requests. A changed routable key set or effective policy replaces only
+// that channel's provider, using the freshly authorized channel snapshot.
+func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) string {
+	value, _ := svc.rawHTTPKeyProviders.LoadOrStore(ch.ID, &rawHTTPKeyProvider{})
+	state := value.(*rawHTTPKeyProvider)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	selection := channelKeySelectionForProvider(ch)
+	config := rawHTTPKeyProviderConfig{
+		strategy:         selection.StrategyOrDefault(),
+		likelyTTLMinutes: selection.LikelyAffinityTTLMinutesOrDefault(),
+		exactTTLMinutes:  selection.ExactAffinityTTLMinutesOrDefault(),
+	}
+	if state.provider == nil || !slices.Equal(state.keys, ch.cachedEnabledAPIKeys) || state.config != config {
+		state.keys = slices.Clone(ch.cachedEnabledAPIKeys)
+		state.config = config
+		state.provider = getAPIKeyProvider(ch)
+	}
+	return state.provider.Get(ctx)
+}
 
 // ResolveRawHTTPChannel reads the current row so disabled channels and changed
 // authorization/configuration take effect without waiting for a channel cache.

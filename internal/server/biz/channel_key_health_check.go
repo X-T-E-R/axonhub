@@ -49,6 +49,10 @@ const (
 
 var errChannelKeyHealthCheckResponseTooLarge = errors.New("response body too large")
 
+// ErrRawHTTPBuiltinTestUnsupported is a capability result, not provider-key
+// failure evidence. Manual callers receive it before health state is changed.
+var ErrRawHTTPBuiltinTestUnsupported = errors.New("raw HTTP channels do not support built-in model request checks; configure an HTTP or balance probe")
+
 var (
 	channelKeyHealthCheckDelayForKey = defaultChannelKeyHealthCheckDelayForKey
 	channelKeyHealthCheckWait        = waitChannelKeyHealthCheckDelay
@@ -68,6 +72,7 @@ type ChannelKeyHealthCheckBuiltinResult struct {
 }
 
 type ChannelKeyHealthCheckResult struct {
+	Unsupported     bool
 	Success         bool
 	Reason          string
 	Balance         any
@@ -345,6 +350,20 @@ type channelKeyHealthCheckChannelResult struct {
 	FailedKeys  int
 }
 
+// Only checks that measured a supported capability may enter failure policy,
+// key metadata, or checked/failed counters.
+func supportedChannelKeyHealthChecks[T any](targets []T, results []ChannelKeyHealthCheckResult) ([]T, []ChannelKeyHealthCheckResult) {
+	supportedTargets := make([]T, 0, len(targets))
+	supportedResults := make([]ChannelKeyHealthCheckResult, 0, len(results))
+	for i, result := range results {
+		if !result.Unsupported {
+			supportedTargets = append(supportedTargets, targets[i])
+			supportedResults = append(supportedResults, result)
+		}
+	}
+	return supportedTargets, supportedResults
+}
+
 func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Context, ch *ent.Channel, now time.Time) (channelKeyHealthCheckChannelResult, error) {
 	if ch.Settings == nil || ch.Settings.KeyHealthCheck == nil {
 		return channelKeyHealthCheckChannelResult{}, nil
@@ -386,6 +405,10 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 		return channelKeyHealthCheckChannelResult{}, err
 	}
 
+	targetKeys, results = supportedChannelKeyHealthChecks(targetKeys, results)
+	if len(targetKeys) == 0 {
+		return channelKeyHealthCheckChannelResult{}, nil
+	}
 	failed := 0
 	for i := range targetKeys {
 		result := results[i]
@@ -432,16 +455,24 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent.Channel, key string) ChannelKeyHealthCheckResult {
 	rules := ch.Settings.KeyHealthCheck.Rules
 	if len(rules) == 0 {
+		if IsRawHTTPChannel(ch) {
+			return ChannelKeyHealthCheckResult{Unsupported: true, Reason: ErrRawHTTPBuiltinTestUnsupported.Error()}
+		}
 		rules = defaultChannelKeyHealthCheckRules(ch.Type)
 	}
 
 	var merged ChannelKeyHealthCheckResult
+	checked := false
 	for _, rule := range rules {
 		if rule.Enabled != nil && !*rule.Enabled {
 			continue
 		}
 
 		result := svc.runChannelKeyHealthCheckRule(ctx, ch, key, rule)
+		if result.Unsupported {
+			continue
+		}
+		checked = true
 		result.Rule = summarizeChannelKeyHealthCheckRule(rule)
 		merged = mergeChannelKeyHealthCheckResult(merged, result)
 		if !result.Success {
@@ -449,6 +480,9 @@ func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent
 		}
 	}
 
+	if !checked && IsRawHTTPChannel(ch) {
+		return ChannelKeyHealthCheckResult{Unsupported: true, Reason: ErrRawHTTPBuiltinTestUnsupported.Error()}
+	}
 	if merged.Reason == "" {
 		merged.Reason = "ok"
 	}
@@ -516,6 +550,9 @@ func summarizeChannelKeyHealthCheckRule(rule objects.ChannelKeyHealthCheckRule) 
 }
 
 func (svc *ChannelService) runBuiltinChannelKeyHealthCheck(ctx context.Context, ch *ent.Channel, key string) ChannelKeyHealthCheckResult {
+	if IsRawHTTPChannel(ch) {
+		return ChannelKeyHealthCheckResult{Unsupported: true, Reason: ErrRawHTTPBuiltinTestUnsupported.Error()}
+	}
 	if svc.keyHealthCheckTester == nil {
 		return ChannelKeyHealthCheckResult{Success: false, Reason: "built-in key tester is not configured"}
 	}
@@ -1564,6 +1601,10 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 		return nil, err
 	}
 
+	targetKeys, results = supportedChannelKeyHealthChecks(targetKeys, results)
+	if len(targetKeys) == 0 {
+		return nil, ErrRawHTTPBuiltinTestUnsupported
+	}
 	now := time.Now()
 	failed := 0
 	for i := range targetKeys {
