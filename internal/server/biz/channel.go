@@ -524,6 +524,9 @@ func (svc *ChannelService) ListModels(ctx context.Context, input ListModelsInput
 // This is useful for batch operations where reload should happen once at the end.
 func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateChannelInput) (*ent.Channel, error) {
 	settings := mergeChannelSettingsForUpdate(nil, input.Settings)
+	if err := ValidateRawHTTPChannel(lo.FromPtr(input.BaseURL), input.SupportedModels, settings); err != nil {
+		return nil, err
+	}
 	if input.Settings != nil {
 		if settings.BodyOverrideOperations != nil {
 			if err := ValidateBodyOverrideOperations(settings.BodyOverrideOperations); err != nil {
@@ -734,7 +737,7 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 	}
 
 	var current *ent.Channel
-	if input.Settings != nil || input.Credentials != nil {
+	if input.Settings != nil || input.Credentials != nil || input.BaseURL != nil || input.SupportedModels != nil {
 		var err error
 		current, err = svc.entFromContext(ctx).Channel.Get(ctx, id)
 		if err != nil {
@@ -790,6 +793,22 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 	if input.Endpoints != nil {
 		if err := ValidateEndpoints(input.Endpoints); err != nil {
 			return nil, fmt.Errorf("invalid endpoints: %w", err)
+		}
+	}
+
+	if current != nil {
+		effectiveSettings, baseURL, models := current.Settings, current.BaseURL, current.SupportedModels
+		if settings != nil {
+			effectiveSettings = settings
+		}
+		if input.BaseURL != nil {
+			baseURL = *input.BaseURL
+		}
+		if input.SupportedModels != nil {
+			models = input.SupportedModels
+		}
+		if err := ValidateRawHTTPChannel(baseURL, models, effectiveSettings); err != nil {
+			return nil, err
 		}
 	}
 

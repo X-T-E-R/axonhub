@@ -152,7 +152,22 @@ input ChannelProviderQuotaSettingsInput {
   opencodeGo: OpenCodeGoQuotaSettingsInput
 }
 
+type ChannelRawHTTP {
+  enabled: Boolean!
+  resource: String!
+  authType: String!
+  authHeader: String
+}
+
+input ChannelRawHTTPInput {
+  enabled: Boolean!
+  resource: String!
+  authType: String!
+  authHeader: String
+}
+
 type ChannelSettings {
+  rawHTTP: ChannelRawHTTP
   extraModelPrefix: String
   modelMappings: [ModelMapping!]
   autoTrimedModelPrefixes: [String!]
@@ -749,6 +764,7 @@ input ModelMappingInput {
 }
 
 input ChannelSettingsInput {
+  rawHTTP: ChannelRawHTTPInput
   extraModelPrefix: String
   modelMappings: [ModelMappingInput!]
   autoTrimedModelPrefixes: [String!]

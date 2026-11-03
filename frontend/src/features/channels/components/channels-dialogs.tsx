@@ -20,6 +20,7 @@ import { ChannelsModelPriceDialog } from './channels-model-price-dialog';
 import { ChannelsOverrideDialog } from './channels-override-dialog';
 import { ChannelsProxyDialog } from './channels-proxy-dialog';
 import { ChannelsRateLimitDialog } from './channels-rate-limit-dialog';
+import { ChannelsRawHTTPDialog } from './channels-raw-http-dialog';
 import { ChannelsStatusDialog } from './channels-status-dialog';
 import { ChannelsSystemSettingsDialog } from './channels-system-settings-dialog';
 import { ChannelsTestAPIKeysDialog } from './channels-test-api-keys-dialog';
@@ -34,6 +35,7 @@ export function ChannelsDialogs() {
       <ChannelsSystemSettingsDialog />
 
       <ChannelsActionDialog key='channel-add' open={open === 'add'} onOpenChange={(isOpen) => setOpen(isOpen ? 'add' : null)} />
+      {open === 'addRaw' && <ChannelsRawHTTPDialog open onOpenChange={(isOpen) => setOpen(isOpen ? 'addRaw' : null)} />}
 
       <ChannelsBulkArchiveDialog />
 
@@ -59,37 +61,70 @@ export function ChannelsDialogs() {
 
       {currentRow && (
         <>
-          <ChannelsActionDialog
-            key={`channel-edit-${currentRow.id}`}
-            open={open === 'edit'}
-            onOpenChange={(isOpen) => {
-              if (isOpen) {
-                setOpen('edit');
-              } else {
-                setOpen(null);
-                setTimeout(() => {
-                  setCurrentRow(null);
-                }, 500);
-              }
-            }}
-            currentRow={currentRow}
-          />
+          {currentRow.settings?.rawHTTP?.enabled ? (
+            open === 'edit' && (
+              <ChannelsRawHTTPDialog
+                key={`raw-edit-${currentRow.id}`}
+                open
+                currentRow={currentRow}
+                onOpenChange={(isOpen) => {
+                  if (!isOpen) {
+                    setOpen(null);
+                    setCurrentRow(null);
+                  }
+                }}
+              />
+            )
+          ) : (
+            <ChannelsActionDialog
+              key={`channel-edit-${currentRow.id}`}
+              open={open === 'edit'}
+              onOpenChange={(isOpen) => {
+                if (isOpen) {
+                  setOpen('edit');
+                } else {
+                  setOpen(null);
+                  setTimeout(() => {
+                    setCurrentRow(null);
+                  }, 500);
+                }
+              }}
+              currentRow={currentRow}
+            />
+          )}
 
-          <ChannelsActionDialog
-            key={`channel-duplicate-${currentRow.id}`}
-            open={open === 'duplicate'}
-            onOpenChange={(isOpen) => {
-              if (isOpen) {
-                setOpen('duplicate');
-              } else {
-                setOpen(null);
-                setTimeout(() => {
-                  setCurrentRow(null);
-                }, 500);
-              }
-            }}
-            duplicateFromRow={currentRow}
-          />
+          {currentRow.settings?.rawHTTP?.enabled ? (
+            open === 'duplicate' && (
+              <ChannelsRawHTTPDialog
+                key={`raw-duplicate-${currentRow.id}`}
+                open
+                duplicate
+                currentRow={currentRow}
+                onOpenChange={(isOpen) => {
+                  if (!isOpen) {
+                    setOpen(null);
+                    setCurrentRow(null);
+                  }
+                }}
+              />
+            )
+          ) : (
+            <ChannelsActionDialog
+              key={`channel-duplicate-${currentRow.id}`}
+              open={open === 'duplicate'}
+              onOpenChange={(isOpen) => {
+                if (isOpen) {
+                  setOpen('duplicate');
+                } else {
+                  setOpen(null);
+                  setTimeout(() => {
+                    setCurrentRow(null);
+                  }, 500);
+                }
+              }}
+              duplicateFromRow={currentRow}
+            />
+          )}
 
           <ChannelsActionDialog
             key={`channel-view-models-${currentRow.id}`}

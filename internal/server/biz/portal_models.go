@@ -126,6 +126,9 @@ func (s *PortalService) modelsForKey(ctx context.Context, key *ent.APIKey, searc
 			if !valid {
 				continue
 			}
+			if IsRawHTTPChannel(ch.Channel) && !slices.Contains(dto.APIFormats, "http/raw") {
+				dto.APIFormats = append(dto.APIFormats, "http/raw")
+			}
 			for _, ep := range ch.ResolveEndpoints() {
 				if !slices.Contains(dto.APIFormats, ep.APIFormat) {
 					dto.APIFormats = append(dto.APIFormats, ep.APIFormat)
@@ -167,7 +170,7 @@ func (s *PortalService) ModelChannels(ctx context.Context, projectID int, keyID 
 		prices := map[int][]*ent.ChannelModelPrice{}
 		for _, conn := range connections {
 			ch := channels[conn.Channel.ID]
-			if ch == nil || len(ch.ResolveEndpoints()) == 0 {
+			if ch == nil || (len(ch.ResolveEndpoints()) == 0 && !IsRawHTTPChannel(ch.Channel)) {
 				continue
 			}
 			for _, entry := range conn.Models {
@@ -182,6 +185,9 @@ func (s *PortalService) ModelChannels(ctx context.Context, projectID int, keyID 
 			}
 			copy := *m
 			copy.APIFormats = []string{}
+			if IsRawHTTPChannel(ch.Channel) {
+				copy.APIFormats = append(copy.APIFormats, "http/raw")
+			}
 			for _, ep := range ch.ResolveEndpoints() {
 				if !slices.Contains(copy.APIFormats, ep.APIFormat) {
 					copy.APIFormats = append(copy.APIFormats, ep.APIFormat)

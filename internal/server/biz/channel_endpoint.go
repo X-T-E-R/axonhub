@@ -233,7 +233,7 @@ func DefaultEndpointsForChannelType(t channel.Type) []objects.ChannelEndpoint {
 // Native-only OpenAI carriers have no implicit chat/image capabilities. Existing
 // channels and explicit mixed configurations keep the established merge behavior.
 func DefaultEndpointsForChannel(c *ent.Channel) []objects.ChannelEndpoint {
-	if c == nil {
+	if c == nil || IsRawHTTPChannel(c) {
 		return nil
 	}
 	if c.Type == channel.TypeOpenai && len(c.Endpoints) > 0 {
@@ -306,7 +306,7 @@ func mergeEndpoints(defaultEndpoints, userEndpoints []objects.ChannelEndpoint) [
 // surface, and user-configured endpoints override matching api_format entries
 // or append additional ones.
 func (c *Channel) ResolveEndpoints() []objects.ChannelEndpoint {
-	if c.Channel == nil {
+	if c.Channel == nil || IsRawHTTPChannel(c.Channel) {
 		return nil
 	}
 

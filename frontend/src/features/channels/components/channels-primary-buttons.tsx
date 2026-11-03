@@ -40,6 +40,10 @@ export function ChannelsPrimaryButtons() {
             <span>{t('channels.orderChannels')}</span> <IconArrowsSort size={18} />
           </Button>
 
+          <Button variant='outline' className='shrink-0' onClick={() => setOpen('addRaw')} data-testid='add-raw-channel-button'>
+            {t('channels.rawHTTP.add')}
+          </Button>
+
           {/* Add Channel - requires write_channels permission */}
           <Button className='shrink-0 space-x-1' onClick={() => setOpen('add')} data-testid='add-channel-button'>
             <span>{t('channels.addChannel')}</span> <IconPlus size={18} />

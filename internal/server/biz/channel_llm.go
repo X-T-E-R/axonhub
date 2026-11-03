@@ -215,6 +215,10 @@ func (svc *ChannelService) buildChannelWithOutbounds(c *ent.Channel, apiKeyOverr
 		return nil, err
 	}
 
+	if IsRawHTTPChannel(c) {
+		return ch, nil
+	}
+
 	defaultEndpoints := DefaultEndpointsForChannel(c)
 	userEndpoints := c.Endpoints
 
@@ -531,6 +535,13 @@ func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel, apiKeyOve
 		ch.globalKeySelection = svc.SystemService.ChannelSettingOrDefault(context.Background()).Routing.ToKeySelection()
 	} else {
 		ch.globalKeySelection = defaultChannelSetting.Routing.ToKeySelection()
+	}
+
+	if IsRawHTTPChannel(c) {
+		if err := ValidateRawHTTPChannel(c.BaseURL, c.SupportedModels, c.Settings); err != nil {
+			return nil, err
+		}
+		return ch, nil
 	}
 
 	switch c.Type {

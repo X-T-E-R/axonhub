@@ -789,6 +789,13 @@ type ComplexityRoot struct {
 		TPM            func(childComplexity int) int
 	}
 
+	ChannelRawHTTP struct {
+		AuthHeader func(childComplexity int) int
+		AuthType   func(childComplexity int) int
+		Enabled    func(childComplexity int) int
+		Resource   func(childComplexity int) int
+	}
+
 	ChannelRegexAssociation struct {
 		ChannelID func(childComplexity int) int
 		Pattern   func(childComplexity int) int
@@ -819,6 +826,7 @@ type ComplexityRoot struct {
 		ProviderQuota              func(childComplexity int) int
 		Proxy                      func(childComplexity int) int
 		RateLimit                  func(childComplexity int) int
+		RawHTTP                    func(childComplexity int) int
 		RetryableErrorPatterns     func(childComplexity int) int
 		RetryableStatusCodes       func(childComplexity int) int
 		SSEKeepAlive               func(childComplexity int) int
@@ -5640,6 +5648,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelRateLimit.TPM(childComplexity), true
 
+	case "ChannelRawHTTP.authHeader":
+		if e.complexity.ChannelRawHTTP.AuthHeader == nil {
+			break
+		}
+
+		return e.complexity.ChannelRawHTTP.AuthHeader(childComplexity), true
+	case "ChannelRawHTTP.authType":
+		if e.complexity.ChannelRawHTTP.AuthType == nil {
+			break
+		}
+
+		return e.complexity.ChannelRawHTTP.AuthType(childComplexity), true
+	case "ChannelRawHTTP.enabled":
+		if e.complexity.ChannelRawHTTP.Enabled == nil {
+			break
+		}
+
+		return e.complexity.ChannelRawHTTP.Enabled(childComplexity), true
+	case "ChannelRawHTTP.resource":
+		if e.complexity.ChannelRawHTTP.Resource == nil {
+			break
+		}
+
+		return e.complexity.ChannelRawHTTP.Resource(childComplexity), true
+
 	case "ChannelRegexAssociation.channelId":
 		if e.complexity.ChannelRegexAssociation.ChannelID == nil {
 			break
@@ -5780,6 +5813,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.RateLimit(childComplexity), true
+	case "ChannelSettings.rawHTTP":
+		if e.complexity.ChannelSettings.RawHTTP == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.RawHTTP(childComplexity), true
 	case "ChannelSettings.retryableErrorPatterns":
 		if e.complexity.ChannelSettings.RetryableErrorPatterns == nil {
 			break
@@ -13449,6 +13488,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputChannelProbeWhereInput,
 		ec.unmarshalInputChannelProviderQuotaSettingsInput,
 		ec.unmarshalInputChannelRateLimitInput,
+		ec.unmarshalInputChannelRawHTTPInput,
 		ec.unmarshalInputChannelRegexAssociationInput,
 		ec.unmarshalInputChannelSSEKeepAliveInput,
 		ec.unmarshalInputChannelSettingsInput,
@@ -22372,6 +22412,8 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "rawHTTP":
+				return ec.fieldContext_ChannelSettings_rawHTTP(ctx, field)
 			case "extraModelPrefix":
 				return ec.fieldContext_ChannelSettings_extraModelPrefix(ctx, field)
 			case "modelMappings":
@@ -31923,6 +31965,122 @@ func (ec *executionContext) fieldContext_ChannelRateLimit_queueTimeoutMs(_ conte
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelRawHTTP_enabled(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelRawHTTP) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelRawHTTP_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelRawHTTP_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelRawHTTP",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelRawHTTP_resource(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelRawHTTP) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelRawHTTP_resource,
+		func(ctx context.Context) (any, error) {
+			return obj.Resource, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelRawHTTP_resource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelRawHTTP",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelRawHTTP_authType(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelRawHTTP) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelRawHTTP_authType,
+		func(ctx context.Context) (any, error) {
+			return obj.AuthType, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelRawHTTP_authType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelRawHTTP",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelRawHTTP_authHeader(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelRawHTTP) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelRawHTTP_authHeader,
+		func(ctx context.Context) (any, error) {
+			return obj.AuthHeader, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelRawHTTP_authHeader(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelRawHTTP",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelRegexAssociation_channelId(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelRegexAssociation) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -32034,6 +32192,45 @@ func (ec *executionContext) fieldContext_ChannelSSEKeepAlive_intervalSeconds(_ c
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_rawHTTP(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_rawHTTP,
+		func(ctx context.Context) (any, error) {
+			return obj.RawHTTP, nil
+		},
+		nil,
+		ec.marshalOChannelRawHTTP2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRawHTTP,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_rawHTTP(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_ChannelRawHTTP_enabled(ctx, field)
+			case "resource":
+				return ec.fieldContext_ChannelRawHTTP_resource(ctx, field)
+			case "authType":
+				return ec.fieldContext_ChannelRawHTTP_authType(ctx, field)
+			case "authHeader":
+				return ec.fieldContext_ChannelRawHTTP_authHeader(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelRawHTTP", field.Name)
 		},
 	}
 	return fc, nil
@@ -81031,6 +81228,54 @@ func (ec *executionContext) unmarshalInputChannelRateLimitInput(ctx context.Cont
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputChannelRawHTTPInput(ctx context.Context, obj any) (objects.ChannelRawHTTP, error) {
+	var it objects.ChannelRawHTTP
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"enabled", "resource", "authType", "authHeader"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		case "resource":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("resource"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Resource = data
+		case "authType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("authType"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AuthType = data
+		case "authHeader":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("authHeader"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AuthHeader = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputChannelRegexAssociationInput(ctx context.Context, obj any) (objects.ChannelRegexAssociation, error) {
 	var it objects.ChannelRegexAssociation
 	asMap := map[string]any{}
@@ -81106,13 +81351,20 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
+	fieldsInOrder := [...]string{"rawHTTP", "extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
+		case "rawHTTP":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rawHTTP"))
+			data, err := ec.unmarshalOChannelRawHTTPInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRawHTTP(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RawHTTP = data
 		case "extraModelPrefix":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("extraModelPrefix"))
 			data, err := ec.unmarshalOString2string(ctx, v)
@@ -108894,6 +109146,57 @@ func (ec *executionContext) _ChannelRateLimit(ctx context.Context, sel ast.Selec
 	return out
 }
 
+var channelRawHTTPImplementors = []string{"ChannelRawHTTP"}
+
+func (ec *executionContext) _ChannelRawHTTP(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelRawHTTP) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelRawHTTPImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelRawHTTP")
+		case "enabled":
+			out.Values[i] = ec._ChannelRawHTTP_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resource":
+			out.Values[i] = ec._ChannelRawHTTP_resource(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "authType":
+			out.Values[i] = ec._ChannelRawHTTP_authType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "authHeader":
+			out.Values[i] = ec._ChannelRawHTTP_authHeader(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var channelRegexAssociationImplementors = []string{"ChannelRegexAssociation"}
 
 func (ec *executionContext) _ChannelRegexAssociation(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelRegexAssociation) graphql.Marshaler {
@@ -108987,6 +109290,8 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("ChannelSettings")
+		case "rawHTTP":
+			out.Values[i] = ec._ChannelSettings_rawHTTP(ctx, field, obj)
 		case "extraModelPrefix":
 			out.Values[i] = ec._ChannelSettings_extraModelPrefix(ctx, field, obj)
 		case "modelMappings":
@@ -134917,6 +135222,21 @@ func (ec *executionContext) unmarshalOChannelRateLimitInput2ᚖgithubᚗcomᚋlo
 		return nil, nil
 	}
 	res, err := ec.unmarshalInputChannelRateLimitInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelRawHTTP2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRawHTTP(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelRawHTTP) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelRawHTTP(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelRawHTTPInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRawHTTP(ctx context.Context, v any) (*objects.ChannelRawHTTP, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelRawHTTPInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 

@@ -233,7 +233,7 @@ func newNativeDecisionFixture(t *testing.T) *nativeDecisionFixture {
 	ipAccess, err := middleware.NewIPAccessControlConfig(false, nil, "")
 	require.NoError(t, err)
 	admin := gql.NewGraphqlHandlers(gql.Dependencies{Ent: f.db, AuthService: auth, APIKeyService: keys, UserService: users, SystemService: system, ChannelService: channels, RequestService: requests, ProjectService: projects, DataStorageService: storage, UsageLogService: usage, ModelService: models, HttpClient: hc})
-	SetupRoutes(gateway, Handlers{OpenAI: openai, Graphql: admin}, f.db, Services{TraceService: traces, ThreadService: biz.NewThreadService(f.db, traces), AuthService: auth, SystemService: system}, ipAccess)
+	SetupRoutes(gateway, Handlers{OpenAI: openai, Graphql: admin, RawHTTP: api.NewRawHTTPHandlers(api.RawHTTPHandlersParams{ChannelService: channels, Ent: f.db})}, f.db, Services{TraceService: traces, ThreadService: biz.NewThreadService(f.db, traces), AuthService: auth, SystemService: system}, ipAccess)
 	f.server = httptest.NewServer(gateway.Engine)
 	t.Cleanup(f.server.Close)
 	return f

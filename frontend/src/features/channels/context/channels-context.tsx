@@ -4,6 +4,7 @@ import { Channel } from '../data/schema';
 
 type ChannelsDialogType =
   | 'add'
+  | 'addRaw'
   | 'duplicate'
   | 'edit'
   | 'delete'

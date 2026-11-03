@@ -769,6 +769,10 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 	}
 
 	next := *settings
+	if settings.RawHTTP != nil {
+		raw := *settings.RawHTTP
+		next.RawHTTP = &raw
+	}
 	if settings.SSEKeepAlive != nil {
 		sseKeepAlive := *settings.SSEKeepAlive
 		next.SSEKeepAlive = &sseKeepAlive
@@ -841,6 +845,11 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	normalizeChannelFailurePolicy(next.FailurePolicy)
 
 	currentRuntime := cloneChannelSettings(current)
+	// Existing settings editors may omit the newly introduced raw mode. Require
+	// an explicit enabled:false to change that channel's protocol boundary.
+	if next.RawHTTP == nil && currentRuntime != nil {
+		next.RawHTTP = currentRuntime.RawHTTP
+	}
 	var keyMetadata []objects.ChannelKeyMetadata
 	var archivedKeys []objects.ChannelArchivedAPIKey
 	var history []objects.ChannelKeyHealthCheckHistoryEntry

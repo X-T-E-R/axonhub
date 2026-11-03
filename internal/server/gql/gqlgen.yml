@@ -74,6 +74,10 @@ converters:
 
 # This section declares type mapping between the GraphQL and Go type systems.
 models:
+  ChannelRawHTTP:
+    model: github.com/looplj/axonhub/internal/objects.ChannelRawHTTP
+  ChannelRawHTTPInput:
+    model: github.com/looplj/axonhub/internal/objects.ChannelRawHTTP
   RegistrationGroup:
     model: github.com/looplj/axonhub/internal/objects.RegistrationGroup
   RegistrationInvite:

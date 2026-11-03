@@ -41,6 +41,7 @@ type Handlers struct {
 	RequestPreview *api.RequestPreviewHandlers
 	Management     *api.ManagementHandlers
 	Diagnostics    *api.DiagnosticsHandlers
+	RawHTTP        *api.RawHTTPHandlers
 }
 
 type Services struct {
@@ -195,6 +196,13 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		middleware.WithTimeout(server.Config.RequestTimeout),
 		handlers.Diagnostics.Pull,
 	)
+
+	rawGroup := server.Group("/raw",
+		middleware.WithTimeout(server.Config.LLMRequestTimeout),
+		middleware.WithIPBlocklist(services.SystemService),
+		middleware.WithAPIKeyConfig(services.AuthService, nil),
+	)
+	rawGroup.Any("/:channelID/*path", handlers.RawHTTP.Proxy)
 
 	responsesWebSocketGroup := server.Group("/",
 		middleware.WithIPBlocklist(services.SystemService),

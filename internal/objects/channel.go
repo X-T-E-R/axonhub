@@ -128,7 +128,18 @@ type TransformOptions struct {
 	ReasoningEffortMapping []llm.ReasoningEffortMapping `json:"reasoningEffortMapping,omitempty"`
 }
 
+// ChannelRawHTTP binds a fixed upstream to a logical resource in the existing
+// project/key model profiles. The opaque payload is never used for routing.
+type ChannelRawHTTP struct {
+	Enabled    bool   `json:"enabled"`
+	Resource   string `json:"resource"`
+	AuthType   string `json:"authType"`
+	AuthHeader string `json:"authHeader,omitempty"`
+}
+
 type ChannelSettings struct {
+	RawHTTP *ChannelRawHTTP `json:"rawHTTP,omitempty"`
+
 	// ExtraModelPrefix sets the channel accept the model with the extra prefix.
 	// e.g. a channel
 	// supported_modles is ["deepseek-chat", "deepseek-reasoner"]

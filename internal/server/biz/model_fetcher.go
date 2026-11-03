@@ -263,6 +263,10 @@ func (f *ModelFetcher) FetchModels(ctx context.Context, input FetchModelsInput) 
 			}, nil
 		}
 
+		if IsRawHTTPChannel(ch) {
+			return &FetchModelsResult{Models: []ModelIdentify{}, Error: lo.ToPtr("Raw HTTP channels use a configured resource alias; model discovery is not available")}, nil
+		}
+
 		if ch.Credentials.IsOAuth() {
 			if models := f.getDefaultModelsByType(ctx, ch.Type); models != nil {
 				return &FetchModelsResult{Models: models}, nil

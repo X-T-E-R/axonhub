@@ -116,6 +116,48 @@ const ActionCell = memo(({ row }: { row: Row<Channel> }) => {
     setOpen('edit');
   }, [channel, setCurrentRow, setOpen]);
 
+  if (channel.settings?.rawHTTP?.enabled) {
+    return (
+      <div className='flex items-center justify-center gap-1'>
+        <Button size='sm' variant='outline' className='h-8 w-8 p-0' onClick={handleEdit}>
+          <IconEdit className='h-3 w-3' />
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size='sm' variant='outline' className='h-8 w-8 p-0' data-testid='row-actions'>
+              <DotsHorizontalIcon className='h-3 w-3' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            {(['keys', 'proxy', 'duplicate', 'archive', 'delete'] as const).map((action) => (
+              <DropdownMenuItem
+                key={action}
+                onClick={() => {
+                  setCurrentRow(channel);
+                  setOpen(action);
+                }}
+              >
+                {t(
+                  action === 'proxy'
+                    ? 'channels.dialogs.proxy.action'
+                    : action === 'keys'
+                      ? 'channels.dialogs.keys.action'
+                      : action === 'archive'
+                        ? isArchived
+                          ? 'common.buttons.restore'
+                          : 'common.buttons.archive'
+                        : action === 'delete'
+                          ? 'common.buttons.delete'
+                          : 'common.actions.duplicate'
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  }
+
   const advancedActionItems = (
     <>
       <DropdownMenuLabel className='text-muted-foreground text-xs font-normal'>
@@ -415,6 +457,12 @@ NameCell.displayName = 'NameCell';
 const ProviderCell = memo(({ row }: { row: Row<Channel> }) => {
   const { t } = useTranslation();
   const type = row.original.type;
+  if (row.original.settings?.rawHTTP?.enabled)
+    return (
+      <div className='flex justify-center'>
+        <Badge variant='outline'>HTTP API</Badge>
+      </div>
+    );
   const config = CHANNEL_CONFIGS[type];
   const provider = getProvider(type);
   const IconComponent = config.icon;

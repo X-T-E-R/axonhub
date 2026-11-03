@@ -596,7 +596,15 @@ export const channelProviderQuotaSettingsSchema = z.object({
 export type ChannelProviderQuotaSettings = z.infer<typeof channelProviderQuotaSettingsSchema>;
 
 // Channel Settings
+export const channelRawHTTPSchema = z.object({
+  enabled: z.boolean(),
+  resource: z.string().min(1),
+  authType: z.enum(['bearer', 'header']),
+  authHeader: z.string().optional().nullable(),
+});
+
 export const channelSettingsSchema = z.object({
+  rawHTTP: channelRawHTTPSchema.optional().nullable(),
   extraModelPrefix: z.string().optional(),
   modelMappings: z.array(modelMappingSchema).optional().nullable(),
   autoTrimedModelPrefixes: z.array(z.string()).optional().nullable(),

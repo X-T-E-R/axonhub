@@ -24,6 +24,11 @@ func RecoveryWithWriter() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if err := recover(); err != nil {
+				// net/http owns stream aborts: do not append a JSON error after a
+				// reverse proxy has already emitted opaque provider response bytes.
+				if err == http.ErrAbortHandler {
+					panic(err)
+				}
 				// Get stack trace
 				stack := stack(3)
 

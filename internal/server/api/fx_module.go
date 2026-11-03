@@ -9,6 +9,7 @@ import (
 var Module = fx.Module("api",
 	fx.Provide(diagnostics.NewService),
 	fx.Provide(NewOpenAIHandlers),
+	fx.Provide(NewRawHTTPHandlers),
 	fx.Provide(NewAnthropicHandlers),
 	fx.Provide(NewGeminiHandlers),
 	fx.Provide(NewAiSDKHandlers),

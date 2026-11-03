@@ -367,6 +367,7 @@ const CREATE_CHANNEL_MUTATION = `
       tags
       defaultTestModel
       settings {
+        rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
           from
@@ -453,6 +454,7 @@ const DUPLICATE_CHANNEL_MUTATION = `
       tags
       defaultTestModel
       settings {
+        rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
           from
@@ -539,6 +541,7 @@ const BULK_CREATE_CHANNELS_MUTATION = `
       tags
       defaultTestModel
       settings {
+        rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
           from
@@ -625,6 +628,7 @@ const UPDATE_CHANNEL_MUTATION = `
       tags
       defaultTestModel
       settings {
+        rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
           from
@@ -834,6 +838,7 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
           transport
         }
         settings {
+        rawHTTP { enabled resource authType authHeader }
           extraModelPrefix
           modelMappings {
             from
@@ -1087,6 +1092,7 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
           transport
         }
         settings {
+        rawHTTP { enabled resource authType authHeader }
           extraModelPrefix
           modelMappings {
             from
@@ -1215,6 +1221,7 @@ const QUERY_CHANNELS_QUERY = `
           tags
           defaultTestModel
           settings {
+        rawHTTP { enabled resource authType authHeader }
             extraModelPrefix
             modelMappings {
               from
