@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/looplj/axonhub/llm/jsonutil"
 	"github.com/looplj/axonhub/llm/logpolicy"
 	"github.com/looplj/axonhub/llm/streams"
 )
@@ -428,7 +429,16 @@ func BuildHttpRequest(
 ) (*http.Request, error) {
 	var body io.Reader
 	if len(request.Body) > 0 {
-		body = bytes.NewReader(request.Body)
+		contentType := request.ContentType
+		if contentType == "" {
+			contentType = request.Headers.Get("Content-Type")
+		}
+		mediaType, _, _ := mime.ParseMediaType(contentType)
+		bodyBytes := request.Body
+		if mediaType == "application/json" || (strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+json")) {
+			bodyBytes = jsonutil.NormalizeSurrogates(bodyBytes)
+		}
+		body = bytes.NewReader(bodyBytes)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, request.Method, request.URL, body)

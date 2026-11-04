@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/jsonutil"
 	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer/shared"
@@ -279,6 +281,9 @@ func applyPassThroughRequestBody(outbound *PersistentOutboundTransformer, system
 
 func mergePassThroughRequestBody(rawBody []byte, apiFormat llm.APIFormat, model string) ([]byte, error) {
 	body := append([]byte(nil), rawBody...)
+	if passThroughBodySupported(apiFormat) && json.Valid(body) {
+		body = jsonutil.NormalizeSurrogates(body)
+	}
 
 	if !passThroughBodyNeedsModelPatch(apiFormat) {
 		return body, nil
