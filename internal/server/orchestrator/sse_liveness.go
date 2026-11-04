@@ -10,6 +10,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
@@ -181,7 +182,15 @@ func (m *streamLivenessMiddleware) OnOutboundRawStream(
 		}
 	}
 	attempt.ConfirmSemanticCompletion = func() bool {
-		return m.state != nil && m.state.confirmStreamCompletion()
+		if m.state == nil {
+			return false
+		}
+		// A finish reason is not final usage. Let the stream owner read through
+		// the real provider terminal/EOF and settle required capture first.
+		if biz.ForwardingAccountingEnabled(ctx) && !m.state.accountingReady.Load() {
+			return false
+		}
+		return m.state.confirmStreamCompletion()
 	}
 	attempt.RecordClientTerminalFlushed = func() {
 		if m.state != nil {

@@ -154,9 +154,10 @@ func (ts *OutboundPersistentStream) Next() bool {
 		if kind == "" {
 			kind = gjson.GetBytes(event.Data, "type").String()
 		}
-		chatUsage := (ts.transformer.APIFormat() == llm.APIFormatOpenAIChatCompletion || ts.transformer.APIFormat() == llm.APIFormatOpenAICompletion) && gjson.GetBytes(event.Data, "usage").IsObject()
+		// Anthropic seals its final usage with stop_reason; its inbound transformer
+		// can emit message_stop from that frame before reading the raw message_stop.
 		anthropicFinish := kind == "message_delta" && gjson.GetBytes(event.Data, "delta.stop_reason").Type == gjson.String
-		if chatUsage || anthropicFinish || bytes.Equal(event.Data, llm.DoneStreamEvent.Data) || kind == "response.completed" || kind == "message_stop" || kind == "speech.audio.done" || kind == httpclient.BinaryStreamDoneEventType {
+		if anthropicFinish || bytes.Equal(bytes.TrimSpace(event.Data), llm.DoneStreamEvent.Data) || kind == "response.completed" || kind == "message_stop" || kind == "speech.audio.done" || kind == httpclient.BinaryStreamDoneEventType {
 			ts.captureUsageBeforeTerminal()
 		}
 	}
@@ -173,7 +174,10 @@ func (ts *OutboundPersistentStream) captureUsageBeforeTerminal() {
 	if !biz.ForwardingAccountingEnabled(ts.ctx) {
 		return
 	}
-	defer func() { ts.accountingBarrier.finish(ts.accountingErr) }()
+	defer func() {
+		ts.state.accountingReady.Store(ts.accountingErr == nil)
+		ts.accountingBarrier.finish(ts.accountingErr)
+	}()
 	if ts.usageCaptured || ts.requestExec == nil {
 		return
 	}

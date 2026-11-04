@@ -8,6 +8,8 @@ Each captured usage has a UUID nonce. Before publishing its asynchronous usage j
 
 The usage worker obtains the pending row's write lock, creates `usage_logs` and deletes that pending row in one `RunInTransaction` commit. Quota reads both tables in one repeatable-read snapshot. It counts a fact from exactly one table even if handoff commits during the read. Capture time determines every existing quota window; unknown cost stays NULL. This remains actual-usage accounting, not dispatch reservation.
 
+Chat streaming keeps the latest compact usage projection until the provider's `[DONE]` or clean EOF; intermediate usage frames do not freeze billing. Cluster semantic-completion confirmation remains pending until the stream owner settles final required capture. A transformer-synthesized terminal also waits for that same reader to consume the provider tail before exposing success or an accounting error; it does not wait for optional Close I/O. The existing grace duration is unchanged, and the reader retains normal EOF/cancellation ownership. Standalone semantic fallback is unchanged.
+
 Pending publication failure still transfers the same frozen usage ID, capture time, tokens and nullable cost to the reserved required writer, which retries publication and atomic handoff. The request returns an accounting error after execution; HTTP fails, and SSE/WS withhold normal completion and expose a failed terminal. Neither the gateway nor callers may replay the provider operation. Existing standalone/no-quota behavior is unchanged. In cluster mode all real usage is durably projected, including Keys without quota, so a later quota change cannot omit already captured facts.
 
 ## Crash recovery

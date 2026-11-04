@@ -109,7 +109,9 @@ query {
 
 完整步骤见 [task49-accounting-design.md](task49-accounting-design.md)。Ent 新增 `pending_usages`，没有父记录 cascade，不含请求/回复/headers/凭据。captured usage 先同步发布紧凑事实，再入本地异步队列；writer 在同一事务内锁 pending、写 usage_logs、删除 pending。quota 在 repeatable-read 快照里读取两表，窗口使用 capture time，未知 cost 保持 NULL，不做预测预扣。无 quota 的实际用量也保留。
 
-进程重启只恢复自己 node 的 pending；丢失异步 parent 时建紧凑 terminal skeleton，再原子交接。pending 不按时间过期。同步发布失败也把同一冻结 usage ID/时间/tokens/nullable cost 交给已有 required writer 重试发布与交接；HTTP 返回已执行的 accounting error，SSE/WS 在正常完成前显露失败，网关与调用者均不重放上游。
+Chat 流持续覆盖紧凑 usage 投影，到 provider 的 `[DONE]` 或 clean EOF 才冻结最终用量。cluster 的 semantic-completion 确认在 required capture 完成前保持 pending；若 transformer 先合成正常 terminal，也由同一 reader 读完 provider 尾部，再交付成功或 accounting 错误，不等可选 Close I/O。读取/取消沿原 context，不扩大固定 grace 等待；standalone 原 semantic fallback 保留。同步发布失败也把同一冻结 usage ID/时间/tokens/nullable cost 交给已有 required writer 重试发布与交接；HTTP 返回已执行的 accounting error，SSE/WS 在正常完成前显露失败，网关与调用者均不重放上游。
+
+进程重启只恢复自己 node 的 pending；丢失异步 parent 时建紧凑 terminal skeleton，再原子交接。pending 不按时间过期。
 
 新 admission 开始后，回退必须保留最新 PG 及其中全部 usage/pending、账号和配置事实。先停止 admission、drain 全节点，再用新 writer 完成每个 node 的 pending 交接；确认表空后，停数据节点并让旧 reader 使用同一最新 PG。保留 additive 表，旧 binary 忽略它。drain 或交接受阻时保持新 reader/维护态与 admission 关闭，不启旧 quota reader，不还原维护前快照丢弃已执行用量。
 
@@ -122,6 +124,7 @@ query {
 - `go test ./internal/server -run '^TestClusterTwoHTTPServicesAuthorizationAndOwnership$' -count=1 -v`：本次增量以单次真实 admin GraphQL 更新取代各实例重复设置，证明共享五 false、保留 cleanup、原 query 读回及后续无正文/实际 usage 闭环，通过（`bash-9wlpxl07`，3.91s）。
 - `go test ./conf ./internal/pkg/xcache ./internal/server/api ./internal/server/biz ./internal/server/orchestrator ./internal/server/scheduler ./internal/server/video_storage -run 'TestCluster|TestForwardingObservation|TestPortalMappedCatalog|TestOIDCService_PKCE_Flow|TestDataStorageService_GetDataStorageByID_WithRedis|TestGroupAccess|TestQuota' -count=1`：相关旧合同与真实 Redis 两 client 的域隔离/定向 Clear/Invalidate，通过（`bash-0ezm3u3o`）。API 在此 regex 下只有编译，video_storage 的真实回调由双服务测试覆盖。
 - F1/F2/F4 准入修复：`go test ./internal/server ./internal/server/api -run '^TestClusterTwoHTTPServicesAuthorizationAndOwnership$|TestWriteSSEStream_(GenuineErrorDuringSemanticGraceWins|ErrorFormatsAsJSON)$|TestResponsesWebSocketActualPipelineProviderErrorBoundary$' -count=1 -v -timeout 90s` 通过（`bash-zp45xgd6`，双服务 6.71s）。启用 same/cross-channel retry 与本 owner 备用候选后，故障 HTTP 500、Responses SSE 失败、Chat SSE `event:error`、WS `accounting_failed` 均不含 `not_executed`，没有正常完成 terminal；每代 provider=1，恢复 usage=1/pending=0，冻结 ID/时间/tokens/nullable cost 不变。真实管理 RPC 证明 disabled test 可用而普通推理被拒，quota reset control=0/owner=1、拒绝=0、unknown 不重放。
+- F1 最终 usage/慢发布复检：永久回归 `TestObservationAccounting*` 在 `observation_lifetime_test.go`。红测 `bash-5bo4kma1` 重现 cluster 连续 usage 3→4→5 记成 3，以及 2.5s 发布失败被 semantic grace 提前发 DONE；`bash-v0rbxhmn` 重现 Chat→Messages 合成正常 terminal 后才在 Close 出 accounting 错误。修复后 `bash-omrl38bi` 的三个包全部通过：最终 tokens=5；transformed/pass-through 慢失败无正常 DONE、客户端显露 accounting 错误，provider=1、恢复 usage=1/pending=0，同一 ID/时间/tokens/nullable cost 不变；Messages 合成 terminal 同样受门禁。EOF/取消均小于 1s，standalone semantic fallback、中断/reader join、no-body 紧凑投影与 PG18 双服务原四协议快失败路径一并通过。只缓存成功确认的回归在 `chat_test.go`。
 - F3：`TestClusterMonitoringOwnerSchedule` 与 `TestForwardingObservation*` 通过（`bash-dq31dnpm`）；原监控反例连续三轮 a 比 b 早 1 秒，双方各执行本 owner 渠道一次。受影响流/WS/pass-through/GroupAccess 回归通过（`bash-v106etue`），保 standalone HTTP 不等待 transformed Close；Chat usage-only 紧凑投影与受影响流回归通过（`bash-shz9uq2l` 的 orchestrator 包），不保存 content/未知大字段。
 - Redis store 定向单测覆盖 namespace/domain、同标签跨域、安全状态 legacy raw key 兼容、300 keys 的 SCAN 清理；不再调用 FLUSHALL。OIDC、OAuth state/device 与 CyberSessionBlock 显式保留原安全状态 key，不从通用 cache 域隐式双读。
 
