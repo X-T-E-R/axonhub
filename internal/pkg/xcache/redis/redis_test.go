@@ -27,13 +27,15 @@ func TestRedisStoreSetAndGetWithStruct(t *testing.T) {
 	client := NewMockRedisClientInterface(ctrl)
 
 	testValue := TestStruct{Name: "test", Value: 123}
+	redisStore := NewRedisStore[TestStruct](client)
+	physicalKey := redisStore.valueKey("my-key")
 
 	// Expect the client to receive the JSON-encoded value
-	client.EXPECT().Set(ctx, "my-key", "{\"name\":\"test\",\"value\":123}", time.Duration(0)).Return(&redis.StatusCmd{})
-	client.EXPECT().Get(ctx, "my-key").Return(redis.NewStringResult("{\"name\":\"test\",\"value\":123}", nil))
+	client.EXPECT().Set(ctx, physicalKey, "{\"name\":\"test\",\"value\":123}", time.Duration(0)).Return(&redis.StatusCmd{})
+	client.EXPECT().Get(ctx, physicalKey).Return(redis.NewStringResult("{\"name\":\"test\",\"value\":123}", nil))
 
 	// When
-	RedisStore := NewRedisStore[TestStruct](client)
+	RedisStore := redisStore
 	err := RedisStore.Set(ctx, "my-key", testValue)
 	assert.NoError(t, err)
 
@@ -59,12 +61,14 @@ func TestRedisStoreGetWithTTL(t *testing.T) {
 
 	testValue := TestStruct{Name: "test", Value: 123}
 	ttlValue := 10 * time.Second
+	redisStore := NewRedisStore[TestStruct](client)
+	physicalKey := redisStore.valueKey("my-key")
 
-	client.EXPECT().Get(ctx, "my-key").Return(redis.NewStringResult("{\"name\":\"test\",\"value\":123}", nil))
-	client.EXPECT().TTL(ctx, "my-key").Return(redis.NewDurationResult(ttlValue, nil))
+	client.EXPECT().Get(ctx, physicalKey).Return(redis.NewStringResult("{\"name\":\"test\",\"value\":123}", nil))
+	client.EXPECT().TTL(ctx, physicalKey).Return(redis.NewDurationResult(ttlValue, nil))
 
 	// When
-	RedisStore := NewRedisStore[TestStruct](client)
+	RedisStore := redisStore
 	value, ttl, err := RedisStore.GetWithTTL(ctx, "my-key")
 
 	// Then
@@ -87,12 +91,14 @@ func TestRedisStoreWithString(t *testing.T) {
 	client := NewMockRedisClientInterface(ctrl)
 	expectedValue := `test string`
 	encodedValue := `"test string"`
+	redisStore := NewRedisStore[string](client)
+	physicalKey := redisStore.valueKey("my-key")
 
-	client.EXPECT().Set(ctx, "my-key", encodedValue, time.Duration(0)).Return(&redis.StatusCmd{})
-	client.EXPECT().Get(ctx, "my-key").Return(redis.NewStringResult(encodedValue, nil))
+	client.EXPECT().Set(ctx, physicalKey, encodedValue, time.Duration(0)).Return(&redis.StatusCmd{})
+	client.EXPECT().Get(ctx, physicalKey).Return(redis.NewStringResult(encodedValue, nil))
 
 	// When
-	RedisStore := NewRedisStore[string](client)
+	RedisStore := redisStore
 	err := RedisStore.Set(ctx, "my-key", expectedValue)
 	assert.NoError(t, err)
 
@@ -112,14 +118,16 @@ func TestRedisStoreWithInt(t *testing.T) {
 
 	client := NewMockRedisClientInterface(ctrl)
 	testValue := 42
+	redisStore := NewRedisStore[int](client)
+	physicalKey := redisStore.valueKey("my-key")
 
 	// When storing int, it's formatted as a string "42"
-	client.EXPECT().Set(ctx, "my-key", "42", time.Duration(0)).Return(&redis.StatusCmd{})
+	client.EXPECT().Set(ctx, physicalKey, "42", time.Duration(0)).Return(&redis.StatusCmd{})
 	// When retrieving, we try to unmarshal "42" which should work for int
-	client.EXPECT().Get(ctx, "my-key").Return(redis.NewStringResult("42", nil))
+	client.EXPECT().Get(ctx, physicalKey).Return(redis.NewStringResult("42", nil))
 
 	// When
-	RedisStore := NewRedisStore[int](client)
+	RedisStore := redisStore
 	err := RedisStore.Set(ctx, "my-key", testValue)
 	assert.NoError(t, err)
 

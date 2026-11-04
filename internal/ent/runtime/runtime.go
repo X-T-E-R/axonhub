@@ -18,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
@@ -533,6 +534,20 @@ func init() {
 	observabilitypayloadDescChargedBytes := observabilitypayloadFields[4].Descriptor()
 	// observabilitypayload.ChargedBytesValidator is a validator for the "charged_bytes" field. It is called by the builders before save.
 	observabilitypayload.ChargedBytesValidator = observabilitypayloadDescChargedBytes.Validators[0].(func(int64) error)
+	pendingusageFields := schema.PendingUsage{}.Fields()
+	_ = pendingusageFields
+	// pendingusageDescRequestID is the schema descriptor for request_id field.
+	pendingusageDescRequestID := pendingusageFields[10].Descriptor()
+	// pendingusage.DefaultRequestID holds the default value on creation for the request_id field.
+	pendingusage.DefaultRequestID = pendingusageDescRequestID.Default.(int)
+	// pendingusageDescCreatedAt is the schema descriptor for created_at field.
+	pendingusageDescCreatedAt := pendingusageFields[17].Descriptor()
+	// pendingusage.DefaultCreatedAt holds the default value on creation for the created_at field.
+	pendingusage.DefaultCreatedAt = pendingusageDescCreatedAt.Default.(func() time.Time)
+	// pendingusageDescID is the schema descriptor for id field.
+	pendingusageDescID := pendingusageFields[0].Descriptor()
+	// pendingusage.IDValidator is a validator for the "id" field. It is called by the builders before save.
+	pendingusage.IDValidator = pendingusageDescID.Validators[0].(func(string) error)
 	projectMixin := schema.Project{}.Mixin()
 	project.Policy = privacy.NewPolicies(schema.Project{})
 	project.Hooks[0] = func(next ent.Mutator) ent.Mutator {

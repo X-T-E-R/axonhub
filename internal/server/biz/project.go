@@ -43,7 +43,7 @@ func NewProjectService(params ProjectServiceParams) *ProjectService {
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
-		ProjectCache:        xcache.NewFromConfig[xcache.Entry[ent.Project]](params.CacheConfig),
+		ProjectCache:        xcache.NewFromConfigWithDomain[xcache.Entry[ent.Project]](params.CacheConfig, "project"),
 		permissionValidator: NewPermissionValidator(),
 	}
 }

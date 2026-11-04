@@ -103,6 +103,9 @@ func (h *DoubaoHandlers) CreateTask(c *gin.Context) {
 }
 
 func (h *DoubaoHandlers) GetTask(c *gin.Context) {
+	if proxyTaskToOwner(c, h.VideoService) {
+		return
+	}
 	ctx := c.Request.Context()
 
 	externalID := c.Param("id")
@@ -135,6 +138,9 @@ func (h *DoubaoHandlers) GetTask(c *gin.Context) {
 }
 
 func (h *DoubaoHandlers) DeleteTask(c *gin.Context) {
+	if proxyTaskToOwner(c, h.VideoService) {
+		return
+	}
 	ctx := c.Request.Context()
 
 	externalID := c.Param("id")

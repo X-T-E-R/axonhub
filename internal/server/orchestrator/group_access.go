@@ -3,7 +3,11 @@ package orchestrator
 import (
 	"context"
 
+	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/request"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 )
@@ -11,13 +15,17 @@ import (
 // GroupAccessSelector filters each retry entry, not just the first candidate.
 // Copy candidates: association-cache objects belong to other requests too.
 type GroupAccessSelector struct {
-	wrapped CandidateSelector
-	key     *ent.APIKey
+	wrapped  CandidateSelector
+	key      *ent.APIKey
+	channels *biz.ChannelService
 }
 
 func (s *GroupAccessSelector) Select(ctx context.Context, req *llm.Request) ([]*ChannelModelsCandidate, error) {
 	if !biz.GroupAllowsModel(s.key, req.Model) {
 		return nil, nil
+	}
+	if _, explicitTest := s.wrapped.(*SpecifiedChannelSelector); explicitTest && authz.RequireScope(ctx, scopes.ScopeReadChannels) == nil {
+		ctx = contexts.WithSource(ctx, request.SourceTest)
 	}
 	candidates, err := s.wrapped.Select(ctx, req)
 	if err != nil {
@@ -27,6 +35,18 @@ func (s *GroupAccessSelector) Select(ctx context.Context, req *llm.Request) ([]*
 	for _, c := range candidates {
 		if c == nil || c.Channel == nil || !biz.KeyAllowsChannel(s.key, c.Channel.ID, c.Channel.Tags) {
 			continue
+		}
+		if c.Channel.RemoteOwner != "" {
+			continue
+		}
+		if s.channels != nil {
+			allowed, err := s.channels.AuthorizeExecutionChannel(ctx, c.Channel.ID, s.key)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
 		}
 		copy := *c
 		copy.Models = make([]biz.ChannelModelEntry, 0, len(c.Models))

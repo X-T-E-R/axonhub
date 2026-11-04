@@ -21,6 +21,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
@@ -444,6 +445,33 @@ func (f TraverseObservabilityPayload) Traverse(ctx context.Context, q ent.Query)
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.ObservabilityPayloadQuery", q)
+}
+
+// The PendingUsageFunc type is an adapter to allow the use of ordinary function as a Querier.
+type PendingUsageFunc func(context.Context, *ent.PendingUsageQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f PendingUsageFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.PendingUsageQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.PendingUsageQuery", q)
+}
+
+// The TraversePendingUsage type is an adapter to allow the use of ordinary function as Traverser.
+type TraversePendingUsage func(context.Context, *ent.PendingUsageQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraversePendingUsage) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraversePendingUsage) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.PendingUsageQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.PendingUsageQuery", q)
 }
 
 // The ProjectFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -880,6 +908,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.OIDCIdentityQuery, predicate.OIDCIdentity, oidcidentity.OrderOption]{typ: ent.TypeOIDCIdentity, tq: q}, nil
 	case *ent.ObservabilityPayloadQuery:
 		return &query[*ent.ObservabilityPayloadQuery, predicate.ObservabilityPayload, observabilitypayload.OrderOption]{typ: ent.TypeObservabilityPayload, tq: q}, nil
+	case *ent.PendingUsageQuery:
+		return &query[*ent.PendingUsageQuery, predicate.PendingUsage, pendingusage.OrderOption]{typ: ent.TypePendingUsage, tq: q}, nil
 	case *ent.ProjectQuery:
 		return &query[*ent.ProjectQuery, predicate.Project, project.OrderOption]{typ: ent.TypeProject, tq: q}, nil
 	case *ent.PromptQuery:

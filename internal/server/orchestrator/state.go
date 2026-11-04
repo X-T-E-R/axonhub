@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/looplj/axonhub/internal/ent"
@@ -18,6 +19,11 @@ type PersistenceState struct {
 	APIKey *ent.APIKey
 
 	cyberSession *cyberSessionRequestState
+	// Accounting errors occur after execution; no provider retry is safe.
+	accountingFailed atomic.Bool
+	// Final usage capture must settle before semantic success can be confirmed.
+	accountingReady   atomic.Bool
+	accountingBarrier *accountingCaptureBarrier
 
 	RequestService      *biz.RequestService
 	UsageLogService     *biz.UsageLogService
@@ -282,6 +288,7 @@ func (s *PersistenceState) resetStreamTerminalState() {
 	s.failedStreamEvidence = nil
 	s.streamCompletionConfirmed = false
 	s.semanticInterruptStarted = false
+	s.accountingReady.Store(false)
 	s.deferredFailureMu.Unlock()
 }
 

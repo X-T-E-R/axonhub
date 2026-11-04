@@ -175,7 +175,7 @@ func (svc *ChannelService) dueChannelKeyHealthCheckChannels(ctx context.Context,
 
 	due := make([]*ent.Channel, 0, len(channels))
 	for _, ch := range channels {
-		if !channelKeyHealthCheckDue(ch, now) {
+		if !svc.node.Owns(ch.ID) || !channelKeyHealthCheckDue(ch, now) {
 			continue
 		}
 
@@ -365,6 +365,9 @@ func supportedChannelKeyHealthChecks[T any](targets []T, results []ChannelKeyHea
 }
 
 func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Context, ch *ent.Channel, now time.Time) (channelKeyHealthCheckChannelResult, error) {
+	if !svc.node.Owns(ch.ID) {
+		return channelKeyHealthCheckChannelResult{}, nil
+	}
 	if ch.Settings == nil || ch.Settings.KeyHealthCheck == nil {
 		return channelKeyHealthCheckChannelResult{}, nil
 	}
@@ -1553,6 +1556,9 @@ func clampInt(value, minValue, maxValue int) int {
 func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, channelID int, keyIDs []string, modes ...objects.ChannelAPIKeyHealthCheckMode) ([]*ChannelAPIKeyInventoryItem, error) {
 	if err := authz.RequireScope(ctx, scopes.ScopeWriteChannels); err != nil {
 		return nil, err
+	}
+	if !svc.node.Owns(channelID) {
+		return svc.dispatchChannelHealth(ctx, channelID, keyIDs, modes)
 	}
 	ctx = authz.WithScopeDecision(ctx, scopes.ScopeWriteChannels)
 

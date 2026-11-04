@@ -10,6 +10,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/server/api"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/gql"
 	"github.com/looplj/axonhub/internal/server/gql/openapi"
 	"github.com/looplj/axonhub/internal/server/middleware"
@@ -42,6 +43,7 @@ type Handlers struct {
 	Management     *api.ManagementHandlers
 	Diagnostics    *api.DiagnosticsHandlers
 	RawHTTP        *api.RawHTTPHandlers
+	Cluster        *api.ClusterHandlers `optional:"true"`
 }
 
 type Services struct {
@@ -51,11 +53,15 @@ type Services struct {
 	ThreadService *biz.ThreadService
 	AuthService   *biz.AuthService
 	SystemService *biz.SystemService
+	Node          cluster.Config `optional:"true"`
 }
 
 func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services Services, ipAccessControl *middleware.IPAccessControlConfig) {
 	// IP 访问控制 - 全局最优先，拦截所有请求包括静态文件
 	server.Use(middleware.WithIPAccessControl(ipAccessControl))
+	if services.Node.Enabled {
+		server.Use(api.DataNodeRoutes(services.Node), api.WithClusterCallerAuthorization())
+	}
 
 	// Serve static frontend files
 	server.NoRoute(static.Handler())
@@ -80,6 +86,20 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		server.OPTIONS("*any", corsHandler)
 	}
 
+	if services.Node.Enabled {
+		ownerAdmin := server.Group("/__axon/admin", middleware.WithJWTAuth(services.AuthService), middleware.WithLegacyUser(), middleware.WithProjectID(), middleware.WithTimeout(server.Config.LLMRequestTimeout))
+		ownerOpenAPI := server.Group("/__axon/openapi", middleware.WithIPBlocklist(services.SystemService), middleware.WithOpenAPIAuth(services.AuthService), middleware.WithTimeout(server.Config.LLMRequestTimeout))
+		for _, group := range []*gin.RouterGroup{ownerAdmin, ownerOpenAPI} {
+			group.POST("/channel-test", handlers.Cluster.ChannelTest)
+			group.POST("/channel-health", handlers.Cluster.ChannelHealth)
+			group.POST("/channel-quota-reset", handlers.Cluster.ChannelQuotaReset)
+			group.POST("/channel-models", handlers.Cluster.ChannelModels)
+			group.POST("/channel-sync", handlers.Cluster.ChannelSync)
+		}
+		ownerAdmin.POST("/playground/chat", middleware.WithSource(request.SourcePlayground), handlers.Playground.ChatCompletion)
+		server.GET("/v1/axon/route", middleware.WithIPBlocklist(services.SystemService), middleware.WithAPIKeyConfig(services.AuthService, nil), middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.Resolve)
+		server.GET("/v1/axon/task-route", middleware.WithIPBlocklist(services.SystemService), middleware.WithAPIKeyConfig(services.AuthService, nil), middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.TaskRoute)
+	}
 	requestBodyTransport := middleware.NewRequestBodyTransport()
 	server.GET("/__portway/capabilities", middleware.WithIPBlocklist(services.SystemService), requestBodyTransport.Capabilities)
 
@@ -117,6 +137,9 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 	adminGroup := server.Group("/admin", middleware.WithJWTAuth(services.AuthService), middleware.WithLegacyUser(), middleware.WithProjectID())
 	// 管理员路由 - 使用 JWT 认证
 	{
+		if services.Node.Enabled {
+			adminGroup.GET("/cluster/manifest", middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.Manifest)
+		}
 		adminGroup.GET("/playground", middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
 			handlers.Graphql.Playground.ServeHTTP(c.Writer, c.Request)
 		})

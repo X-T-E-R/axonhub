@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -494,6 +495,9 @@ func captureRawProviderStream(outbound *PersistentOutboundTransformer, systemSer
 		}
 
 		channel := outbound.GetCurrentChannel()
+		if biz.ForwardingAccountingEnabled(ctx) {
+			outbound.state.accountingBarrier = newAccountingCaptureBarrier()
+		}
 
 		pipelineCh := make(chan *httpclient.StreamEvent, 64)
 		rawStreamCh := make(chan *httpclient.StreamEvent, 64)
@@ -621,6 +625,7 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 			log.String("channel", channel.Name),
 		)
 
+		barrier := outbound.state.accountingBarrier
 		drainDone := make(chan error, 1)
 		if attempt != nil {
 			attempt.setDrain(drainDone)
@@ -639,6 +644,7 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 				}
 				outbound.state.recordStreamLifecycle(ctx, "pass_through_drain_end",
 					log.String("error", diagnosticErrorString(ctx, drainErr)))
+				barrier.finish(drainErr)
 				drainDone <- drainErr
 				close(drainDone)
 			}()
@@ -655,9 +661,41 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 		if shared.NativeResponsesWebSocket(ctx) {
 			result.attempt = attempt
 		}
+		// Raw pass-through must not outrun required accounting in the transformed
+		// drain. Only the terminal/EOF waits; partial output remains streaming.
+		if barrier := outbound.state.accountingBarrier; barrier != nil {
+			return &accountedPassThroughStream{Stream: result, format: llm.APIFormat(outbound.state.RawProviderRequest.APIFormat), barrier: barrier}, nil
+		}
 		return result, nil
 	})
 }
+
+type accountedPassThroughStream struct {
+	streams.Stream[*httpclient.StreamEvent]
+	format  llm.APIFormat
+	barrier *accountingCaptureBarrier
+	current *httpclient.StreamEvent
+	err     error
+}
+
+func (s *accountedPassThroughStream) Next() bool {
+	if s.err != nil {
+		return false
+	}
+	if !s.Stream.Next() {
+		<-s.barrier.done
+		s.err = s.barrier.err
+		return false
+	}
+	s.current = s.Stream.Current()
+	if providerStreamTerminal(s.format, s.current) {
+		<-s.barrier.done
+		s.err = s.barrier.err
+	}
+	return s.err == nil
+}
+func (s *accountedPassThroughStream) Current() *httpclient.StreamEvent { return s.current }
+func (s *accountedPassThroughStream) Err() error                       { return errors.Join(s.err, s.Stream.Err()) }
 
 // passThroughChannelStream wraps a channel as a Stream.
 //

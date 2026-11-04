@@ -464,6 +464,9 @@ func (handlers *OpenAIHandlers) CreateVideo(c *gin.Context) {
 }
 
 func (handlers *OpenAIHandlers) GetVideo(c *gin.Context) {
+	if proxyTaskToOwner(c, handlers.VideoService) {
+		return
+	}
 	ctx := c.Request.Context()
 
 	externalID := c.Param("id")
@@ -496,6 +499,9 @@ func (handlers *OpenAIHandlers) GetVideo(c *gin.Context) {
 }
 
 func (handlers *OpenAIHandlers) DeleteVideo(c *gin.Context) {
+	if proxyTaskToOwner(c, handlers.VideoService) {
+		return
+	}
 	ctx := c.Request.Context()
 
 	externalID := c.Param("id")

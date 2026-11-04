@@ -69,20 +69,6 @@ func (mr *MockRedisClientInterfaceMockRecorder) Expire(ctx, key, expiration inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockRedisClientInterface)(nil).Expire), ctx, key, expiration)
 }
 
-// FlushAll mocks base method.
-func (m *MockRedisClientInterface) FlushAll(ctx context.Context) *v9.StatusCmd {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FlushAll", ctx)
-	ret0, _ := ret[0].(*v9.StatusCmd)
-	return ret0
-}
-
-// FlushAll indicates an expected call of FlushAll.
-func (mr *MockRedisClientInterfaceMockRecorder) FlushAll(ctx interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlushAll", reflect.TypeOf((*MockRedisClientInterface)(nil).FlushAll), ctx)
-}
-
 // Get mocks base method.
 func (m *MockRedisClientInterface) Get(ctx context.Context, key string) *v9.StringCmd {
 	m.ctrl.T.Helper()

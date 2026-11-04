@@ -104,6 +104,10 @@ func (m *persistRequestMiddleware) OnOutboundLlmResponse(ctx context.Context, ll
 
 	_, err := state.UsageLogService.CreateUsageLogFromRequest(persistCtx, state.Request, state.RequestExec, usageToLog)
 	if err != nil {
+		if biz.ForwardingAccountingEnabled(persistCtx) {
+			state.accountingFailed.Store(true)
+			return nil, err
+		}
 		log.Warn(persistCtx, "Failed to create usage log from request", log.Cause(err))
 	}
 

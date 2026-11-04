@@ -334,6 +334,10 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 	observer := &responsesWSObserver{}
 	result, err := h.process(authenticated, req, observer)
 	if err != nil {
+		if accountingFailure := responsesWSAccountingFailure(err); accountingFailure != nil {
+			_ = writer.failure(frame.streamID, accountingFailure)
+			return
+		}
 		notExecuted := !observer.selected.Load()
 		code := "generation_failed"
 		kind := "server_error"
@@ -422,6 +426,10 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 		cause := context.Cause(authenticated)
 		streamFailed = !responsesWSOnlyRequestCancellation(streamErr, cause) || !responsesWSOnlyRequestCancellation(closeErr, cause)
 	}
+	if accountingFailure := responsesWSAccountingFailure(errors.Join(streamErr, closeErr)); accountingFailure != nil {
+		_ = writer.failure(frame.streamID, accountingFailure)
+		return
+	}
 	if failed || streamFailed || !terminal {
 		_ = writer.failure(frame.streamID, &responsesWSError{status: 502, kind: "server_error", code: "incomplete_stream", message: "The response stream ended without a valid terminal. Delivery may be unknown; do not automatically replay."})
 		return
@@ -429,6 +437,14 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 	if len(completed) > 0 {
 		state.commit(frame, input, completed, time.Now())
 	}
+}
+
+func responsesWSAccountingFailure(err error) *responsesWSError {
+	var accounting *biz.ExecutedAccountingError
+	if !errors.As(err, &accounting) {
+		return nil
+	}
+	return &responsesWSError{status: http.StatusInternalServerError, kind: "server_error", code: "accounting_failed", message: "The upstream request executed, but accounting publication failed. Accounting recovery will retry; do not replay this request."}
 }
 
 // Match every error leaf so a joined provider/transform failure cannot disappear

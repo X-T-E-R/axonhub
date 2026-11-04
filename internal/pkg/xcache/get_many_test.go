@@ -60,5 +60,7 @@ func TestSetIfAbsentPreservesFirstRedisValue(t *testing.T) {
 	value, err := cache.Get(t.Context(), "first-write")
 	require.NoError(t, err)
 	require.Equal(t, "first", value)
-	require.Equal(t, time.Minute, server.TTL("first-write"))
+	_, ttl, err := cache.GetWithTTL(t.Context(), "first-write")
+	require.NoError(t, err)
+	require.Equal(t, time.Minute, ttl)
 }

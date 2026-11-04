@@ -2,16 +2,19 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
@@ -20,10 +23,13 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
+	"github.com/looplj/axonhub/internal/ent/hook"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/internal/tracing"
@@ -32,6 +38,8 @@ import (
 	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer"
+	"github.com/looplj/axonhub/llm/transformer/anthropic"
+	"github.com/looplj/axonhub/llm/transformer/openai"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
 
@@ -345,6 +353,265 @@ func TestObservationScopeReleasedAfterWriterPanic(t *testing.T) {
 			defer drainCancel()
 			// Wait includes all five lifecycle reservations, not just queued jobs.
 			require.NoError(t, writer.Wait(drain), "panic must return the retained scope's capacity")
+		})
+	}
+}
+
+// Exercise the real Chat HTTP -> pipeline -> required writer path without bodies.
+type observationAccountingFixture struct {
+	ctx      context.Context
+	db       *ent.Client
+	writer   *biz.ForwardingObservationWriter
+	handler  *ChatCompletionHandlers
+	executor *observationAccountingExecutor
+}
+
+type observationAccountingExecutor struct {
+	events []*httpclient.StreamEvent
+	calls  atomic.Int32
+	source func(context.Context) streams.Stream[*httpclient.StreamEvent]
+}
+
+func (e *observationAccountingExecutor) Do(context.Context, *httpclient.Request) (*httpclient.Response, error) {
+	return nil, errors.New("unexpected non-stream request")
+}
+func (e *observationAccountingExecutor) DoStream(ctx context.Context, _ *httpclient.Request) (streams.Stream[*httpclient.StreamEvent], error) {
+	e.calls.Add(1)
+	if e.source != nil {
+		return e.source(ctx), nil
+	}
+	return streams.SliceStream(e.events), nil
+}
+
+func newObservationAccountingFixture(t *testing.T, clustered, passThrough bool, events []*httpclient.StreamEvent) *observationAccountingFixture {
+	t.Helper()
+	db := enttest.NewEntClient(t, "sqlite3", "file:observation-accounting-"+uuid.NewString()+"?mode=memory&_fk=0")
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	ctx := ent.NewContext(authz.WithTestBypass(context.Background()), db)
+	project := db.Project.Create().SetName("accounting").SaveX(ctx)
+	ctx = contexts.WithProjectID(ctx, project.ID)
+	row := db.Channel.Create().SetName("accounting").SetType(channel.TypeOpenai).SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://unused.invalid/v1").SetCredentials(objects.ChannelCredentials{APIKey: "fixture"}).
+		SetSupportedModels([]string{"m"}).SetDefaultTestModel("m").
+		SetSettings(&objects.ChannelSettings{PassThroughBody: lo.ToPtr(passThrough)}).SaveX(ctx)
+	cache := xcache.Config{Mode: xcache.ModeMemory}
+	system := biz.NewSystemService(biz.SystemServiceParams{CacheConfig: cache, Ent: db})
+	require.NoError(t, system.SetStoragePolicy(ctx, &biz.StoragePolicy{}))
+	require.NoError(t, system.SetRetryPolicy(ctx, &biz.RetryPolicy{Enabled: true, MaxChannelRetries: 2, MaxSingleChannelRetries: 2}))
+	node := cluster.Config{Enabled: clustered, NodeID: "a", ControlNode: "a", Nodes: map[string]string{"a": "http://127.0.0.1:1"}, Channels: map[int]cluster.ChannelBinding{row.ID: {Owner: "a", Identity: "fixture"}}}
+	httpClient := httpclient.NewHttpClient()
+	channels := biz.NewChannelService(biz.ChannelServiceParams{CacheConfig: cache, Ent: db, SystemService: system, HttpClient: httpClient, WebhookNotifier: biz.NewWebhookNotifier(system, httpClient), Node: node})
+	t.Cleanup(channels.Stop)
+	usage := biz.NewUsageLogService(db, system, channels)
+	storage := biz.NewDataStorageService(biz.DataStorageServiceParams{CacheConfig: cache, SystemService: system, Client: db})
+	writer := biz.NewForwardingObservationWriter(biz.ManagedRequestBodyWriterConfig{AttemptTimeout: time.Second})
+	service := biz.NewRequestServiceWithObservationWriter(db, system, usage, storage, biz.NewLiveStreamRegistry(), nil, writer)
+	require.NoError(t, writer.Start(ctx))
+	t.Cleanup(func() {
+		stop, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		require.NoError(t, writer.Stop(stop))
+	})
+	ctx = service.ForwardingObservationContext(ctx)
+	t.Cleanup(func() { biz.EndForwardingObservation(ctx) })
+	provider, err := openai.NewOutboundTransformer(row.BaseURL, "fixture")
+	require.NoError(t, err)
+	processor := orchestrator.NewChatCompletionOrchestrator(channels, nil, service, httpClient, openai.NewInboundTransformer(), system, usage, nil, nil, nil, nil, orchestrator.NewChannelLimiterManager(), nil).
+		WithChannelSelector(&speechAPISelector{candidates: []*orchestrator.ChannelModelsCandidate{{Channel: &biz.Channel{Channel: row, Outbound: provider}, Models: []biz.ChannelModelEntry{{RequestModel: "m", ActualModel: "m"}}}}})
+	processor.PromptProvider, processor.PromptProtecter = observationNoPrompts{}, nil
+	executor := &observationAccountingExecutor{events: events}
+	processor.PipelineFactory = pipeline.NewFactory(executor)
+	handler := NewChatCompletionHandlers(processor)
+	handler.sseHeartbeatFormat = sseHeartbeatOpenAI
+	return &observationAccountingFixture{ctx: ctx, db: db, writer: writer, handler: handler, executor: executor}
+}
+
+func (f *observationAccountingFixture) run(t *testing.T) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	path, format := "/v1/chat/completions", llm.APIFormatOpenAIChatCompletion
+	if f.handler.sseHeartbeatFormat == sseHeartbeatAnthropic {
+		path, format = "/v1/messages", llm.APIFormatAnthropicMessage
+	}
+	c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}")).WithContext(f.ctx)
+	f.handler.ChatCompletionWithRequest(c, &httpclient.Request{
+		Method: http.MethodPost, APIFormat: string(format), Headers: http.Header{"Content-Type": {"application/json"}},
+		Body: []byte(`{"model":"m","max_tokens":32,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
+	})
+	biz.EndForwardingObservation(f.ctx)
+	drain, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	require.NoError(t, f.writer.Wait(drain))
+	require.Equal(t, int32(1), f.executor.calls.Load(), "accounting must never replay the provider")
+	readCtx := authz.WithTestBypass(context.Background())
+	require.Zero(t, f.db.PendingUsage.Query().CountX(readCtx))
+	for _, row := range f.db.Request.Query().AllX(readCtx) {
+		require.Contains(t, []string{"", "{}"}, string(row.RequestBody))
+		require.Empty(t, row.ResponseBody)
+		require.Empty(t, row.ResponseChunks)
+	}
+	for _, row := range f.db.RequestExecution.Query().AllX(readCtx) {
+		require.Contains(t, []string{"", "{}"}, string(row.RequestBody))
+		require.Empty(t, row.ResponseBody)
+		require.Empty(t, row.ResponseChunks)
+	}
+	require.Zero(t, f.db.ObservabilityPayload.Query().CountX(readCtx))
+	return w.Body.String()
+}
+
+func observationAccountingEvent(data string) *httpclient.StreamEvent {
+	return &httpclient.StreamEvent{Data: []byte(data)}
+}
+
+func TestObservationAccountingFreezesFinalChatUsage(t *testing.T) {
+	for _, clustered := range []bool{false, true} {
+		for _, passThrough := range []bool{false, true} {
+			t.Run(fmt.Sprintf("cluster=%v/passthrough=%v", clustered, passThrough), func(t *testing.T) {
+				events := []*httpclient.StreamEvent{
+					observationAccountingEvent(`{"id":"chat-usage","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"a"},"finish_reason":null}],"usage":{"prompt_tokens":3,"completion_tokens":0,"total_tokens":3}}`),
+					observationAccountingEvent(`{"id":"chat-usage","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"content":"b"},"finish_reason":null}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`),
+					observationAccountingEvent(`{"id":"chat-usage","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`),
+					observationAccountingEvent(`[DONE]`),
+				}
+				f := newObservationAccountingFixture(t, clustered, passThrough, events)
+				body := f.run(t)
+				require.Contains(t, body, "[DONE]")
+				bill := f.db.UsageLog.Query().OnlyX(f.ctx)
+				require.Equal(t, int64(5), bill.TotalTokens)
+				require.Nil(t, bill.TotalCost)
+				t.Logf("provider=1 usage=1 final_tokens=%d pending=0", bill.TotalTokens)
+			})
+		}
+	}
+}
+
+func TestObservationAccountingPrecedesSemanticCompletion(t *testing.T) {
+	for _, passThrough := range []bool{false, true} {
+		t.Run(fmt.Sprintf("passthrough=%v", passThrough), func(t *testing.T) {
+			events := []*httpclient.StreamEvent{
+				observationAccountingEvent(`{"id":"chat-slow","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"},"finish_reason":null}]}`),
+				observationAccountingEvent(`{"id":"chat-slow","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`),
+				observationAccountingEvent(`{"id":"chat-slow","object":"chat.completion.chunk","model":"m","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`),
+				observationAccountingEvent(`[DONE]`),
+			}
+			f := newObservationAccountingFixture(t, true, passThrough, events)
+			var mu sync.Mutex
+			var frozen []string
+			f.db.PendingUsage.Use(func(next ent.Mutator) ent.Mutator {
+				return hook.PendingUsageFunc(func(ctx context.Context, m *ent.PendingUsageMutation) (ent.Value, error) {
+					if m.Op().Is(ent.OpCreate) {
+						id, _ := m.ID()
+						stamp, _ := m.CapturedAt()
+						tokens, _ := m.TotalTokens()
+						cost, known := m.TotalCost()
+						usage, _ := m.Usage()
+						fact, err := json.Marshal([]any{id, stamp, tokens, cost, known, usage})
+						if err != nil {
+							return nil, err
+						}
+						mu.Lock()
+						frozen = append(frozen, string(fact))
+						first := len(frozen) == 1
+						mu.Unlock()
+						if first {
+							time.Sleep(2500 * time.Millisecond)
+							return nil, errors.New("slow pending publication failure")
+						}
+					}
+					return next.Mutate(ctx, m)
+				})
+			})
+			body := f.run(t)
+			require.NotContains(t, body, "[DONE]", "semantic grace cannot bypass required accounting")
+			require.NotContains(t, body, `"type":"response.completed"`)
+			require.Contains(t, body, "event:error")
+			require.Contains(t, body, "accounting failed after upstream execution")
+			require.NotContains(t, body, `"execution":"not_executed"`)
+			bill := f.db.UsageLog.Query().OnlyX(f.ctx)
+			require.Equal(t, int64(5), bill.TotalTokens)
+			require.Nil(t, bill.TotalCost)
+			mu.Lock()
+			defer mu.Unlock()
+			require.GreaterOrEqual(t, len(frozen), 2)
+			for _, fact := range frozen[1:] {
+				require.Equal(t, frozen[0], fact)
+			}
+			t.Logf("provider=1 usage=1 final_tokens=5 pending=0 accounting_error=true publication_attempts=%d", len(frozen))
+		})
+	}
+}
+
+type observationAccountingCanceledStream struct {
+	ctx     context.Context
+	event   *httpclient.StreamEvent
+	emitted bool
+}
+
+func (s *observationAccountingCanceledStream) Next() bool {
+	if !s.emitted {
+		s.emitted = true
+		return true
+	}
+	<-s.ctx.Done()
+	return false
+}
+func (s *observationAccountingCanceledStream) Current() *httpclient.StreamEvent { return s.event }
+func (s *observationAccountingCanceledStream) Err() error                       { return context.Cause(s.ctx) }
+func (s *observationAccountingCanceledStream) Close() error                     { return nil }
+
+func TestObservationAccountingEOFAndCancellation(t *testing.T) {
+	for _, passThrough := range []bool{false, true} {
+		for _, canceled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("passthrough=%v/canceled=%v", passThrough, canceled), func(t *testing.T) {
+				partial := observationAccountingEvent(`{"id":"chat-short","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"},"finish_reason":null}]}`)
+				f := newObservationAccountingFixture(t, true, passThrough, []*httpclient.StreamEvent{partial})
+				if canceled {
+					f.executor.source = func(ctx context.Context) streams.Stream[*httpclient.StreamEvent] {
+						return &observationAccountingCanceledStream{ctx: ctx, event: partial}
+					}
+					ctx, cancel := context.WithTimeout(f.ctx, 30*time.Millisecond)
+					defer cancel()
+					f.ctx = ctx
+				}
+				start := time.Now()
+				body := f.run(t)
+				require.Less(t, time.Since(start), time.Second)
+				require.NotContains(t, body, "[DONE]")
+			})
+		}
+	}
+}
+
+func TestObservationAccountingGuardsTransformedMessagesTerminal(t *testing.T) {
+	for _, failPublication := range []bool{false, true} {
+		t.Run(fmt.Sprintf("publication_failure=%v", failPublication), func(t *testing.T) {
+			events := []*httpclient.StreamEvent{
+				observationAccountingEvent(`{"id":"chat-converted","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"}}]}`),
+				observationAccountingEvent(`{"id":"chat-converted","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`),
+				observationAccountingEvent(`{"id":"chat-converted","object":"chat.completion.chunk","model":"m","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`),
+				observationAccountingEvent(`[DONE]`),
+			}
+			f := newObservationAccountingFixture(t, true, false, events)
+			f.handler.ChatCompletionOrchestrator.Inbound = anthropic.NewInboundTransformer()
+			f.handler.sseHeartbeatFormat = sseHeartbeatAnthropic
+			var attempts atomic.Int32
+			f.db.PendingUsage.Use(func(next ent.Mutator) ent.Mutator {
+				return hook.PendingUsageFunc(func(ctx context.Context, m *ent.PendingUsageMutation) (ent.Value, error) {
+					if m.Op().Is(ent.OpCreate) && attempts.Add(1) == 1 && failPublication {
+						return nil, errors.New("converted stream pending publication failure")
+					}
+					return next.Mutate(ctx, m)
+				})
+			})
+			body := f.run(t)
+			if failPublication {
+				require.NotContains(t, body, "event:message_stop")
+				require.Contains(t, body, "accounting failed after upstream execution")
+			} else {
+				require.Contains(t, body, "event:message_stop")
+			}
+			require.Equal(t, int64(5), f.db.UsageLog.Query().OnlyX(f.ctx).TotalTokens)
 		})
 	}
 }

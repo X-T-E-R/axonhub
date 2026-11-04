@@ -402,8 +402,8 @@ func TestDataStorageService_GetDataStorageByID_WithRedis(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testDS.ID, ds.ID)
 
-		// Verify cache key exists in redis
-		cacheKey := fmt.Sprintf("datastorage:%d", testDS.ID)
+		// Verify the namespace/domain-scoped cache key exists in Redis.
+		cacheKey := fmt.Sprintf("axonhub:cache:data-storage:value:datastorage:%d", testDS.ID)
 		exists := mr.Exists(cacheKey)
 		require.True(t, exists)
 	})

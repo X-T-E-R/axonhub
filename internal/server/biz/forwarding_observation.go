@@ -9,12 +9,14 @@ import (
 
 	"entgo.io/ent/dialect"
 
+	"github.com/google/uuid"
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/pkg/chunkbuffer"
+	"github.com/looplj/axonhub/internal/server/cluster"
 )
 
 func NewRequestServiceWithObservationWriter(client *ent.Client, system *SystemService, usage *UsageLogService, storage *DataStorageService, live *LiveStreamRegistry, bodyWriter *ManagedRequestBodyWriter, writer *ForwardingObservationWriter) *RequestService {
@@ -24,6 +26,8 @@ func NewRequestServiceWithObservationWriter(client *ent.Client, system *SystemSe
 	writer.system = system
 	writer.payloadLane.system = system
 	writer.primary = observationPrimaryClient(client)
+	writer.node = usage.ChannelService.node
+	writer.usageService = usage
 	writer.payloadLane.primary = writer.primary
 	return s
 }
@@ -87,6 +91,8 @@ type ForwardingObservationWriter struct {
 	scopes         map[*observationScope]struct{}
 	payloadLane    *ForwardingObservationWriter
 	payloadOnly    bool
+	node           cluster.Config
+	usageService   *UsageLogService
 }
 
 type observationJob struct {
@@ -130,6 +136,8 @@ type observationScope struct {
 	executionChannels map[int]*Channel
 	reservedUsage     bool
 	usageSubmitted    bool
+	usageID           string
+	usageCaptureMu    sync.Mutex
 	retained          int
 	endRequested      bool
 	ended             bool
@@ -170,6 +178,11 @@ func (w *ForwardingObservationWriter) Start(ctx context.Context) error {
 			return err
 		}
 		w.policy.Store(policy)
+	}
+	if w.node.Enabled {
+		if err := w.recoverPendingUsage(authz.WithSystemBypass(ctx, "cluster-accounting-recovery")); err != nil {
+			return err
+		}
 	}
 	if w.payloadLane != nil {
 		if err := w.payloadLane.Start(context.Background()); err != nil {
@@ -344,7 +357,7 @@ func (w *ForwardingObservationWriter) WithScope(ctx context.Context) context.Con
 	if observationFromContext(ctx) != nil {
 		return ctx
 	}
-	scope := &observationScope{writer: w, ids: make(map[int]int), terminalCredits: make(map[int]bool)}
+	scope := &observationScope{writer: w, ids: make(map[int]int), terminalCredits: make(map[int]bool), usageID: uuid.NewString()}
 	w.mu.Lock()
 	reservationBytes := 2*4096 + observationUsageReservationBytes + 2*observationTerminalReservationBytes
 	if w.started && !w.stopping && w.items+5 <= w.config.MaxItems && w.bytes+reservationBytes <= int64(w.config.MaxBytesMiB)<<20 {

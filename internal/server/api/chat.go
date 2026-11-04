@@ -180,7 +180,7 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 
 			err := ownedStream.Close()
 			if err != nil {
-				logger.Error(ctx, "Error closing stream", log.Cause(err))
+				log.Error(ctx, "Error closing stream", log.Cause(err))
 			}
 		}()
 

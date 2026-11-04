@@ -37,7 +37,7 @@ type AntigravityHandlers struct {
 
 func NewAntigravityHandlers(params AntigravityHandlersParams) *AntigravityHandlers {
 	return &AntigravityHandlers{
-		stateCache: xcache.NewFromConfig[antigravityOAuthState](params.CacheConfig),
+		stateCache: xcache.NewFromConfigWithLegacyPrefixes[antigravityOAuthState](params.CacheConfig, "antigravity:oauth:"),
 		httpClient: params.HttpClient,
 	}
 }

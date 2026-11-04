@@ -115,7 +115,7 @@ func NewCopilotHandlers(params CopilotHandlersParams) *CopilotHandlers {
 		clock = realClock{}
 	}
 	return &CopilotHandlers{
-		deviceCodeCache: xcache.NewFromConfig[copilotDeviceFlowState](params.CacheConfig),
+		deviceCodeCache: xcache.NewFromConfigWithLegacyPrefixes[copilotDeviceFlowState](params.CacheConfig, "copilot:oauth:"),
 		httpClient:      params.HttpClient,
 		clock:           clock,
 	}

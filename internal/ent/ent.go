@@ -25,6 +25,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
@@ -113,6 +114,7 @@ func checkColumn(t, c string) error {
 			model.Table:                     model.ValidColumn,
 			oidcidentity.Table:              oidcidentity.ValidColumn,
 			observabilitypayload.Table:      observabilitypayload.ValidColumn,
+			pendingusage.Table:              pendingusage.ValidColumn,
 			project.Table:                   project.ValidColumn,
 			prompt.Table:                    prompt.ValidColumn,
 			promptprotectionrule.Table:      promptprotectionrule.ValidColumn,

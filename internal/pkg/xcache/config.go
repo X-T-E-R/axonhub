@@ -16,10 +16,24 @@ const (
 	ModeTwoLevel = "two-level"
 )
 
+// Config controls cache backends. Namespace scopes Redis keys shared by
+// independent AxonHub instances; an empty namespace uses DefaultNamespace.
+// Namespace changes intentionally select a new keyspace and do not fall back to
+// legacy unscoped keys.
 type Config struct {
-	Mode   string        `conf:"mode" yaml:"mode" json:"mode"`
-	Memory MemoryConfig  `conf:"memory" yaml:"memory" json:"memory"`
-	Redis  xredis.Config `conf:"redis" yaml:"redis" json:"redis"`
+	Mode      string        `conf:"mode" yaml:"mode" json:"mode"`
+	Namespace string        `conf:"namespace" yaml:"namespace" json:"namespace"`
+	Memory    MemoryConfig  `conf:"memory" yaml:"memory" json:"memory"`
+	Redis     xredis.Config `conf:"redis" yaml:"redis" json:"redis"`
+}
+
+// WatcherChannel scopes live cache notifications to the same application domain.
+func (c Config) WatcherChannel(name string) string {
+	namespace := c.Namespace
+	if namespace == "" {
+		namespace = "axonhub"
+	}
+	return namespace + ":cache:" + name
 }
 
 type MemoryConfig struct {

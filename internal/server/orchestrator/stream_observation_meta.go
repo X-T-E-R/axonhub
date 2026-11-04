@@ -8,16 +8,24 @@ import (
 
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/transformer/anthropic"
+	"github.com/looplj/axonhub/llm/transformer/openai"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
 
-// These two protocols can queue usage after a finish response. Preserve their
+// Providers can queue usage after a finish response. Preserve their
 // small billing fields when raw input is consumed, even if a caller closes
 // before the normalized usage response is dequeued. Reuse the provider's
 // aggregator for platform-specific merging; no content/tool deltas are kept.
 type streamObservationMeta struct {
-	start *httpclient.StreamEvent
-	final *httpclient.StreamEvent
+	start     *httpclient.StreamEvent
+	final     *httpclient.StreamEvent
+	chatUsage *openai.Usage
+}
+
+type chatObservationMeta struct {
+	Type  string        `json:"type,omitempty"`
+	ID    string        `json:"id"`
+	Usage *openai.Usage `json:"usage"`
 }
 
 type anthropicObservationMeta struct {
@@ -52,7 +60,11 @@ func (m *streamObservationMeta) observe(event *httpclient.StreamEvent) {
 		projected := &anthropicObservationMeta{}
 		value, decodedType = projected, &projected.Type
 	default:
-		return
+		if kind != "" || !gjson.GetBytes(event.Data, "usage").IsObject() {
+			return
+		}
+		projected := &chatObservationMeta{}
+		value, decodedType = projected, &projected.Type
 	}
 	// Reject ambiguous projections (including duplicate type keys) rather than
 	// validating one type and sending another type to the consumer. Raw events
@@ -64,6 +76,9 @@ func (m *streamObservationMeta) observe(event *httpclient.StreamEvent) {
 		// The business decoder ignores absent start messages. Do not feed an
 		// invalid start into the optional aggregator, which requires Message.
 		return
+	}
+	if chat, ok := value.(*chatObservationMeta); ok {
+		m.chatUsage = chat.Usage
 	}
 	data, err := json.Marshal(value)
 	if err != nil {

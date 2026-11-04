@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/request"
@@ -126,23 +125,15 @@ func (s *VideoService) loadTask(ctx context.Context, requestID int) (*ent.Reques
 		return nil, nil, nil, err
 	}
 
-	if strings.TrimSpace(task.ExternalID) == "" {
-		return nil, nil, nil, fmt.Errorf("%w: missing external_id for task", ErrInternal)
+	if err := s.authorizeTask(ctx, task); err != nil {
+		return nil, nil, nil, err
 	}
-
-	if task.ChannelID == 0 {
-		return nil, nil, nil, fmt.Errorf("%w: missing channel_id for task", ErrInternal)
+	if !s.ChannelService.OwnsChannel(task.ChannelID) {
+		return nil, nil, nil, s.ChannelService.ChannelOwnerError(task.ChannelID)
 	}
-
 	ch, err := s.ChannelService.GetChannel(ctx, task.ChannelID)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-
-	if key, ok := contexts.GetAPIKey(ctx); ok && key.PortalManaged {
-		if task.APIKeyID != key.ID || task.ProjectID != key.ProjectID || !KeyAllowsModel(key, task.ModelID) || !KeyAllowsChannel(key, ch.ID, ch.Tags) {
-			return nil, nil, nil, fmt.Errorf("%w: task unavailable", ErrInvalidAPIKey)
-		}
 	}
 
 	var outbound transformer.VideoTaskOutbound

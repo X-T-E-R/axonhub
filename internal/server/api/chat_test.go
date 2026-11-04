@@ -560,6 +560,22 @@ func TestWriteSSEStream_SemanticSuccessInterruptsBlockedTailOnce(t *testing.T) {
 	require.Equal(t, sseCloseSemanticCompletion, session.ledger.reason())
 }
 
+func TestSSELivenessSession_ConfirmationWaitsForRequiredCompletion(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	session := newSSELivenessSession(ctx, cancel, SSEKeepAliveConfig{}, sseHeartbeatOpenAI, true)
+	var calls int
+	ready := false
+	session.OnUpstreamResponseHeaders(orchestrator.StreamLivenessAttempt{
+		ConfirmSemanticCompletion: func() bool { calls++; return ready },
+	})
+	require.False(t, session.confirmSemanticSuccess())
+	ready = true
+	require.True(t, session.confirmSemanticSuccess())
+	require.True(t, session.confirmSemanticSuccess())
+	require.Equal(t, 2, calls, "cache success, not a pending confirmation")
+}
+
 func TestWriteSSEStream_ExplicitSuccessConfirmsBeforeInterruptingBlockedTail(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

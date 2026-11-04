@@ -423,6 +423,30 @@ func (f ObservabilityPayloadMutationRuleFunc) EvalMutation(ctx context.Context, 
 	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.ObservabilityPayloadMutation", m)
 }
 
+// The PendingUsageQueryRuleFunc type is an adapter to allow the use of ordinary
+// functions as a query rule.
+type PendingUsageQueryRuleFunc func(context.Context, *ent.PendingUsageQuery) error
+
+// EvalQuery return f(ctx, q).
+func (f PendingUsageQueryRuleFunc) EvalQuery(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.PendingUsageQuery); ok {
+		return f(ctx, q)
+	}
+	return Denyf("ent/privacy: unexpected query type %T, expect *ent.PendingUsageQuery", q)
+}
+
+// The PendingUsageMutationRuleFunc type is an adapter to allow the use of ordinary
+// functions as a mutation rule.
+type PendingUsageMutationRuleFunc func(context.Context, *ent.PendingUsageMutation) error
+
+// EvalMutation calls f(ctx, m).
+func (f PendingUsageMutationRuleFunc) EvalMutation(ctx context.Context, m ent.Mutation) error {
+	if m, ok := m.(*ent.PendingUsageMutation); ok {
+		return f(ctx, m)
+	}
+	return Denyf("ent/privacy: unexpected mutation type %T, expect *ent.PendingUsageMutation", m)
+}
+
 // The ProjectQueryRuleFunc type is an adapter to allow the use of ordinary
 // functions as a query rule.
 type ProjectQueryRuleFunc func(context.Context, *ent.ProjectQuery) error
@@ -844,6 +868,8 @@ func queryFilter(q ent.Query) (Filter, error) {
 		return q.Filter(), nil
 	case *ent.ObservabilityPayloadQuery:
 		return q.Filter(), nil
+	case *ent.PendingUsageQuery:
+		return q.Filter(), nil
 	case *ent.ProjectQuery:
 		return q.Filter(), nil
 	case *ent.PromptQuery:
@@ -906,6 +932,8 @@ func mutationFilter(m ent.Mutation) (Filter, error) {
 	case *ent.OIDCIdentityMutation:
 		return m.Filter(), nil
 	case *ent.ObservabilityPayloadMutation:
+		return m.Filter(), nil
+	case *ent.PendingUsageMutation:
 		return m.Filter(), nil
 	case *ent.ProjectMutation:
 		return m.Filter(), nil

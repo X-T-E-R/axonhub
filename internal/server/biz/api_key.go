@@ -81,7 +81,7 @@ func NewAPIKeyService(params APIKeyServiceParams) *APIKeyService {
 		Mode:  watcherMode,
 		Redis: params.CacheConfig.Redis,
 	}, watcher.WatcherFromConfigOptions{
-		RedisChannel: "axonhub:cache:api_keys",
+		RedisChannel: params.CacheConfig.WatcherChannel("api_keys"),
 		Buffer:       32,
 	})
 	if err != nil {

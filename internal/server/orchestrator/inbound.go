@@ -34,6 +34,7 @@ type InboundPersistentStream struct {
 	responseChunks  []*httpclient.StreamEvent
 	observation     *biz.ObservationStreamBuffer
 	streamMeta      llm.ResponseMeta
+	currentEvent    *httpclient.StreamEvent
 	closed          bool
 	state           *PersistenceState
 	streamCompleted bool
@@ -70,11 +71,29 @@ func NewInboundPersistentStream(
 }
 
 func (ts *InboundPersistentStream) Next() bool {
-	return ts.stream.Next()
+	if !ts.stream.Next() {
+		return false
+	}
+	ts.currentEvent = ts.stream.Current()
+	if biz.ForwardingAccountingEnabled(ts.ctx) && !ts.state.accountingReady.Load() {
+		format := ts.state.LlmRequest.APIFormat
+		if providerStreamTerminal(format, ts.currentEvent) && terminalStreamStatusForFormat(ts.currentEvent, format) == streamTerminalCompleted {
+			// A transformer can synthesize a downstream terminal before consuming
+			// the provider's final usage. The same reader owns that remaining tail;
+			// settle it before exposing success, without waiting for optional Close I/O.
+			for ts.stream.Next() {
+				_ = ts.stream.Current()
+			}
+			if ts.stream.Err() != nil {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (ts *InboundPersistentStream) Current() *httpclient.StreamEvent {
-	event := ts.stream.Current()
+	event := ts.currentEvent
 	if event != nil {
 		// For raw binary audio chunks (TTS stream_format=audio), persist only a size
 		// summary to avoid buffering the full audio payload in memory.

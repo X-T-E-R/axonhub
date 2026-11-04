@@ -21,6 +21,7 @@ import (
 	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/internal/server"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/db"
 	"github.com/looplj/axonhub/internal/server/gc"
 )
@@ -28,6 +29,7 @@ import (
 type Config struct {
 	fx.Out `yaml:"-" json:"-"`
 
+	Cluster                  cluster.Config                     `conf:"cluster" yaml:"cluster" json:"cluster"`
 	DB                       db.Config                          `conf:"db" yaml:"db" json:"db"`
 	Log                      log.Config                         `conf:"log" yaml:"log" json:"log"`
 	APIServer                server.Config                      `conf:"server" yaml:"server" json:"server"`
@@ -158,6 +160,17 @@ func unmarshal(v *viper.Viper) (Config, error) {
 		return Config{}, errors.New("server.sse_keep_alive.interval must be greater than zero")
 	}
 
+	if err := config.Cluster.Validate(); err != nil {
+		return Config{}, err
+	}
+	if config.Cluster.Enabled {
+		if config.DB.Dialect != "postgres" || config.DB.ReadReplica.DSN != "" || config.Cache.Mode != xcache.ModeRedis || config.AllowNoAuth {
+			return Config{}, errors.New("cluster requires authoritative postgres, no read replica, redis cache and authenticated API")
+		}
+		if !config.Cluster.IsControl() && !config.DB.DisableAutoMigration {
+			return Config{}, errors.New("cluster data node requires db.disable_auto_migration=true")
+		}
+	}
 	return config, nil
 }
 
@@ -216,6 +229,12 @@ func customizedDecodeHook(srcType reflect.Type, dstType reflect.Type, data any) 
 
 // setDefaults sets default configuration values.
 func setDefaults(v *viper.Viper) {
+	v.SetDefault("cluster.enabled", false)
+	v.SetDefault("cluster.node_id", "")
+	v.SetDefault("cluster.control_node", "")
+	v.SetDefault("cluster.nodes", map[string]string{})
+	v.SetDefault("cluster.channels", map[int]cluster.ChannelBinding{})
+	v.SetDefault("cache.namespace", "axonhub")
 	// Server defaults
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8090)

@@ -236,7 +236,6 @@ type sseLivenessSession struct {
 	abandoned       chan struct{}
 	abandonOnce     sync.Once
 	semanticOnce    sync.Once
-	confirmOnce     sync.Once
 
 	mu                            sync.Mutex
 	effective                     SSEKeepAliveConfig
@@ -498,16 +497,13 @@ func (s *sseLivenessSession) semanticCompletionResponse() *llm.Response {
 }
 
 func (s *sseLivenessSession) confirmSemanticSuccess() bool {
-	s.confirmOnce.Do(func() {
-		s.mu.Lock()
-		confirm := s.confirmSemanticCompletion
-		s.mu.Unlock()
-		if confirm == nil {
-			s.confirmAccepted = true
-		} else {
-			s.confirmAccepted = confirm()
-		}
-	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// A rejected grace-time confirmation can become ready at the real terminal.
+	// Only successful confirmation is permanent.
+	if !s.confirmAccepted {
+		s.confirmAccepted = s.confirmSemanticCompletion == nil || s.confirmSemanticCompletion()
+	}
 	return s.confirmAccepted
 }
 

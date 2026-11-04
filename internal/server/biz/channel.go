@@ -25,6 +25,7 @@ import (
 	"github.com/looplj/axonhub/internal/pkg/xcache/live"
 	"github.com/looplj/axonhub/internal/pkg/xerrors"
 	"github.com/looplj/axonhub/internal/scopes"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/scheduler"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/transformer"
@@ -44,6 +45,8 @@ type ChannelModelEntry struct {
 
 type Channel struct {
 	*ent.Channel
+	// RemoteOwner is set only by server configuration, never request headers.
+	RemoteOwner string
 
 	// Outbound is the primary outbound transformer for the channel.
 	// The primary outbound corresponds to the channel's primary default endpoint.
@@ -92,6 +95,7 @@ type Channel struct {
 type ChannelServiceParams struct {
 	fx.In
 
+	Node            cluster.Config `optional:"true"`
 	CacheConfig     xcache.Config
 	Ent             *ent.Client
 	SystemService   *SystemService
@@ -104,6 +108,7 @@ func NewChannelService(params ChannelServiceParams) *ChannelService {
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
+		node:               params.Node,
 		SystemService:      params.SystemService,
 		WebhookNotifier:    params.WebhookNotifier,
 		httpClient:         params.HttpClient,
@@ -125,7 +130,7 @@ func NewChannelService(params ChannelServiceParams) *ChannelService {
 		Mode:  watcherMode,
 		Redis: params.CacheConfig.Redis,
 	}, watcher.WatcherFromConfigOptions{
-		RedisChannel: "axonhub:cache:channels",
+		RedisChannel: params.CacheConfig.WatcherChannel("channels"),
 		Buffer:       32,
 	})
 	if err != nil {
@@ -156,6 +161,7 @@ func (svc *ChannelService) Stop() {
 
 type ChannelService struct {
 	*AbstractService
+	node cluster.Config
 
 	SystemService   *SystemService
 	WebhookNotifier *WebhookNotifier
@@ -225,6 +231,9 @@ func (svc *ChannelService) RegisterScheduledTasks(ctx context.Context, s *schedu
 }
 
 func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []*Channel, lastUpdate time.Time) ([]*Channel, time.Time, bool, error) {
+	if err := svc.validateExecutionIdentities(ctx); err != nil {
+		return current, lastUpdate, false, err
+	}
 	// Query latest updated channel including soft-deleted ones to detect deletions
 	latestUpdatedChannel, err := svc.entFromContext(ctx).Channel.Query().
 		Order(ent.Desc(channel.FieldUpdatedAt)).
