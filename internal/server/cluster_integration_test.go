@@ -163,6 +163,10 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	nodes := map[string]string{"a": "http://" + la.Addr().String(), "b": "http://" + lb.Addr().String()}
 	bindings := map[int]cluster.ChannelBinding{ca.ID: {Owner: "a", Identity: "account-a"}, cb.ID: {Owner: "b", Identity: "account-b"}, videoChannel.ID: {Owner: "b", Identity: "video-b"}, doubaoChannel.ID: {Owner: "b", Identity: "doubao-b"}, lagVideoChannel.ID: {Owner: "a", Identity: "video-a"}}
 	cache := xcache.Config{Mode: xcache.ModeRedis, Namespace: schema, Redis: xredis.Config{URL: redisURL}}
+	bootstrap := biz.NewSystemService(biz.SystemServiceParams{Ent: a, CacheConfig: cache})
+	require.NoError(t, bootstrap.SetSecretKey(ctx, "synthetic-cluster-jwt-key"))
+	cleanup := []biz.CleanupOption{{ResourceType: "requests", Enabled: false, CleanupDays: 7}}
+	require.NoError(t, bootstrap.SetStoragePolicy(ctx, &biz.StoragePolicy{StoreRequestBody: true, StoreExecutionRequestBody: new(true), StoreResponseBody: true, StoreChunks: true, LivePreview: true, CleanupOptions: cleanup}))
 	type instance struct {
 		server   *httptest.Server
 		channels *biz.ChannelService
@@ -175,8 +179,6 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	build := func(client *ent.Client, id string, listener net.Listener) *instance {
 		node := cluster.Config{Enabled: true, NodeID: id, ControlNode: "a", Nodes: nodes, Channels: bindings}
 		system := biz.NewSystemService(biz.SystemServiceParams{Ent: client, CacheConfig: cache})
-		require.NoError(t, system.SetSecretKey(ctx, "synthetic-cluster-jwt-key"))
-		require.NoError(t, system.SetStoragePolicy(ctx, &biz.StoragePolicy{StoreExecutionRequestBody: new(false)}))
 		projects := biz.NewProjectService(biz.ProjectServiceParams{Ent: client, CacheConfig: cache})
 		users := biz.NewUserService(biz.UserServiceParams{Ent: client, CacheConfig: cache})
 		keys := biz.NewAPIKeyService(biz.APIKeyServiceParams{Ent: client, CacheConfig: cache, ProjectService: projects, KeyPrefix: "ah"})
@@ -227,12 +229,7 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 		t.Cleanup(server.Close)
 		return &instance{server, channels, requests, system, auth, writer, executor.scan}
 	}
-	ia, ib := build(a, "a", la), build(b, "b", lb)
-	require.NotSame(t, ia.channels, ib.channels)
-	require.Len(t, ia.channels.GetEnabledChannels(), 5)
-	require.Len(t, ib.channels.GetEnabledChannels(), 5)
-	require.Nil(t, ia.channels.GetEnabledChannel(cb.ID).Outbound)
-	require.NotNil(t, ib.channels.GetEnabledChannel(cb.ID).Outbound)
+	ia := build(a, "a", la)
 	requestHTTP := func(origin, method, path, credential, body string) (int, []byte) {
 		r, err := http.NewRequest(method, origin+path, strings.NewReader(body))
 		require.NoError(t, err)
@@ -246,7 +243,35 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 		require.NoError(t, err)
 		return res.StatusCode, raw
 	}
-	code, raw := requestHTTP(nodes["a"], "GET", "/v1/axon/route?model=alias", key.Key, "")
+	// The real control-plane mutation updates one shared policy, not a node-local
+	// setting. Start B after the settings window so both writers admit with it.
+	token, err := ia.auth.GenerateJWTToken(ctx, owner)
+	require.NoError(t, err)
+	code, raw := requestHTTP(nodes["a"], "POST", "/admin/graphql", token, `{"query":"mutation { updateStoragePolicy(input:{storeRequestBody:false,storeExecutionRequestBody:false,storeResponseBody:false,storeChunks:false,livePreview:false}) }"}`)
+	require.Equal(t, 200, code, string(raw))
+	require.Contains(t, string(raw), `"updateStoragePolicy":true`)
+	require.NotContains(t, string(raw), `"errors"`)
+	ib := build(b, "b", lb)
+	for _, instance := range []*instance{ia, ib} {
+		policy, err := instance.system.StoragePolicyFresh(ctx)
+		require.NoError(t, err)
+		require.False(t, policy.StoreRequestBody)
+		require.NotNil(t, policy.StoreExecutionRequestBody)
+		require.False(t, *policy.StoreExecutionRequestBody)
+		require.False(t, policy.StoreResponseBody)
+		require.False(t, policy.StoreChunks)
+		require.False(t, policy.LivePreview)
+		require.Equal(t, cleanup, policy.CleanupOptions, "the five-field patch preserves existing cleanup settings")
+	}
+	require.NotSame(t, ia.channels, ib.channels)
+	require.Len(t, ia.channels.GetEnabledChannels(), 5)
+	require.Len(t, ib.channels.GetEnabledChannels(), 5)
+	require.Nil(t, ia.channels.GetEnabledChannel(cb.ID).Outbound)
+	require.NotNil(t, ib.channels.GetEnabledChannel(cb.ID).Outbound)
+	code, raw = requestHTTP(nodes["a"], "POST", "/admin/graphql", token, `{"query":"query { storagePolicy { storeRequestBody storeExecutionRequestBody storeResponseBody storeChunks livePreview } }"}`)
+	require.Equal(t, 200, code, string(raw))
+	require.JSONEq(t, `{"data":{"storagePolicy":{"storeRequestBody":false,"storeExecutionRequestBody":false,"storeResponseBody":false,"storeChunks":false,"livePreview":false}}}`, string(raw))
+	code, raw = requestHTTP(nodes["a"], "GET", "/v1/axon/route?model=alias", key.Key, "")
 	require.Equal(t, 200, code, string(raw))
 	require.Contains(t, string(raw), `"owner":"b"`)
 	code, raw = requestHTTP(nodes["a"], "POST", "/v1/responses", key.Key, `{"model":"alias","input":"hello"}`)
@@ -255,8 +280,6 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	code, raw = requestHTTP(nodes["b"], "POST", "/v1/responses", key.Key, `{"model":"alias","input":"hello"}`)
 	require.Equal(t, 200, code, string(raw))
 	require.Equal(t, int32(1), calls.Load())
-	token, err := ia.auth.GenerateJWTToken(ctx, owner)
-	require.NoError(t, err)
 	code, raw = requestHTTP(nodes["a"], "GET", "/admin/cluster/manifest", token, "")
 	require.Equal(t, 200, code, string(raw))
 	require.Contains(t, string(raw), `"model":"alias"`)

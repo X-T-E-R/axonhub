@@ -30,6 +30,8 @@ cache:
 
 通过现有秘密配置机制提供 `AXONHUB_DB_DSN`、`AXONHUB_CACHE_REDIS_URL`，不把凭据放进提交。`AXONHUB_CLUSTER_NODES`、`AXONHUB_CLUSTER_CHANNELS` 接受 JSON map，配置测试已覆盖。
 
+部署连接复用 Task48 已验收的 `wg-task48`：lag `10.77.48.1/32` ↔ GCP `10.77.48.2/32`，默认路由和出口保持原状。父窗口需为真实 Axon PG/专属 Redis 配置仅限该链路的监听与访问权限，再验证实际服务连接；已有双向内网 SSH 证据不代替 PG/Redis 连通性。接口来源是主树 `outputs/gcp-vpn-subscription-20261104/{nodes.json,README.md,network-verification.json}`。保留 GCP e2-small/20GiB 和 Xray 192MiB 限额，Sub2 的 PG/Redis 仍独立。
+
 - 所有 enabled channel 必须有 owner；同一 upstream account 的渠道使用同一稳定 `identity`，包括 OAuth token 轮换后的渠道。配置拒绝一个 identity 或当前相同凭据分属不同 owner。
 - 一个 `node_id` 同时只运行一个进程。变更 placement 时先停 admission、drain 并停止旧 owner，再启动新 owner；没有超时抢占或凭据双活。
 - cluster 要求 PostgreSQL、无 read replica、纯 Redis、API 认证；数据节点必须关闭自动迁移。迁移在维护窗口只由控制节点执行一次，之后控制节点也可关闭自动迁移。
@@ -68,7 +70,11 @@ DELETE 已发送而结果未知时不换节点重发。已有完成状态在删�
 
 ## 不把正文经共享 PG 回传 lag
 
-使用现有共享 StoragePolicy，关闭五项，不新增对象存储：
+采用两节点共享捕获全关，lag 和 GCP 都不再捕获新 request/execution body、response、chunks 或 live preview；usage、共享 pending、账号、Key、组与渠道配置继续保留，不新增对象存储。
+
+`StoragePolicy` 存在共享 PG 的 `systems` 表唯一 `key="storage_policy"` 行，没有 node/project 维度；两节点查询同一行。渠道 `settings` 的三项 execution 覆盖也存在同一共享 channel 行，按 channel 而非节点生效，不能单独控制父 request body/chunks 或 live preview。现有 `conf`/环境变量没有 node-local 捕获开关，因此不能靠 GCP 的单独 YAML 或 channel 覆盖实现“仅 GCP 全关、lag 仍捕获”。
+
+在 control 的 `POST /admin/graphql` 使用原管理员 JWT 与 settings 写权限（owner 可写），执行现有 patch mutation；未提供的 cleanup/capacity 字段保留原值：
 
 ```graphql
 mutation {
@@ -93,11 +99,11 @@ query {
 }
 ```
 
-对应持久 JSON 字段是 `store_request_body`、`store_execution_request_body`、`store_response_body`、`store_chunks`、`live_preview`。所有渠道 settings 的 `storeExecutionRequestBody`、`storeExecutionResponseBody`、`storeExecutionStreamChunks` 必须为 null 或 false；覆盖值 true 会重新开启 execution 捕获。保留其余渠道字段、账号、Key、组配置及 usage/pending。
+对应持久 JSON 字段是 `store_request_body`、`store_execution_request_body`、`store_response_body`、`store_chunks`、`live_preview`。所有渠道 settings 的 `storeExecutionRequestBody`、`storeExecutionResponseBody`、`storeExecutionStreamChunks` 必须为 null 或 false；覆盖值 true 会重新开启 execution 捕获。渠道入口是同一 control GraphQL 的 `updateChannel(id:, input:{settings:...})`，沿原 `write_channels` 权限。先读并保留完整现有 settings，仅将三项置 false，再提交完整 settings；该对象并非通用三字段 patch，直接只传三项可能清掉其它配置。不要改 credentials 或其它渠道字段。
 
-设置窗口先停 admission 并 drain 旧 writer，再更新设置、清理这些渠道覆盖并重载两节点渠道缓存。writer 每个持久任务都从 primary 读取 `StoragePolicyFresh`；读回五项和各渠道覆盖后才恢复新 admission。已经存下的历史不会因关闭捕获自动删除；用户允许历史可丢不等于本实现自动删除账号或配置。
+设置窗口先停两节点 admission 并 drain 旧 writer，再在 control 更新五项、清理渠道覆盖并重载渠道缓存。mutation 更新 control 的 writer policy；GCP 在设置完成后启动，启动时从 primary 读取 `StoragePolicyFresh`。若数据节点已运行，须在停 admission、drain 并停止旧进程后以新进程启动，不能把 control 的本地 atomic policy 更新当成跨节点即时通知。writer 后续每个持久任务也读取 fresh policy。读回五项和渠道覆盖后才恢复 admission，保证新流量从开始就不捕获 live preview。关闭捕获不自动删除既有历史；本实现不删除账号、Key、组配置或 usage/pending。
 
-真实两服务 fixture 已完成 HTTP 和 SSE：两 PG 池读到 request/execution 的 request body、headers 仅空或 `{}`，response body/chunks 为空、payload reference 为 nil、`observability_payloads` 为 0；usage_logs 保留实际 token、pending 已交接。完整 body 开启时会写同一 PG 的 `observability_payloads.data` 或 response/chunks 列，因此仅换 database storage 名称不能避免回流。见 `request.go` 的捕获 gates、`managed_storage_policy_fresh.go` 和 `cluster_integration_test.go`。
+真实两服务 fixture 从五项开启开始，只向 control 发送一次原 admin GraphQL `updateStoragePolicy`，随后启动数据节点；两独立 PG 池均读回五项 false，原 cleanup 设置保留，control HTTP query 也返回 false。此后原 HTTP、SSE、WS、管理和视频闭环继续通过：request/execution body、headers 仅空或 `{}`，response body/chunks 为空、payload reference 为 nil、`observability_payloads` 为 0，usage_logs 保留实际 token、pending 已交接。源码依据：`system.go:1035–1187`、`request.go:85–137`、`managed_storage_policy_fresh.go` 与 `cluster_integration_test.go`。完整 body 开启时会写同一 PG 的 `observability_payloads.data` 或 response/chunks 列，仅换 database storage 名称不能避免回流。
 
 ## 计量迁移与恢复
 
@@ -113,6 +119,7 @@ query {
 
 - `go test ./internal/server ./internal/server/biz -run '^TestCluster' -count=1 -v`：双实例 HTTP/WS fresh Auth、组/标签撤权、legacy Key、scope、alias/Key 消歧与 409、owner RPC/playground、两协议视频、后台 owner、无正文、PG snapshot/handoff/recovery、additive migration/drained rollback，全部通过（`bash-6seiac9w`）。
 - `go test ./internal/server -run '^TestCluster' -count=1 -v`：加入管理 model fetch/sync 后复检同一双服务闭环，证明 provider 调用只在 owner；上游接收 DELETE 后断开连接，断言只发送一次，通过（`bash-zx5et1zv`）。
+- `go test ./internal/server -run '^TestClusterTwoHTTPServicesAuthorizationAndOwnership$' -count=1 -v`：本次增量以单次真实 admin GraphQL 更新取代各实例重复设置，证明共享五 false、保留 cleanup、原 query 读回及后续无正文/实际 usage 闭环，通过（`bash-9wlpxl07`，3.91s）。
 - `go test ./conf ./internal/pkg/xcache ./internal/server/api ./internal/server/biz ./internal/server/orchestrator ./internal/server/scheduler ./internal/server/video_storage -run 'TestCluster|TestForwardingObservation|TestPortalMappedCatalog|TestOIDCService_PKCE_Flow|TestDataStorageService_GetDataStorageByID_WithRedis|TestGroupAccess|TestQuota' -count=1`：相关旧合同与真实 Redis 两 client 的域隔离/定向 Clear/Invalidate，通过（`bash-0ezm3u3o`）。API 在此 regex 下只有编译，video_storage 的真实回调由双服务测试覆盖。
 - Redis store 定向单测覆盖 namespace/domain、同标签跨域、安全状态 legacy raw key 兼容、300 keys 的 SCAN 清理；不再调用 FLUSHALL。OIDC、OAuth state/device 与 CyberSessionBlock 显式保留原安全状态 key，不从通用 cache 域隐式双读。
 
