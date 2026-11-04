@@ -165,6 +165,18 @@ func (f ObservabilityPayloadFunc) Mutate(ctx context.Context, m ent.Mutation) (e
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ObservabilityPayloadMutation", m)
 }
 
+// The PendingUsageFunc type is an adapter to allow the use of ordinary
+// function as PendingUsage mutator.
+type PendingUsageFunc func(context.Context, *ent.PendingUsageMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f PendingUsageFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.PendingUsageMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PendingUsageMutation", m)
+}
+
 // The ProjectFunc type is an adapter to allow the use of ordinary
 // function as Project mutator.
 type ProjectFunc func(context.Context, *ent.ProjectMutation) (ent.Value, error)

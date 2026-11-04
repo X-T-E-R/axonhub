@@ -9,12 +9,14 @@ import (
 	"github.com/zhenzou/executors"
 
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/server/cluster"
 )
 
 type Scheduler struct {
 	executor executors.ScheduledExecutor
 	tasks    map[string]*task
 	mu       sync.RWMutex
+	node     cluster.Config
 }
 
 func New(exec executors.ScheduledExecutor) *Scheduler {
@@ -144,6 +146,9 @@ func (s *Scheduler) Shutdown(_ context.Context) {
 }
 
 func (s *Scheduler) schedule(ctx context.Context, t *task) error {
+	if !s.node.IsControl() && cluster.GlobalTask(t.spec.Name) {
+		return nil
+	}
 	wrapped := func(ctx context.Context) {
 		t.mu.Lock()
 		t.lastRunAt = time.Now()

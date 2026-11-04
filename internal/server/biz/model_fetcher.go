@@ -235,6 +235,9 @@ func fetchModelsInputMatchesChannel(input FetchModelsInput, ch *ent.Channel) boo
 }
 
 func (f *ModelFetcher) FetchModels(ctx context.Context, input FetchModelsInput) (*FetchModelsResult, error) {
+	if input.ChannelID != nil && !f.channelService.OwnsChannel(*input.ChannelID) {
+		return f.channelService.dispatchModelFetch(ctx, input)
+	}
 	if input.ChannelType == channel.TypeVolcengine.String() {
 		return &FetchModelsResult{
 			Models: []ModelIdentify{},

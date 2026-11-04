@@ -28,6 +28,9 @@ type (
 // before INSERT. Reading that ID after the aggregate and checking visibility in
 // the same snapshot prevents both a commit/removal gap and double counting.
 func (s *QuotaService) accountedUsage(ctx context.Context, apiKeyID int, window QuotaWindow) (QuotaUsage, error) {
+	if s.observation != nil && s.observation.node.Enabled {
+		return s.durableAccountedUsage(ctx, apiKeyID, window)
+	}
 	var pending []*observationPendingUsage
 	if s.observation != nil {
 		s.observation.mu.Lock()

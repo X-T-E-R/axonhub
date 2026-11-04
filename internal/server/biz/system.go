@@ -767,8 +767,8 @@ func NewSystemService(params SystemServiceParams) *SystemService {
 			db: params.Ent,
 		},
 		CacheConfig:            params.CacheConfig,
-		Cache:                  xcache.NewFromConfig[ent.System](params.CacheConfig),
-		CyberSessionBlockCache: xcache.NewFromConfig[CyberSessionBlockEntry](params.CacheConfig),
+		Cache:                  xcache.NewFromConfigWithDomain[ent.System](params.CacheConfig, "system"),
+		CyberSessionBlockCache: xcache.NewFromConfigWithLegacyPrefixes[CyberSessionBlockEntry](params.CacheConfig, "cyber-session-block:"),
 	}
 }
 

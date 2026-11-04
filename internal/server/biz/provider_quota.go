@@ -17,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/biz/provider_quota"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/scheduler"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
@@ -302,6 +303,7 @@ func quotaStatusRank(s providerquotastatus.Status) int {
 
 type ProviderQuotaServiceParams struct {
 	fx.In
+	Node cluster.Config `optional:"true"`
 
 	Ent                       *ent.Client
 	SystemService             *SystemService
@@ -312,6 +314,7 @@ type ProviderQuotaServiceParams struct {
 
 type ProviderQuotaService struct {
 	*AbstractService
+	node cluster.Config
 
 	SystemService             *SystemService
 	checkInterval             time.Duration
@@ -328,6 +331,7 @@ type ProviderQuotaService struct {
 func NewProviderQuotaService(params ProviderQuotaServiceParams) *ProviderQuotaService {
 	svc := &ProviderQuotaService{
 		AbstractService:           &AbstractService{db: params.Ent},
+		node:                      params.Node,
 		SystemService:             params.SystemService,
 		checkers:                  make(map[string]provider_quota.QuotaChecker),
 		checkInterval:             params.CheckInterval,
@@ -618,6 +622,9 @@ func (svc *ProviderQuotaService) runQuotaCheck(ctx context.Context, force bool) 
 }
 
 func (svc *ProviderQuotaService) checkChannelQuota(ctx context.Context, ch *ent.Channel, now time.Time) {
+	if !svc.node.Owns(ch.ID) {
+		return
+	}
 	providerType := svc.getProviderType(ch)
 	if providerType == "" {
 		return

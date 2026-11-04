@@ -35,7 +35,7 @@ type ClaudeCodeHandlers struct {
 
 func NewClaudeCodeHandlers(params ClaudeCodeHandlersParams) *ClaudeCodeHandlers {
 	return &ClaudeCodeHandlers{
-		stateCache: xcache.NewFromConfig[claudeCodeOAuthState](params.CacheConfig),
+		stateCache: xcache.NewFromConfigWithLegacyPrefixes[claudeCodeOAuthState](params.CacheConfig, "claudecode:oauth:"),
 		httpClient: params.HttpClient,
 	}
 }

@@ -122,7 +122,7 @@ func NewDataStorageService(params DataStorageServiceParams) *DataStorageService 
 			db: params.Client,
 		},
 		SystemService:    params.SystemService,
-		Cache:            xcache.NewFromConfig[ent.DataStorage](params.CacheConfig),
+		Cache:            xcache.NewFromConfigWithDomain[ent.DataStorage](params.CacheConfig, "data-storage"),
 		fsCache:          make(map[int]afero.Fs),
 		objectStoreCache: make(map[int]ObjectStore),
 	}

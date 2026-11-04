@@ -264,6 +264,16 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		return nil, nil
 	}
 	if scope := observationFromContext(ctx); scope != nil {
+		// Serialize duplicate usage submissions before durable publication; the
+		// existing per-generation submission marker remains the source of truth.
+		scope.usageCaptureMu.Lock()
+		defer scope.usageCaptureMu.Unlock()
+		scope.writer.mu.Lock()
+		alreadySubmitted := scope.usageSubmitted
+		scope.writer.mu.Unlock()
+		if alreadySubmitted {
+			return nil, nil
+		}
 		if requestExec == nil {
 			return nil, errors.New("usage observation requires an execution")
 		}
@@ -289,8 +299,16 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		if err != nil {
 			return nil, err
 		}
+		if scope.writer.node.Enabled {
+			if err := scope.writer.publishPendingUsage(ctx, scope.usageID, request, requestExec, usageCopy, capturedAt, cost); err != nil {
+				return nil, fmt.Errorf("publish captured usage (upstream may have executed): %w", err)
+			}
+		}
 		err = scope.submitUsage(ctx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
 			actualID, err := scope.resolve(requestCopy.ID)
+			if scope.writer.node.Enabled {
+				return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID)
+			}
 			if err != nil {
 				return err
 			}

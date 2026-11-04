@@ -479,6 +479,45 @@ var (
 			},
 		},
 	}
+	// PendingUsagesColumns holds the columns for the "pending_usages" table.
+	PendingUsagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Size: 36},
+		{Name: "node_id", Type: field.TypeString},
+		{Name: "api_key_id", Type: field.TypeInt},
+		{Name: "project_id", Type: field.TypeInt},
+		{Name: "channel_id", Type: field.TypeInt},
+		{Name: "model_id", Type: field.TypeString},
+		{Name: "source", Type: field.TypeString},
+		{Name: "format", Type: field.TypeString},
+		{Name: "captured_at", Type: field.TypeTime},
+		{Name: "request_created_at", Type: field.TypeTime},
+		{Name: "request_id", Type: field.TypeInt, Default: 0},
+		{Name: "request_observation_id", Type: field.TypeString},
+		{Name: "usage", Type: field.TypeJSON},
+		{Name: "total_tokens", Type: field.TypeInt64},
+		{Name: "total_cost", Type: field.TypeFloat64, Nullable: true},
+		{Name: "cost_items", Type: field.TypeJSON, Nullable: true},
+		{Name: "price_reference_id", Type: field.TypeString},
+		{Name: "created_at", Type: field.TypeTime},
+	}
+	// PendingUsagesTable holds the schema information for the "pending_usages" table.
+	PendingUsagesTable = &schema.Table{
+		Name:       "pending_usages",
+		Columns:    PendingUsagesColumns,
+		PrimaryKey: []*schema.Column{PendingUsagesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "pendingusage_api_key_id_captured_at",
+				Unique:  false,
+				Columns: []*schema.Column{PendingUsagesColumns[2], PendingUsagesColumns[8]},
+			},
+			{
+				Name:    "pendingusage_node_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{PendingUsagesColumns[1], PendingUsagesColumns[17]},
+			},
+		},
+	}
 	// ProjectsColumns holds the columns for the "projects" table.
 	ProjectsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -1200,6 +1239,7 @@ var (
 		ModelsTable,
 		OidcIdentitiesTable,
 		ObservabilityPayloadsTable,
+		PendingUsagesTable,
 		ProjectsTable,
 		PromptsTable,
 		PromptProtectionRulesTable,

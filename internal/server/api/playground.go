@@ -32,17 +32,17 @@ type PlaygroundResponseError struct {
 type PlaygroundHandlersParams struct {
 	fx.In
 
-	ChannelService  *biz.ChannelService
-	ModelService    *biz.ModelService
-	DefaultSelector *orchestrator.DefaultSelector
-	RequestService  *biz.RequestService
-	SystemService   *biz.SystemService
-	UsageLogService *biz.UsageLogService
-	PromptService   *biz.PromptService
+	ChannelService              *biz.ChannelService
+	ModelService                *biz.ModelService
+	DefaultSelector             *orchestrator.DefaultSelector
+	RequestService              *biz.RequestService
+	SystemService               *biz.SystemService
+	UsageLogService             *biz.UsageLogService
+	PromptService               *biz.PromptService
 	PromptProtectionRuleService *biz.PromptProtectionRuleService
-	QuotaService    *biz.QuotaService
-	HttpClient      *httpclient.HttpClient
-	LiveStreamRegistry *biz.LiveStreamRegistry
+	QuotaService                *biz.QuotaService
+	HttpClient                  *httpclient.HttpClient
+	LiveStreamRegistry          *biz.LiveStreamRegistry
 	ChannelLimiterManager       *orchestrator.ChannelLimiterManager
 	ProviderQuotaStatusProvider orchestrator.ProviderQuotaStatusProvider
 }
@@ -212,6 +212,30 @@ func (handlers *PlaygroundHandlers) HandleError(rawErr error) *PlaygroundRespons
 
 func (handlers *PlaygroundHandlers) ChatCompletion(c *gin.Context) {
 	ctx := c.Request.Context()
+	if node := handlers.ChannelService.NodeConfig(); node.Enabled {
+		selected := c.Query("channel_id")
+		if selected == "" {
+			selected = c.GetHeader("X-Channel-ID")
+		}
+		if selected != "" {
+			id, err := objects.ParseGUID(selected)
+			if err != nil {
+				JSONError(c, http.StatusBadRequest, err)
+				return
+			}
+			if !node.Owns(id.ID) {
+				// GetChannel applies the original read-channel scope; a remote channel
+				// is metadata-only and never constructs a second provider here.
+				if _, err := handlers.ChannelService.GetChannel(ctx, id.ID); err != nil {
+					JSONError(c, http.StatusForbidden, err)
+					return
+				}
+				c.Request.URL.Path = "/__axon/admin/playground/chat"
+				proxyExecutionOwner(c, node.Nodes[node.Owner(id.ID)])
+				return
+			}
+		}
+	}
 
 	genericReq, err := httpclient.ReadHTTPRequest(c.Request)
 	if err != nil {

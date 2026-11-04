@@ -164,7 +164,7 @@ func (svc *ChannelService) monitoringRuleTargetChannels(ctx context.Context, rul
 }
 
 func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule MonitoringRule, ch *ent.Channel, now time.Time) (channelKeyHealthCheckChannelResult, error) {
-	if ch == nil {
+	if ch == nil || !svc.node.Owns(ch.ID) {
 		return channelKeyHealthCheckChannelResult{}, nil
 	}
 	if ch.Credentials.IsOAuth() {

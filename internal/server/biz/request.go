@@ -2291,6 +2291,9 @@ func (s *RequestService) failStaleRecords(
 const maxProcessingDuration = 1 * time.Hour
 
 func (s *RequestService) ClearStaleProcessingOnStartup(ctx context.Context) error {
+	if s.ObservationWriter != nil && s.ObservationWriter.node.Enabled {
+		return nil
+	}
 	var errs []error
 
 	if err := s.failStaleRecords(ctx, maxProcessingDuration, "requests", func(ctx context.Context, cutoff time.Time) (int, error) {

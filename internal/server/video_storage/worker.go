@@ -134,15 +134,20 @@ func (w *Worker) scanAndSave(ctx context.Context) error {
 		limit = 50
 	}
 
-	reqs, err := w.ent.Request.Query().
-		Where(
-			request.StatusIn(request.StatusProcessing, request.StatusCompleted),
-			request.FormatIn(string(llm.APIFormatOpenAIVideo), string(llm.APIFormatSeedanceVideo)),
-			request.ContentSaved(false),
-		).
-		Order(ent.Asc(request.FieldID)).
-		Limit(limit).
-		All(ctx)
+	query := w.ent.Request.Query().Where(
+		request.StatusIn(request.StatusProcessing, request.StatusCompleted),
+		request.FormatIn(string(llm.APIFormatOpenAIVideo), string(llm.APIFormatSeedanceVideo)), request.ContentSaved(false))
+	node := w.videoService.ChannelService.NodeConfig()
+	if node.Enabled {
+		var owned []int
+		for id := range node.Channels {
+			if node.Owns(id) {
+				owned = append(owned, id)
+			}
+		}
+		query.Where(request.ChannelIDIn(owned...))
+	}
+	reqs, err := query.Order(ent.Asc(request.FieldID)).Limit(limit).All(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to query video requests: %w", err)
 	}
@@ -158,6 +163,9 @@ func (w *Worker) scanAndSave(ctx context.Context) error {
 }
 
 func (w *Worker) processOne(ctx context.Context, ds *ent.DataStorage, req *ent.Request) error {
+	if !w.videoService.ChannelService.OwnsChannel(req.ChannelID) {
+		return nil
+	}
 	var videoURL string
 
 	if v, err := extractVideoURLFromResponseBody(req.ResponseBody); err == nil && strings.TrimSpace(v) != "" {

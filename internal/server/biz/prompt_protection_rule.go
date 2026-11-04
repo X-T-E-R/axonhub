@@ -58,7 +58,7 @@ func NewPromptProtectionRuleService(params PromptProtectionRuleServiceParams) *P
 		Mode:  watcherMode,
 		Redis: params.CacheConfig.Redis,
 	}, watcher.WatcherFromConfigOptions{
-		RedisChannel: "axonhub:cache:prompt_protection_rules",
+		RedisChannel: params.CacheConfig.WatcherChannel("prompt_protection_rules"),
 		Buffer:       32,
 	})
 	if err != nil {

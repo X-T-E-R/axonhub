@@ -210,6 +210,14 @@ func BuildOutboundByAPIFormat(ch *Channel, apiFormat string) (transformer.Outbou
 // compatibility. Additional default endpoints are peer capability surfaces for
 // the same channel type, each bound to exactly one API format.
 func (svc *ChannelService) buildChannelWithOutbounds(c *ent.Channel, apiKeyOverride ...string) (*Channel, error) {
+	if !svc.node.Owns(c.ID) {
+		ch := buildChannel(c, nil)
+		ch.RemoteOwner = svc.node.Owner(c.ID)
+		if ch.RemoteOwner == "" {
+			ch.RemoteOwner = "unassigned"
+		}
+		return ch, nil
+	}
 	ch, err := svc.buildChannelWithTransformer(c, apiKeyOverride...)
 	if err != nil {
 		return nil, err
@@ -490,6 +498,9 @@ func (svc *ChannelService) buildNonDefaultEndpointOutbound(
 
 //nolint:maintidx // Checked.
 func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel, apiKeyOverride ...string) (*Channel, error) {
+	if !svc.node.Owns(c.ID) {
+		return nil, svc.ChannelOwnerError(c.ID)
+	}
 	// Validate credentials early so we can fail fast without constructing HTTP clients/transformers.
 	//
 	// NOTE: "enabled" keys excludes keys that were explicitly disabled for this channel.

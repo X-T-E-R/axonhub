@@ -85,6 +85,11 @@ func (processor *TestChannelOrchestrator) TestChannel(
 	modelID *string,
 	proxy *httpclient.ProxyConfig,
 ) (*TestChannelResult, error) {
+	if !processor.channelService.OwnsChannel(channelID.ID) {
+		var result TestChannelResult
+		err := processor.dispatchTest(ctx, OwnerTestRequest{Operation: "channel", ChannelID: channelID.ID, ModelID: modelID, Proxy: proxy}, &result)
+		return &result, err
+	}
 	inbound := openai.NewInboundTransformer()
 	// Create ChatCompletionOrchestrator for this test request
 	chatProcessor := &ChatCompletionOrchestrator{
@@ -334,6 +339,11 @@ func (processor *TestChannelOrchestrator) TestChannelAPIKeys(
 	modelID *string,
 	proxy *httpclient.ProxyConfig,
 ) (*TestChannelAPIKeysResult, error) {
+	if !processor.channelService.OwnsChannel(channelID.ID) {
+		var result TestChannelAPIKeysResult
+		err := processor.dispatchTest(ctx, OwnerTestRequest{Operation: "keys", ChannelID: channelID.ID, ModelID: modelID, Proxy: proxy}, &result)
+		return &result, err
+	}
 	ch, err := processor.channelService.GetChannel(ctx, channelID.ID)
 	if err != nil {
 		return nil, err
@@ -425,6 +435,11 @@ func (processor *TestChannelOrchestrator) TestSingleAPIKey(
 	modelID *string,
 	proxy *httpclient.ProxyConfig,
 ) (*TestAPIKeyResult, error) {
+	if !processor.channelService.OwnsChannel(channelID.ID) {
+		var result TestAPIKeyResult
+		err := processor.dispatchTest(ctx, OwnerTestRequest{Operation: "key", ChannelID: channelID.ID, ModelID: modelID, Key: key, Proxy: proxy}, &result)
+		return &result, err
+	}
 	ch, err := processor.channelService.GetChannel(ctx, channelID.ID)
 	if err != nil {
 		return nil, err

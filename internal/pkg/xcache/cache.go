@@ -18,6 +18,9 @@ import (
 	"github.com/looplj/axonhub/internal/pkg/xredis"
 )
 
+// DefaultNamespace is the shared Redis key namespace used when none is configured.
+const DefaultNamespace = redis_store.DefaultNamespace
+
 // Cache is an alias to the gocache CacheInterface for convenience.
 // It allows you to depend on xcache while still exposing the common methods:
 //   - Get(ctx, key) (T, error)
@@ -65,7 +68,25 @@ func NewMemoryWithOptions[T any](defaultExpiration, cleanupInterval time.Duratio
 //
 // Memory and Redis expiration can be configured separately.
 // If mode is not set or invalid, returns a noop cache that does nothing.
+// Redis keys use cfg.Namespace (defaulting to axonhub) and a stable typed domain.
 func NewFromConfig[T any](cfg Config) Cache[T] {
+	return newFromConfig[T](cfg, "", nil)
+}
+
+// NewFromConfigWithDomain is the explicit-domain variant for callers whose
+// semantic cache identity should remain stable even if its Go type moves.
+func NewFromConfigWithDomain[T any](cfg Config, domain string) Cache[T] {
+	return newFromConfig[T](cfg, domain, nil)
+}
+
+// NewFromConfigWithLegacyPrefixes explicitly keeps pre-namespace security
+// state on its raw physical keys. It is not a fallback: callers choosing this
+// constructor use only the named legacy key prefixes.
+func NewFromConfigWithLegacyPrefixes[T any](cfg Config, prefixes ...string) Cache[T] {
+	return newFromConfig[T](cfg, "", prefixes)
+}
+
+func newFromConfig[T any](cfg Config, domain string, legacyPrefixes []string) Cache[T] {
 	// If mode is not set or empty, return noop cache
 	if cfg.Mode == "" {
 		return NewNoop[T]()
@@ -89,7 +110,12 @@ func NewFromConfig[T any](cfg Config) Cache[T] {
 		}
 
 		redisExpiration := defaultIfZero(cfg.Redis.Expiration, 30*time.Minute) // Default longer for Redis
-		rdsStore := redis_store.NewRedisStore[T](client, store.WithExpiration(redisExpiration))
+		var rdsStore *redis_store.RedisStore[T]
+		if len(legacyPrefixes) > 0 {
+			rdsStore = redis_store.NewRedisStoreWithLegacyPrefixes[T](client, cfg.Namespace, legacyPrefixes, store.WithExpiration(redisExpiration))
+		} else {
+			rdsStore = redis_store.NewRedisStoreWithNamespace[T](client, cfg.Namespace, domain, store.WithExpiration(redisExpiration))
+		}
 		rds = cachelib.New[T](rdsStore)
 	}
 
@@ -130,7 +156,25 @@ func defaultIfZero(d, def time.Duration) time.Duration {
 // NewRedis creates a pure Redis cache using github.com/redis/go-redis/v9 as the client.
 // You can pass store options like store.WithExpiration, store.WithTags, etc.
 func NewRedis[T any](client redis.UniversalClient, options ...Option) SetterCache[T] {
-	store := redis_store.NewRedisStore[T](client, options...)
+	return NewRedisWithNamespace[T](client, redis_store.DefaultNamespace, options...)
+}
+
+// NewRedisWithNamespace creates a Redis cache with an explicit shared namespace
+// and the stable typed domain for T.
+func NewRedisWithNamespace[T any](client redis.UniversalClient, namespace string, options ...Option) SetterCache[T] {
+	return NewRedisWithDomain[T](client, namespace, "", options...)
+}
+
+// NewRedisWithDomain creates a Redis cache with explicit namespace and domain.
+func NewRedisWithDomain[T any](client redis.UniversalClient, namespace, domain string, options ...Option) SetterCache[T] {
+	store := redis_store.NewRedisStoreWithNamespace[T](client, namespace, domain, options...)
+	return cachelib.New[T](store)
+}
+
+// NewRedisWithLegacyPrefixes explicitly preserves raw physical keys for named
+// security-state prefixes. Clear remains limited to those prefixes.
+func NewRedisWithLegacyPrefixes[T any](client redis.UniversalClient, namespace string, prefixes []string, options ...Option) SetterCache[T] {
+	store := redis_store.NewRedisStoreWithLegacyPrefixes[T](client, namespace, prefixes, options...)
 	return cachelib.New[T](store)
 }
 

@@ -40,6 +40,9 @@ func (svc *ChannelService) syncChannelModels(ctx context.Context) {
 	changedCount := 0
 
 	for _, ch := range channels {
+		if !svc.node.Owns(ch.ID) {
+			continue
+		}
 		_, changed, err := svc.syncChannelModelsForChannel(ctx, ch, nil)
 		if err != nil {
 			log.Warn(ctx, "failed to sync models for channel",
@@ -68,6 +71,9 @@ func (svc *ChannelService) syncChannelModels(ctx context.Context) {
 
 // syncChannelModelsForChannel syncs supported models for a single channel.
 func (svc *ChannelService) syncChannelModelsForChannel(ctx context.Context, ch *ent.Channel, patternOverride *string) (*ent.Channel, bool, error) {
+	if !svc.node.Owns(ch.ID) {
+		return nil, false, svc.ChannelOwnerError(ch.ID)
+	}
 	modelFetcher := NewModelFetcher(svc.httpClient, svc)
 
 	result, err := modelFetcher.FetchModels(ctx, FetchModelsInput{
@@ -176,6 +182,9 @@ func (svc *ChannelService) syncChannelModelsForChannel(ctx context.Context, ch *
 }
 
 func (svc *ChannelService) SyncChannelModels(ctx context.Context, channelID int, patternOverride *string) (*ent.Channel, error) {
+	if !svc.node.Owns(channelID) {
+		return svc.dispatchModelSync(ctx, channelID, patternOverride)
+	}
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)

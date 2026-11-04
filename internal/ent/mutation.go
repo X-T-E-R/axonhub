@@ -24,6 +24,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
@@ -41,6 +42,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/userproject"
 	"github.com/looplj/axonhub/internal/ent/userrole"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/llm"
 )
 
 const (
@@ -65,6 +67,7 @@ const (
 	TypeModel                     = "Model"
 	TypeOIDCIdentity              = "OIDCIdentity"
 	TypeObservabilityPayload      = "ObservabilityPayload"
+	TypePendingUsage              = "PendingUsage"
 	TypeProject                   = "Project"
 	TypePrompt                    = "Prompt"
 	TypePromptProtectionRule      = "PromptProtectionRule"
@@ -14617,6 +14620,1462 @@ func (m *ObservabilityPayloadMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown ObservabilityPayload edge %s", name)
+}
+
+// PendingUsageMutation represents an operation that mutates the PendingUsage nodes in the graph.
+type PendingUsageMutation struct {
+	config
+	op                     Op
+	typ                    string
+	id                     *string
+	node_id                *string
+	api_key_id             *int
+	addapi_key_id          *int
+	project_id             *int
+	addproject_id          *int
+	channel_id             *int
+	addchannel_id          *int
+	model_id               *string
+	source                 *string
+	format                 *string
+	captured_at            *time.Time
+	request_created_at     *time.Time
+	request_id             *int
+	addrequest_id          *int
+	request_observation_id *string
+	usage                  *llm.Usage
+	total_tokens           *int64
+	addtotal_tokens        *int64
+	total_cost             *float64
+	addtotal_cost          *float64
+	cost_items             *[]objects.CostItem
+	appendcost_items       []objects.CostItem
+	price_reference_id     *string
+	created_at             *time.Time
+	clearedFields          map[string]struct{}
+	done                   bool
+	oldValue               func(context.Context) (*PendingUsage, error)
+	predicates             []predicate.PendingUsage
+}
+
+var _ ent.Mutation = (*PendingUsageMutation)(nil)
+
+// pendingusageOption allows management of the mutation configuration using functional options.
+type pendingusageOption func(*PendingUsageMutation)
+
+// newPendingUsageMutation creates new mutation for the PendingUsage entity.
+func newPendingUsageMutation(c config, op Op, opts ...pendingusageOption) *PendingUsageMutation {
+	m := &PendingUsageMutation{
+		config:        c,
+		op:            op,
+		typ:           TypePendingUsage,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withPendingUsageID sets the ID field of the mutation.
+func withPendingUsageID(id string) pendingusageOption {
+	return func(m *PendingUsageMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *PendingUsage
+		)
+		m.oldValue = func(ctx context.Context) (*PendingUsage, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().PendingUsage.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withPendingUsage sets the old PendingUsage of the mutation.
+func withPendingUsage(node *PendingUsage) pendingusageOption {
+	return func(m *PendingUsageMutation) {
+		m.oldValue = func(context.Context) (*PendingUsage, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m PendingUsageMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m PendingUsageMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of PendingUsage entities.
+func (m *PendingUsageMutation) SetID(id string) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *PendingUsageMutation) ID() (id string, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *PendingUsageMutation) IDs(ctx context.Context) ([]string, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []string{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().PendingUsage.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetNodeID sets the "node_id" field.
+func (m *PendingUsageMutation) SetNodeID(s string) {
+	m.node_id = &s
+}
+
+// NodeID returns the value of the "node_id" field in the mutation.
+func (m *PendingUsageMutation) NodeID() (r string, exists bool) {
+	v := m.node_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNodeID returns the old "node_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldNodeID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNodeID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNodeID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNodeID: %w", err)
+	}
+	return oldValue.NodeID, nil
+}
+
+// ResetNodeID resets all changes to the "node_id" field.
+func (m *PendingUsageMutation) ResetNodeID() {
+	m.node_id = nil
+}
+
+// SetAPIKeyID sets the "api_key_id" field.
+func (m *PendingUsageMutation) SetAPIKeyID(i int) {
+	m.api_key_id = &i
+	m.addapi_key_id = nil
+}
+
+// APIKeyID returns the value of the "api_key_id" field in the mutation.
+func (m *PendingUsageMutation) APIKeyID() (r int, exists bool) {
+	v := m.api_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIKeyID returns the old "api_key_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldAPIKeyID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIKeyID: %w", err)
+	}
+	return oldValue.APIKeyID, nil
+}
+
+// AddAPIKeyID adds i to the "api_key_id" field.
+func (m *PendingUsageMutation) AddAPIKeyID(i int) {
+	if m.addapi_key_id != nil {
+		*m.addapi_key_id += i
+	} else {
+		m.addapi_key_id = &i
+	}
+}
+
+// AddedAPIKeyID returns the value that was added to the "api_key_id" field in this mutation.
+func (m *PendingUsageMutation) AddedAPIKeyID() (r int, exists bool) {
+	v := m.addapi_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAPIKeyID resets all changes to the "api_key_id" field.
+func (m *PendingUsageMutation) ResetAPIKeyID() {
+	m.api_key_id = nil
+	m.addapi_key_id = nil
+}
+
+// SetProjectID sets the "project_id" field.
+func (m *PendingUsageMutation) SetProjectID(i int) {
+	m.project_id = &i
+	m.addproject_id = nil
+}
+
+// ProjectID returns the value of the "project_id" field in the mutation.
+func (m *PendingUsageMutation) ProjectID() (r int, exists bool) {
+	v := m.project_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProjectID returns the old "project_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldProjectID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProjectID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProjectID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProjectID: %w", err)
+	}
+	return oldValue.ProjectID, nil
+}
+
+// AddProjectID adds i to the "project_id" field.
+func (m *PendingUsageMutation) AddProjectID(i int) {
+	if m.addproject_id != nil {
+		*m.addproject_id += i
+	} else {
+		m.addproject_id = &i
+	}
+}
+
+// AddedProjectID returns the value that was added to the "project_id" field in this mutation.
+func (m *PendingUsageMutation) AddedProjectID() (r int, exists bool) {
+	v := m.addproject_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetProjectID resets all changes to the "project_id" field.
+func (m *PendingUsageMutation) ResetProjectID() {
+	m.project_id = nil
+	m.addproject_id = nil
+}
+
+// SetChannelID sets the "channel_id" field.
+func (m *PendingUsageMutation) SetChannelID(i int) {
+	m.channel_id = &i
+	m.addchannel_id = nil
+}
+
+// ChannelID returns the value of the "channel_id" field in the mutation.
+func (m *PendingUsageMutation) ChannelID() (r int, exists bool) {
+	v := m.channel_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChannelID returns the old "channel_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldChannelID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChannelID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChannelID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChannelID: %w", err)
+	}
+	return oldValue.ChannelID, nil
+}
+
+// AddChannelID adds i to the "channel_id" field.
+func (m *PendingUsageMutation) AddChannelID(i int) {
+	if m.addchannel_id != nil {
+		*m.addchannel_id += i
+	} else {
+		m.addchannel_id = &i
+	}
+}
+
+// AddedChannelID returns the value that was added to the "channel_id" field in this mutation.
+func (m *PendingUsageMutation) AddedChannelID() (r int, exists bool) {
+	v := m.addchannel_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetChannelID resets all changes to the "channel_id" field.
+func (m *PendingUsageMutation) ResetChannelID() {
+	m.channel_id = nil
+	m.addchannel_id = nil
+}
+
+// SetModelID sets the "model_id" field.
+func (m *PendingUsageMutation) SetModelID(s string) {
+	m.model_id = &s
+}
+
+// ModelID returns the value of the "model_id" field in the mutation.
+func (m *PendingUsageMutation) ModelID() (r string, exists bool) {
+	v := m.model_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModelID returns the old "model_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldModelID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModelID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModelID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModelID: %w", err)
+	}
+	return oldValue.ModelID, nil
+}
+
+// ResetModelID resets all changes to the "model_id" field.
+func (m *PendingUsageMutation) ResetModelID() {
+	m.model_id = nil
+}
+
+// SetSource sets the "source" field.
+func (m *PendingUsageMutation) SetSource(s string) {
+	m.source = &s
+}
+
+// Source returns the value of the "source" field in the mutation.
+func (m *PendingUsageMutation) Source() (r string, exists bool) {
+	v := m.source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSource returns the old "source" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSource: %w", err)
+	}
+	return oldValue.Source, nil
+}
+
+// ResetSource resets all changes to the "source" field.
+func (m *PendingUsageMutation) ResetSource() {
+	m.source = nil
+}
+
+// SetFormat sets the "format" field.
+func (m *PendingUsageMutation) SetFormat(s string) {
+	m.format = &s
+}
+
+// Format returns the value of the "format" field in the mutation.
+func (m *PendingUsageMutation) Format() (r string, exists bool) {
+	v := m.format
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFormat returns the old "format" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldFormat(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFormat is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFormat requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFormat: %w", err)
+	}
+	return oldValue.Format, nil
+}
+
+// ResetFormat resets all changes to the "format" field.
+func (m *PendingUsageMutation) ResetFormat() {
+	m.format = nil
+}
+
+// SetCapturedAt sets the "captured_at" field.
+func (m *PendingUsageMutation) SetCapturedAt(t time.Time) {
+	m.captured_at = &t
+}
+
+// CapturedAt returns the value of the "captured_at" field in the mutation.
+func (m *PendingUsageMutation) CapturedAt() (r time.Time, exists bool) {
+	v := m.captured_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCapturedAt returns the old "captured_at" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldCapturedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCapturedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCapturedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCapturedAt: %w", err)
+	}
+	return oldValue.CapturedAt, nil
+}
+
+// ResetCapturedAt resets all changes to the "captured_at" field.
+func (m *PendingUsageMutation) ResetCapturedAt() {
+	m.captured_at = nil
+}
+
+// SetRequestCreatedAt sets the "request_created_at" field.
+func (m *PendingUsageMutation) SetRequestCreatedAt(t time.Time) {
+	m.request_created_at = &t
+}
+
+// RequestCreatedAt returns the value of the "request_created_at" field in the mutation.
+func (m *PendingUsageMutation) RequestCreatedAt() (r time.Time, exists bool) {
+	v := m.request_created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestCreatedAt returns the old "request_created_at" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldRequestCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestCreatedAt: %w", err)
+	}
+	return oldValue.RequestCreatedAt, nil
+}
+
+// ResetRequestCreatedAt resets all changes to the "request_created_at" field.
+func (m *PendingUsageMutation) ResetRequestCreatedAt() {
+	m.request_created_at = nil
+}
+
+// SetRequestID sets the "request_id" field.
+func (m *PendingUsageMutation) SetRequestID(i int) {
+	m.request_id = &i
+	m.addrequest_id = nil
+}
+
+// RequestID returns the value of the "request_id" field in the mutation.
+func (m *PendingUsageMutation) RequestID() (r int, exists bool) {
+	v := m.request_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestID returns the old "request_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldRequestID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestID: %w", err)
+	}
+	return oldValue.RequestID, nil
+}
+
+// AddRequestID adds i to the "request_id" field.
+func (m *PendingUsageMutation) AddRequestID(i int) {
+	if m.addrequest_id != nil {
+		*m.addrequest_id += i
+	} else {
+		m.addrequest_id = &i
+	}
+}
+
+// AddedRequestID returns the value that was added to the "request_id" field in this mutation.
+func (m *PendingUsageMutation) AddedRequestID() (r int, exists bool) {
+	v := m.addrequest_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRequestID resets all changes to the "request_id" field.
+func (m *PendingUsageMutation) ResetRequestID() {
+	m.request_id = nil
+	m.addrequest_id = nil
+}
+
+// SetRequestObservationID sets the "request_observation_id" field.
+func (m *PendingUsageMutation) SetRequestObservationID(s string) {
+	m.request_observation_id = &s
+}
+
+// RequestObservationID returns the value of the "request_observation_id" field in the mutation.
+func (m *PendingUsageMutation) RequestObservationID() (r string, exists bool) {
+	v := m.request_observation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestObservationID returns the old "request_observation_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldRequestObservationID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestObservationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestObservationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestObservationID: %w", err)
+	}
+	return oldValue.RequestObservationID, nil
+}
+
+// ResetRequestObservationID resets all changes to the "request_observation_id" field.
+func (m *PendingUsageMutation) ResetRequestObservationID() {
+	m.request_observation_id = nil
+}
+
+// SetUsage sets the "usage" field.
+func (m *PendingUsageMutation) SetUsage(l llm.Usage) {
+	m.usage = &l
+}
+
+// Usage returns the value of the "usage" field in the mutation.
+func (m *PendingUsageMutation) Usage() (r llm.Usage, exists bool) {
+	v := m.usage
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUsage returns the old "usage" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldUsage(ctx context.Context) (v llm.Usage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUsage is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUsage requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUsage: %w", err)
+	}
+	return oldValue.Usage, nil
+}
+
+// ResetUsage resets all changes to the "usage" field.
+func (m *PendingUsageMutation) ResetUsage() {
+	m.usage = nil
+}
+
+// SetTotalTokens sets the "total_tokens" field.
+func (m *PendingUsageMutation) SetTotalTokens(i int64) {
+	m.total_tokens = &i
+	m.addtotal_tokens = nil
+}
+
+// TotalTokens returns the value of the "total_tokens" field in the mutation.
+func (m *PendingUsageMutation) TotalTokens() (r int64, exists bool) {
+	v := m.total_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTotalTokens returns the old "total_tokens" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldTotalTokens(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTotalTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTotalTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTotalTokens: %w", err)
+	}
+	return oldValue.TotalTokens, nil
+}
+
+// AddTotalTokens adds i to the "total_tokens" field.
+func (m *PendingUsageMutation) AddTotalTokens(i int64) {
+	if m.addtotal_tokens != nil {
+		*m.addtotal_tokens += i
+	} else {
+		m.addtotal_tokens = &i
+	}
+}
+
+// AddedTotalTokens returns the value that was added to the "total_tokens" field in this mutation.
+func (m *PendingUsageMutation) AddedTotalTokens() (r int64, exists bool) {
+	v := m.addtotal_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTotalTokens resets all changes to the "total_tokens" field.
+func (m *PendingUsageMutation) ResetTotalTokens() {
+	m.total_tokens = nil
+	m.addtotal_tokens = nil
+}
+
+// SetTotalCost sets the "total_cost" field.
+func (m *PendingUsageMutation) SetTotalCost(f float64) {
+	m.total_cost = &f
+	m.addtotal_cost = nil
+}
+
+// TotalCost returns the value of the "total_cost" field in the mutation.
+func (m *PendingUsageMutation) TotalCost() (r float64, exists bool) {
+	v := m.total_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTotalCost returns the old "total_cost" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldTotalCost(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTotalCost is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTotalCost requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTotalCost: %w", err)
+	}
+	return oldValue.TotalCost, nil
+}
+
+// AddTotalCost adds f to the "total_cost" field.
+func (m *PendingUsageMutation) AddTotalCost(f float64) {
+	if m.addtotal_cost != nil {
+		*m.addtotal_cost += f
+	} else {
+		m.addtotal_cost = &f
+	}
+}
+
+// AddedTotalCost returns the value that was added to the "total_cost" field in this mutation.
+func (m *PendingUsageMutation) AddedTotalCost() (r float64, exists bool) {
+	v := m.addtotal_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearTotalCost clears the value of the "total_cost" field.
+func (m *PendingUsageMutation) ClearTotalCost() {
+	m.total_cost = nil
+	m.addtotal_cost = nil
+	m.clearedFields[pendingusage.FieldTotalCost] = struct{}{}
+}
+
+// TotalCostCleared returns if the "total_cost" field was cleared in this mutation.
+func (m *PendingUsageMutation) TotalCostCleared() bool {
+	_, ok := m.clearedFields[pendingusage.FieldTotalCost]
+	return ok
+}
+
+// ResetTotalCost resets all changes to the "total_cost" field.
+func (m *PendingUsageMutation) ResetTotalCost() {
+	m.total_cost = nil
+	m.addtotal_cost = nil
+	delete(m.clearedFields, pendingusage.FieldTotalCost)
+}
+
+// SetCostItems sets the "cost_items" field.
+func (m *PendingUsageMutation) SetCostItems(oi []objects.CostItem) {
+	m.cost_items = &oi
+	m.appendcost_items = nil
+}
+
+// CostItems returns the value of the "cost_items" field in the mutation.
+func (m *PendingUsageMutation) CostItems() (r []objects.CostItem, exists bool) {
+	v := m.cost_items
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCostItems returns the old "cost_items" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldCostItems(ctx context.Context) (v []objects.CostItem, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCostItems is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCostItems requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCostItems: %w", err)
+	}
+	return oldValue.CostItems, nil
+}
+
+// AppendCostItems adds oi to the "cost_items" field.
+func (m *PendingUsageMutation) AppendCostItems(oi []objects.CostItem) {
+	m.appendcost_items = append(m.appendcost_items, oi...)
+}
+
+// AppendedCostItems returns the list of values that were appended to the "cost_items" field in this mutation.
+func (m *PendingUsageMutation) AppendedCostItems() ([]objects.CostItem, bool) {
+	if len(m.appendcost_items) == 0 {
+		return nil, false
+	}
+	return m.appendcost_items, true
+}
+
+// ClearCostItems clears the value of the "cost_items" field.
+func (m *PendingUsageMutation) ClearCostItems() {
+	m.cost_items = nil
+	m.appendcost_items = nil
+	m.clearedFields[pendingusage.FieldCostItems] = struct{}{}
+}
+
+// CostItemsCleared returns if the "cost_items" field was cleared in this mutation.
+func (m *PendingUsageMutation) CostItemsCleared() bool {
+	_, ok := m.clearedFields[pendingusage.FieldCostItems]
+	return ok
+}
+
+// ResetCostItems resets all changes to the "cost_items" field.
+func (m *PendingUsageMutation) ResetCostItems() {
+	m.cost_items = nil
+	m.appendcost_items = nil
+	delete(m.clearedFields, pendingusage.FieldCostItems)
+}
+
+// SetPriceReferenceID sets the "price_reference_id" field.
+func (m *PendingUsageMutation) SetPriceReferenceID(s string) {
+	m.price_reference_id = &s
+}
+
+// PriceReferenceID returns the value of the "price_reference_id" field in the mutation.
+func (m *PendingUsageMutation) PriceReferenceID() (r string, exists bool) {
+	v := m.price_reference_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPriceReferenceID returns the old "price_reference_id" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldPriceReferenceID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPriceReferenceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPriceReferenceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPriceReferenceID: %w", err)
+	}
+	return oldValue.PriceReferenceID, nil
+}
+
+// ResetPriceReferenceID resets all changes to the "price_reference_id" field.
+func (m *PendingUsageMutation) ResetPriceReferenceID() {
+	m.price_reference_id = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *PendingUsageMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *PendingUsageMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the PendingUsage entity.
+// If the PendingUsage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PendingUsageMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *PendingUsageMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// Where appends a list predicates to the PendingUsageMutation builder.
+func (m *PendingUsageMutation) Where(ps ...predicate.PendingUsage) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the PendingUsageMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *PendingUsageMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.PendingUsage, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *PendingUsageMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *PendingUsageMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (PendingUsage).
+func (m *PendingUsageMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *PendingUsageMutation) Fields() []string {
+	fields := make([]string, 0, 17)
+	if m.node_id != nil {
+		fields = append(fields, pendingusage.FieldNodeID)
+	}
+	if m.api_key_id != nil {
+		fields = append(fields, pendingusage.FieldAPIKeyID)
+	}
+	if m.project_id != nil {
+		fields = append(fields, pendingusage.FieldProjectID)
+	}
+	if m.channel_id != nil {
+		fields = append(fields, pendingusage.FieldChannelID)
+	}
+	if m.model_id != nil {
+		fields = append(fields, pendingusage.FieldModelID)
+	}
+	if m.source != nil {
+		fields = append(fields, pendingusage.FieldSource)
+	}
+	if m.format != nil {
+		fields = append(fields, pendingusage.FieldFormat)
+	}
+	if m.captured_at != nil {
+		fields = append(fields, pendingusage.FieldCapturedAt)
+	}
+	if m.request_created_at != nil {
+		fields = append(fields, pendingusage.FieldRequestCreatedAt)
+	}
+	if m.request_id != nil {
+		fields = append(fields, pendingusage.FieldRequestID)
+	}
+	if m.request_observation_id != nil {
+		fields = append(fields, pendingusage.FieldRequestObservationID)
+	}
+	if m.usage != nil {
+		fields = append(fields, pendingusage.FieldUsage)
+	}
+	if m.total_tokens != nil {
+		fields = append(fields, pendingusage.FieldTotalTokens)
+	}
+	if m.total_cost != nil {
+		fields = append(fields, pendingusage.FieldTotalCost)
+	}
+	if m.cost_items != nil {
+		fields = append(fields, pendingusage.FieldCostItems)
+	}
+	if m.price_reference_id != nil {
+		fields = append(fields, pendingusage.FieldPriceReferenceID)
+	}
+	if m.created_at != nil {
+		fields = append(fields, pendingusage.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *PendingUsageMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case pendingusage.FieldNodeID:
+		return m.NodeID()
+	case pendingusage.FieldAPIKeyID:
+		return m.APIKeyID()
+	case pendingusage.FieldProjectID:
+		return m.ProjectID()
+	case pendingusage.FieldChannelID:
+		return m.ChannelID()
+	case pendingusage.FieldModelID:
+		return m.ModelID()
+	case pendingusage.FieldSource:
+		return m.Source()
+	case pendingusage.FieldFormat:
+		return m.Format()
+	case pendingusage.FieldCapturedAt:
+		return m.CapturedAt()
+	case pendingusage.FieldRequestCreatedAt:
+		return m.RequestCreatedAt()
+	case pendingusage.FieldRequestID:
+		return m.RequestID()
+	case pendingusage.FieldRequestObservationID:
+		return m.RequestObservationID()
+	case pendingusage.FieldUsage:
+		return m.Usage()
+	case pendingusage.FieldTotalTokens:
+		return m.TotalTokens()
+	case pendingusage.FieldTotalCost:
+		return m.TotalCost()
+	case pendingusage.FieldCostItems:
+		return m.CostItems()
+	case pendingusage.FieldPriceReferenceID:
+		return m.PriceReferenceID()
+	case pendingusage.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *PendingUsageMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case pendingusage.FieldNodeID:
+		return m.OldNodeID(ctx)
+	case pendingusage.FieldAPIKeyID:
+		return m.OldAPIKeyID(ctx)
+	case pendingusage.FieldProjectID:
+		return m.OldProjectID(ctx)
+	case pendingusage.FieldChannelID:
+		return m.OldChannelID(ctx)
+	case pendingusage.FieldModelID:
+		return m.OldModelID(ctx)
+	case pendingusage.FieldSource:
+		return m.OldSource(ctx)
+	case pendingusage.FieldFormat:
+		return m.OldFormat(ctx)
+	case pendingusage.FieldCapturedAt:
+		return m.OldCapturedAt(ctx)
+	case pendingusage.FieldRequestCreatedAt:
+		return m.OldRequestCreatedAt(ctx)
+	case pendingusage.FieldRequestID:
+		return m.OldRequestID(ctx)
+	case pendingusage.FieldRequestObservationID:
+		return m.OldRequestObservationID(ctx)
+	case pendingusage.FieldUsage:
+		return m.OldUsage(ctx)
+	case pendingusage.FieldTotalTokens:
+		return m.OldTotalTokens(ctx)
+	case pendingusage.FieldTotalCost:
+		return m.OldTotalCost(ctx)
+	case pendingusage.FieldCostItems:
+		return m.OldCostItems(ctx)
+	case pendingusage.FieldPriceReferenceID:
+		return m.OldPriceReferenceID(ctx)
+	case pendingusage.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown PendingUsage field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *PendingUsageMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case pendingusage.FieldNodeID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNodeID(v)
+		return nil
+	case pendingusage.FieldAPIKeyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIKeyID(v)
+		return nil
+	case pendingusage.FieldProjectID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProjectID(v)
+		return nil
+	case pendingusage.FieldChannelID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChannelID(v)
+		return nil
+	case pendingusage.FieldModelID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModelID(v)
+		return nil
+	case pendingusage.FieldSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSource(v)
+		return nil
+	case pendingusage.FieldFormat:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFormat(v)
+		return nil
+	case pendingusage.FieldCapturedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCapturedAt(v)
+		return nil
+	case pendingusage.FieldRequestCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestCreatedAt(v)
+		return nil
+	case pendingusage.FieldRequestID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestID(v)
+		return nil
+	case pendingusage.FieldRequestObservationID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestObservationID(v)
+		return nil
+	case pendingusage.FieldUsage:
+		v, ok := value.(llm.Usage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUsage(v)
+		return nil
+	case pendingusage.FieldTotalTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTotalTokens(v)
+		return nil
+	case pendingusage.FieldTotalCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTotalCost(v)
+		return nil
+	case pendingusage.FieldCostItems:
+		v, ok := value.([]objects.CostItem)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCostItems(v)
+		return nil
+	case pendingusage.FieldPriceReferenceID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPriceReferenceID(v)
+		return nil
+	case pendingusage.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown PendingUsage field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *PendingUsageMutation) AddedFields() []string {
+	var fields []string
+	if m.addapi_key_id != nil {
+		fields = append(fields, pendingusage.FieldAPIKeyID)
+	}
+	if m.addproject_id != nil {
+		fields = append(fields, pendingusage.FieldProjectID)
+	}
+	if m.addchannel_id != nil {
+		fields = append(fields, pendingusage.FieldChannelID)
+	}
+	if m.addrequest_id != nil {
+		fields = append(fields, pendingusage.FieldRequestID)
+	}
+	if m.addtotal_tokens != nil {
+		fields = append(fields, pendingusage.FieldTotalTokens)
+	}
+	if m.addtotal_cost != nil {
+		fields = append(fields, pendingusage.FieldTotalCost)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *PendingUsageMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case pendingusage.FieldAPIKeyID:
+		return m.AddedAPIKeyID()
+	case pendingusage.FieldProjectID:
+		return m.AddedProjectID()
+	case pendingusage.FieldChannelID:
+		return m.AddedChannelID()
+	case pendingusage.FieldRequestID:
+		return m.AddedRequestID()
+	case pendingusage.FieldTotalTokens:
+		return m.AddedTotalTokens()
+	case pendingusage.FieldTotalCost:
+		return m.AddedTotalCost()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *PendingUsageMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case pendingusage.FieldAPIKeyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAPIKeyID(v)
+		return nil
+	case pendingusage.FieldProjectID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddProjectID(v)
+		return nil
+	case pendingusage.FieldChannelID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChannelID(v)
+		return nil
+	case pendingusage.FieldRequestID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRequestID(v)
+		return nil
+	case pendingusage.FieldTotalTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTotalTokens(v)
+		return nil
+	case pendingusage.FieldTotalCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTotalCost(v)
+		return nil
+	}
+	return fmt.Errorf("unknown PendingUsage numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *PendingUsageMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(pendingusage.FieldTotalCost) {
+		fields = append(fields, pendingusage.FieldTotalCost)
+	}
+	if m.FieldCleared(pendingusage.FieldCostItems) {
+		fields = append(fields, pendingusage.FieldCostItems)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *PendingUsageMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *PendingUsageMutation) ClearField(name string) error {
+	switch name {
+	case pendingusage.FieldTotalCost:
+		m.ClearTotalCost()
+		return nil
+	case pendingusage.FieldCostItems:
+		m.ClearCostItems()
+		return nil
+	}
+	return fmt.Errorf("unknown PendingUsage nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *PendingUsageMutation) ResetField(name string) error {
+	switch name {
+	case pendingusage.FieldNodeID:
+		m.ResetNodeID()
+		return nil
+	case pendingusage.FieldAPIKeyID:
+		m.ResetAPIKeyID()
+		return nil
+	case pendingusage.FieldProjectID:
+		m.ResetProjectID()
+		return nil
+	case pendingusage.FieldChannelID:
+		m.ResetChannelID()
+		return nil
+	case pendingusage.FieldModelID:
+		m.ResetModelID()
+		return nil
+	case pendingusage.FieldSource:
+		m.ResetSource()
+		return nil
+	case pendingusage.FieldFormat:
+		m.ResetFormat()
+		return nil
+	case pendingusage.FieldCapturedAt:
+		m.ResetCapturedAt()
+		return nil
+	case pendingusage.FieldRequestCreatedAt:
+		m.ResetRequestCreatedAt()
+		return nil
+	case pendingusage.FieldRequestID:
+		m.ResetRequestID()
+		return nil
+	case pendingusage.FieldRequestObservationID:
+		m.ResetRequestObservationID()
+		return nil
+	case pendingusage.FieldUsage:
+		m.ResetUsage()
+		return nil
+	case pendingusage.FieldTotalTokens:
+		m.ResetTotalTokens()
+		return nil
+	case pendingusage.FieldTotalCost:
+		m.ResetTotalCost()
+		return nil
+	case pendingusage.FieldCostItems:
+		m.ResetCostItems()
+		return nil
+	case pendingusage.FieldPriceReferenceID:
+		m.ResetPriceReferenceID()
+		return nil
+	case pendingusage.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown PendingUsage field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *PendingUsageMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *PendingUsageMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *PendingUsageMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *PendingUsageMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *PendingUsageMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *PendingUsageMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *PendingUsageMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown PendingUsage unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *PendingUsageMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown PendingUsage edge %s", name)
 }
 
 // ProjectMutation represents an operation that mutates the Project nodes in the graph.

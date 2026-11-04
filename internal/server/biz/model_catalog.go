@@ -78,7 +78,10 @@ func (svc *ModelService) listMappedModelFacades(ctx context.Context, key *ent.AP
 				candidates = append(candidates, ModelFacade{ID: id, DisplayName: id, CreatedAt: ch.CreatedAt, Created: ch.CreatedAt.Unix(), OwnedBy: ch.Type.String()})
 			}
 		}
-		aliases := append([]string{}, key.GetActiveProfile().ModelIDs...)
+		var aliases []string
+		if profile := key.GetActiveProfile(); profile != nil {
+			aliases = append(aliases, profile.ModelIDs...)
+		}
 		if group := key.Edges.Project.GetActiveProfile(); group != nil && group.ModelIDs != nil {
 			aliases = append(aliases, *group.ModelIDs...)
 		}

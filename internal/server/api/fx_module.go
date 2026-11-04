@@ -4,6 +4,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/looplj/axonhub/internal/server/diagnostics"
+	"github.com/looplj/axonhub/internal/server/orchestrator"
 )
 
 var Module = fx.Module("api",
@@ -13,6 +14,8 @@ var Module = fx.Module("api",
 	fx.Provide(NewGeminiHandlers),
 	fx.Provide(NewAiSDKHandlers),
 	fx.Provide(NewPlaygroundHandlers),
+	fx.Provide(NewClusterHandlers),
+	fx.Provide(orchestrator.NewTestChannelOrchestrator),
 	fx.Provide(NewSystemHandlers),
 	fx.Provide(NewAuthHandlers),
 	fx.Provide(NewAPIKeyHandlers),

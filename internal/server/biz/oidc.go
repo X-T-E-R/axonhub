@@ -194,7 +194,7 @@ func NewOIDCService(params OIDCServiceParams) (*OIDCService, error) {
 	svc := &OIDCService{
 		AbstractService: &AbstractService{db: params.DB},
 		cfg:             params.Config,
-		cache:           xcache.NewFromConfig[[]byte](params.CacheConfig),
+		cache:           xcache.NewFromConfigWithLegacyPrefixes[[]byte](params.CacheConfig, "oidc_"),
 		mu:              sync.Mutex{},
 		providers:       make(map[string]*oidcProvider),
 		lastCheck:       make(map[string]int64),

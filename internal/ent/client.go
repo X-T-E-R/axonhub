@@ -28,6 +28,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
@@ -76,6 +77,8 @@ type Client struct {
 	OIDCIdentity *OIDCIdentityClient
 	// ObservabilityPayload is the client for interacting with the ObservabilityPayload builders.
 	ObservabilityPayload *ObservabilityPayloadClient
+	// PendingUsage is the client for interacting with the PendingUsage builders.
+	PendingUsage *PendingUsageClient
 	// Project is the client for interacting with the Project builders.
 	Project *ProjectClient
 	// Prompt is the client for interacting with the Prompt builders.
@@ -132,6 +135,7 @@ func (c *Client) init() {
 	c.Model = NewModelClient(c.config)
 	c.OIDCIdentity = NewOIDCIdentityClient(c.config)
 	c.ObservabilityPayload = NewObservabilityPayloadClient(c.config)
+	c.PendingUsage = NewPendingUsageClient(c.config)
 	c.Project = NewProjectClient(c.config)
 	c.Prompt = NewPromptClient(c.config)
 	c.PromptProtectionRule = NewPromptProtectionRuleClient(c.config)
@@ -252,6 +256,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Model:                     NewModelClient(cfg),
 		OIDCIdentity:              NewOIDCIdentityClient(cfg),
 		ObservabilityPayload:      NewObservabilityPayloadClient(cfg),
+		PendingUsage:              NewPendingUsageClient(cfg),
 		Project:                   NewProjectClient(cfg),
 		Prompt:                    NewPromptClient(cfg),
 		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
@@ -299,6 +304,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Model:                     NewModelClient(cfg),
 		OIDCIdentity:              NewOIDCIdentityClient(cfg),
 		ObservabilityPayload:      NewObservabilityPayloadClient(cfg),
+		PendingUsage:              NewPendingUsageClient(cfg),
 		Project:                   NewProjectClient(cfg),
 		Prompt:                    NewPromptClient(cfg),
 		PromptProtectionRule:      NewPromptProtectionRuleClient(cfg),
@@ -346,7 +352,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
 		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
-		c.OIDCIdentity, c.ObservabilityPayload, c.Project, c.Prompt,
+		c.OIDCIdentity, c.ObservabilityPayload, c.PendingUsage, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.RegistrationInvite, c.Request,
 		c.RequestExecution, c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User,
 		c.UserProject, c.UserRole,
@@ -362,7 +368,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
 		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
-		c.OIDCIdentity, c.ObservabilityPayload, c.Project, c.Prompt,
+		c.OIDCIdentity, c.ObservabilityPayload, c.PendingUsage, c.Project, c.Prompt,
 		c.PromptProtectionRule, c.ProviderQuotaStatus, c.RegistrationInvite, c.Request,
 		c.RequestExecution, c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User,
 		c.UserProject, c.UserRole,
@@ -400,6 +406,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.OIDCIdentity.mutate(ctx, m)
 	case *ObservabilityPayloadMutation:
 		return c.ObservabilityPayload.mutate(ctx, m)
+	case *PendingUsageMutation:
+		return c.PendingUsage.mutate(ctx, m)
 	case *ProjectMutation:
 		return c.Project.mutate(ctx, m)
 	case *PromptMutation:
@@ -2548,6 +2556,139 @@ func (c *ObservabilityPayloadClient) mutate(ctx context.Context, m *Observabilit
 		return (&ObservabilityPayloadDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown ObservabilityPayload mutation op: %q", m.Op())
+	}
+}
+
+// PendingUsageClient is a client for the PendingUsage schema.
+type PendingUsageClient struct {
+	config
+}
+
+// NewPendingUsageClient returns a client for the PendingUsage from the given config.
+func NewPendingUsageClient(c config) *PendingUsageClient {
+	return &PendingUsageClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `pendingusage.Hooks(f(g(h())))`.
+func (c *PendingUsageClient) Use(hooks ...Hook) {
+	c.hooks.PendingUsage = append(c.hooks.PendingUsage, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `pendingusage.Intercept(f(g(h())))`.
+func (c *PendingUsageClient) Intercept(interceptors ...Interceptor) {
+	c.inters.PendingUsage = append(c.inters.PendingUsage, interceptors...)
+}
+
+// Create returns a builder for creating a PendingUsage entity.
+func (c *PendingUsageClient) Create() *PendingUsageCreate {
+	mutation := newPendingUsageMutation(c.config, OpCreate)
+	return &PendingUsageCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of PendingUsage entities.
+func (c *PendingUsageClient) CreateBulk(builders ...*PendingUsageCreate) *PendingUsageCreateBulk {
+	return &PendingUsageCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *PendingUsageClient) MapCreateBulk(slice any, setFunc func(*PendingUsageCreate, int)) *PendingUsageCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &PendingUsageCreateBulk{err: fmt.Errorf("calling to PendingUsageClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*PendingUsageCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &PendingUsageCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for PendingUsage.
+func (c *PendingUsageClient) Update() *PendingUsageUpdate {
+	mutation := newPendingUsageMutation(c.config, OpUpdate)
+	return &PendingUsageUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *PendingUsageClient) UpdateOne(_m *PendingUsage) *PendingUsageUpdateOne {
+	mutation := newPendingUsageMutation(c.config, OpUpdateOne, withPendingUsage(_m))
+	return &PendingUsageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *PendingUsageClient) UpdateOneID(id string) *PendingUsageUpdateOne {
+	mutation := newPendingUsageMutation(c.config, OpUpdateOne, withPendingUsageID(id))
+	return &PendingUsageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for PendingUsage.
+func (c *PendingUsageClient) Delete() *PendingUsageDelete {
+	mutation := newPendingUsageMutation(c.config, OpDelete)
+	return &PendingUsageDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *PendingUsageClient) DeleteOne(_m *PendingUsage) *PendingUsageDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *PendingUsageClient) DeleteOneID(id string) *PendingUsageDeleteOne {
+	builder := c.Delete().Where(pendingusage.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &PendingUsageDeleteOne{builder}
+}
+
+// Query returns a query builder for PendingUsage.
+func (c *PendingUsageClient) Query() *PendingUsageQuery {
+	return &PendingUsageQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypePendingUsage},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a PendingUsage entity by its id.
+func (c *PendingUsageClient) Get(ctx context.Context, id string) (*PendingUsage, error) {
+	return c.Query().Where(pendingusage.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *PendingUsageClient) GetX(ctx context.Context, id string) *PendingUsage {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *PendingUsageClient) Hooks() []Hook {
+	return c.hooks.PendingUsage
+}
+
+// Interceptors returns the client interceptors.
+func (c *PendingUsageClient) Interceptors() []Interceptor {
+	return c.inters.PendingUsage
+}
+
+func (c *PendingUsageClient) mutate(ctx context.Context, m *PendingUsageMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&PendingUsageCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&PendingUsageUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&PendingUsageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&PendingUsageDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown PendingUsage mutation op: %q", m.Op())
 	}
 }
 
@@ -5340,7 +5481,7 @@ type (
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
 		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
-		ObservabilityPayload, Project, Prompt, PromptProtectionRule,
+		ObservabilityPayload, PendingUsage, Project, Prompt, PromptProtectionRule,
 		ProviderQuotaStatus, RegistrationInvite, Request, RequestExecution, Role,
 		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Hook
 	}
@@ -5348,7 +5489,7 @@ type (
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
 		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
-		ObservabilityPayload, Project, Prompt, PromptProtectionRule,
+		ObservabilityPayload, PendingUsage, Project, Prompt, PromptProtectionRule,
 		ProviderQuotaStatus, RegistrationInvite, Request, RequestExecution, Role,
 		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Interceptor
 	}
