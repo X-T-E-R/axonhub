@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 	"unicode/utf8"
+
+	"github.com/looplj/axonhub/llm/jsonutil"
 )
 
 type responsesWSError struct {
@@ -30,6 +32,7 @@ type responsesWSCreate struct {
 
 func parseResponsesWSCreate(data []byte) (responsesWSCreate, *responsesWSError) {
 	f := responsesWSCreate{}
+	data = jsonutil.NormalizeSurrogates(data)
 	if json.Unmarshal(data, &f.body) != nil || f.body == nil {
 		return f, wsRejected("invalid_json", "Expected a JSON response.create object.", "")
 	}
@@ -68,7 +71,7 @@ func parseResponsesWSCreate(data []byte) (responsesWSCreate, *responsesWSError) 
 			if json.Unmarshal(value, &text) != nil {
 				return f, wsRejected("invalid_request", "input must be a string or an array of items.", "input")
 			}
-			item, _ := json.Marshal(map[string]any{"role": "user", "content": text})
+			item, _ := json.Marshal(map[string]json.RawMessage{"role": json.RawMessage(`"user"`), "content": value})
 			f.input = []json.RawMessage{item}
 		}
 	}
@@ -174,7 +177,7 @@ type responsesWSCompletion struct {
 
 func parseResponsesWSCompletion(completed json.RawMessage) *responsesWSCompletion {
 	var response responsesWSCompletion
-	if json.Unmarshal(completed, &response) != nil || response.ID == "" || response.Status != "completed" || response.Output == nil {
+	if json.Unmarshal(jsonutil.NormalizeSurrogates(completed), &response) != nil || response.ID == "" || response.Status != "completed" || response.Output == nil {
 		return nil
 	}
 	for _, item := range response.Output {

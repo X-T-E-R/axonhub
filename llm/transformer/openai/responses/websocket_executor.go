@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/jsonutil"
 	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer/shared"
@@ -893,7 +895,9 @@ func explicitPreviousResponseID(payload map[string]any) string {
 	}
 	previousResponseID, ok := value.(string)
 	if !ok {
-		return ""
+		if raw, ok := value.(json.RawMessage); ok {
+			_ = json.Unmarshal(raw, &previousResponseID)
+		}
 	}
 	return strings.TrimSpace(previousResponseID)
 }
@@ -959,7 +963,21 @@ func jsonRawEqual(a, b json.RawMessage) bool {
 	if err := json.Compact(&compactB, b); err != nil {
 		return bytes.Equal(a, b)
 	}
-	return bytes.Equal(compactA.Bytes(), compactB.Bytes())
+	if bytes.Equal(compactA.Bytes(), compactB.Bytes()) {
+		return true
+	}
+	// Raw retention must not turn equivalent escape spelling or field order
+	// into a session reset. Decode only for comparison, never for re-emission;
+	// UseNumber keeps distinct opaque integers above 2^53 distinct.
+	var left, right any
+	decoderA := json.NewDecoder(bytes.NewReader(a))
+	decoderB := json.NewDecoder(bytes.NewReader(b))
+	decoderA.UseNumber()
+	decoderB.UseNumber()
+	if decoderA.Decode(&left) != nil || decoderB.Decode(&right) != nil {
+		return false
+	}
+	return reflect.DeepEqual(left, right)
 }
 
 func cloneRawMessages(src []json.RawMessage) []json.RawMessage {
@@ -984,13 +1002,17 @@ func rawMessagesSize(messages []json.RawMessage) int {
 func buildWebSocketCreatePayload(body []byte) (map[string]any, error) {
 	payload := map[string]any{}
 	if len(body) > 0 {
-		decoder := json.NewDecoder(bytes.NewReader(body))
-		decoder.UseNumber()
-		if err := decoder.Decode(&payload); err != nil {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(jsonutil.NormalizeSurrogates(body), &fields); err != nil {
 			return nil, fmt.Errorf("failed to decode responses request body: %w", err)
 		}
-		if payload == nil || decoder.Decode(new(any)) != io.EOF {
+		if fields == nil {
 			return nil, fmt.Errorf("responses request body must contain one JSON object")
+		}
+		// Keep nested native objects raw: decoding into maps would reorder fields
+		// and rewrite signatures, escape spelling and opaque numeric values.
+		for key, value := range fields {
+			payload[key] = value
 		}
 	}
 
