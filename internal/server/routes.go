@@ -91,6 +91,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		for _, group := range []*gin.RouterGroup{ownerAdmin, ownerOpenAPI} {
 			group.POST("/channel-test", handlers.Cluster.ChannelTest)
 			group.POST("/channel-health", handlers.Cluster.ChannelHealth)
+			group.POST("/channel-quota-reset", handlers.Cluster.ChannelQuotaReset)
 			group.POST("/channel-models", handlers.Cluster.ChannelModels)
 			group.POST("/channel-sync", handlers.Cluster.ChannelSync)
 		}

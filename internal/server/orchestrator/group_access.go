@@ -3,7 +3,11 @@ package orchestrator
 import (
 	"context"
 
+	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/request"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 )
@@ -19,6 +23,9 @@ type GroupAccessSelector struct {
 func (s *GroupAccessSelector) Select(ctx context.Context, req *llm.Request) ([]*ChannelModelsCandidate, error) {
 	if !biz.GroupAllowsModel(s.key, req.Model) {
 		return nil, nil
+	}
+	if _, explicitTest := s.wrapped.(*SpecifiedChannelSelector); explicitTest && authz.RequireScope(ctx, scopes.ScopeReadChannels) == nil {
+		ctx = contexts.WithSource(ctx, request.SourceTest)
 	}
 	candidates, err := s.wrapped.Select(ctx, req)
 	if err != nil {

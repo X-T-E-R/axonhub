@@ -12,10 +12,12 @@ import (
 	"go.uber.org/fx"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/biz/provider_quota"
 	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/scheduler"
@@ -515,9 +517,20 @@ func (svc *ProviderQuotaService) ManualCheck(ctx context.Context) {
 	svc.runQuotaCheckForce(ctx)
 }
 
-// ResetChannelQuotaNow attempts to redeem a banked reset credit for the given codex channel.
+type OwnerQuotaResetRequest struct {
+	ChannelID int `json:"channel_id"`
+}
+
+// ResetChannelQuotaNow redeems a Codex reset credit on its execution owner.
 func (svc *ProviderQuotaService) ResetChannelQuotaNow(ctx context.Context, channelID int) error {
-	ch, err := svc.db.Channel.Query().Where(channel.IDEQ(channelID)).Only(ctx)
+	if err := authz.RequireScope(ctx, scopes.ScopeWriteChannels); err != nil {
+		return err
+	}
+	if !svc.node.Owns(channelID) {
+		var result bool
+		return cluster.CallOwner(ctx, svc.node, channelID, "/__axon/admin/channel-quota-reset", OwnerQuotaResetRequest{ChannelID: channelID}, &result)
+	}
+	ch, err := observationPrimaryClient(svc.db).Channel.Query().Where(channel.IDEQ(channelID)).Only(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load channel: %w", err)
 	}

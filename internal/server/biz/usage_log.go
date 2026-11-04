@@ -278,7 +278,11 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 			return nil, errors.New("usage observation requires an execution")
 		}
 		// Freeze values before returning to the response/stream owner.
-		requestCopy := ent.Request{ID: request.ID, ProjectID: request.ProjectID, APIKeyID: request.APIKeyID, Source: request.Source, Format: request.Format}
+		requestCopy := ent.Request{ID: request.ID, ProjectID: request.ProjectID, APIKeyID: request.APIKeyID, Source: request.Source, Format: request.Format, CreatedAt: request.CreatedAt}
+		if request.EvidenceDisposition != nil {
+			disposition := *request.EvidenceDisposition
+			requestCopy.EvidenceDisposition = &disposition
+		}
 		executionCopy := ent.RequestExecution{ChannelID: requestExec.ChannelID, ModelID: requestExec.ModelID}
 		raw, err := json.Marshal(usage)
 		if err != nil {
@@ -299,14 +303,19 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		if err != nil {
 			return nil, err
 		}
+		var publishErr error
 		if scope.writer.node.Enabled {
-			if err := scope.writer.publishPendingUsage(ctx, scope.usageID, request, requestExec, usageCopy, capturedAt, cost); err != nil {
-				return nil, fmt.Errorf("publish captured usage (upstream may have executed): %w", err)
-			}
+			publishErr = scope.writer.publishPendingUsage(ctx, scope.usageID, &requestCopy, &executionCopy, usageCopy, capturedAt, cost)
 		}
+		// Even a failed/ambiguous publication transfers the frozen fact to the
+		// reserved required writer. Its retry loop owns publication and handoff;
+		// no recovery attempt is allowed to call the provider again.
 		err = scope.submitUsage(ctx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
 			actualID, err := scope.resolve(requestCopy.ID)
 			if scope.writer.node.Enabled {
+				if err := scope.writer.publishPendingUsage(workerCtx, scope.usageID, &requestCopy, &executionCopy, usageCopy, capturedAt, cost); err != nil {
+					return err
+				}
 				return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID)
 			}
 			if err != nil {
@@ -329,6 +338,9 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 			_, err = s.CreateUsageLogFromRequest(workerCtx, &persistedRequest, &executionCopy, &usageCopy)
 			return err
 		})
+		if scope.writer.node.Enabled && (publishErr != nil || err != nil) {
+			return nil, &ExecutedAccountingError{Cause: errors.Join(publishErr, err)}
+		}
 		return nil, err
 	}
 

@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/ent/request"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/llm/oauth"
 )
@@ -40,7 +44,11 @@ func (svc *ChannelService) AuthorizeExecutionChannel(ctx context.Context, id int
 	if err != nil {
 		return false, err
 	}
-	return ch.Status == channel.StatusEnabled && KeyAllowsChannel(key, ch.ID, ch.Tags), nil
+	// Only the internal explicit management-test source retains the original
+	// disabled-channel contract. The owner and current tags remain mandatory.
+	source, _ := contexts.GetSource(ctx)
+	managementTest := source == request.SourceTest && authz.RequireScope(ctx, scopes.ScopeReadChannels) == nil
+	return (ch.Status == channel.StatusEnabled || managementTest) && KeyAllowsChannel(key, ch.ID, ch.Tags), nil
 }
 
 // Validate identity placement before constructing any provider. Stable identities

@@ -18,10 +18,34 @@ type ClusterHandlers struct {
 	channels *biz.ChannelService
 	tester   *orchestrator.TestChannelOrchestrator
 	videos   *biz.VideoService
+	quota    *biz.ProviderQuotaService
 }
 
-func NewClusterHandlers(models *biz.ModelService, channels *biz.ChannelService, tester *orchestrator.TestChannelOrchestrator, videos *biz.VideoService) *ClusterHandlers {
-	return &ClusterHandlers{models: models, channels: channels, tester: tester, videos: videos}
+func NewClusterHandlers(models *biz.ModelService, channels *biz.ChannelService, tester *orchestrator.TestChannelOrchestrator, videos *biz.VideoService, quota *biz.ProviderQuotaService) *ClusterHandlers {
+	return &ClusterHandlers{models: models, channels: channels, tester: tester, videos: videos, quota: quota}
+}
+
+func (h *ClusterHandlers) ChannelQuotaReset(c *gin.Context) {
+	if err := authz.RequireScope(c.Request.Context(), scopes.ScopeWriteChannels); err != nil {
+		JSONError(c, http.StatusForbidden, err)
+		return
+	}
+	var input biz.OwnerQuotaResetRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	if err := c.ShouldBindJSON(&input); err != nil {
+		JSONError(c, http.StatusBadRequest, err)
+		return
+	}
+	if !h.channels.OwnsChannel(input.ChannelID) {
+		JSONError(c, http.StatusConflict, h.channels.ChannelOwnerError(input.ChannelID))
+		return
+	}
+	if err := h.quota.ResetChannelQuotaNow(c.Request.Context(), input.ChannelID); err != nil {
+		JSONError(c, http.StatusBadRequest, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, true)
 }
 
 func WithClusterCallerAuthorization() gin.HandlerFunc {
@@ -115,7 +139,7 @@ func DataNodeRoutes(node cluster.Config) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if path == "/health" || path == "/__portway/capabilities" || path == "/__axon/admin/channel-test" || path == "/__axon/admin/channel-health" || path == "/__axon/openapi/channel-test" || path == "/__axon/openapi/channel-health" || path == "/__axon/admin/playground/chat" || path == "/__axon/admin/channel-models" || path == "/__axon/admin/channel-sync" || path == "/__axon/openapi/channel-models" || path == "/__axon/openapi/channel-sync" || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/jina/") || strings.HasPrefix(path, "/doubao/") || strings.HasPrefix(path, "/gemini/") || strings.HasPrefix(path, "/anthropic/") {
+		if path == "/health" || path == "/__portway/capabilities" || path == "/__axon/admin/channel-quota-reset" || path == "/__axon/openapi/channel-quota-reset" || path == "/__axon/admin/channel-test" || path == "/__axon/admin/channel-health" || path == "/__axon/openapi/channel-test" || path == "/__axon/openapi/channel-health" || path == "/__axon/admin/playground/chat" || path == "/__axon/admin/channel-models" || path == "/__axon/admin/channel-sync" || path == "/__axon/openapi/channel-models" || path == "/__axon/openapi/channel-sync" || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/jina/") || strings.HasPrefix(path, "/doubao/") || strings.HasPrefix(path, "/gemini/") || strings.HasPrefix(path, "/anthropic/") {
 			c.Next()
 			return
 		}

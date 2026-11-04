@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/looplj/axonhub/internal/ent"
@@ -18,6 +19,9 @@ type PersistenceState struct {
 	APIKey *ent.APIKey
 
 	cyberSession *cyberSessionRequestState
+	// Accounting errors occur after execution; no provider retry is safe.
+	accountingFailed  atomic.Bool
+	accountingBarrier *accountingCaptureBarrier
 
 	RequestService      *biz.RequestService
 	UsageLogService     *biz.UsageLogService

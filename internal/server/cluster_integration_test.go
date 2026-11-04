@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/looplj/axonhub/internal/authz"
@@ -24,6 +28,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
+	"github.com/looplj/axonhub/internal/ent/hook"
 	"github.com/looplj/axonhub/internal/ent/migrate"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/ent/user"
@@ -136,6 +141,14 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 		raw, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(raw), `"stream":true`) {
 			w.Header().Set("Content-Type", "text/event-stream")
+			if strings.Contains(r.URL.Path, "chat/completions") {
+				fmt.Fprint(w, "data: {\"id\":\"chat_test\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"partial\"}}]}\n\ndata: {\"id\":\"chat_test\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+				w.(http.Flusher).Flush()
+				fmt.Fprint(w, "data: {\"id\":\"chat_test\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\ndata: [DONE]\n\n")
+				return
+			}
+			fmt.Fprint(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_test\",\"object\":\"response\",\"model\":\"m\",\"status\":\"in_progress\",\"output\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_test\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n")
+			w.(http.Flusher).Flush()
 			fmt.Fprint(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"object\":\"response\",\"model\":\"m\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}}\n\n")
 			return
 		}
@@ -147,9 +160,17 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 		return a.Channel.Create().SetName(name).SetStatus(channel.StatusEnabled).SetType(channel.TypeOpenaiResponses).SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{APIKey: key}).SetSupportedModels([]string{model}).SetTags([]string{"allowed"}).SetDefaultTestModel(model).SaveX(ctx)
 	}
 	ca, cb := makeChannel("a", "synthetic-a", "other"), makeChannel("b", "synthetic-b", "m")
+	fallback := makeChannel("b-fallback", "synthetic-fallback", "m")
+	a.Channel.UpdateOne(fallback).SetStatus(channel.StatusDisabled).SaveX(ctx)
 	videoChannel := a.Channel.Create().SetName("b-video").SetStatus(channel.StatusEnabled).SetType(channel.TypeOpenai).SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{APIKey: "synthetic-video"}).SetSupportedModels([]string{"video"}).SetTags([]string{"allowed"}).SetDefaultTestModel("video").SaveX(ctx)
 	doubaoChannel := a.Channel.Create().SetName("b-doubao").SetStatus(channel.StatusEnabled).SetType(channel.TypeDoubao).SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{APIKey: "synthetic-doubao"}).SetSupportedModels([]string{"seedance"}).SetTags([]string{"allowed"}).SetDefaultTestModel("video").SaveX(ctx)
 	lagVideoChannel := a.Channel.Create().SetName("a-video").SetStatus(channel.StatusEnabled).SetType(channel.TypeOpenai).SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{APIKey: "synthetic-lag-video"}).SetSupportedModels([]string{"lag-video"}).SetTags([]string{"allowed"}).SetDefaultTestModel("video").SaveX(ctx)
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodNone, jwt.MapClaims{"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "synthetic-reset"}})
+	syntheticJWT, err := jwtToken.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	require.NoError(t, err)
+	resetChannel := a.Channel.Create().SetName("b-reset").SetStatus(channel.StatusDisabled).SetType(channel.TypeCodex).SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{OAuth: &objects.OAuthCredentials{AccessToken: syntheticJWT}}).SetSupportedModels([]string{"reset"}).SetDefaultTestModel("reset").SaveX(ctx)
+	var controlQuotaCalls, ownerCreditGets, ownerResets atomic.Int32
+	var unknownReset atomic.Bool
 	ids := []string{"alias", "m", "other", "video", "seedance", "lag-video"}
 	profile := &objects.ProjectProfiles{ActiveProfile: "active", Profiles: []objects.ProjectProfile{{Name: "active", ModelIDs: &ids, ChannelTags: []string{"allowed"}}}}
 	a.Project.UpdateOne(group).SetProfiles(profile).SaveX(ctx)
@@ -162,6 +183,8 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	require.NoError(t, err)
 	nodes := map[string]string{"a": "http://" + la.Addr().String(), "b": "http://" + lb.Addr().String()}
 	bindings := map[int]cluster.ChannelBinding{ca.ID: {Owner: "a", Identity: "account-a"}, cb.ID: {Owner: "b", Identity: "account-b"}, videoChannel.ID: {Owner: "b", Identity: "video-b"}, doubaoChannel.ID: {Owner: "b", Identity: "doubao-b"}, lagVideoChannel.ID: {Owner: "a", Identity: "video-a"}}
+	bindings[resetChannel.ID] = cluster.ChannelBinding{Owner: "b", Identity: "reset-b"}
+	bindings[fallback.ID] = cluster.ChannelBinding{Owner: "b", Identity: "fallback-b"}
 	cache := xcache.Config{Mode: xcache.ModeRedis, Namespace: schema, Redis: xredis.Config{URL: redisURL}}
 	bootstrap := biz.NewSystemService(biz.SystemServiceParams{Ent: a, CacheConfig: cache})
 	require.NoError(t, bootstrap.SetSecretKey(ctx, "synthetic-cluster-jwt-key"))
@@ -217,12 +240,35 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 		worker := video_storage.NewWorker(video_storage.Params{Ent: client, SystemService: system, DataStorageService: storage, VideoService: videos})
 		require.NoError(t, worker.RegisterScheduledTasks(ctx, schedule))
 		tester := orchestrator.NewTestChannelOrchestrator(channels, requests, system, usage, protection, hc)
-		admin := gql.NewGraphqlHandlers(gql.Dependencies{Ent: client, AuthService: auth, APIKeyService: keys, UserService: users, SystemService: system, ProjectService: projects, ChannelService: channels, RequestService: requests, DataStorageService: storage, UsageLogService: usage, ModelService: models, HttpClient: hc})
+		quotaHTTP := httpclient.NewHttpClientWithClient(&http.Client{Transport: clusterTestTransport(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Host != "chatgpt.com" {
+				return nil, fmt.Errorf("unexpected quota host %s", r.URL.Host)
+			}
+			if id != "b" {
+				controlQuotaCalls.Add(1)
+				return nil, errors.New("non-owner quota I/O")
+			}
+			raw := `{}`
+			if strings.HasSuffix(r.URL.Path, "/rate-limit-reset-credits") {
+				ownerCreditGets.Add(1)
+				raw = `{"credits":[{"id":"synthetic-credit","status":"available"}],"available_count":1}`
+			} else if r.Method == http.MethodPost {
+				ownerResets.Add(1)
+				if unknownReset.Load() {
+					return nil, io.EOF
+				}
+				raw = `{"code":"reset","windows_reset":1}`
+			}
+			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(raw))}, nil
+		})})
+		t.Cleanup(quotaHTTP.CloseIdleConnections)
+		providerQuota := biz.NewProviderQuotaService(biz.ProviderQuotaServiceParams{Ent: client, SystemService: system, HttpClient: quotaHTTP, Node: node})
+		admin := gql.NewGraphqlHandlers(gql.Dependencies{ProviderQuotaService: providerQuota, Ent: client, AuthService: auth, APIKeyService: keys, UserService: users, SystemService: system, ProjectService: projects, ChannelService: channels, RequestService: requests, DataStorageService: storage, UsageLogService: usage, ModelService: models, HttpClient: hc})
 		traces := biz.NewTraceService(biz.TraceServiceParams{Ent: client, RequestService: requests})
 		gateway := New(Config{Debug: true, RequestTimeout: 5 * time.Second, LLMRequestTimeout: 5 * time.Second})
 		ip, err := middleware.NewIPAccessControlConfig(false, nil, "")
 		require.NoError(t, err)
-		SetupRoutes(gateway, Handlers{OpenAI: openai, Doubao: doubao, Playground: playground, Graphql: admin, Cluster: api.NewClusterHandlers(models, channels, tester, videos)}, client, Services{TraceService: traces, ThreadService: biz.NewThreadService(client, traces), AuthService: auth, SystemService: system, Node: node}, ip)
+		SetupRoutes(gateway, Handlers{OpenAI: openai, Doubao: doubao, Playground: playground, Graphql: admin, Cluster: api.NewClusterHandlers(models, channels, tester, videos, providerQuota)}, client, Services{TraceService: traces, ThreadService: biz.NewThreadService(client, traces), AuthService: auth, SystemService: system, Node: node}, ip)
 		server := httptest.NewUnstartedServer(gateway.Engine)
 		server.Listener = listener
 		server.Start()
@@ -484,7 +530,166 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	code, raw = requestHTTP(nodes["a"], "DELETE", "/v1/videos/unknown-delete", key.Key, "")
 	require.Equal(t, 500, code, string(raw))
 	require.Equal(t, int32(4), deletes.Load(), "an upstream-delivered DELETE with an unknown result is never replayed")
+
+	t.Run("disabled management test keeps original scope and owner", func(t *testing.T) {
+		before := calls.Load()
+		a.Channel.UpdateOneID(cb.ID).SetStatus(channel.StatusDisabled).SaveX(ctx)
+		code, raw := requestHTTP(nodes["b"], "POST", "/v1/responses", legacy.Key, `{"model":"m","input":"blocked"}`)
+		require.NotEqual(t, 200, code, string(raw))
+		require.Equal(t, before, calls.Load())
+		code, raw = requestHTTP(nodes["a"], "POST", "/admin/graphql", token, fmt.Sprintf(`{"query":"mutation { testChannel(input:{channelID:\"gid://axonhub/Channel/%d\"}) { success } }"}`, cb.ID))
+		require.Equal(t, 200, code, string(raw))
+		require.Contains(t, string(raw), `"success":true`)
+		require.Equal(t, before+1, calls.Load())
+		a.Channel.UpdateOneID(cb.ID).SetStatus(channel.StatusEnabled).SaveX(ctx)
+	})
+
+	t.Run("quota reset only on owner", func(t *testing.T) {
+		query := fmt.Sprintf(`{"query":"mutation { resetChannelQuotaNow(channelID:\"gid://axonhub/Channel/%d\") }"}`, resetChannel.ID)
+		code, raw := requestHTTP(nodes["a"], "POST", "/admin/graphql", token, query)
+		require.Equal(t, 200, code, string(raw))
+		require.Contains(t, string(raw), `"resetChannelQuotaNow":true`)
+		require.Zero(t, controlQuotaCalls.Load())
+		require.Equal(t, int32(1), ownerResets.Load())
+		require.Equal(t, int32(1), ownerCreditGets.Load())
+		for _, origin := range []string{nodes["a"], nodes["b"]} {
+			code, _ = requestHTTP(origin, "POST", "/__axon/openapi/channel-quota-reset", noScope.Key, fmt.Sprintf(`{"channel_id":%d}`, resetChannel.ID))
+			require.Equal(t, 403, code)
+		}
+		a.User.UpdateOneID(owner.ID).SetStatus(user.StatusDeactivated).SaveX(ctx)
+		code, _ = requestHTTP(nodes["b"], "POST", "/__axon/admin/channel-quota-reset", token, fmt.Sprintf(`{"channel_id":%d}`, resetChannel.ID))
+		require.Equal(t, 401, code)
+		a.User.UpdateOneID(owner.ID).SetStatus(user.StatusActivated).SaveX(ctx)
+		require.Equal(t, int32(1), ownerResets.Load())
+		unknownReset.Store(true)
+		code, raw = requestHTTP(nodes["a"], "POST", "/admin/graphql", token, query)
+		require.Equal(t, 200, code)
+		require.Contains(t, string(raw), `"errors"`)
+		require.Equal(t, int32(2), ownerResets.Load(), "unknown consume result is not replayed")
+		require.Zero(t, controlQuotaCalls.Load())
+	})
+
+	// F1: only the pending create is unavailable; all original request/terminal
+	// persistence stays real. The recovery job must own the very same fact.
+	a.Channel.UpdateOneID(fallback.ID).SetStatus(channel.StatusEnabled).SaveX(ctx)
+	require.NoError(t, ib.channels.ReloadEnabledChannelsCache(ctx))
+	retry := ib.system.RetryPolicyOrDefault(ctx)
+	retry.Enabled, retry.MaxChannelRetries, retry.MaxSingleChannelRetries, retry.RetryDelayMs = true, 2, 2, 0
+	require.NoError(t, ib.system.SetRetryPolicy(ctx, retry))
+	var unavailable atomic.Bool
+	var publicationAttempts atomic.Int32
+	var factsMu sync.Mutex
+	frozenFacts := map[string]string{}
+	b.PendingUsage.Use(func(next ent.Mutator) ent.Mutator {
+		return hook.PendingUsageFunc(func(ctx context.Context, m *ent.PendingUsageMutation) (ent.Value, error) {
+			if m.Op().Is(ent.OpCreate) {
+				publicationAttempts.Add(1)
+				id, _ := m.ID()
+				stamp, _ := m.CapturedAt()
+				tokens, _ := m.TotalTokens()
+				cost, hasCost := m.TotalCost()
+				usage, _ := m.Usage()
+				items, _ := m.CostItems()
+				price, _ := m.PriceReferenceID()
+				raw, marshalErr := json.Marshal([]any{stamp, tokens, cost, hasCost, usage, items, price})
+				if marshalErr != nil {
+					return nil, marshalErr
+				}
+				factsMu.Lock()
+				if frozen, exists := frozenFacts[id]; exists && frozen != string(raw) {
+					t.Errorf("usage %s changed across publication retries", id)
+				} else {
+					frozenFacts[id] = string(raw)
+				}
+				factsMu.Unlock()
+				if unavailable.Load() {
+					return nil, errors.New("synthetic pending publication unavailable")
+				}
+			}
+			return next.Mutate(ctx, m)
+		})
+	})
+	for _, protocol := range []string{"http", "sse", "ws", "chat_sse"} {
+		t.Run("executed accounting failure "+protocol, func(t *testing.T) {
+			require.NoError(t, ib.writer.Wait(ctx))
+			if protocol == "chat_sse" {
+				a.Channel.UpdateOneID(cb.ID).SetStatus(channel.StatusDisabled).SaveX(ctx)
+				a.Channel.UpdateOneID(fallback.ID).SetType(channel.TypeOpenai).SaveX(ctx)
+				require.NoError(t, ib.channels.ReloadEnabledChannelsCache(ctx))
+			}
+			beforeCalls, beforeUsage := calls.Load(), a.UsageLog.Query().CountX(ctx)
+			beforeIDs := a.Request.Query().IDsX(ctx)
+			beforeAttempts := publicationAttempts.Load()
+			unavailable.Store(true)
+			defer unavailable.Store(false)
+			if protocol == "ws" {
+				conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(nodes["b"], "http")+"/v1/responses", http.Header{"Authorization": {"Bearer " + legacy.Key}})
+				require.NoError(t, err)
+				defer conn.Close()
+				require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+				require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"m","input":"accounting"}`)))
+				for {
+					_, raw, err = conn.ReadMessage()
+					require.NoError(t, err)
+					require.NotContains(t, string(raw), `"execution":"not_executed"`)
+					require.NotContains(t, string(raw), `"type":"response.completed"`)
+					var event map[string]any
+					require.NoError(t, json.Unmarshal(raw, &event))
+					if event["type"] == "response.failed" || event["type"] == "error" {
+						require.Contains(t, string(raw), `"code":"accounting_failed"`)
+						break
+					}
+				}
+			} else {
+				body := `{"model":"m","input":"accounting"}`
+				if protocol == "sse" {
+					body = `{"model":"m","input":"accounting","stream":true}`
+				}
+				path := "/v1/responses"
+				if protocol == "chat_sse" {
+					path, body = "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"accounting"}],"stream":true}`
+				}
+				code, raw = requestHTTP(nodes["b"], "POST", path, legacy.Key, body)
+				if protocol == "http" {
+					require.Equal(t, 500, code, string(raw))
+				} else {
+					require.Equal(t, 200, code, "the partial stream is already established")
+					require.Contains(t, string(raw), "partial")
+					require.True(t, strings.Contains(string(raw), "response.failed") || strings.Contains(string(raw), "event:error"), string(raw))
+					require.Contains(t, string(raw), "accounting")
+					require.NotContains(t, string(raw), "Internal server error")
+					require.NotContains(t, string(raw), `"type":"response.completed"`)
+					require.NotContains(t, string(raw), "[DONE]")
+				}
+				require.NotContains(t, string(raw), `"execution":"not_executed"`)
+			}
+			require.Equal(t, beforeCalls+1, calls.Load(), "accounting failure must not replay provider")
+			require.Zero(t, a.PendingUsage.Query().CountX(ctx))
+			require.Equal(t, beforeUsage, a.UsageLog.Query().CountX(ctx))
+			unavailable.Store(false)
+			drain, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			require.NoError(t, ib.writer.Wait(drain))
+			require.Equal(t, beforeUsage+1, a.UsageLog.Query().CountX(ctx))
+			require.Zero(t, a.PendingUsage.Query().CountX(ctx))
+			require.Equal(t, beforeCalls+1, calls.Load())
+			created := a.Request.Query().Where(request.IDNotIn(beforeIDs...)).OnlyX(ctx)
+			require.Equal(t, request.StatusFailed, created.Status)
+			usage := a.UsageLog.Query().Order(ent.Desc("id")).FirstX(ctx)
+			require.Equal(t, int64(5), usage.TotalTokens)
+			require.Nil(t, usage.TotalCost, "unknown price must remain NULL")
+			require.Greater(t, publicationAttempts.Load()-beforeAttempts, int32(1), "same fact must be retried after recovery")
+			t.Logf("%s provider=1 recovered usage=1 pending=0 terminal=failed publication_attempts=%d", protocol, publicationAttempts.Load()-beforeAttempts)
+		})
+	}
+	factsMu.Lock()
+	require.Len(t, frozenFacts, 4, "one stable usage ID per executed generation")
+	factsMu.Unlock()
 }
+
+type clusterTestTransport func(*http.Request) (*http.Response, error)
+
+func (f clusterTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // Capture the actual scheduled worker callback without waiting a minute or
 // adding a production test-only entry point. All other executor methods are idle.

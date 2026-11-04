@@ -20,6 +20,14 @@ import (
 )
 
 func TestObservationTerminalUsageDoesNotRequireNormalizedDrain(t *testing.T) {
+	t.Run("chat final usage excludes content and unknown fields", func(t *testing.T) {
+		var captured streamObservationMeta
+		captured.observe(&httpclient.StreamEvent{Data: []byte(`{"id":"chat-terminal","choices":[{"delta":{"content":"` + strings.Repeat("x", 1<<20) + `"}}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18,"prompt_tokens_details":{"cached_tokens":3},"untrusted_extra":"` + strings.Repeat("y", 1<<20) + `"}}`)})
+		require.Less(t, len(captured.final.Data), 1024)
+		usage := captured.chatUsage.ToLLMUsage()
+		require.Equal(t, int64(18), usage.TotalTokens)
+		require.Equal(t, int64(3), usage.PromptTokensDetails.CachedTokens)
+	})
 	t.Run("responses terminal contains a large output", func(t *testing.T) {
 		var captured streamObservationMeta
 		event := &httpclient.StreamEvent{Data: []byte(`{"type":"response.completed","response":{"id":"resp-terminal","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"` + strings.Repeat("x", 1<<20) + `"}]}],"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"input_tokens_details":{"cached_tokens":3}}}}`)}

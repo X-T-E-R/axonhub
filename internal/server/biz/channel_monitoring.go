@@ -85,8 +85,21 @@ func (svc *ChannelService) pruneMonitoringEvents(ctx context.Context, retentionD
 }
 
 func (svc *ChannelService) monitoringRuleDue(ctx context.Context, rule MonitoringRule, now time.Time) (bool, error) {
+	targets, err := svc.monitoringRuleTargetChannels(ctx, rule)
+	if err != nil {
+		return false, err
+	}
+	ids := make([]int, 0, len(targets))
+	for _, ch := range targets {
+		if svc.node.Owns(ch.ID) {
+			ids = append(ids, ch.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return false, nil
+	}
 	latest, err := svc.entFromContext(ctx).ChannelKeyMonitoringEvent.Query().
-		Where(channelkeymonitoringevent.RuleIDEQ(rule.ID)).
+		Where(channelkeymonitoringevent.RuleIDEQ(rule.ID), channelkeymonitoringevent.ChannelIDIn(ids...)).
 		Order(ent.Desc(channelkeymonitoringevent.FieldCheckedAt)).
 		First(ctx)
 	if ent.IsNotFound(err) {

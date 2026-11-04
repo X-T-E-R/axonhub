@@ -66,7 +66,7 @@ DELETE 已发送而结果未知时不换节点重发。已有完成状态在删�
 
 ### 管理执行
 
-原管理 GraphQL 的 channel test、key-health、model fetch/sync 及显式渠道 playground 可在 control 使用；实际 provider 操作分发给 owner，并重新认证原调用者。内部 `POST /__axon/admin/channel-{test,health,models,sync}` 沿 JWT 链，对应 `/__axon/openapi/...` 沿原 OpenAPI principal 链；`POST /__axon/admin/playground/chat` 保留 JWT/project/source。scope 不足在执行前拒绝，管理页面、门户、注册仍只在 control。
+原管理 GraphQL 的 channel test、key-health、model fetch/sync、`resetChannelQuotaNow` 及显式渠道 playground 可在 control 使用；实际 provider 操作分发给 owner，并重新认证原调用者。内部 `POST /__axon/admin/channel-{test,health,models,sync,quota-reset}` 沿 JWT 链，对应 `/__axon/openapi/...` 沿原 OpenAPI principal 链；`POST /__axon/admin/playground/chat` 保留 JWT/project/source。quota-reset 输入仅 `{"channel_id":<ID>}`，需原 `write_channels`，成功返回 `200 true`；scope 不足为 403、主体失效为 401、非 owner 为 409，均不请求上游；已发送但结果未知的 reset 不重放。具原 `read_channels` 的显式管理 test 仍可测试 disabled 渠道，不能越过 owner/当前标签限制；普通推理继续要求 fresh enabled。管理页面、门户、注册仍只在 control。
 
 ## 不把正文经共享 PG 回传 lag
 
@@ -109,9 +109,9 @@ query {
 
 完整步骤见 [task49-accounting-design.md](task49-accounting-design.md)。Ent 新增 `pending_usages`，没有父记录 cascade，不含请求/回复/headers/凭据。captured usage 先同步发布紧凑事实，再入本地异步队列；writer 在同一事务内锁 pending、写 usage_logs、删除 pending。quota 在 repeatable-read 快照里读取两表，窗口使用 capture time，未知 cost 保持 NULL，不做预测预扣。无 quota 的实际用量也保留。
 
-进程重启只恢复自己 node 的 pending；丢失异步 parent 时建紧凑 terminal skeleton，再原子交接。pending 不按时间过期。PG 不可用时发布失败会返回 accounting error，上游可能已执行，调用者不重放。
+进程重启只恢复自己 node 的 pending；丢失异步 parent 时建紧凑 terminal skeleton，再原子交接。pending 不按时间过期。同步发布失败也把同一冻结 usage ID/时间/tokens/nullable cost 交给已有 required writer 重试发布与交接；HTTP 返回已执行的 accounting error，SSE/WS 在正常完成前显露失败，网关与调用者均不重放上游。
 
-回退旧单节点 reader 前，停止新请求并 drain 两节点；用新 writer 恢复所有 pending，确认表空，再停数据节点并切回旧入口。保留 additive 表，旧 binary 忽略它。pending 未清空时不能启旧 quota reader；继续新 reader 或恢复维护前 PG 快照及其匹配的应用状态。
+新 admission 开始后，回退必须保留最新 PG 及其中全部 usage/pending、账号和配置事实。先停止 admission、drain 全节点，再用新 writer 完成每个 node 的 pending 交接；确认表空后，停数据节点并让旧 reader 使用同一最新 PG。保留 additive 表，旧 binary 忽略它。drain 或交接受阻时保持新 reader/维护态与 admission 关闭，不启旧 quota reader，不还原维护前快照丢弃已执行用量。
 
 ## 验证与接续
 
@@ -121,6 +121,8 @@ query {
 - `go test ./internal/server -run '^TestCluster' -count=1 -v`：加入管理 model fetch/sync 后复检同一双服务闭环，证明 provider 调用只在 owner；上游接收 DELETE 后断开连接，断言只发送一次，通过（`bash-zx5et1zv`）。
 - `go test ./internal/server -run '^TestClusterTwoHTTPServicesAuthorizationAndOwnership$' -count=1 -v`：本次增量以单次真实 admin GraphQL 更新取代各实例重复设置，证明共享五 false、保留 cleanup、原 query 读回及后续无正文/实际 usage 闭环，通过（`bash-9wlpxl07`，3.91s）。
 - `go test ./conf ./internal/pkg/xcache ./internal/server/api ./internal/server/biz ./internal/server/orchestrator ./internal/server/scheduler ./internal/server/video_storage -run 'TestCluster|TestForwardingObservation|TestPortalMappedCatalog|TestOIDCService_PKCE_Flow|TestDataStorageService_GetDataStorageByID_WithRedis|TestGroupAccess|TestQuota' -count=1`：相关旧合同与真实 Redis 两 client 的域隔离/定向 Clear/Invalidate，通过（`bash-0ezm3u3o`）。API 在此 regex 下只有编译，video_storage 的真实回调由双服务测试覆盖。
+- F1/F2/F4 准入修复：`go test ./internal/server ./internal/server/api -run '^TestClusterTwoHTTPServicesAuthorizationAndOwnership$|TestWriteSSEStream_(GenuineErrorDuringSemanticGraceWins|ErrorFormatsAsJSON)$|TestResponsesWebSocketActualPipelineProviderErrorBoundary$' -count=1 -v -timeout 90s` 通过（`bash-zp45xgd6`，双服务 6.71s）。启用 same/cross-channel retry 与本 owner 备用候选后，故障 HTTP 500、Responses SSE 失败、Chat SSE `event:error`、WS `accounting_failed` 均不含 `not_executed`，没有正常完成 terminal；每代 provider=1，恢复 usage=1/pending=0，冻结 ID/时间/tokens/nullable cost 不变。真实管理 RPC 证明 disabled test 可用而普通推理被拒，quota reset control=0/owner=1、拒绝=0、unknown 不重放。
+- F3：`TestClusterMonitoringOwnerSchedule` 与 `TestForwardingObservation*` 通过（`bash-dq31dnpm`）；原监控反例连续三轮 a 比 b 早 1 秒，双方各执行本 owner 渠道一次。受影响流/WS/pass-through/GroupAccess 回归通过（`bash-v106etue`），保 standalone HTTP 不等待 transformed Close；Chat usage-only 紧凑投影与受影响流回归通过（`bash-shz9uq2l` 的 orchestrator 包），不保存 content/未知大字段。
 - Redis store 定向单测覆盖 namespace/domain、同标签跨域、安全状态 legacy raw key 兼容、300 keys 的 SCAN 清理；不再调用 FLUSHALL。OIDC、OAuth state/device 与 CyberSessionBlock 显式保留原安全状态 key，不从通用 cache 域隐式双读。
 
 测试环境变量：`AXONHUB_TEST_PG_DSN`、`AXONHUB_TEST_PG_DISPOSABLE=1`、`AXONHUB_TEST_REDIS_URL`。每个 PG 测试只建/删自己的随机 schema，Redis 测试只删自己的 namespace/合成键。上述任务 ID 对应本次 session 的完整执行日志。

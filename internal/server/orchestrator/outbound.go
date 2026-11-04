@@ -40,19 +40,23 @@ type OutboundPersistentStream struct {
 	request     *ent.Request
 	requestExec *ent.RequestExecution
 
-	transformer     transformer.Outbound
-	perf            *biz.PerformanceRecord
-	responseChunks  []*httpclient.StreamEvent
-	observation     *biz.ObservationStreamBuffer
-	streamMeta      llm.ResponseMeta
-	usageMeta       streamObservationMeta
-	channel         *biz.Channel
-	closed          bool
-	state           *PersistenceState
-	streamCompleted bool
-	providerStatus  streamTerminalStatus
-	failureInfoOnce sync.Once
-	failureInfo     *biz.ExecutionErrorInfo
+	transformer       transformer.Outbound
+	perf              *biz.PerformanceRecord
+	responseChunks    []*httpclient.StreamEvent
+	observation       *biz.ObservationStreamBuffer
+	streamMeta        llm.ResponseMeta
+	usageMeta         streamObservationMeta
+	currentEvent      *httpclient.StreamEvent
+	accountingErr     error
+	accountingBarrier *accountingCaptureBarrier
+	usageCaptured     bool
+	channel           *biz.Channel
+	closed            bool
+	state             *PersistenceState
+	streamCompleted   bool
+	providerStatus    streamTerminalStatus
+	failureInfoOnce   sync.Once
+	failureInfo       *biz.ExecutionErrorInfo
 }
 
 var _ streams.Stream[*httpclient.StreamEvent] = (*OutboundPersistentStream)(nil)
@@ -73,19 +77,20 @@ func NewOutboundPersistentStream(
 		channel = state.CurrentCandidate.Channel
 	}
 	s := &OutboundPersistentStream{
-		ctx:             ctx,
-		stream:          stream,
-		request:         request,
-		requestExec:     requestExec,
-		RequestService:  requestService,
-		UsageLogService: usageLogService,
-		transformer:     outboundTransformer,
-		perf:            perf,
-		responseChunks:  make([]*httpclient.StreamEvent, 0),
-		closed:          false,
-		state:           state,
-		channel:         channel,
-		observation:     requestService.NewObservationStreamBuffer(ctx, channel, true),
+		ctx:               ctx,
+		stream:            stream,
+		request:           request,
+		requestExec:       requestExec,
+		RequestService:    requestService,
+		UsageLogService:   usageLogService,
+		transformer:       outboundTransformer,
+		perf:              perf,
+		responseChunks:    make([]*httpclient.StreamEvent, 0),
+		closed:            false,
+		state:             state,
+		accountingBarrier: state.accountingBarrier,
+		channel:           channel,
+		observation:       requestService.NewObservationStreamBuffer(ctx, channel, true),
 	}
 	state.registerFailedStreamEvidence(s)
 
@@ -104,16 +109,22 @@ func captureProviderStreamResponse(outbound *PersistentOutboundTransformer) pipe
 }
 
 func (ts *OutboundPersistentStream) Next() bool {
-	return ts.stream.Next()
-}
-
-func (ts *OutboundPersistentStream) Current() *httpclient.StreamEvent {
+	if ts.accountingErr != nil {
+		return false
+	}
+	if !ts.stream.Next() {
+		if ts.stream.Err() == nil {
+			ts.captureUsageBeforeTerminal()
+		}
+		return false
+	}
 	event := ts.stream.Current()
+	ts.currentEvent = event
 	if event != nil {
 		// For raw binary audio chunks (TTS stream_format=audio), persist only a size
 		// summary to avoid buffering the full audio payload in memory.
+		ts.usageMeta.observe(event)
 		if ts.observation != nil {
-			ts.usageMeta.observe(event)
 			if event.Type == "speech.audio.done" || event.Type == httpclient.BinaryStreamDoneEventType {
 				ts.streamMeta.ID = llm.SpeechStreamResponseID
 			}
@@ -136,11 +147,58 @@ func (ts *OutboundPersistentStream) Current() *httpclient.StreamEvent {
 		}
 	}
 
-	return event
+	// Hold the actual protocol completion, not an individual choice's finish
+	// reason: usage can arrive in a later frame (and Gemini has many candidates).
+	if event != nil {
+		kind := event.Type
+		if kind == "" {
+			kind = gjson.GetBytes(event.Data, "type").String()
+		}
+		chatUsage := (ts.transformer.APIFormat() == llm.APIFormatOpenAIChatCompletion || ts.transformer.APIFormat() == llm.APIFormatOpenAICompletion) && gjson.GetBytes(event.Data, "usage").IsObject()
+		anthropicFinish := kind == "message_delta" && gjson.GetBytes(event.Data, "delta.stop_reason").Type == gjson.String
+		if chatUsage || anthropicFinish || bytes.Equal(event.Data, llm.DoneStreamEvent.Data) || kind == "response.completed" || kind == "message_stop" || kind == "speech.audio.done" || kind == httpclient.BinaryStreamDoneEventType {
+			ts.captureUsageBeforeTerminal()
+		}
+	}
+	return ts.accountingErr == nil
 }
 
+func (ts *OutboundPersistentStream) Current() *httpclient.StreamEvent { return ts.currentEvent }
+
 func (ts *OutboundPersistentStream) Err() error {
-	return ts.stream.Err()
+	return errors.Join(ts.accountingErr, ts.stream.Err())
+}
+
+func (ts *OutboundPersistentStream) captureUsageBeforeTerminal() {
+	if !biz.ForwardingAccountingEnabled(ts.ctx) {
+		return
+	}
+	defer func() { ts.accountingBarrier.finish(ts.accountingErr) }()
+	if ts.usageCaptured || ts.requestExec == nil {
+		return
+	}
+	meta := ts.streamMeta
+	// These tiny projections contain the final provider usage even before its
+	// transformer has consumed the held terminal. Never retain content here.
+	if ts.usageMeta.chatUsage != nil && (ts.transformer.APIFormat() == llm.APIFormatOpenAIChatCompletion || ts.transformer.APIFormat() == llm.APIFormatOpenAICompletion) {
+		// The chat aggregator requires a choice (even for usage-only frames).
+		// Reuse its typed usage conversion without inventing response content.
+		meta.Usage = ts.usageMeta.chatUsage.ToLLMUsage()
+	} else if chunks := ts.usageMeta.chunks(); len(chunks) > 0 {
+		if _, projected, err := ts.transformer.AggregateStreamChunks(ts.ctx, ts.state.RawProviderRequest, chunks); err == nil && projected.Usage != nil {
+			meta.Usage = projected.Usage
+		}
+	}
+	if meta.Usage == nil {
+		return
+	}
+	ts.usageCaptured = true
+	ctx, cancel := xcontext.DetachWithTimeout(ts.ctx, 10*time.Second)
+	defer cancel()
+	_, ts.accountingErr = ts.UsageLogService.CreateUsageLogFromRequest(ctx, ts.request, ts.requestExec, meta.Usage)
+	if ts.accountingErr != nil {
+		ts.state.accountingFailed.Store(true)
+	}
 }
 
 func (ts *OutboundPersistentStream) Close() error {
@@ -149,6 +207,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	}
 
 	ts.closed = true
+	defer func() { ts.accountingBarrier.finish(ts.Err()) }()
 	defer ts.state.clearFailedStreamEvidence(ts)
 	defer ts.observation.Close()
 	defer func() { ts.responseChunks = nil }()
@@ -172,7 +231,11 @@ func (ts *OutboundPersistentStream) Close() error {
 			ts.persistTerminalStreamFailure(ctx, deferredErr)
 		}
 
-		return closeErr
+		return errors.Join(ts.accountingErr, closeErr)
+	}
+	if ts.accountingErr != nil {
+		ts.persistTerminalStreamFailure(ctx, ts.accountingErr)
+		return errors.Join(ts.accountingErr, closeErr)
 	}
 
 	if ts.providerStatus != streamTerminalNone {
@@ -580,12 +643,19 @@ func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Contex
 		return
 	}
 
-	// Try to create usage log from aggregated response
-	if usage := meta.Usage; usage != nil {
-		_, err := ts.UsageLogService.CreateUsageLogFromRequest(ctx, ts.request, ts.requestExec, usage)
-		if err != nil {
-			log.Warn(ctx, "Failed to create usage log from request", log.Cause(err))
+	if !ts.usageCaptured {
+		if biz.ForwardingAccountingEnabled(ts.ctx) {
+			ts.streamMeta.Usage = meta.Usage
+			ts.captureUsageBeforeTerminal()
+		} else if meta.Usage != nil {
+			if _, err := ts.UsageLogService.CreateUsageLogFromRequest(ctx, ts.request, ts.requestExec, meta.Usage); err != nil {
+				log.Warn(ctx, "Failed to create usage log from request", log.Cause(err))
+			}
 		}
+	}
+	if ts.accountingErr != nil {
+		ts.persistTerminalStreamFailure(ctx, ts.accountingErr)
+		return
 	}
 
 	// Build latency metrics from performance record
