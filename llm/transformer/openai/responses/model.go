@@ -355,20 +355,26 @@ type Input struct {
 }
 
 func (i *Input) UnmarshalJSON(data []byte) error {
-	var text string
-	if err := json.Unmarshal(data, &text); err == nil {
-		i.Text = &text
-		i.Items = nil
+	// Avoid scanning a complete array once as a failed string before decoding
+	// its items. The decoder still validates the original, untrimmed bytes.
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var items []Item
+		if err := json.Unmarshal(data, &items); err == nil {
+			i.Text = nil
+			i.Items = items
 
-		return nil
-	}
+			return nil
+		}
+	} else {
+		// null keeps the legacy empty-string representation.
+		var text string
+		if err := json.Unmarshal(data, &text); err == nil {
+			i.Text = &text
+			i.Items = nil
 
-	var items []Item
-	if err := json.Unmarshal(data, &items); err == nil {
-		i.Text = nil
-		i.Items = items
-
-		return nil
+			return nil
+		}
 	}
 
 	return fmt.Errorf("invalid input: %w", transformer.ErrInvalidRequest)

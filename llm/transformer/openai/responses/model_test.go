@@ -6,6 +6,8 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 func TestItemMarshalJSON_OmitsSummaryForNonReasoning(t *testing.T) {
@@ -246,6 +248,46 @@ func TestInputUnmarshalJSON_ClearsConflictingRepresentation(t *testing.T) {
 	require.Equal(t, "input_text", input.Items[0].Type)
 	require.NotNil(t, input.Items[0].Text)
 	require.Equal(t, "part", *input.Items[0].Text)
+}
+
+func TestInputUnmarshalJSON_WireShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		json string
+		want Input
+	}{
+		{name: "string", json: `"fresh"`, want: Input{Text: lo.ToPtr("fresh")}},
+		{name: "empty string", json: `""`, want: Input{Text: lo.ToPtr("")}},
+		// The existing null representation is an empty string, not nil items.
+		{name: "null", json: " \t\r\nnull ", want: Input{Text: lo.ToPtr("")}},
+		{name: "empty array", json: " \t\r\n[] ", want: Input{Items: []Item{}}},
+		{name: "Unicode", json: `"路径\uD83D\uDEF0\ud800\\ud800"`, want: Input{Text: lo.ToPtr("路径🛰�\\ud800")}},
+		{name: "nested null", json: `[{"type":"message","content":null}]`, want: Input{Items: []Item{{Type: "message"}}}},
+		{name: "object arguments", json: `[{"type":"tool_search_call","arguments":{"number":9007199254740993}}]`, want: Input{Items: []Item{{Type: "tool_search_call", Arguments: `{"number":9007199254740993}`, ArgumentsPresent: true}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := Input{Text: lo.ToPtr("stale"), Items: []Item{{Type: "input_text"}}}
+			require.NoError(t, in.UnmarshalJSON([]byte(tc.json)))
+			require.Equal(t, tc.want, in)
+		})
+	}
+}
+
+func TestInputUnmarshalJSON_InvalidPreservesReceiver(t *testing.T) {
+	for _, data := range []string{
+		"", " ", "true", "42", `{}`, "[", `[{}]junk`, `"x"null`, "nullx",
+		`[1]`, `[{"type":"message","content":true}]`, `[{"type":"message"},false]`,
+		"\v[]", "\u00a0[]", `"unterminated`,
+	} {
+		t.Run(data, func(t *testing.T) {
+			original := Input{Text: lo.ToPtr("stale"), Items: []Item{{Type: "input_text"}}}
+			in := original
+			err := in.UnmarshalJSON([]byte(data))
+			require.ErrorIs(t, err, transformer.ErrInvalidRequest)
+			require.Equal(t, "invalid input: "+transformer.ErrInvalidRequest.Error(), err.Error())
+			require.Equal(t, original, in)
+		})
+	}
 }
 
 func TestResponseToolChoiceUnmarshalJSON_ClearsConflictingRepresentation(t *testing.T) {
