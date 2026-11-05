@@ -53,15 +53,8 @@ func (s *QuotaService) CheckAPIKeyQuota(ctx context.Context, apiKeyID int, quota
 	if quota == nil {
 		return QuotaCheckResult{Allowed: true}, nil
 	}
-	if s.observation != nil {
-		w := s.observation
-		w.mu.Lock()
-		scope := observationFromContext(ctx)
-		unavailable := scope != nil && (!scope.reservedUsage || scope.reservedCore < 2)
-		w.mu.Unlock()
-		if unavailable {
-			return QuotaCheckResult{}, errors.New("quota accounting queue is full; retry after persistence recovers")
-		}
+	if scope := observationFromContext(ctx); s.observation != nil && scope != nil && !scope.hasAccountingAdmission() {
+		return QuotaCheckResult{}, errors.New("quota accounting queue is full; retry after persistence recovers")
 	}
 
 	loc := s.system.TimeLocation(ctx)

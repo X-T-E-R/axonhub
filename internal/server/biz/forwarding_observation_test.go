@@ -134,7 +134,7 @@ func TestForwardingObservationUsesPrimaryForAccountingAndNonceReads(t *testing.T
 func TestForwardingObservationQuotaFreshnessRecovers(t *testing.T) {
 	legacy, client, ctx, _ := setupRequestExecutionStorageTest(t)
 	defer client.Close()
-	w := NewForwardingObservationWriter(ManagedRequestBodyWriterConfig{MaxItems: 8, AttemptTimeout: time.Second})
+	w := NewForwardingObservationWriter(ManagedRequestBodyWriterConfig{MaxItems: 5, AttemptTimeout: time.Second})
 	require.NoError(t, w.Start(ctx))
 	svc := NewQuotaServiceWithObservationWriter(client, legacy.SystemService, w)
 	ctx = w.WithScope(contexts.WithAPIKey(ctx, &ent.APIKey{ID: 42}))

@@ -298,7 +298,9 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		items, total, reference := s.computeUsageCost(ctx, executionCopy.ChannelID, executionCopy.ModelID, &usageCopy)
 		cost := observationUsageCost{items: items, total: total, referenceID: reference}
 		pending := &observationPendingUsage{apiKeyID: requestCopy.APIKeyID, createdAt: capturedAt, tokens: usageCopy.TotalTokens, cost: total}
-		ctx = context.WithValue(ctx, observationPendingUsageKey{}, pending)
+		// Accounting owns explicit IDs and the frozen fact; it does not need
+		// trace, routing, transport buffers or a selected provider credential.
+		usageCtx := context.WithValue(context.Background(), observationPendingUsageKey{}, pending)
 		costBytes, err := json.Marshal(items)
 		if err != nil {
 			return nil, err
@@ -306,12 +308,25 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		var publishErr error
 		if scope.writer.node.Enabled {
 			publishErr = scope.writer.publishPendingUsage(ctx, scope.usageID, &requestCopy, &executionCopy, usageCopy, capturedAt, cost)
+			if publishErr == nil {
+				// PG already owns the fact. Queue just the IDs, not another copy
+				// of the usage details, cost breakdown or request metadata.
+				localID := requestCopy.ID
+				err = scope.submitUsage(usageCtx, 0, func(workerCtx context.Context) error {
+					actualID, _ := scope.resolve(localID)
+					return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID)
+				})
+				if err != nil {
+					return nil, &ExecutedAccountingError{Cause: err}
+				}
+				return nil, nil
+			}
 		}
-		// Even an ambiguous publication transfers the frozen fact to the required
-		// writer. After acknowledgement, the job only retries handoff: a missing
-		// pending row then means it was already consumed, not that it needs insertion.
-		pendingAcknowledged := publishErr == nil
-		err = scope.submitUsage(ctx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
+		// An ambiguous initial publication transfers the frozen fact to the
+		// required writer. Once acknowledged, retry only handoff: a missing
+		// pending row means it was already consumed, not that it needs insertion.
+		pendingAcknowledged := false
+		err = scope.submitUsage(usageCtx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
 			actualID, err := scope.resolve(requestCopy.ID)
 			if scope.writer.node.Enabled {
 				if !pendingAcknowledged {
@@ -323,7 +338,33 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 				return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID)
 			}
 			if err != nil {
-				return err
+				// Standalone has no durable pending table contract, but its accepted
+				// required job must also survive a lost optional parent. Reuse the
+				// same nonce recovery in one transaction with the actual frozen usage.
+				return s.RunInTransaction(workerCtx, func(txCtx context.Context) error {
+					fact := &ent.PendingUsage{APIKeyID: requestCopy.APIKeyID, ProjectID: requestCopy.ProjectID,
+						ChannelID: executionCopy.ChannelID, ModelID: executionCopy.ModelID, Source: string(requestCopy.Source),
+						Format: requestCopy.Format, RequestCreatedAt: requestCopy.CreatedAt, CapturedAt: capturedAt,
+						RequestObservationID: "usage:" + scope.usageID}
+					if requestCopy.EvidenceDisposition != nil && requestCopy.EvidenceDisposition.ObservationID != "" {
+						fact.RequestObservationID = requestCopy.EvidenceDisposition.ObservationID
+					}
+					id, err := scope.writer.recoverPendingRequest(txCtx, fact)
+					if err != nil {
+						return err
+					}
+					pending.requestID.Store(int64(id))
+					exists, err := s.entFromContext(txCtx).UsageLog.Query().Where(usagelog.RequestIDEQ(id)).Exist(txCtx)
+					if err != nil || exists {
+						return err
+					}
+					txCtx = context.WithValue(txCtx, observationUsageTimeKey{}, capturedAt)
+					txCtx = context.WithValue(txCtx, observationUsageCostKey{}, cost)
+					_, err = s.CreateUsageLog(txCtx, CreateUsageLogParams{RequestID: id, ProjectID: fact.ProjectID,
+						ChannelID: fact.ChannelID, ActualModelID: fact.ModelID, Usage: &usageCopy,
+						Source: usagelog.Source(fact.Source), Format: fact.Format, APIKeyID: lo.ToPtr(fact.APIKeyID)})
+					return err
+				})
 			}
 			// A retry after an ambiguous commit observes the already-created row;
 			pending.requestID.Store(int64(actualID))

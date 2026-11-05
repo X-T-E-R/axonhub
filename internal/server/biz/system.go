@@ -1114,19 +1114,29 @@ func (s *SystemService) StoragePolicy(ctx context.Context) (*StoragePolicy, erro
 	return &policy, nil
 }
 
-// StoragePolicyOrDefault retrieves the storage policy configuration or returns the default policy.
+// StoragePolicyOrDefault preserves legacy defaults for an absent setting, but
+// never enables optional capture when the setting cannot be read or decoded.
 func (s *SystemService) StoragePolicyOrDefault(ctx context.Context) *StoragePolicy {
 	policy, err := s.StoragePolicy(ctx)
 	if err != nil {
-		if ent.IsNotFound(err) {
-			return lo.ToPtr(defaultStoragePolicy)
-		}
-
-		log.Warn(ctx, "failed to get storage policy", log.Cause(err))
-		return lo.ToPtr(defaultStoragePolicy)
+		log.Warn(ctx, "failed to get storage policy; omitting optional capture", log.Cause(err))
+		return storagePolicyWithoutCapture(nil)
 	}
 
 	return policy
+}
+
+func storagePolicyWithoutCapture(last *StoragePolicy) *StoragePolicy {
+	policy := defaultStoragePolicy
+	if last != nil {
+		policy = *last
+	}
+	policy.StoreRequestBody = false
+	policy.StoreExecutionRequestBody = lo.ToPtr(false)
+	policy.StoreResponseBody = false
+	policy.StoreChunks = false
+	policy.LivePreview = false
+	return &policy
 }
 
 // SetStoragePolicy sets the storage policy configuration.

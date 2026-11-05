@@ -97,6 +97,8 @@ type ForwardingObservationWriter struct {
 
 type observationJob struct {
 	ctx           context.Context
+	kind          string
+	taskIdentity  bool
 	bytes         int64
 	run           func(context.Context) error
 	usage         *observationPendingUsage
@@ -135,6 +137,7 @@ type observationScope struct {
 	terminalCredits   map[int]bool
 	executionChannels map[int]*Channel
 	reservedUsage     bool
+	taskIdentity      bool
 	usageSubmitted    bool
 	usageID           string
 	usageCaptureMu    sync.Mutex
@@ -150,8 +153,8 @@ type observationScope struct {
 
 func NewForwardingObservationWriter(config ManagedRequestBodyWriterConfig) *ForwardingObservationWriter {
 	payloadConfig := config
-	// A forwarding scope reserves five lifecycle jobs before dispatch. The
-	// body writer's 64-job default only accommodates twelve such scopes.
+	// A forwarding scope normally reserves five lifecycle jobs before dispatch.
+	// Under pressure the accounting credit can be admitted without history.
 	if config.MaxItems <= 0 {
 		config.MaxItems = 256
 	}
@@ -173,11 +176,12 @@ func (w *ForwardingObservationWriter) Start(ctx context.Context) error {
 		ctx = ent.NewContext(ctx, w.primary)
 	}
 	if !w.payloadOnly && w.system != nil {
-		policy, err := w.system.StoragePolicyFresh(authz.WithSystemBypass(ctx, "forwarding-observation-startup"))
+		policyCtx, cancel := context.WithTimeout(ctx, w.config.AttemptTimeout)
+		_, err := w.refreshCapturePolicy(authz.WithSystemBypass(policyCtx, "forwarding-observation-startup"))
+		cancel()
 		if err != nil {
-			return err
+			log.Warn(ctx, "Forwarding observation starts without optional capture policy", log.Cause(err))
 		}
-		w.policy.Store(policy)
 	}
 	if w.node.Enabled {
 		if err := w.recoverPendingUsage(authz.WithSystemBypass(ctx, "cluster-accounting-recovery")); err != nil {
@@ -271,6 +275,17 @@ func (w *ForwardingObservationWriter) abandonPending() {
 	}
 }
 
+func (w *ForwardingObservationWriter) refreshCapturePolicy(ctx context.Context) (*StoragePolicy, error) {
+	policy, err := w.system.StoragePolicyFresh(ctx)
+	if err != nil {
+		// Stop borrowing new payloads while capture policy is unknown. Retain
+		// last verified capacity settings for accounting, not body permission.
+		policy = storagePolicyWithoutCapture(w.policy.Load())
+	}
+	w.policy.Store(policy)
+	return policy, err
+}
+
 func (w *ForwardingObservationWriter) run(job observationJob) {
 	defer func() {
 		w.mu.Lock()
@@ -289,33 +304,53 @@ func (w *ForwardingObservationWriter) run(job observationJob) {
 		stop := context.AfterFunc(w.ctx, cancel)
 		ctx = authz.WithSystemBypass(ctx, "forwarding-observation")
 		ctx = context.WithValue(ctx, observationPolicyContextKey{}, (*StoragePolicy)(nil))
-		if w.system != nil {
-			if policy, err := w.system.StoragePolicyFresh(ctx); err == nil {
-				w.policy.Store(policy)
-				ctx = context.WithValue(ctx, observationPolicyContextKey{}, policy)
+		var err error
+		// Only optional evidence needs a fresh capture decision. Frozen usage
+		// uses the verified capacity snapshot, never an extra remote policy read
+		// before its atomic handoff. Quota remains an independent authoritative read.
+		if job.kind == "usage" {
+			ctx = context.WithValue(ctx, observationPolicyContextKey{}, w.policy.Load())
+		} else if w.system != nil {
+			policy, policyErr := w.refreshCapturePolicy(ctx)
+			ctx = context.WithValue(ctx, observationPolicyContextKey{}, policy)
+			if job.taskIdentity && policyErr != nil {
+				log.Warn(ctx, "Omitting optional capture for video task identity", log.Cause(policyErr))
+				// The optional query may have spent its whole attempt budget.
+				// Persist task identity with capture off and a live context.
+				stop()
+				cancel()
+				ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), w.config.AttemptTimeout)
+				stop = context.AfterFunc(w.ctx, cancel)
+			} else {
+				err = policyErr
 			}
 		}
 		finished := make(chan struct{})
 		if !w.payloadOnly {
 			ctx = context.WithValue(ctx, observationPersistenceKey{}, observationPersistenceContext{writer: w, finished: finished})
 		}
-		err := job.run(ctx)
+		if err == nil {
+			err = job.run(ctx)
+		}
 		close(finished)
 		stop()
+		if err != nil {
+			metrics.RecordManagedObservabilityFailure(context.Background(), "forwarding_observation", "write_failed")
+			log.Warn(ctx, "Forwarding observation persistence failed", log.String("job_kind", job.kind), log.Int("attempt", attempt), log.Cause(err))
+		}
 		cancel()
-		if err == nil {
+		if err == nil || (job.kind != "usage" && errors.Is(err, errObservationParentUnavailable)) {
 			return
 		}
-		metrics.RecordManagedObservabilityFailure(context.Background(), "forwarding_observation", "write_failed")
-		log.Warn(ctx, "Forwarding observation persistence failed", log.Cause(err))
-		if errors.Is(err, errObservationParentUnavailable) {
+		// An external write that already finished only retains a compact result
+		// patch on the independent payload lane; it never owns the core FIFO.
+		resultPending := w.payloadOnly && errors.Is(err, errObservationCompletionPending)
+		if job.kind != "usage" && !job.taskIdentity && attempt >= w.config.MaxAttempts && !resultPending {
+			metrics.RecordManagedObservabilityFailure(context.Background(), "forwarding_observation", "retry_exhausted")
 			return
 		}
-		if w.payloadOnly && attempt >= w.config.MaxAttempts && !errors.Is(err, errObservationCompletionPending) {
-			return
-		}
-		// Accepted work is retained until it commits, or process shutdown.
-		// Retrying consumes the same bounded slot and cannot launch goroutines.
+		// The core lane retains required usage and task identity until commit
+		// or shutdown, but optional metadata cannot monopolize that FIFO.
 		timer := time.NewTimer(w.config.AttemptTimeout)
 		select {
 		case <-timer.C:
@@ -360,14 +395,20 @@ func (w *ForwardingObservationWriter) WithScope(ctx context.Context) context.Con
 	scope := &observationScope{writer: w, ids: make(map[int]int), terminalCredits: make(map[int]bool), usageID: uuid.NewString()}
 	w.mu.Lock()
 	reservationBytes := 2*4096 + observationUsageReservationBytes + 2*observationTerminalReservationBytes
-	if w.started && !w.stopping && w.items+5 <= w.config.MaxItems && w.bytes+reservationBytes <= int64(w.config.MaxBytesMiB)<<20 {
+	if w.started && !w.stopping && w.items+1 <= w.config.MaxItems && w.bytes+observationUsageReservationBytes <= int64(w.config.MaxBytesMiB)<<20 {
 		if w.items == 0 {
 			w.idle = make(chan struct{})
 		}
-		w.items += 5
-		w.bytes += reservationBytes
-		scope.reservedCore = 2
-		scope.reservedTerminal = 2
+		// Accounting admission is independent of the four optional lifecycle
+		// credits. Failure to capture history must not consume its last slot.
+		slots, bytes := 1, observationUsageReservationBytes
+		if w.items+5 <= w.config.MaxItems && w.bytes+reservationBytes <= int64(w.config.MaxBytesMiB)<<20 {
+			slots, bytes = 5, reservationBytes
+			scope.reservedCore = 2
+			scope.reservedTerminal = 2
+		}
+		w.items += slots
+		w.bytes += bytes
 		scope.reservedUsage = true
 		w.scopes[scope] = struct{}{}
 	}
@@ -394,6 +435,23 @@ func NewForwardingObservationScope(ctx context.Context) context.Context {
 func observationFromContext(ctx context.Context) *observationScope {
 	scope, _ := ctx.Value(observationContextKey{}).(*observationScope)
 	return scope
+}
+
+func (s *observationScope) hasAccountingAdmission() bool {
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	return s.writer.started && !s.writer.stopping && !s.ended && s.reservedUsage
+}
+
+// Async task correlation is business state, not optional request history.
+func (s *observationScope) admitTaskIdentity() bool {
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	if s.reservedCore < 2 || s.reservedTerminal < 2 {
+		return false
+	}
+	s.taskIdentity = true
+	return true
 }
 
 func (s *observationScope) newID() int { return -int(s.writer.nextID.Add(1)) }
@@ -629,7 +687,8 @@ func (s *observationScope) submitJob(ctx context.Context, byteLength, optionalBy
 	// Remove only the submission marker; keep captured authorization/project
 	// values. The callback must invoke synchronous service methods on this context.
 	ctx = context.WithValue(context.WithoutCancel(ctx), observationContextKey{}, (*observationScope)(nil))
-	w.jobs <- observationJob{ctx: ctx, bytes: byteLength, run: run, usage: pending, optionalItems: optionalItems, optionalBytes: optionalBytes}
+	taskIdentity := s.taskIdentity && (core || terminal || kind == "metadata")
+	w.jobs <- observationJob{ctx: ctx, kind: kind, taskIdentity: taskIdentity, bytes: byteLength, run: run, usage: pending, optionalItems: optionalItems, optionalBytes: optionalBytes}
 	published = true
 	return nil
 }

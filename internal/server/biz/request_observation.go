@@ -741,6 +741,19 @@ func (s *RequestService) CreateRequest(
 	if scope == nil {
 		return s.createRequest(ctx, llmRequest, httpRequest, format)
 	}
+	// This is before provider dispatch. Optional history may degrade, but an
+	// executed fact must already have a bounded recovery owner even if its first
+	// durable publication fails. Never discover missing capacity after execution.
+	if !scope.hasAccountingAdmission() {
+		if observationAPIKeyHasActiveQuota(ctx) {
+			return nil, errors.New("quota accounting observation admission unavailable")
+		}
+		return nil, errors.New("accounting observation admission unavailable before upstream execution")
+	}
+	taskIdentity := llmRequest != nil && llmRequest.RequestType == llm.RequestTypeVideo
+	if taskIdentity && !scope.admitTaskIdentity() {
+		return nil, errors.New("video task identity admission unavailable before upstream execution")
+	}
 
 	capturedAt := time.Now().UTC()
 	llmSnapshot := cloneObservationLLMRequest(llmRequest)
@@ -821,8 +834,11 @@ func (s *RequestService) CreateRequest(
 		scope.bindID(localID, persisted.ID)
 		return nil
 	}, func() { freezeObservationHTTPRequest(httpSnapshot) })
-	if submitErr != nil && observationAPIKeyHasActiveQuota(queuedCtx) {
-		return nil, errors.New("quota accounting observation admission unavailable")
+	if submitErr != nil {
+		if taskIdentity {
+			return nil, fmt.Errorf("admit video task request: %w", submitErr)
+		}
+		log.Debug(ctx, "Optional forwarding history was not admitted", log.Cause(submitErr))
 	}
 
 	return synthetic, nil
@@ -880,6 +896,7 @@ func (s *RequestService) CreateRequestExecution(
 		scope.executionChannels = make(map[int]*Channel)
 	}
 	scope.executionChannels[localID] = channelSnapshot
+	taskIdentity := scope.taskIdentity
 	scope.writer.mu.Unlock()
 	synthetic.EvidenceDisposition.ObservationID = observationID
 	if bodyInfo.Omitted {
@@ -927,8 +944,11 @@ func (s *RequestService) CreateRequestExecution(
 		scope.bindID(localID, persisted.ID)
 		return nil
 	}, func() { freezeObservationHTTPRequest(channelRequestSnapshot) })
-	if submitErr != nil && observationAPIKeyHasActiveQuota(queuedCtx) {
-		return nil, errors.New("quota accounting observation admission unavailable")
+	if submitErr != nil {
+		if taskIdentity {
+			return nil, fmt.Errorf("admit video task execution: %w", submitErr)
+		}
+		log.Debug(ctx, "Optional forwarding history was not admitted", log.Cause(submitErr))
 	}
 
 	return synthetic, nil
@@ -1315,6 +1335,12 @@ func (s *RequestService) UpdateRequestChannelID(ctx context.Context, requestID i
 		return s.updateRequestChannelID(workerCtx, resolvedID, channelID)
 	})
 	if errors.Is(err, errObservationQueueUnavailable) {
+		scope.writer.mu.Lock()
+		taskIdentity := scope.taskIdentity
+		scope.writer.mu.Unlock()
+		if taskIdentity {
+			return fmt.Errorf("admit video task channel ownership: %w", err)
+		}
 		log.Warn(ctx, "Request channel observation was not admitted", log.Cause(err))
 		return nil
 	}

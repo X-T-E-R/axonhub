@@ -2,9 +2,11 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
@@ -73,7 +75,7 @@ func (m *rateLimitTracking) OnOutboundLlmStream(ctx context.Context, stream stre
 // OnOutboundRawError handles raw HTTP errors, specifically capturing 429 Too Many Requests.
 // When a 429 is received, it parses the Retry-After header and sets a cooldown for the channel.
 func (m *rateLimitTracking) OnOutboundRawError(ctx context.Context, err error) {
-	if m.outbound == nil {
+	if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed || m.outbound == nil {
 		return
 	}
 

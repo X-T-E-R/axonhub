@@ -142,11 +142,13 @@ func (s *DataStorageService) deferExternalObservation(ctx context.Context, ds *e
 		if err != nil {
 			if attempts >= lane.config.MaxAttempts {
 				terminalOutcome, terminalFailure = "writeFailed", "external_write_failed"
+				payload = nil
 				return finish(terminalOutcome, terminalFailure)
 			}
 			return err
 		}
 		terminalOutcome = "stored"
+		payload = nil
 		return finish(terminalOutcome, "")
 	}, func() { payload = bytes.Clone(payload) })
 	if err != nil {

@@ -1000,6 +1000,11 @@ func (p *PersistentOutboundTransformer) NextChannel(ctx context.Context) error {
 // It implements the pipeline.ChannelRetryable interface, it just check the error is retryable, the
 // pipeline will ensure the maxSameChannelRetries is not exceeded.
 func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
+	// This fence precedes failure-policy changes and alternate models: neither
+	// is permission to repeat inference after accounting publication failed.
+	if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed {
+		return false
+	}
 	if p.state.CurrentCandidate == nil {
 		return false
 	}
