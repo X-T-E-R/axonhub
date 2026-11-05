@@ -615,3 +615,47 @@ func TestObservationAccountingGuardsTransformedMessagesTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestObservationAccountingLostCommitACKDoesNotReplay(t *testing.T) {
+	for _, passThrough := range []bool{false, true} {
+		t.Run(fmt.Sprintf("passthrough=%v", passThrough), func(t *testing.T) {
+			events := []*httpclient.StreamEvent{
+				observationAccountingEvent(`{"id":"chat-commit","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`),
+				observationAccountingEvent(`[DONE]`),
+			}
+			f := newObservationAccountingFixture(t, true, passThrough, events)
+			var publications, commits atomic.Int32
+			f.db.PendingUsage.Use(func(next ent.Mutator) ent.Mutator {
+				return hook.PendingUsageFunc(func(ctx context.Context, m *ent.PendingUsageMutation) (ent.Value, error) {
+					if m.Op().Is(ent.OpCreate) {
+						publications.Add(1)
+					}
+					return next.Mutate(ctx, m)
+				})
+			})
+			f.db.UsageLog.Use(func(next ent.Mutator) ent.Mutator {
+				return hook.UsageLogFunc(func(ctx context.Context, m *ent.UsageLogMutation) (ent.Value, error) {
+					tx := ent.TxFromContext(ctx)
+					if tx == nil {
+						return nil, errors.New("usage write bypassed the handoff transaction")
+					}
+					tx.OnCommit(func(next ent.Committer) ent.Committer {
+						return ent.CommitFunc(func(ctx context.Context, tx *ent.Tx) error {
+							if err := next.Commit(ctx, tx); err != nil {
+								return err
+							}
+							commits.Add(1)
+							return context.DeadlineExceeded
+						})
+					})
+					return next.Mutate(ctx, m)
+				})
+			})
+			body := f.run(t) // Checks provider=1, pending=0 and no stored bodies.
+			require.Contains(t, body, "[DONE]")
+			require.Equal(t, int32(1), commits.Load())
+			require.Equal(t, int32(1), publications.Load())
+			require.Equal(t, int64(5), f.db.UsageLog.Query().OnlyX(authz.WithTestBypass(context.Background())).TotalTokens)
+		})
+	}
+}

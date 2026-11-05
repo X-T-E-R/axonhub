@@ -307,14 +307,18 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		if scope.writer.node.Enabled {
 			publishErr = scope.writer.publishPendingUsage(ctx, scope.usageID, &requestCopy, &executionCopy, usageCopy, capturedAt, cost)
 		}
-		// Even a failed/ambiguous publication transfers the frozen fact to the
-		// reserved required writer. Its retry loop owns publication and handoff;
-		// no recovery attempt is allowed to call the provider again.
+		// Even an ambiguous publication transfers the frozen fact to the required
+		// writer. After acknowledgement, the job only retries handoff: a missing
+		// pending row then means it was already consumed, not that it needs insertion.
+		pendingAcknowledged := publishErr == nil
 		err = scope.submitUsage(ctx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
 			actualID, err := scope.resolve(requestCopy.ID)
 			if scope.writer.node.Enabled {
-				if err := scope.writer.publishPendingUsage(workerCtx, scope.usageID, &requestCopy, &executionCopy, usageCopy, capturedAt, cost); err != nil {
-					return err
+				if !pendingAcknowledged {
+					if err := scope.writer.publishPendingUsage(workerCtx, scope.usageID, &requestCopy, &executionCopy, usageCopy, capturedAt, cost); err != nil {
+						return err
+					}
+					pendingAcknowledged = true
 				}
 				return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID)
 			}
