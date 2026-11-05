@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/server"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/internal/server/maintenance"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/llm/transformer/antigravity"
 )
@@ -34,6 +36,12 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "maintenance":
+			handleMaintenanceCommand()
+			return
+		case "migrate":
+			handleMigrateCommand()
+			return
 		case "reload":
 			handleReload()
 			return
@@ -98,7 +106,7 @@ func startServer() {
 				},
 			})
 		}),
-		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService, requestBodyWriter *biz.ManagedRequestBodyWriter, observationWriter *biz.ForwardingObservationWriter) {
+		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService, requestBodyWriter *biz.ManagedRequestBodyWriter, observationWriter *biz.ForwardingObservationWriter, gate *maintenance.Gate) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					if provider != nil {
@@ -146,26 +154,8 @@ func startServer() {
 					return nil
 				},
 				OnStop: func(ctx context.Context) error {
-					err := server.Shutdown(ctx)
-					if err != nil {
-						log.Error(context.Background(), "server shutdown error:", log.Cause(err))
-					}
-
-					err = observationWriter.Stop(ctx)
-					if err != nil {
-						log.Error(context.Background(), "forwarding observation writer shutdown error:", log.Cause(err))
-					}
-					err = requestBodyWriter.Stop(ctx)
-					if err != nil {
-						log.Error(context.Background(), "managed request-body writer shutdown error:", log.Cause(err))
-					}
-
-					err = ent.Close()
-					if err != nil {
-						log.Error(context.Background(), "ent close error:", log.Cause(err))
-					}
-
-					return nil
+					gate.Pause()
+					return errors.Join(server.Shutdown(ctx), gate.Wait(ctx), observationWriter.Stop(ctx), requestBodyWriter.Stop(ctx), ent.Close())
 				},
 			})
 		}),
@@ -174,6 +164,7 @@ func startServer() {
 		fx.Invoke(func(lc fx.Lifecycle, loader *conf.Loader, ipAccessControl *middleware.IPAccessControlConfig) {
 			registerConfigReload(lc, loader, ipAccessControl)
 		}),
+		fx.Invoke(setupMaintenance),
 	)
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/internal/server/maintenance"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/llm"
@@ -44,6 +45,7 @@ type ResponsesWebSocketHandler struct {
 	turnTimeout  time.Duration
 	lifetime     time.Duration
 	stateTTL     time.Duration
+	maintenance  *maintenance.Gate
 }
 
 func newResponsesWebSocketHandler(handler *ChatCompletionHandlers, auth *biz.AuthService) *ResponsesWebSocketHandler {
@@ -62,9 +64,12 @@ func (handlers *OpenAIHandlers) CreateResponseWebSocket(c *gin.Context) {
 
 // ResponsesWebSocketWithTimeout freezes the per-generation timeout at route
 // registration. The upgraded connection has its own independent lifetime.
-func (handlers *OpenAIHandlers) ResponsesWebSocketWithTimeout(timeout time.Duration) gin.HandlerFunc {
+func (handlers *OpenAIHandlers) ResponsesWebSocketWithTimeout(timeout time.Duration, gates ...*maintenance.Gate) gin.HandlerFunc {
 	configured := *handlers.ResponseWebSocketHandler
 	configured.turnTimeout = responsesWSTurnTimeout(timeout)
+	if len(gates) > 0 {
+		configured.maintenance = gates[0]
+	}
 	return configured.Serve
 }
 
@@ -229,6 +234,9 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-h.maintenance.Paused():
+				retire()
+				return
 			case <-retirement.C:
 				retire()
 				return
@@ -261,7 +269,7 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 		}
 		admissionMu.Lock()
 		var rejection *responsesWSError
-		if retiring || !time.Now().Before(admissionDeadline) {
+		if retiring || h.maintenance.Snapshot().Paused || !time.Now().Before(admissionDeadline) {
 			rejection = wsConnectionRetiring()
 		} else if typ != websocket.TextMessage {
 			rejection = wsRejected("unsupported_frame", "Only JSON text frames are supported.", "")
@@ -288,6 +296,12 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 }
 
 func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Context, data []byte, state *responsesWSState, writer *responsesWSWriter) {
+	done, admitted := h.maintenance.Enter("turn")
+	if !admitted {
+		_ = writer.frameFailure(data, wsConnectionRetiring())
+		return
+	}
+	defer done()
 	ctx, cancel := context.WithTimeout(contexts.NewRequestScope(parent), responsesWSTurnTimeout(h.turnTimeout))
 	defer cancel()
 	frame, parseErr := parseResponsesWSCreate(data)

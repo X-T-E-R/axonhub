@@ -13,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/gql"
 	"github.com/looplj/axonhub/internal/server/gql/openapi"
+	"github.com/looplj/axonhub/internal/server/maintenance"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/portalgql"
 	"github.com/looplj/axonhub/internal/server/static"
@@ -53,12 +54,16 @@ type Services struct {
 	ThreadService *biz.ThreadService
 	AuthService   *biz.AuthService
 	SystemService *biz.SystemService
-	Node          cluster.Config `optional:"true"`
+	Node          cluster.Config    `optional:"true"`
+	Maintenance   *maintenance.Gate `optional:"true"`
 }
 
 func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services Services, ipAccessControl *middleware.IPAccessControlConfig) {
 	// IP 访问控制 - 全局最优先，拦截所有请求包括静态文件
 	server.Use(middleware.WithIPAccessControl(ipAccessControl))
+	if services.Maintenance != nil {
+		server.Use(services.Maintenance.Middleware())
+	}
 	if services.Node.Enabled {
 		server.Use(api.DataNodeRoutes(services.Node), api.WithClusterCallerAuthorization())
 	}
@@ -240,7 +245,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		middleware.WithThread(server.Config.Trace, services.ThreadService),
 		middleware.WithTrace(server.Config.Trace, services.TraceService),
 	)
-	responsesWebSocketGroup.GET("/v1/responses", handlers.OpenAI.ResponsesWebSocketWithTimeout(server.Config.LLMRequestTimeout))
+	responsesWebSocketGroup.GET("/v1/responses", handlers.OpenAI.ResponsesWebSocketWithTimeout(server.Config.LLMRequestTimeout, services.Maintenance))
 
 	apiGroup := server.Group("/",
 		middleware.WithTimeout(server.Config.LLMRequestTimeout),
