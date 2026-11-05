@@ -38,6 +38,11 @@ func (w *ForwardingObservationWriter) publishPendingUsage(ctx context.Context, i
 // ambiguous-commit retries either own this fact or find it already consumed.
 func (w *ForwardingObservationWriter) handoffPendingUsage(ctx context.Context, id string, requestID int) error {
 	ctx = authz.WithSystemBypass(ent.NewContext(ctx, w.primary), "cluster-accounting-handoff")
+	// Capacity bookkeeping may use the last verified policy; an optional
+	// policy read is not part of the durable pending-to-usage transaction.
+	if policy := w.policy.Load(); policy != nil {
+		ctx = context.WithValue(ctx, observationPolicyContextKey{}, policy)
+	}
 	svc := &AbstractService{db: w.primary}
 	return svc.RunInTransaction(ctx, func(txCtx context.Context) error {
 		client := ent.FromContext(txCtx)
@@ -93,12 +98,14 @@ func (w *ForwardingObservationWriter) recoverPendingRequest(ctx context.Context,
 		}
 	}
 	// The asynchronous parent was never durable. Preserve accounting and its real
-	// ownership in a compact terminal skeleton; do not synthesize model evidence.
+	// ownership in a compact skeleton. Usage alone is not proof of a successful
+	// business terminal (it can accompany cancellation/failure); leave that state
+	// unknown rather than inventing successful response evidence.
 	disposition := forwardingUnavailableEvidenceDisposition(p.RequestCreatedAt)
 	disposition.ObservationID = p.RequestObservationID
 	req, err := client.Request.Create().SetAPIKeyID(p.APIKeyID).SetProjectID(p.ProjectID).
-		SetModelID(p.ModelID).SetFormat(p.Format).SetSource(request.Source(p.Source)).
-		SetCreatedAt(p.RequestCreatedAt).SetUpdatedAt(p.CapturedAt).SetStatus(request.StatusCompleted).
+		SetChannelID(p.ChannelID).SetModelID(p.ModelID).SetFormat(p.Format).SetSource(request.Source(p.Source)).
+		SetCreatedAt(p.RequestCreatedAt).SetUpdatedAt(p.CapturedAt).SetStatus(request.StatusProcessing).
 		SetRequestBody([]byte("{}")).SetRequestHeaders([]byte("{}")).SetEvidenceDisposition(disposition).Save(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("recover pending usage request: %w", err)

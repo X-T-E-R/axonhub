@@ -118,6 +118,11 @@ func (m *performanceRecording) OnOutboundLlmStream(ctx context.Context, stream s
 }
 
 func (m *performanceRecording) OnOutboundRawError(ctx context.Context, err error) {
+	// Accounting publication is a gateway failure after execution, not a
+	// provider result. Preserve its measured outcome and shared channel health.
+	if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed {
+		return
+	}
 	// Record performance metrics for failed requests
 	if m.outbound.state.Perf == nil {
 		return

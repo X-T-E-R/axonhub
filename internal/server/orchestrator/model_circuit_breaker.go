@@ -92,6 +92,9 @@ func (m *modelCircuitBreakerTracker) OnOutboundRawError(ctx context.Context, err
 	wasProbe := m.probeActive
 	m.releaseProbeLease()
 
+	if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed {
+		return
+	}
 	if errors.Is(err, context.Canceled) {
 		return
 	}

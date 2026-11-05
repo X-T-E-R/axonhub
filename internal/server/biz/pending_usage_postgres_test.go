@@ -378,8 +378,8 @@ func TestClusterUsageColdWANBoundedDrain(t *testing.T) {
 		dials.Add(1)
 		return accountingWANConn{Conn: conn, sent: &sent, received: &received}, nil
 	}
-	// No idle connections guarantees cold startup for the worker's policy read
-	// and handoff transaction, even after the synchronous pending publication.
+	// With zero idle connections, publication and handoff each dial cold.
+	// The usage path must not open a third connection for optional policy.
 	client := clusterAccountingClient(t, stdlib.OpenDB(*config), 0)
 	w := accountingNode(client, "gcp")
 	const attemptBudget = 8 * time.Second
@@ -409,10 +409,105 @@ func TestClusterUsageColdWANBoundedDrain(t *testing.T) {
 	require.NoError(t, w.Stop(drain))
 	t.Logf("cold WAN publication, handoff and writer stop: %s (%d PostgreSQL connections, %d B sent, %d B received)",
 		time.Since(start), dials.Load()-dialsBefore, sent.Load()-sentBefore, received.Load()-receivedBefore)
-	require.GreaterOrEqual(t, dials.Load()-dialsBefore, int32(3))
+	require.Equal(t, int32(2), dials.Load()-dialsBefore, "only publication and atomic handoff need cold connections")
 	require.Equal(t, int32(1), publishes.Load())
 	require.Zero(t, reader.PendingUsage.Query().CountX(ctx))
 	require.Equal(t, int64(20), reader.UsageLog.Query().OnlyX(ctx).TotalTokens)
+}
+
+func TestClusterUsageSurvivesFailedMetadata(t *testing.T) {
+	a, b, base := clusterAccountingClients(t)
+	w := accountingNode(a, "a")
+	w.config.AttemptTimeout, w.config.MaxAttempts = 150*time.Millisecond, 2
+	require.NoError(t, w.Start(base))
+	ctx := w.WithScope(base)
+	scope := observationFromContext(ctx)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var unpark, announce sync.Once
+	t.Cleanup(func() {
+		unpark.Do(func() { close(release) })
+		EndForwardingObservation(ctx)
+		stop, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		require.NoError(t, w.Stop(stop))
+	})
+	var metadataAttempts atomic.Int32
+	a.Request.Use(func(next ent.Mutator) ent.Mutator {
+		return hook.RequestFunc(func(ctx context.Context, m *ent.RequestMutation) (ent.Value, error) {
+			if model, _ := m.ModelID(); model == "optional-metadata" {
+				metadataAttempts.Add(1)
+				return nil, context.DeadlineExceeded
+			}
+			return next.Mutate(ctx, m)
+		})
+	})
+	stamp := time.Now().UTC().Truncate(time.Microsecond)
+	require.NoError(t, scope.submitCore(ctx, -1, 128, func(ctx context.Context) error {
+		_, err := a.Request.Create().SetProjectID(1).SetModelID("optional-metadata").SetRequestBody([]byte(`{}`)).SetStatus(request.StatusProcessing).Save(ctx)
+		return err
+	}))
+	req := &ent.Request{ID: -1, APIKeyID: 55, ProjectID: 1, CreatedAt: stamp, Source: request.SourceAPI, Format: "openai/responses"}
+	exec := &ent.RequestExecution{ChannelID: 1, ModelID: "m"}
+	require.NoError(t, w.publishPendingUsage(ctx, scope.usageID, req, exec, llm.Usage{PromptTokens: 17, CompletionTokens: 3, TotalTokens: 20}, stamp, observationUsageCost{}))
+	require.NoError(t, scope.submitUsage(ctx, 256, func(ctx context.Context) error {
+		announce.Do(func() { close(entered) })
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		return w.handoffPendingUsage(ctx, scope.usageID, 0)
+	}))
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("optional metadata monopolized the required FIFO")
+	}
+	qb := &QuotaService{ent: b, observation: accountingNode(b, "b")}
+	before, err := qb.accountedUsage(base, 55, QuotaWindow{})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, before.RequestCount)
+	require.EqualValues(t, 20, before.TotalTokens)
+	unpark.Do(func() { close(release) })
+	EndForwardingObservation(ctx)
+	drain, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, w.Wait(drain))
+	after, err := qb.accountedUsage(base, 55, QuotaWindow{})
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.EqualValues(t, 2, metadataAttempts.Load())
+	require.Zero(t, a.PendingUsage.Query().CountX(base))
+	bill := a.UsageLog.Query().OnlyX(base)
+	require.True(t, bill.CreatedAt.Equal(stamp))
+	require.Nil(t, bill.TotalCost)
+	require.EqualValues(t, 17, bill.PromptTokens)
+	require.EqualValues(t, 3, bill.CompletionTokens)
+	parent := a.Request.Query().OnlyX(base)
+	require.Equal(t, parent.ID, bill.RequestID)
+	require.Equal(t, request.StatusProcessing, parent.Status, "usage alone must not invent a successful terminal")
+	require.JSONEq(t, `{}`, string(parent.RequestBody))
+}
+
+func TestClusterAcknowledgedUsageQueuesOnlyHandoff(t *testing.T) {
+	a, b, base := clusterAccountingClients(t)
+	w := accountingNode(a, "a")
+	w.config.MaxBytesMiB = 1
+	startClusterUsageTestWriter(t, w, b, base)
+	ctx := w.WithScope(base)
+	defer EndForwardingObservation(ctx)
+	parent := b.Request.Create().SetProjectID(1).SetAPIKeyID(55).SetModelID("m").SetRequestBody([]byte(`{}`)).SetStatus(request.StatusCompleted).SaveX(base)
+	exec := &ent.RequestExecution{ChannelID: 1, ModelID: "m"}
+	usage := &llm.Usage{PromptTokens: 17, CompletionTokens: 3, TotalTokens: 20,
+		PromptModalityTokenDetails: []llm.ModalityTokenCount{{Modality: strings.Repeat("x", 1<<20), TokenCount: 17}}}
+	_, err := w.usageService.CreateUsageLogFromRequest(ctx, parent, exec, usage)
+	require.NoError(t, err, "the acknowledged PG fact must not be re-admitted at its serialized size")
+	EndForwardingObservation(ctx)
+	drain, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, w.Wait(drain))
+	require.Zero(t, b.PendingUsage.Query().CountX(base))
+	require.EqualValues(t, 20, b.UsageLog.Query().OnlyX(base).TotalTokens)
 }
 
 func startClusterUsageTestWriter(t *testing.T, w *ForwardingObservationWriter, reader *ent.Client, ctx context.Context) {

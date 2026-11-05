@@ -605,6 +605,13 @@ func TestSystemService_InvalidStoragePolicyJSON(t *testing.T) {
 	_, err = service.StoragePolicy(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to unmarshal storage policy")
+	policy := service.StoragePolicyOrDefault(ctx)
+	require.False(t, policy.StoreRequestBody)
+	require.NotNil(t, policy.StoreExecutionRequestBody)
+	require.False(t, *policy.StoreExecutionRequestBody)
+	require.False(t, policy.StoreResponseBody)
+	require.False(t, policy.StoreChunks)
+	require.False(t, policy.LivePreview)
 }
 
 func TestSystemService_BackwardCompatibility(t *testing.T) {

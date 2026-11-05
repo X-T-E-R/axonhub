@@ -16,7 +16,7 @@ import (
 )
 
 func isRetryableError(err error) bool {
-	if err == nil {
+	if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed || err == nil {
 		return false
 	}
 
@@ -25,7 +25,7 @@ func isRetryableError(err error) bool {
 }
 
 func isRetryableErrorForChannel(err error, ch *biz.Channel) bool {
-	if err == nil {
+	if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed || err == nil {
 		return false
 	}
 	if isRetryableTransportError(err) {

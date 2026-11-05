@@ -385,6 +385,11 @@ func (e *observationAccountingExecutor) DoStream(ctx context.Context, _ *httpcli
 
 func newObservationAccountingFixture(t *testing.T, clustered, passThrough bool, events []*httpclient.StreamEvent) *observationAccountingFixture {
 	t.Helper()
+	return newObservationAccountingFixtureWithLimit(t, clustered, passThrough, events, 0)
+}
+
+func newObservationAccountingFixtureWithLimit(t *testing.T, clustered, passThrough bool, events []*httpclient.StreamEvent, maxItems int) *observationAccountingFixture {
+	t.Helper()
 	db := enttest.NewEntClient(t, "sqlite3", "file:observation-accounting-"+uuid.NewString()+"?mode=memory&_fk=0")
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	ctx := ent.NewContext(authz.WithTestBypass(context.Background()), db)
@@ -404,7 +409,7 @@ func newObservationAccountingFixture(t *testing.T, clustered, passThrough bool, 
 	t.Cleanup(channels.Stop)
 	usage := biz.NewUsageLogService(db, system, channels)
 	storage := biz.NewDataStorageService(biz.DataStorageServiceParams{CacheConfig: cache, SystemService: system, Client: db})
-	writer := biz.NewForwardingObservationWriter(biz.ManagedRequestBodyWriterConfig{AttemptTimeout: time.Second})
+	writer := biz.NewForwardingObservationWriter(biz.ManagedRequestBodyWriterConfig{AttemptTimeout: time.Second, MaxItems: maxItems})
 	service := biz.NewRequestServiceWithObservationWriter(db, system, usage, storage, biz.NewLiveStreamRegistry(), nil, writer)
 	require.NoError(t, writer.Start(ctx))
 	t.Cleanup(func() {
@@ -426,19 +431,24 @@ func newObservationAccountingFixture(t *testing.T, clustered, passThrough bool, 
 	return &observationAccountingFixture{ctx: ctx, db: db, writer: writer, handler: handler, executor: executor}
 }
 
-func (f *observationAccountingFixture) run(t *testing.T) string {
-	t.Helper()
+func (f *observationAccountingFixture) serve(ctx context.Context) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	path, format := "/v1/chat/completions", llm.APIFormatOpenAIChatCompletion
 	if f.handler.sseHeartbeatFormat == sseHeartbeatAnthropic {
 		path, format = "/v1/messages", llm.APIFormatAnthropicMessage
 	}
-	c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}")).WithContext(f.ctx)
+	c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}")).WithContext(ctx)
 	f.handler.ChatCompletionWithRequest(c, &httpclient.Request{
 		Method: http.MethodPost, APIFormat: string(format), Headers: http.Header{"Content-Type": {"application/json"}},
 		Body: []byte(`{"model":"m","max_tokens":32,"messages":[{"role":"user","content":"hi"}],"stream":true}`),
 	})
+	return w
+}
+
+func (f *observationAccountingFixture) run(t *testing.T) string {
+	t.Helper()
+	w := f.serve(f.ctx)
 	biz.EndForwardingObservation(f.ctx)
 	drain, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -462,6 +472,27 @@ func (f *observationAccountingFixture) run(t *testing.T) string {
 
 func observationAccountingEvent(data string) *httpclient.StreamEvent {
 	return &httpclient.StreamEvent{Data: []byte(data)}
+}
+
+func TestObservationAccountingRejectsBeforeProviderAndRecovers(t *testing.T) {
+	events := []*httpclient.StreamEvent{
+		observationAccountingEvent(`{"id":"chat-admission","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`),
+		observationAccountingEvent(`[DONE]`),
+	}
+	f := newObservationAccountingFixtureWithLimit(t, true, false, events, 1)
+	blocked := biz.NewForwardingObservationScope(f.ctx)
+	t.Cleanup(func() { biz.EndForwardingObservation(blocked) })
+	w := f.serve(blocked)
+	require.GreaterOrEqual(t, w.Code, 400)
+	require.Zero(t, f.executor.calls.Load(), "no required capacity must reject before invoking the provider")
+	require.Zero(t, f.db.PendingUsage.Query().CountX(f.ctx))
+
+	biz.EndForwardingObservation(f.ctx)
+	f.ctx = biz.NewForwardingObservationScope(f.ctx)
+	t.Cleanup(func() { biz.EndForwardingObservation(f.ctx) })
+	require.Contains(t, f.run(t), "[DONE]")
+	require.EqualValues(t, 5, f.db.UsageLog.Query().OnlyX(f.ctx).TotalTokens)
+	require.Zero(t, f.db.RequestExecution.Query().CountX(f.ctx), "optional history did not have a slot")
 }
 
 func TestObservationAccountingFreezesFinalChatUsage(t *testing.T) {

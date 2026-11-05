@@ -87,14 +87,14 @@ func (s *RequestService) shouldStoreExecutionRequestBody(ctx context.Context, ch
 		return *channel.Settings.StoreExecutionRequestBody
 	}
 
-	storeRequestBody := true
+	storeRequestBody := false
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeRequestBody = policy.StoreRequestBody
 		if policy.StoreExecutionRequestBody != nil {
 			storeRequestBody = *policy.StoreExecutionRequestBody
 		}
 	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store request body", log.Cause(err))
+		log.Warn(ctx, "Failed to get storage policy; omitting optional request body", log.Cause(err))
 	}
 
 	return storeRequestBody
@@ -106,11 +106,11 @@ func (s *RequestService) shouldStoreExecutionResponseBody(ctx context.Context, e
 		return *settings.StoreExecutionResponseBody
 	}
 
-	storeResponseBody := true
+	storeResponseBody := false
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeResponseBody = policy.StoreResponseBody
 	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(err))
+		log.Warn(ctx, "Failed to get storage policy; omitting optional response body", log.Cause(err))
 	}
 
 	return storeResponseBody
@@ -279,13 +279,13 @@ func (s *RequestService) createRequest(
 	projectID, _ := observationProjectID(ctx)
 
 	// Decide whether to store the original request body
-	storeRequestBody := true
+	storeRequestBody := false
 	capacityManaged := false
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeRequestBody = policy.StoreRequestBody
 		_, _, capacityManaged = capacityBytes(policy)
 	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store request body", log.Cause(err))
+		log.Warn(ctx, "Failed to get storage policy; omitting optional request body", log.Cause(err))
 	}
 	observationBody := observationBodyInfoFromContext(ctx)
 	if observationBody != nil && (observationBody.Unavailable || observationBody.Omitted) {
@@ -932,11 +932,11 @@ func (s *RequestService) updateRequestCompleted(
 	metrics *LatencyMetrics,
 ) error {
 	// Decide whether to store the final response body
-	storeResponseBody := true
+	storeResponseBody := false
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeResponseBody = policy.StoreResponseBody
 	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(err))
+		log.Warn(ctx, "Failed to get storage policy; omitting optional response body", log.Cause(err))
 	}
 
 	client := s.entFromContext(ctx)
@@ -1051,11 +1051,11 @@ func (s *RequestService) updateRequestCompletedWithAudio(
 	metrics *LatencyMetrics,
 ) error {
 	// Decide whether to store the final response body metadata.
-	storeResponseBody := true
+	storeResponseBody := false
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeResponseBody = policy.StoreResponseBody
 	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(err))
+		log.Warn(ctx, "Failed to get storage policy; omitting optional response body", log.Cause(err))
 	}
 
 	client := s.entFromContext(ctx)
@@ -1191,11 +1191,11 @@ func (s *RequestService) updateRequestStatusExternalIDAndResponseBody(
 	metrics *LatencyMetrics,
 ) error {
 	// Decide whether to store the final response body
-	storeResponseBody := true
+	storeResponseBody := false
 	if policy, err := s.SystemService.StoragePolicy(ctx); err == nil {
 		storeResponseBody = policy.StoreResponseBody
 	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(err))
+		log.Warn(ctx, "Failed to get storage policy; omitting optional response body", log.Cause(err))
 	}
 
 	client := s.entFromContext(ctx)
@@ -2144,11 +2144,11 @@ func (s *RequestService) updateRequestStatusForUnavailableResponseEvidence(
 		return nil
 	}
 
-	storeResponseBody := true
+	storeResponseBody := false
 	if policy, policyErr := s.SystemService.StoragePolicy(ctx); policyErr == nil {
 		storeResponseBody = policy.StoreResponseBody
 	} else {
-		log.Warn(ctx, "Failed to get storage policy, defaulting to store response body", log.Cause(policyErr))
+		log.Warn(ctx, "Failed to get storage policy; omitting optional response body", log.Cause(policyErr))
 	}
 	disposition := failedResponseEvidenceDeadlineDisposition(req.EvidenceDisposition, storeResponseBody)
 	if info := observationResponseBodyInfoFromContext(ctx); info != nil {
