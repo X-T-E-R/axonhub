@@ -8,6 +8,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/db"
+	"github.com/looplj/axonhub/internal/server/maintenance"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -22,6 +23,7 @@ func NewHttpClient(params NewHttpClientParams) *httpclient.HttpClient {
 }
 
 var Module = fx.Module("dependencies",
+	fx.Provide(maintenance.NewGate),
 	fx.Provide(log.New),
 	fx.Provide(db.NewEntClient),
 	fx.Provide(NewHttpClient),

@@ -7,6 +7,7 @@ import (
 	"github.com/zhenzou/executors"
 
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/server/maintenance"
 )
 
 type ErrorHandler struct{}
@@ -22,12 +23,12 @@ func (h *RejectionHandler) RejectExecution(runnable executors.Runnable, e execut
 	return nil
 }
 
-func NewExecutors(logger *log.Logger) executors.ScheduledExecutor {
-	return executors.NewPoolScheduleExecutor(
+func NewExecutors(logger *log.Logger, gate *maintenance.Gate) executors.ScheduledExecutor {
+	return &maintenanceExecutor{gate: gate, ScheduledExecutor: executors.NewPoolScheduleExecutor(
 		executors.WithMaxConcurrent(64),
 		executors.WithMaxBlockingTasks(1024),
 		executors.WithErrorHandler(&ErrorHandler{}),
 		executors.WithRejectionHandler(&RejectionHandler{}),
 		executors.WithLogger(logger.AsSlog()),
-	)
+	)}
 }
