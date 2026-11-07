@@ -1239,6 +1239,9 @@ extend type Thread {
 }
 
 extend type Channel {
+  """Registered execution node ID, or null for standalone and unassigned channels."""
+  executionMachine: String @goField(forceResolver: true)
+
   """
   Built-in endpoints resolved dynamically from the channel type.
   The first item is the primary endpoint.
@@ -1559,6 +1562,17 @@ input QueryChannelInput {
   Filter channels that support the specified model.
   """
   model: String
+
+  """Filter by a registered execution machine before pagination."""
+  executionMachine: String
+
+  """Apply cursors to model matches even without a machine filter."""
+  paginateModelMatches: Boolean
+}
+
+type ChannelExecutionInventory {
+  clusterEnabled: Boolean!
+  machines: [String!]!
 }
 
 input CountChannelsByTypeInput {
@@ -1569,6 +1583,7 @@ input CountChannelsByTypeInput {
 }
 
 extend type Query {
+  channelExecutionInventory: ChannelExecutionInventory!
   channelAPIKeyInventory(channelID: ID!): [ChannelAPIKeyInventoryItem!]!
   allChannelSummarys(includeArchived: Boolean): [Channel!]!
   allChannelTags: [String!]!

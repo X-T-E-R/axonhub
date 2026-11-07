@@ -25,6 +25,11 @@ import (
 	"github.com/samber/lo"
 )
 
+// ExecutionMachine is the resolver for the executionMachine field.
+func (r *channelResolver) ExecutionMachine(ctx context.Context, obj *ent.Channel) (*string, error) {
+	return r.channelService.ExecutionMachine(ctx, obj.ID)
+}
+
 // DefaultEndpoints is the resolver for the defaultEndpoints field.
 func (r *channelResolver) DefaultEndpoints(ctx context.Context, obj *ent.Channel) ([]*objects.ChannelEndpoint, error) {
 	if obj == nil {
@@ -842,6 +847,11 @@ func (r *projectProfileResolver) ModelIDs(ctx context.Context, obj *objects.Proj
 		return nil, nil
 	}
 	return *obj.ModelIDs, nil
+}
+
+// ChannelExecutionInventory is the resolver for the channelExecutionInventory field.
+func (r *queryResolver) ChannelExecutionInventory(ctx context.Context) (*biz.ChannelExecutionInventory, error) {
+	return r.channelService.ExecutionInventory(ctx)
 }
 
 // ChannelAPIKeyInventory is the resolver for the channelAPIKeyInventory field.

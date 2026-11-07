@@ -2,24 +2,30 @@ package biz
 
 import (
 	"context"
+	"fmt"
 
 	"entgo.io/contrib/entgql"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqljson"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/channel"
+	"github.com/looplj/axonhub/internal/scopes"
 )
 
 // QueryChannelsInput represents the input for querying channels with additional filters.
 type QueryChannelsInput struct {
-	After   *entgql.Cursor[int]
-	First   *int
-	Before  *entgql.Cursor[int]
-	Last    *int
-	OrderBy *ent.ChannelOrder
-	Where   *ent.ChannelWhereInput
-	HasTag  *string
-	Model   *string
+	After                *entgql.Cursor[int]
+	First                *int
+	Before               *entgql.Cursor[int]
+	Last                 *int
+	OrderBy              *ent.ChannelOrder
+	Where                *ent.ChannelWhereInput
+	HasTag               *string
+	Model                *string
+	ExecutionMachine     *string
+	PaginateModelMatches *bool
 }
 
 // QueryChannels queries channels with the specified input parameters, including model filtering.
@@ -44,52 +50,66 @@ func (svc *ChannelService) QueryChannels(ctx context.Context, input QueryChannel
 		})
 	}
 
-	// If the model is not specified, return the query result directly.
-	if input.Model == nil || *input.Model == "" {
-		conn, err := query.Paginate(ctx, input.After, input.First, input.Before, input.Last,
-			ent.WithChannelOrder(input.OrderBy),
-		)
+	if input.ExecutionMachine != nil {
+		if err := authz.RequireScope(ctx, scopes.ScopeReadChannels); err != nil {
+			return nil, err
+		}
+		machine := *input.ExecutionMachine
+		if _, registered := svc.node.Nodes[machine]; !svc.node.Enabled || !registered {
+			return nil, fmt.Errorf("execution machine %q is not registered", machine)
+		}
+		var ids []int
+		for id, binding := range svc.node.Channels {
+			if binding.Owner == machine {
+				ids = append(ids, id)
+			}
+		}
+		query.Where(channel.IDIn(ids...))
+	}
+
+	if input.Model != nil && *input.Model != "" {
+		paginate := input.ExecutionMachine != nil || (input.PaginateModelMatches != nil && *input.PaginateModelMatches)
+		matching, err := matchingModelChannels(ctx, query.Clone(), *input.Model, input.OrderBy)
 		if err != nil {
 			return nil, err
 		}
-		normalizeChannelConnectionSettingsForRead(conn)
-
-		return conn, nil
+		if !paginate {
+			// Keep the unpaginated model search contract for existing callers.
+			return svc.buildConnectionInMemory(matching, input.OrderBy), nil
+		}
+		ids := make([]int, 0, len(matching))
+		for _, ch := range matching {
+			ids = append(ids, ch.ID)
+		}
+		query.Where(channel.IDIn(ids...))
 	}
 
-	// When model filtering is required, we fetch all results and filter in-memory, bypassing database pagination.
-	return svc.queryChannelsWithModelFilter(ctx, query, input)
+	conn, err := query.Paginate(ctx, input.After, input.First, input.Before, input.Last, ent.WithChannelOrder(input.OrderBy))
+	if err != nil {
+		return nil, err
+	}
+	normalizeChannelConnectionSettingsForRead(conn)
+	return conn, nil
 }
 
-// queryChannelsWithModelFilter performs model filtering without pagination.
-// When model filtering is required, return all matching channels without pagination.
-func (svc *ChannelService) queryChannelsWithModelFilter(
-	ctx context.Context,
-	query *ent.ChannelQuery,
-	input QueryChannelsInput,
-) (*ent.ChannelConnection, error) {
-	// Fetch all channels from the database
-	if input.OrderBy != nil {
-		query = query.Order(input.OrderBy.ToOrderOption())
+// Model support includes aliases and mapping rules evaluated by Channel. Select
+// all matches before applying the same cursor pagination as the ordinary query.
+func matchingModelChannels(ctx context.Context, query *ent.ChannelQuery, model string, order *ent.ChannelOrder) ([]*ent.Channel, error) {
+	if order != nil {
+		query.Order(order.ToOrderOption())
 	}
-
 	channels, err := query.All(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// Filter channels by model support
-	var filteredChannels []*ent.Channel
-
-	for _, channel := range channels {
-		channelObj := Channel{Channel: channel}
-		if channelObj.IsModelSupported(*input.Model) {
-			filteredChannels = append(filteredChannels, channel)
+	var matching []*ent.Channel
+	for _, ch := range channels {
+		candidate := Channel{Channel: ch}
+		if candidate.IsModelSupported(model) {
+			matching = append(matching, ch)
 		}
 	}
-
-	// Build connection without pagination (ignore all pagination params for model filtering)
-	return svc.buildConnectionInMemory(filteredChannels, input.OrderBy), nil
+	return matching, nil
 }
 
 // buildConnectionInMemory builds a relay-style connection from filtered channels.
