@@ -48,6 +48,10 @@ interface DataTableProps {
   statusFilter: string[];
   tagFilter: string;
   modelFilter: string;
+  executionMachine: string;
+  executionMachines: string[];
+  executionInventoryError: boolean;
+  onExecutionMachineChange: (machine: string) => void;
   selectedTypeTab?: string;
   showErrorOnly?: boolean;
   onExitErrorOnlyMode?: () => void;
@@ -83,6 +87,10 @@ export function ChannelsTable({
   statusFilter,
   tagFilter,
   modelFilter,
+  executionMachine,
+  executionMachines,
+  executionInventoryError,
+  onExecutionMachineChange,
   selectedTypeTab = 'all',
   showErrorOnly,
   sorting,
@@ -289,6 +297,10 @@ export function ChannelsTable({
       <DataTableToolbar
         table={table}
         isFiltered={isFiltered}
+        executionMachine={executionMachine}
+        executionMachines={executionMachines}
+        executionInventoryError={executionInventoryError}
+        onExecutionMachineChange={onExecutionMachineChange}
         selectedCount={selectedCount}
         selectedTypeTab={selectedTypeTab}
         showErrorOnly={showErrorOnly}

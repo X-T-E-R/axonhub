@@ -5,6 +5,7 @@ import { useQueryModels } from '@/gql/models';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTableFacetedFilter } from '@/components/data-table-faceted-filter';
 import { useAllChannelTags } from '../data/channels';
 import { CHANNEL_CONFIGS } from '../data/config_channels';
@@ -13,6 +14,10 @@ import { DataTableViewOptions } from './data-table-view-options';
 interface DataTableToolbarProps<TData> {
   table: Table<TData>;
   isFiltered?: boolean;
+  executionMachine: string;
+  executionMachines: string[];
+  executionInventoryError: boolean;
+  onExecutionMachineChange: (machine: string) => void;
   selectedCount?: number;
   selectedTypeTab?: string;
   showErrorOnly?: boolean;
@@ -22,6 +27,10 @@ interface DataTableToolbarProps<TData> {
 export function DataTableToolbar<TData>({
   table,
   isFiltered: externalIsFiltered,
+  executionMachine,
+  executionMachines,
+  executionInventoryError,
+  onExecutionMachineChange,
   selectedCount: externalSelectedCount,
   selectedTypeTab = 'all',
   showErrorOnly,
@@ -92,8 +101,31 @@ export function DataTableToolbar<TData>({
   );
 
   return (
-    <div className='flex items-center gap-4 overflow-x-auto pb-2 md:overflow-x-visible md:pb-0'>
-      <div className='relative min-w-48 flex-1'>
+    <div className='flex flex-wrap items-center gap-2 sm:gap-4'>
+      {executionMachines.length > 0 && (
+        <Select
+          value={executionMachine ? `node:${executionMachine}` : 'all'}
+          onValueChange={(value) => onExecutionMachineChange(value === 'all' ? '' : value.slice('node:'.length))}
+        >
+          <SelectTrigger aria-label={t('channels.columns.executionMachine')} data-testid='channel-execution-machine-filter'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align='start'>
+            <SelectItem value='all'>{t('channels.placement.allMachines')}</SelectItem>
+            {executionMachines.map((machine) => (
+              <SelectItem key={machine} value={`node:${machine}`}>
+                {machine}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {executionInventoryError && (
+        <span role='status' className='text-muted-foreground text-sm'>
+          {t('channels.placement.machinesUnavailable')}
+        </span>
+      )}
+      <div className='relative min-w-40 flex-1'>
         <i className='ph ph-magnifying-glass text-muted-foreground absolute top-2.5 left-3'></i>
         <Input
           placeholder={t('channels.filters.filterByName')}
@@ -111,10 +143,13 @@ export function DataTableToolbar<TData>({
       {table.getColumn('model') && modelOptions?.length > 0 && (
         <DataTableFacetedFilter column={table.getColumn('model')} title={t('channels.filters.model')} options={modelOptions} singleSelect />
       )}
-      {isFiltered && (
+      {(isFiltered || executionMachine) && (
         <Button
           variant='ghost'
-          onClick={() => table.resetColumnFilters()}
+          onClick={() => {
+            table.resetColumnFilters();
+            onExecutionMachineChange('');
+          }}
           className='h-8 px-2 lg:px-3'
         >
           {t('common.filters.reset')}

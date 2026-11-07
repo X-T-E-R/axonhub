@@ -1326,6 +1326,7 @@ const QUERY_CHANNELS_QUERY = `
             errorCode
             reason
           }
+          executionMachine
           liveLimiterStats {
             inFlight
             waiting
@@ -1393,6 +1394,24 @@ export function useSaveChannelModelPrices() {
   });
 }
 
+const CHANNEL_EXECUTION_INVENTORY_QUERY = `
+  query ChannelExecutionInventory {
+    channelExecutionInventory { clusterEnabled machines }
+  }
+`;
+
+const channelExecutionInventorySchema = z.object({ clusterEnabled: z.boolean(), machines: z.array(z.string()) });
+
+export function useChannelExecutionInventory() {
+  return useQuery({
+    queryKey: ['channelExecutionInventory'],
+    queryFn: async () => {
+      const data = await graphqlRequest<{ channelExecutionInventory: unknown }>(CHANNEL_EXECUTION_INVENTORY_QUERY);
+      return channelExecutionInventorySchema.parse(data.channelExecutionInventory);
+    },
+  });
+}
+
 // Use this hook to query channels with pagination and filtering
 export type ChannelOrderField = 'CREATED_AT' | 'UPDATED_AT' | 'ORDERING_WEIGHT' | 'NAME' | 'STATUS' | 'TYPE';
 
@@ -1409,6 +1428,8 @@ export function useQueryChannels(
     };
     hasTag?: string;
     model?: string;
+    executionMachine?: string;
+    paginateModelMatches?: boolean;
   },
   options?: {
     disableAutoFetch?: boolean;
@@ -1426,6 +1447,8 @@ export function useQueryChannels(
       variables?.orderBy?.direction,
       variables?.hasTag,
       variables?.model,
+      variables?.executionMachine,
+      variables?.paginateModelMatches,
       variables?.first,
       variables?.last,
       variables?.after,

@@ -360,6 +360,7 @@ type ComplexityRoot struct {
 		DisabledAPIKeys         func(childComplexity int) int
 		Endpoints               func(childComplexity int) int
 		ErrorMessage            func(childComplexity int) int
+		ExecutionMachine        func(childComplexity int) int
 		Executions              func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestExecutionOrder, where *ent.RequestExecutionWhereInput) int
 		ID                      func(childComplexity int) int
 		LiveLimiterStats        func(childComplexity int) int
@@ -452,6 +453,11 @@ type ComplexityRoot struct {
 		BaseURL   func(childComplexity int) int
 		Path      func(childComplexity int) int
 		Transport func(childComplexity int) int
+	}
+
+	ChannelExecutionInventory struct {
+		ClusterEnabled func(childComplexity int) int
+		Machines       func(childComplexity int) int
 	}
 
 	ChannelFailurePolicy struct {
@@ -1661,6 +1667,7 @@ type ComplexityRoot struct {
 		AutoBackupSettings           func(childComplexity int) int
 		BrandSettings                func(childComplexity int) int
 		ChannelAPIKeyInventory       func(childComplexity int, channelID objects.GUID) int
+		ChannelExecutionInventory    func(childComplexity int) int
 		ChannelKeyMonitoringEvents   func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.ChannelKeyMonitoringEventOrder, where *ent.ChannelKeyMonitoringEventWhereInput) int
 		ChannelOverrideTemplates     func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.ChannelOverrideTemplateOrder, where *ent.ChannelOverrideTemplateWhereInput) int
 		ChannelPerformanceStats      func(childComplexity int) int
@@ -2479,6 +2486,7 @@ type ChannelResolver interface {
 	Policies(ctx context.Context, obj *ent.Channel) (*objects.ChannelPolicies, error)
 
 	ProviderQuotaStatus(ctx context.Context, obj *ent.Channel) (*ent.ProviderQuotaStatus, error)
+	ExecutionMachine(ctx context.Context, obj *ent.Channel) (*string, error)
 	DefaultEndpoints(ctx context.Context, obj *ent.Channel) ([]*objects.ChannelEndpoint, error)
 	AllModelEntries(ctx context.Context, obj *ent.Channel) ([]*biz.ChannelModelEntry, error)
 	Credentials(ctx context.Context, obj *ent.Channel) (*objects.ChannelCredentials, error)
@@ -2724,6 +2732,7 @@ type QueryResolver interface {
 	Traces(ctx context.Context, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.TraceOrder, where *ent.TraceWhereInput) (*ent.TraceConnection, error)
 	UsageLogs(ctx context.Context, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.UsageLogOrder, where *ent.UsageLogWhereInput) (*ent.UsageLogConnection, error)
 	Users(ctx context.Context, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.UserOrder, where *ent.UserWhereInput) (*ent.UserConnection, error)
+	ChannelExecutionInventory(ctx context.Context) (*biz.ChannelExecutionInventory, error)
 	ChannelAPIKeyInventory(ctx context.Context, channelID objects.GUID) ([]*biz.ChannelAPIKeyInventoryItem, error)
 	AllChannelSummarys(ctx context.Context, includeArchived *bool) ([]*ent.Channel, error)
 	AllChannelTags(ctx context.Context) ([]string, error)
@@ -3864,6 +3873,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Channel.ErrorMessage(childComplexity), true
+	case "Channel.executionMachine":
+		if e.complexity.Channel.ExecutionMachine == nil {
+			break
+		}
+
+		return e.complexity.Channel.ExecutionMachine(childComplexity), true
 	case "Channel.executions":
 		if e.complexity.Channel.Executions == nil {
 			break
@@ -4300,6 +4315,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelEndpoint.Transport(childComplexity), true
+
+	case "ChannelExecutionInventory.clusterEnabled":
+		if e.complexity.ChannelExecutionInventory.ClusterEnabled == nil {
+			break
+		}
+
+		return e.complexity.ChannelExecutionInventory.ClusterEnabled(childComplexity), true
+	case "ChannelExecutionInventory.machines":
+		if e.complexity.ChannelExecutionInventory.Machines == nil {
+			break
+		}
+
+		return e.complexity.ChannelExecutionInventory.Machines(childComplexity), true
 
 	case "ChannelFailurePolicy.channelProfiles":
 		if e.complexity.ChannelFailurePolicy.ChannelProfiles == nil {
@@ -9917,6 +9945,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.ChannelAPIKeyInventory(childComplexity, args["channelID"].(objects.GUID)), true
+	case "Query.channelExecutionInventory":
+		if e.complexity.Query.ChannelExecutionInventory == nil {
+			break
+		}
+
+		return e.complexity.Query.ChannelExecutionInventory(childComplexity), true
 	case "Query.channelKeyMonitoringEvents":
 		if e.complexity.Query.ChannelKeyMonitoringEvents == nil {
 			break
@@ -20632,6 +20666,8 @@ func (ec *executionContext) fieldContext_ApplyChannelOverrideTemplatePayload_cha
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -21810,6 +21846,8 @@ func (ec *executionContext) fieldContext_BulkImportChannelsResult_channels(_ con
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -21961,6 +21999,8 @@ func (ec *executionContext) fieldContext_BulkUpdateChannelOrderingResult_channel
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -22939,6 +22979,35 @@ func (ec *executionContext) fieldContext_Channel_providerQuotaStatus(_ context.C
 				return ec.fieldContext_ProviderQuotaStatus_channel(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ProviderQuotaStatus", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Channel_executionMachine(ctx context.Context, field graphql.CollectedField, obj *ent.Channel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Channel_executionMachine,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Channel().ExecutionMachine(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Channel_executionMachine(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Channel",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -24623,6 +24692,8 @@ func (ec *executionContext) fieldContext_ChannelEdge_node(_ context.Context, fie
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -24775,6 +24846,64 @@ func (ec *executionContext) _ChannelEndpoint_transport(ctx context.Context, fiel
 func (ec *executionContext) fieldContext_ChannelEndpoint_transport(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelEndpoint",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelExecutionInventory_clusterEnabled(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelExecutionInventory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelExecutionInventory_clusterEnabled,
+		func(ctx context.Context) (any, error) {
+			return obj.ClusterEnabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelExecutionInventory_clusterEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelExecutionInventory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelExecutionInventory_machines(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelExecutionInventory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelExecutionInventory_machines,
+		func(ctx context.Context) (any, error) {
+			return obj.Machines, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelExecutionInventory_machines(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelExecutionInventory",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -28634,6 +28763,8 @@ func (ec *executionContext) fieldContext_ChannelKeyMonitoringEvent_channel(_ con
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -29611,6 +29742,8 @@ func (ec *executionContext) fieldContext_ChannelModelPrice_channel(_ context.Con
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -31495,6 +31628,8 @@ func (ec *executionContext) fieldContext_ChannelProbe_channel(_ context.Context,
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -33860,6 +33995,8 @@ func (ec *executionContext) fieldContext_ClearChannelOverrideTemplatesPayload_ch
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -38781,6 +38918,8 @@ func (ec *executionContext) fieldContext_ModelChannelConnection_channel(_ contex
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -40670,6 +40809,8 @@ func (ec *executionContext) fieldContext_Mutation_createChannel(ctx context.Cont
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -40775,6 +40916,8 @@ func (ec *executionContext) fieldContext_Mutation_duplicateChannel(ctx context.C
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -40880,6 +41023,8 @@ func (ec *executionContext) fieldContext_Mutation_bulkCreateChannels(ctx context
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -40985,6 +41130,8 @@ func (ec *executionContext) fieldContext_Mutation_updateChannel(ctx context.Cont
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -41090,6 +41237,8 @@ func (ec *executionContext) fieldContext_Mutation_saveChannelEndpoints(ctx conte
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -41195,6 +41344,8 @@ func (ec *executionContext) fieldContext_Mutation_updateChannelStatus(ctx contex
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -52381,6 +52532,8 @@ func (ec *executionContext) fieldContext_ProviderQuotaStatus_channel(_ context.C
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -53623,6 +53776,41 @@ func (ec *executionContext) fieldContext_Query_users(ctx context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_channelExecutionInventory(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_channelExecutionInventory,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().ChannelExecutionInventory(ctx)
+		},
+		nil,
+		ec.marshalNChannelExecutionInventory2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelExecutionInventory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_channelExecutionInventory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "clusterEnabled":
+				return ec.fieldContext_ChannelExecutionInventory_clusterEnabled(ctx, field)
+			case "machines":
+				return ec.fieldContext_ChannelExecutionInventory_machines(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelExecutionInventory", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_channelAPIKeyInventory(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -53779,6 +53967,8 @@ func (ec *executionContext) fieldContext_Query_allChannelSummarys(ctx context.Co
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -58415,6 +58605,8 @@ func (ec *executionContext) fieldContext_Request_channel(_ context.Context, fiel
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -59653,6 +59845,8 @@ func (ec *executionContext) fieldContext_RequestExecution_channel(_ context.Cont
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -67568,6 +67762,8 @@ func (ec *executionContext) fieldContext_UnassociatedChannel_channel(_ context.C
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -68653,6 +68849,8 @@ func (ec *executionContext) fieldContext_UsageLog_channel(_ context.Context, fie
 				return ec.fieldContext_Channel_channelModelPrices(ctx, field)
 			case "providerQuotaStatus":
 				return ec.fieldContext_Channel_providerQuotaStatus(ctx, field)
+			case "executionMachine":
+				return ec.fieldContext_Channel_executionMachine(ctx, field)
 			case "defaultEndpoints":
 				return ec.fieldContext_Channel_defaultEndpoints(ctx, field)
 			case "allModelEntries":
@@ -91261,7 +91459,7 @@ func (ec *executionContext) unmarshalInputQueryChannelInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"after", "first", "before", "last", "orderBy", "where", "hasTag", "model"}
+	fieldsInOrder := [...]string{"after", "first", "before", "last", "orderBy", "where", "hasTag", "model", "executionMachine", "paginateModelMatches"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -91324,6 +91522,20 @@ func (ec *executionContext) unmarshalInputQueryChannelInput(ctx context.Context,
 				return it, err
 			}
 			it.Model = data
+		case "executionMachine":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("executionMachine"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExecutionMachine = data
+		case "paginateModelMatches":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("paginateModelMatches"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PaginateModelMatches = data
 		}
 	}
 
@@ -105764,6 +105976,39 @@ func (ec *executionContext) _Channel(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "executionMachine":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Channel_executionMachine(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "defaultEndpoints":
 			field := field
 
@@ -106424,6 +106669,50 @@ func (ec *executionContext) _ChannelEndpoint(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelEndpoint_baseURL(ctx, field, obj)
 		case "transport":
 			out.Values[i] = ec._ChannelEndpoint_transport(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelExecutionInventoryImplementors = []string{"ChannelExecutionInventory"}
+
+func (ec *executionContext) _ChannelExecutionInventory(ctx context.Context, sel ast.SelectionSet, obj *biz.ChannelExecutionInventory) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelExecutionInventoryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelExecutionInventory")
+		case "clusterEnabled":
+			out.Values[i] = ec._ChannelExecutionInventory_clusterEnabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "machines":
+			out.Values[i] = ec._ChannelExecutionInventory_machines(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -116523,6 +116812,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_users(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "channelExecutionInventory":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_channelExecutionInventory(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -126853,6 +127164,20 @@ func (ec *executionContext) unmarshalNChannelEndpointInput2ᚕgithubᚗcomᚋloo
 		}
 	}
 	return res, nil
+}
+
+func (ec *executionContext) marshalNChannelExecutionInventory2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelExecutionInventory(ctx context.Context, sel ast.SelectionSet, v biz.ChannelExecutionInventory) graphql.Marshaler {
+	return ec._ChannelExecutionInventory(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNChannelExecutionInventory2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelExecutionInventory(ctx context.Context, sel ast.SelectionSet, v *biz.ChannelExecutionInventory) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ChannelExecutionInventory(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNChannelKeyHealthCheckHistoryEntry2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHistoryEntry(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckHistoryEntry) graphql.Marshaler {

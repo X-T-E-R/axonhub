@@ -700,7 +700,11 @@ const CreatedAtCell = memo(({ row }: { row: Row<Channel> }) => {
 
 CreatedAtCell.displayName = 'CreatedAtCell';
 
-export const createColumns = (t: ReturnType<typeof useTranslation>['t'], canWrite: boolean = true): ColumnDef<Channel>[] => {
+export const createColumns = (
+  t: ReturnType<typeof useTranslation>['t'],
+  canWrite: boolean = true,
+  clusterEnabled?: boolean
+): ColumnDef<Channel>[] => {
   return [
     {
       id: 'expand',
@@ -753,6 +757,22 @@ export const createColumns = (t: ReturnType<typeof useTranslation>['t'], canWrit
       },
       enableHiding: false,
       enableSorting: true,
+    },
+    {
+      accessorKey: 'executionMachine',
+      header: () => t('channels.columns.executionMachine'),
+      cell: ({ row }) => (
+        <span
+          data-testid='channel-execution-machine'
+          className={row.original.executionMachine ? 'font-mono text-sm' : 'text-muted-foreground text-sm'}
+        >
+          {row.original.executionMachine ??
+            (clusterEnabled === undefined ? '—' : t(clusterEnabled ? 'channels.placement.unassigned' : 'channels.placement.standalone'))}
+        </span>
+      ),
+      meta: { className: 'text-center whitespace-nowrap' },
+      enableSorting: false,
+      enableHiding: false,
     },
     {
       id: 'provider',

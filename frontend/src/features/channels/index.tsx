@@ -12,7 +12,7 @@ import { ChannelsPrimaryButtons } from './components/channels-primary-buttons';
 import { ChannelsTable } from './components/channels-table';
 import { ChannelsTypeTabs } from './components/channels-type-tabs';
 import ChannelsProvider from './context/channels-context';
-import { useQueryChannels, useChannelTypes, useErrorChannelsCount, useChannelProbeData } from './data/channels';
+import { useQueryChannels, useChannelTypes, useErrorChannelsCount, useChannelProbeData, useChannelExecutionInventory } from './data/channels';
 import { useProvidersData } from '@/features/models/data/providers';
 
 const ChannelsDialogs = lazy(() => import('./components/channels-dialogs').then((m) => ({ default: m.ChannelsDialogs })));
@@ -30,6 +30,8 @@ function ChannelsContent() {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string>('');
   const [modelFilter, setModelFilter] = useState<string>('');
+  const [executionMachine, setExecutionMachine] = useState<string>('');
+  const { data: executionInventory, isError: executionInventoryError } = useChannelExecutionInventory();
   const [selectedTypeTab, setSelectedTypeTab] = useState<string>('all');
   const [showErrorOnly, setShowErrorOnly] = useState<boolean>(false);
   const [sorting, setSorting] = useState<SortingState>(() => {
@@ -103,7 +105,7 @@ function ChannelsContent() {
       where.errorMessageNotNil = true;
     }
     return Object.keys(where).length > 0 ? where : undefined;
-  }, [debouncedNameFilter, tabFilteredTypes, statusFilter, showErrorOnly]);
+  }, [debouncedNameFilter, tabFilteredTypes, typeFilter, statusFilter, showErrorOnly]);
 
   const currentOrderBy = useMemo(() => {
     if (sorting.length === 0) {
@@ -129,16 +131,22 @@ function ChannelsContent() {
     }
   }, [sorting]);
 
+  // A cursor belongs to the result set that produced it. Filter changes can
+  // render before the router clears search params, so don't send a stale cursor.
+  const filterScope = JSON.stringify([whereClause, currentOrderBy, tagFilter, modelFilter, executionMachine]);
+  const [cursorScope, setCursorScope] = useState(filterScope);
   const {
     data,
     isLoading,
     error: _error,
   } = useQueryChannels({
-    ...paginationArgs,
+    ...(cursorScope === filterScope ? paginationArgs : { first: pageSize }),
     where: whereClause,
     orderBy: currentOrderBy,
     hasTag: tagFilter || undefined,
     model: modelFilter || undefined,
+    executionMachine: executionMachine || undefined,
+    paginateModelMatches: true,
   });
 
   const channelIDs = useMemo(() => {
@@ -160,15 +168,17 @@ function ChannelsContent() {
 
   const handleNextPage = useCallback(() => {
     if (data?.pageInfo?.hasNextPage && data?.pageInfo?.endCursor) {
+      setCursorScope(filterScope);
       setCursors(data.pageInfo.startCursor ?? undefined, data.pageInfo.endCursor ?? undefined, 'after');
     }
-  }, [data?.pageInfo, setCursors]);
+  }, [data?.pageInfo, filterScope, setCursors]);
 
   const handlePreviousPage = useCallback(() => {
     if (data?.pageInfo?.hasPreviousPage) {
+      setCursorScope(filterScope);
       setCursors(data.pageInfo.startCursor ?? undefined, data.pageInfo.endCursor ?? undefined, 'before');
     }
-  }, [data?.pageInfo, setCursors]);
+  }, [data?.pageInfo, filterScope, setCursors]);
 
   const handlePageSizeChange = useCallback(
     (newPageSize: number) => {
@@ -182,8 +192,7 @@ function ChannelsContent() {
       setNameFilter(filter);
       resetCursor();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [resetCursor]
   );
 
   const handleTypeFilterChange = useCallback(
@@ -191,8 +200,7 @@ function ChannelsContent() {
       setTypeFilter(filters);
       resetCursor();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [resetCursor]
   );
 
   const handleTabChange = useCallback(
@@ -201,8 +209,7 @@ function ChannelsContent() {
       setTypeFilter([]);
       resetCursor();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setSelectedTypeTab, setTypeFilter]
+    [resetCursor]
   );
 
   const handleStatusFilterChange = useCallback(
@@ -210,8 +217,7 @@ function ChannelsContent() {
       setStatusFilter(filters);
       resetCursor();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [resetCursor]
   );
 
   const handleTagFilterChange = useCallback(
@@ -219,8 +225,7 @@ function ChannelsContent() {
       setTagFilter(filter);
       resetCursor();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [resetCursor]
   );
 
   const handleModelFilterChange = useCallback(
@@ -228,23 +233,23 @@ function ChannelsContent() {
       setModelFilter(filter);
       resetCursor();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [resetCursor]
   );
 
   const handleFilterErrorChannels = useCallback(() => {
     setShowErrorOnly(true);
     resetCursor();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [resetCursor]);
 
   const handleExitErrorOnlyMode = useCallback(() => {
     setShowErrorOnly(false);
     resetCursor();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [resetCursor]);
 
-  const columns = useMemo(() => createColumns(t, channelPermissions.canWrite), [t, channelPermissions.canWrite]);
+  const columns = useMemo(
+    () => createColumns(t, channelPermissions.canWrite, executionInventory?.clusterEnabled),
+    [t, channelPermissions.canWrite, executionInventory?.clusterEnabled]
+  );
 
   return (
     <div className='flex flex-1 flex-col overflow-hidden'>
@@ -267,6 +272,13 @@ function ChannelsContent() {
         statusFilter={statusFilter}
         tagFilter={tagFilter}
         modelFilter={modelFilter}
+        executionMachine={executionMachine}
+        executionMachines={executionInventory?.machines ?? []}
+        executionInventoryError={executionInventoryError}
+        onExecutionMachineChange={(machine) => {
+          setExecutionMachine(machine);
+          resetCursor();
+        }}
         selectedTypeTab={selectedTypeTab}
         showErrorOnly={showErrorOnly}
         sorting={sorting}

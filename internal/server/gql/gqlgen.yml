@@ -386,6 +386,9 @@ models:
   SaveChannelEndpointsInput:
     model:
       - github.com/looplj/axonhub/internal/server/biz.SaveChannelEndpointsInput
+  ChannelExecutionInventory:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelExecutionInventory
   QueryChannelInput:
     model:
       - github.com/looplj/axonhub/internal/server/biz.QueryChannelsInput

@@ -702,6 +702,7 @@ export const channelSchema = z.object({
   remark: z.string().optional().nullable(),
   allModelEntries: z.array(channelModelEntrySchema).optional(),
   liveLimiterStats: channelLimiterStatsSchema.optional().nullable(),
+  executionMachine: z.string().nullable().optional(),
   endpoints: z.array(channelEndpointSchema).optional().default([]).nullable(),
   defaultEndpoints: z.array(channelEndpointSchema).optional().default([]).nullable(),
 });
