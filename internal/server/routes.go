@@ -100,6 +100,9 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			group.POST("/channel-models", handlers.Cluster.ChannelModels)
 			group.POST("/channel-sync", handlers.Cluster.ChannelSync)
 		}
+		placementNode := server.Group("/__axon/admin/placement", middleware.WithJWTAuth(services.AuthService), middleware.WithLegacyUser(), middleware.WithTimeout(server.Config.RequestTimeout))
+		placementNode.POST("/prepare", handlers.Cluster.PrepareChannelPlacement)
+		placementNode.POST("/readback", handlers.Cluster.ReadChannelPlacementOnNode)
 		ownerAdmin.POST("/playground/chat", middleware.WithSource(request.SourcePlayground), handlers.Playground.ChatCompletion)
 		server.GET("/v1/axon/route", middleware.WithIPBlocklist(services.SystemService), middleware.WithAPIKeyConfig(services.AuthService, nil), middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.Resolve)
 		server.GET("/v1/axon/task-route", middleware.WithIPBlocklist(services.SystemService), middleware.WithAPIKeyConfig(services.AuthService, nil), middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.TaskRoute)
@@ -143,6 +146,11 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 	{
 		if services.Node.Enabled {
 			adminGroup.GET("/cluster/manifest", middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.Manifest)
+			placementAdmin := server.Group("/admin/cluster/placement", middleware.WithJWTAuth(services.AuthService), middleware.WithLegacyUser(), middleware.WithTimeout(server.Config.RequestTimeout))
+			placementAdmin.GET("/:id", handlers.Cluster.ObserveChannelPlacement)
+			placementAdmin.GET("/:id/preview", handlers.Cluster.PreviewChannelPlacement)
+			placementAdmin.POST("", handlers.Cluster.SaveChannelPlacement)
+			placementAdmin.POST("/worker-ack", handlers.Cluster.AcknowledgePlacementWorker)
 		}
 		adminGroup.GET("/playground", middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
 			handlers.Graphql.Playground.ServeHTTP(c.Writer, c.Request)

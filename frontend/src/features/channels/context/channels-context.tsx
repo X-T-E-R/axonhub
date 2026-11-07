@@ -33,7 +33,8 @@ type ChannelsDialogType =
   | 'keys'
   | 'testAPIKeys'
   | 'disabledAPIKeys'
-  | 'endpoints';
+  | 'endpoints'
+  | 'placement';
 
 interface ChannelsContextType {
   open: ChannelsDialogType | null;

@@ -42,7 +42,7 @@ func newTestChannelService(client *ent.Client) *ChannelService {
 		Name:            "test_enabled_channels",
 		InitialValue:    []*Channel{},
 		RefreshInterval: time.Hour,
-		RefreshFunc:     svc.reloadEnabledChannels,
+		RefreshFunc:     svc.onCacheRefreshed,
 		OnSwap:          svc.onEnabledChannelsSwap,
 	})
 

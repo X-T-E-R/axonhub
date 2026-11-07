@@ -170,6 +170,7 @@ func unmarshal(v *viper.Viper) (Config, error) {
 		if !config.Cluster.IsControl() && !config.DB.DisableAutoMigration {
 			return Config{}, errors.New("cluster data node requires db.disable_auto_migration=true")
 		}
+		config.Cluster = config.Cluster.WithRuntime()
 	}
 	return config, nil
 }

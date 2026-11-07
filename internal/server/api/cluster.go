@@ -139,7 +139,7 @@ func DataNodeRoutes(node cluster.Config) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if path == "/health" || path == "/__portway/capabilities" || path == "/__axon/admin/channel-quota-reset" || path == "/__axon/openapi/channel-quota-reset" || path == "/__axon/admin/channel-test" || path == "/__axon/admin/channel-health" || path == "/__axon/openapi/channel-test" || path == "/__axon/openapi/channel-health" || path == "/__axon/admin/playground/chat" || path == "/__axon/admin/channel-models" || path == "/__axon/admin/channel-sync" || path == "/__axon/openapi/channel-models" || path == "/__axon/openapi/channel-sync" || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/jina/") || strings.HasPrefix(path, "/doubao/") || strings.HasPrefix(path, "/gemini/") || strings.HasPrefix(path, "/anthropic/") {
+		if path == "/health" || path == "/__axon/admin/placement/prepare" || path == "/__axon/admin/placement/readback" || path == "/__portway/capabilities" || path == "/__axon/admin/channel-quota-reset" || path == "/__axon/openapi/channel-quota-reset" || path == "/__axon/admin/channel-test" || path == "/__axon/admin/channel-health" || path == "/__axon/openapi/channel-test" || path == "/__axon/openapi/channel-health" || path == "/__axon/admin/playground/chat" || path == "/__axon/admin/channel-models" || path == "/__axon/admin/channel-sync" || path == "/__axon/openapi/channel-models" || path == "/__axon/openapi/channel-sync" || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/jina/") || strings.HasPrefix(path, "/doubao/") || strings.HasPrefix(path, "/gemini/") || strings.HasPrefix(path, "/anthropic/") {
 			c.Next()
 			return
 		}

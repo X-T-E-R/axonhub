@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/looplj/axonhub/internal/contexts"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/looplj/axonhub/internal/contexts"
 )
 
 type callerAuthorizationKey struct{}
@@ -26,8 +27,13 @@ func CallOwner(ctx context.Context, c Config, channelID int, path string, input,
 	if _, ok := contexts.GetAPIKey(ctx); ok {
 		path = strings.Replace(path, "/__axon/admin/", "/__axon/openapi/", 1)
 	}
-	owner := c.Owner(channelID)
-	origin := c.Nodes[owner]
+	return CallNode(ctx, c, c.Owner(channelID), path, input, output)
+}
+
+// CallNode dispatches a management operation to a registered target. Paths are
+// chosen by server code, never by the caller.
+func CallNode(ctx context.Context, c Config, node, path string, input, output any) error {
+	origin := c.Nodes[node]
 	if origin == "" {
 		return fmt.Errorf("channel has no configured execution origin")
 	}

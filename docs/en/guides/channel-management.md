@@ -56,6 +56,23 @@ In short: **API Key Profile renames → Model Association selects channel → Ch
 
 Choose **TypeSafe Jev**, **Command Code Jev**, **OpenAI Decisions**, or **System One compatible** to configure structured decision APIs. These presets save native endpoints and use protocol-specific connection tests. See [Native decision models](native-decisions.md) for credentials, endpoint roots, SDK examples and supported capabilities.
 
+## Execution machines in a cluster
+
+The **Execution machine** column shows each channel's registered owner. Use **All machines** or choose a node at the top of the channel page. Machine, status, name, tag and model filters apply before pagination. A standalone installation keeps its existing behavior and shows **Standalone**.
+
+To move channels online, use a system administrator account with `write_channels`:
+
+1. Click **Change** beside the current execution machine.
+2. Choose a registered target. Review the shared credential group, including disabled and archived channels that move with it.
+3. Click **Move channels**. Axon checks that the target can read the channel metadata and construct enabled providers, then saves the group ownership in the shared primary database. This preparation does not send a provider test request.
+4. Read the result: **Ownership saved** confirms the database change; the target and Worker routing have separate synchronization states. Disabled and archived channels keep their status.
+
+Existing requests finish on their selected machine. Other channels keep serving; the operation does not pause either node. Node caches and OAuth cleanup can briefly overlap during propagation. Channel IDs, keys, authorization profiles and usage records are retained. A failed target preparation leaves the owner unchanged. After a network error during save, reopen the dialog to observe the saved owner before submitting another change.
+
+Before the first online change, deploy placement-aware Axon versions to every node and connect the asynchronous Worker manifest consumer. Static `cluster.channels` remains the bootstrap configuration; online edits override ownership by its stable credential identity. Nodes reload edits through the existing cache notification and periodic refresh, including after restart. No per-migration environment edits are needed. A pending Worker state means the deployment controller has not yet acknowledged the current effective placement; it does not mean that a provider request was retried.
+
+To undo a saved move, use **Change** again and select the previous machine. This creates a new version and preserves requests and accounting. Before reverting the application to a version without online placement support, return online overrides to the static owners and synchronize the Worker; an older application reads only its static configuration.
+
 ## Multiple API Keys
 
 When an account has multiple API Keys, you can configure them all in the same channel. AxonHub will automatically rotate between them for better stability.

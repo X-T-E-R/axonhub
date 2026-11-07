@@ -1,4 +1,5 @@
 import { useChannels } from '../context/channels-context';
+import { ChannelPlacementDialog } from './channel-execution-machine-cell';
 import { ChannelsActionDialog } from './channels-action-dialog';
 import { ChannelsArchiveDialog } from './channels-archive-dialog';
 import { ChannelsBulkApplyTemplateDialog } from './channels-bulk-apply-template-dialog';
@@ -59,6 +60,7 @@ export function ChannelsDialogs() {
 
       {currentRow && (
         <>
+          {open === 'placement' && <ChannelPlacementDialog key={currentRow.id} channel={currentRow} onClose={() => setOpen(null)} />}
           <ChannelsActionDialog
             key={`channel-edit-${currentRow.id}`}
             open={open === 'edit'}

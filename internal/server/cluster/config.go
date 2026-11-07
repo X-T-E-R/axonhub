@@ -20,11 +20,21 @@ type Config struct {
 	ControlNode string                 `conf:"control_node" yaml:"control_node" json:"control_node"`
 	Nodes       map[string]string      `conf:"nodes" yaml:"nodes" json:"nodes"`
 	Channels    map[int]ChannelBinding `conf:"channels" yaml:"channels" json:"channels"`
+	runtime     *placementRuntime
 }
 
-func (c Config) IsControl() bool     { return !c.Enabled || c.NodeID == c.ControlNode }
-func (c Config) Owner(id int) string { return c.Channels[id].Owner }
-func (c Config) Owns(id int) bool    { return !c.Enabled || c.Owner(id) == c.NodeID }
+func (c Config) IsControl() bool { return !c.Enabled || c.NodeID == c.ControlNode }
+func (c Config) Owner(id int) string {
+	if c.runtime != nil {
+		if snapshot := c.runtime.current.Load(); snapshot != nil {
+			if owner, ok := snapshot.Owners[c.Channels[id].Identity]; ok {
+				return owner
+			}
+		}
+	}
+	return c.Channels[id].Owner
+}
+func (c Config) Owns(id int) bool { return !c.Enabled || c.Owner(id) == c.NodeID }
 func (c Config) Validate() error {
 	if !c.Enabled {
 		return nil
