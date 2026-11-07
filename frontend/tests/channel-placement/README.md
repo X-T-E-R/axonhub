@@ -14,6 +14,9 @@ Open one of these loopback URLs:
 
 - English: `http://127.0.0.1:5195/tests/channel-placement/?lang=en`
 - Chinese: `http://127.0.0.1:5195/tests/channel-placement/?lang=zh`
+- Read-only role: `http://127.0.0.1:5195/tests/channel-placement/?lang=en&role=readonly`
+- System admin role: `http://127.0.0.1:5195/tests/channel-placement/?lang=en&role=admin`
+- System owner role: `http://127.0.0.1:5195/tests/channel-placement/?lang=en&role=owner`
 
 The fixture owns port `5195`; stop only the Vite process started for this fixture when finished. Its Vite cache is `.runtime/channel-placement-vite-cache`.
 
@@ -24,10 +27,12 @@ The Vite middleware answers only local requests:
 - `ChannelExecutionInventory` returns `clusterEnabled: true` and `node-alpha`, `node-beta`, `node-gamma`.
 - `QueryChannels` returns 96 synthetic rows with 20-row pagination, interleaved machines, unassigned rows (`executionMachine: null`), enabled/disabled/archived status values, names, and models.
 - The mock applies `input.executionMachine`, `input.where`, `input.model`, `input.hasTag`, and cursor pagination. It records the exact operation and variables in memory.
-- Supporting read-only page queries (`CountChannelsByType`, `GetErrorChannelsCount`, `AllChannelTags`, `GetChannelProbeData`, `Models`, and `Me`) are synthetic too.
+- Supporting page queries (`CountChannelsByType`, `GetErrorChannelsCount`, `AllChannelTags`, `GetChannelProbeData`, `Models`, `SystemChannelSettings`, `ProxyPresets`, `QueryChannelNames`, and `Me`) are synthetic too.
+- `GET /admin/cluster/placement/:id`, `GET /admin/cluster/placement/:id/preview?target=xxx`, and `POST /admin/cluster/placement` implement the requested local observation/preview/save contract. The synthetic state starts at version 7, returns a two-channel shared-credential group with one disabled peer, then returns a Worker acknowledgement on a later observation GET.
+- `role=readonly` has only read scopes and renders no placement action. `role=admin` has system-level `write_channels`; `role=owner` also sets `isOwner`.
 - The browser fetch guard returns the checked-in provider catalog for the production provider-data request and rejects every other external origin. No active backend or dev server is used.
 
-Request evidence is available while the fixture is running at `GET /__channel_placement/requests`. `DELETE` clears the in-memory log.
+Request evidence is available while the fixture is running at `GET /__channel_placement/requests`; it includes both GraphQL and REST logs. `DELETE` resets all synthetic logs, placement state, and channel owners.
 
 ## Structure check
 
@@ -46,4 +51,7 @@ Use visible text and the stable production test IDs:
 3. Move to the next page; verify the request carries the returned `after` cursor and still carries the selected node ID.
 4. Narrow by status, then name, then model using the real toolbar controls; verify each request records the corresponding server-side filter and the visible rows shrink.
 5. Reset filters; verify the machine selector returns to `All machines`, the first page returns, `executionMachine` is omitted from the input, and `paginateModelMatches: true` remains present.
-6. Save a desktop screenshot and the request/screen evidence under `.runtime/channel-placement/` (ignored by the worktree), not in this fixture directory.
+6. Open `role=readonly`; verify rows still show execution machines but no `channel-placement-change` action exists.
+7. Open `role=admin`; choose a visible source-machine row with `data-testid="channel-placement-change"`. Verify `channel-placement-dialog`, `placement-current-owner`, `placement-target`, and `placement-impact`; the impact list contains exactly two shared-group rows, including disabled/archived status, and the online-help copy says existing requests finish while other channels stay available.
+8. Choose another machine and save with `placement-save`. Verify the table refetch removes the old-owner row while the dialog remains open, `placement-sync-status` shows ownership saved, target applied, and Worker pending; after the next observation GET it shows Worker synchronized. Close the dialog, filter to the target machine, and verify the moved rows appear there.
+9. Save a desktop screenshot and the request/screen evidence under `.runtime/channel-placement/` (ignored by the worktree), not in this fixture directory.
