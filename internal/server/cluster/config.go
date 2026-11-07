@@ -23,18 +23,9 @@ type Config struct {
 	runtime     *placementRuntime
 }
 
-func (c Config) IsControl() bool { return !c.Enabled || c.NodeID == c.ControlNode }
-func (c Config) Owner(id int) string {
-	if c.runtime != nil {
-		if snapshot := c.runtime.current.Load(); snapshot != nil {
-			if owner, ok := snapshot.Owners[c.Channels[id].Identity]; ok {
-				return owner
-			}
-		}
-	}
-	return c.Channels[id].Owner
-}
-func (c Config) Owns(id int) bool { return !c.Enabled || c.Owner(id) == c.NodeID }
+func (c Config) IsControl() bool     { return !c.Enabled || c.NodeID == c.ControlNode }
+func (c Config) Owner(id int) string { return c.Binding(id).Owner }
+func (c Config) Owns(id int) bool    { return !c.Enabled || c.Owner(id) == c.NodeID }
 func (c Config) Validate() error {
 	if !c.Enabled {
 		return nil

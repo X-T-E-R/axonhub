@@ -59,6 +59,23 @@ const channels: SyntheticChannel[] = Array.from({ length: 96 }, (_, index) => {
   };
 });
 
+channels.push({
+  id: 'gid://axonhub/Channel/97',
+  createdAt: new Date(Date.UTC(2026, 0, 3, 0, 0)).toISOString(),
+  updatedAt: new Date(Date.UTC(2026, 0, 3, 0, 0)).toISOString(),
+  type: 'openai',
+  baseURL: 'https://synthetic.example.invalid/unassigned/first-registration',
+  name: 'Placement unassigned disabled',
+  status: 'disabled',
+  supportedModels: ['gpt-4o'],
+  defaultTestModel: 'gpt-4o',
+  tags: ['synthetic', 'unassigned', 'first-registration'],
+  orderingWeight: 0,
+  errorMessage: null,
+  remark: 'Fixture first-registration row without a credential group',
+  executionMachine: null,
+});
+
 const fixtureUser = {
   id: 'fixture-read-only-user',
   email: 'fixture@example.invalid',
@@ -98,6 +115,9 @@ const restLog: Array<Record<string, unknown>> = [];
 
 function placementGroup(channelID: number) {
   const channel = channels.find((item) => Number(item.id.split('/').at(-1)) === channelID);
+  if (channel?.executionMachine === null) {
+    return { owner: '', channelIDs: [channelID] };
+  }
   const owner = channel?.executionMachine ?? 'node-alpha';
   const peer = channels.find(
     (item) => item.executionMachine === owner && item.status === 'disabled' && Number(item.id.split('/').at(-1)) !== channelID
@@ -354,7 +374,7 @@ export function clearRequestLog() {
   restLog.length = 0;
   placementStates.clear();
   channels.forEach((channel, index) => {
-    channel.executionMachine = BUCKETS[index % BUCKETS.length];
+    channel.executionMachine = channel.id.endsWith('/97') ? null : BUCKETS[index % BUCKETS.length];
   });
 }
 

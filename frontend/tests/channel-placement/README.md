@@ -25,10 +25,10 @@ The fixture owns port `5195`; stop only the Vite process started for this fixtur
 The Vite middleware answers only local requests:
 
 - `ChannelExecutionInventory` returns `clusterEnabled: true` and `node-alpha`, `node-beta`, `node-gamma`.
-- `QueryChannels` returns 96 synthetic rows with 20-row pagination, interleaved machines, unassigned rows (`executionMachine: null`), enabled/disabled/archived status values, names, and models.
+- `QueryChannels` returns 97 synthetic rows with 20-row pagination, interleaved machines, unassigned rows (`executionMachine: null`), enabled/disabled/archived status values, names, and models. The newest row is `Placement unassigned disabled`, a disabled channel with no execution machine and no existing credential group.
 - The mock applies `input.executionMachine`, `input.where`, `input.model`, `input.hasTag`, and cursor pagination. It records the exact operation and variables in memory.
 - Supporting page queries (`CountChannelsByType`, `GetErrorChannelsCount`, `AllChannelTags`, `GetChannelProbeData`, `Models`, `SystemChannelSettings`, `ProxyPresets`, `QueryChannelNames`, and `Me`) are synthetic too.
-- `GET /admin/cluster/placement/:id`, `GET /admin/cluster/placement/:id/preview?target=xxx`, and `POST /admin/cluster/placement` implement the requested local observation/preview/save contract. The synthetic state starts at version 7, returns a two-channel shared-credential group with one disabled peer, then returns a Worker acknowledgement on a later observation GET.
+- `GET /admin/cluster/placement/:id`, `GET /admin/cluster/placement/:id/preview?target=xxx`, and `POST /admin/cluster/placement` implement the requested local observation/preview/save contract. Registered rows start at version 7 and return a two-channel shared-credential group with one disabled peer; the first-registration row returns `from: ""` and only itself in `channels`, then returns a Worker acknowledgement on a later observation GET.
 - `role=readonly` has only read scopes and renders no placement action. `role=admin` has system-level `write_channels`; `role=owner` also sets `isOwner`.
 - The browser fetch guard returns the checked-in provider catalog for the production provider-data request and rejects every other external origin. No active backend or dev server is used.
 
@@ -54,4 +54,5 @@ Use visible text and the stable production test IDs:
 6. Open `role=readonly`; verify rows still show execution machines but no `channel-placement-change` action exists.
 7. Open `role=admin`; choose a visible source-machine row with `data-testid="channel-placement-change"`. Verify `channel-placement-dialog`, `placement-current-owner`, `placement-target`, and `placement-impact`; the impact list contains exactly two shared-group rows, including disabled/archived status, and the online-help copy says existing requests finish while other channels stay available.
 8. Choose another machine and save with `placement-save`. Verify the table refetch removes the old-owner row while the dialog remains open, `placement-sync-status` shows ownership saved, target applied, and Worker pending; after the next observation GET it shows Worker synchronized. Close the dialog, filter to the target machine, and verify the moved rows appear there.
-9. Save a desktop screenshot and the request/screen evidence under `.runtime/channel-placement/` (ignored by the worktree), not in this fixture directory.
+9. For first registration, open the newest `Placement unassigned disabled` row after the product action is available. Verify the dialog current machine is `Unassigned`, choose a real node, and confirm preview `from` is empty with exactly that disabled row in `channels`.
+10. Save the first registration, verify the target-filtered table shows the new node owner and the row remains Disabled. Save a desktop screenshot and the request/screen evidence under `.runtime/channel-placement/` (ignored by the worktree), not in this fixture directory.

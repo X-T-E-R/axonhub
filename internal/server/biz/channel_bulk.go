@@ -172,6 +172,11 @@ func (svc *ChannelService) bulkUpdateChannelStatus(ctx context.Context, ids []in
 	if count != len(ids) {
 		return fmt.Errorf("expected to find %d channels, but found %d", len(ids), count)
 	}
+	if status == channel.StatusEnabled {
+		if err := svc.requireExecutionPlacement(ctx, ids...); err != nil {
+			return err
+		}
+	}
 
 	updater := client.Channel.Update().
 		Where(channel.IDIn(ids...)).
@@ -185,7 +190,7 @@ func (svc *ChannelService) bulkUpdateChannelStatus(ctx context.Context, ids []in
 		return fmt.Errorf("failed to %s channels: %w", action, err)
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }

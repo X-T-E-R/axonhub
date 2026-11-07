@@ -275,8 +275,13 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 	}
 
 	for _, c := range entities {
+		owner := svc.node.Owner(c.ID)
+		if svc.node.Enabled && owner == "" {
+			// A legacy unassigned channel cannot run, but other channels still load.
+			continue
+		}
 		if previous := unchanged[c.ID]; previous != nil && c.UpdatedAt.Equal(previous.UpdatedAt) {
-			remoteOwner := svc.node.Owner(c.ID)
+			remoteOwner := owner
 			if remoteOwner == svc.node.NodeID {
 				remoteOwner = ""
 			}
@@ -951,6 +956,11 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 
 // UpdateChannelStatus updates the status of a channel.
 func (svc *ChannelService) UpdateChannelStatus(ctx context.Context, id int, status channel.Status) (*ent.Channel, error) {
+	if status == channel.StatusEnabled {
+		if err := svc.requireExecutionPlacement(ctx, id); err != nil {
+			return nil, err
+		}
+	}
 	channel, err := svc.entFromContext(ctx).Channel.UpdateOneID(id).
 		SetStatus(status).
 		Save(ctx)
@@ -958,7 +968,7 @@ func (svc *ChannelService) UpdateChannelStatus(ctx context.Context, id int, stat
 		return nil, fmt.Errorf("failed to update channel status: %w", err)
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return channel, nil
 }

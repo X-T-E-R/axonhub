@@ -19,6 +19,7 @@ export function ChannelPlacementDialog({ channel, onClose }: { channel: Channel;
   const observation = usePlacementObservation(channelID, true);
   const value = observation.data;
   const currentOwner = value?.owner ?? channel.executionMachine;
+  const assigning = !channel.executionMachine;
   const savedThisRequest = value?.change?.request_id === requestID;
   const preview = usePlacementPreview(channelID, target, !savedThisRequest);
   const save = useSavePlacement(channelID);
@@ -29,13 +30,13 @@ export function ChannelPlacementDialog({ channel, onClose }: { channel: Channel;
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-lg' data-testid='channel-placement-dialog'>
         <DialogHeader>
-          <DialogTitle>{t('channels.placement.changeTitle')}</DialogTitle>
+          <DialogTitle>{t(assigning ? 'channels.placement.assignTitle' : 'channels.placement.changeTitle')}</DialogTitle>
           <DialogDescription>{channel.name}</DialogDescription>
         </DialogHeader>
         <div className='space-y-4'>
           <dl className='grid grid-cols-[auto_1fr] items-center gap-x-6 gap-y-2 text-sm'>
             <dt className='text-muted-foreground'>{t('channels.placement.currentOwner')}</dt>
-            <dd className='font-mono' data-testid='placement-current-owner'>{currentOwner}</dd>
+            <dd className='font-mono' data-testid='placement-current-owner'>{currentOwner || t('channels.placement.unassigned')}</dd>
             {!savedThisRequest && (
               <>
                 <dt className='text-muted-foreground'>{t('channels.placement.targetOwner')}</dt>
@@ -64,7 +65,7 @@ export function ChannelPlacementDialog({ channel, onClose }: { channel: Channel;
           </dl>
           {preview.data && !savedThisRequest && (
             <div className='rounded-lg border p-3 text-sm' data-testid='placement-impact'>
-              <p className='mb-2 font-medium'>{t('channels.placement.affectedChannels', { count: preview.data.channels.length })}</p>
+              <p className='mb-2 font-medium'>{preview.data.channels.length === 1 ? t('channels.placement.affectedChannel') : t('channels.placement.affectedChannels', { count: preview.data.channels.length })}</p>
               <ul className='max-h-44 space-y-1 overflow-y-auto'>
                 {preview.data.channels.map((peer) => (
                   <li key={peer.id} className='flex justify-between gap-4'>
@@ -75,7 +76,7 @@ export function ChannelPlacementDialog({ channel, onClose }: { channel: Channel;
               </ul>
             </div>
           )}
-          {!savedThisRequest && <p className='text-muted-foreground text-sm'>{t('channels.placement.onlineHelp')}</p>}
+          {!savedThisRequest && <p className='text-muted-foreground text-sm'>{t(assigning ? 'channels.placement.assignHelp' : 'channels.placement.onlineHelp')}</p>}
           {value?.change && (
             <div role='status' className='bg-muted/50 space-y-2 rounded-lg p-3 text-sm' data-testid='placement-sync-status'>
               <p className='font-medium'>{t('channels.placement.saved', { owner: value.owner })}</p>
@@ -102,7 +103,7 @@ export function ChannelPlacementDialog({ channel, onClose }: { channel: Channel;
                 });
               }}
             >
-              {t(save.isPending ? 'channels.placement.preparing' : 'channels.placement.save')}
+              {save.isPending ? t('channels.placement.preparing') : t(assigning ? 'channels.placement.assignTitle' : 'channels.placement.save')}
             </Button>
           )}
         </DialogFooter>
@@ -118,7 +119,7 @@ export function ChannelExecutionMachineCell({ channel, clusterEnabled, editable 
   return (
     <div className='flex items-center justify-center gap-1'>
       <span data-testid='channel-execution-machine' className={channel.executionMachine ? 'font-mono text-sm' : 'text-muted-foreground text-sm'}>{label}</span>
-      {editable && channel.executionMachine && (
+      {editable && (channel.executionMachine || channel.status === 'disabled') && (
         <Button
           variant='ghost'
           size='sm'
@@ -129,7 +130,7 @@ export function ChannelExecutionMachineCell({ channel, clusterEnabled, editable 
             setOpen('placement');
           }}
         >
-          {t('channels.placement.change')}
+          {t(channel.executionMachine ? 'channels.placement.change' : 'channels.placement.assign')}
         </Button>
       )}
     </div>
