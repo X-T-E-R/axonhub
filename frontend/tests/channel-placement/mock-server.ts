@@ -42,7 +42,7 @@ const channels: SyntheticChannel[] = Array.from({ length: 96 }, (_, index) => {
   const machineLabel = machine ?? 'unassigned';
 
   return {
-    id: `synthetic-channel-${String(index + 1).padStart(3, '0')}`,
+    id: `gid://axonhub/Channel/${index + 1}`,
     createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
     updatedAt: new Date(Date.UTC(2026, 0, 2, 0, index)).toISOString(),
     type: channelType,
@@ -74,6 +74,57 @@ const fixtureUser = {
   projects: [],
   oidcIdentities: [],
 };
+
+type PlacementChange = {
+  request_id: string;
+  placement_version: number;
+  channel_ids: number[];
+  from: string;
+  to: string;
+  saved_at: string;
+};
+
+type PlacementState = {
+  placement_version: number;
+  owner: string;
+  change?: PlacementChange;
+  target?: { node: string; placement_version: number; ready: boolean };
+  worker_ack?: { placement_version: number; worker_revision: string };
+  observationReads: number;
+};
+
+const placementStates = new Map<number, PlacementState>();
+const restLog: Array<Record<string, unknown>> = [];
+
+function placementGroup(channelID: number) {
+  const channel = channels.find((item) => Number(item.id.split('/').at(-1)) === channelID);
+  const owner = channel?.executionMachine ?? 'node-alpha';
+  const peer = channels.find(
+    (item) => item.executionMachine === owner && item.status === 'disabled' && Number(item.id.split('/').at(-1)) !== channelID
+  );
+  return {
+    owner,
+    channelIDs: [channelID, peer ? Number(peer.id.split('/').at(-1)) : channelID],
+  };
+}
+
+function getPlacementState(channelID: number): PlacementState {
+  const existing = placementStates.get(channelID);
+  if (existing) return existing;
+  const group = placementGroup(channelID);
+  const state: PlacementState = {
+    placement_version: 7,
+    owner: group.owner,
+    observationReads: 0,
+  };
+  placementStates.set(channelID, state);
+  return state;
+}
+
+function isPrivilegedRequest(request: IncomingMessage) {
+  const authorization = String(request.headers.authorization ?? '');
+  return authorization.includes('channel-placement-fixture-admin-token') || authorization.includes('channel-placement-fixture-owner-token');
+}
 
 function writeJSON(response: ServerResponse, statusCode: number, body: unknown) {
   response.statusCode = statusCode;
@@ -244,9 +295,18 @@ export async function handleGraphQLRequest(request: IncomingMessage, response: S
     case 'FetchModels':
       data = { fetchModels: { models: MODEL_IDS.map((id) => ({ id })), error: null } };
       break;
-    case 'Me':
-      data = { me: fixtureUser };
+    case 'Me': {
+      const privileged = isPrivilegedRequest(request);
+      data = {
+        me: {
+          ...fixtureUser,
+          id: privileged ? 'fixture-admin-user' : fixtureUser.id,
+          isOwner: String(request.headers.authorization ?? '').includes('channel-placement-fixture-owner-token'),
+          scopes: ['read_channels', 'read_system', ...(privileged ? ['write_channels'] : [])],
+        },
+      };
       break;
+    }
     default:
       data = {};
       break;
@@ -291,4 +351,170 @@ export function getRequestLog() {
 
 export function clearRequestLog() {
   requestLog.length = 0;
+  restLog.length = 0;
+  placementStates.clear();
+  channels.forEach((channel, index) => {
+    channel.executionMachine = BUCKETS[index % BUCKETS.length];
+  });
+}
+
+function placementObservation(channelID: number, state: PlacementState) {
+  if (state.change && !state.worker_ack) {
+    if (state.observationReads > 0) {
+      state.observationReads -= 1;
+    } else {
+      state.worker_ack = {
+        placement_version: state.placement_version,
+        worker_revision: 'synthetic-worker-revision-1',
+      };
+    }
+  }
+
+  return {
+    placement_version: state.placement_version,
+    owner: state.owner,
+    ...(state.change ? { change: state.change } : {}),
+    ...(state.target ? { target: state.target } : {}),
+    ...(state.worker_ack ? { worker_ack: state.worker_ack } : {}),
+    channel_id: channelID,
+  };
+}
+
+function recordRest(request: IncomingMessage, path: string, body: unknown, response: unknown) {
+  restLog.push({
+    at: new Date().toISOString(),
+    method: request.method,
+    path,
+    body,
+    response,
+    authorized: isPrivilegedRequest(request),
+  });
+}
+
+function responseUnauthorized(request: IncomingMessage, response: ServerResponse, path: string) {
+  const body = { message: 'Synthetic placement endpoint requires fixture authorization' };
+  recordRest(request, path, undefined, body);
+  writeJSON(response, 403, body);
+}
+
+export async function handlePlacementRequest(request: IncomingMessage, response: ServerResponse) {
+  const parsedURL = new URL(request.url ?? '/', 'http://127.0.0.1');
+  const path = parsedURL.pathname;
+  const placementMatch = path.match(/^\/admin\/cluster\/placement\/(\d+)(\/preview)?$/);
+  const isSave = path === '/admin/cluster/placement' && request.method === 'POST';
+  if (!placementMatch && !isSave) return false;
+
+  const isPreview = Boolean(placementMatch?.[2]);
+  if (!isPrivilegedRequest(request) && (isPreview || isSave)) {
+    responseUnauthorized(request, response, path);
+    return true;
+  }
+
+  if (placementMatch && request.method === 'GET') {
+    const channelID = Number(placementMatch[1]);
+    const state = getPlacementState(channelID);
+    if (placementMatch[2]) {
+      const target = parsedURL.searchParams.get('target') ?? '';
+      const group = placementGroup(channelID);
+      const preview = {
+        placement_version: state.placement_version,
+        channel_id: channelID,
+        from: state.owner,
+        to: target,
+        channels: group.channelIDs
+          .map((id) => channels.find((item) => Number(item.id.split('/').at(-1)) === id))
+          .filter((item): item is SyntheticChannel => Boolean(item))
+          .map((item) => ({
+            id: Number(item.id.split('/').at(-1)),
+            name: item.name,
+            status: item.status,
+          })),
+      };
+      recordRest(request, path, { target }, preview);
+      writeJSON(response, 200, preview);
+      return true;
+    }
+
+    const observation = placementObservation(channelID, state);
+    recordRest(request, path, undefined, observation);
+    writeJSON(response, 200, observation);
+    return true;
+  }
+
+  if (isSave) {
+    let input: {
+      channel_id?: number;
+      target?: string;
+      expected_version?: number;
+      request_id?: string;
+      channel_ids?: number[];
+    };
+    try {
+      input = JSON.parse(await readRequestBody(request));
+    } catch {
+      const body = { message: 'Invalid synthetic placement JSON body' };
+      recordRest(request, path, undefined, body);
+      writeJSON(response, 400, body);
+      return true;
+    }
+
+    const channelID = Number(input.channel_id);
+    const state = getPlacementState(channelID);
+    if (state.change?.request_id === input.request_id) {
+      const observation = placementObservation(channelID, state);
+      recordRest(request, path, input, observation);
+      writeJSON(response, 200, observation);
+      return true;
+    }
+
+    const group = placementGroup(channelID);
+    const target = input.target ?? '';
+    const expectedIDs = [...group.channelIDs].sort((left, right) => left - right);
+    const receivedIDs = [...(input.channel_ids ?? [])].sort((left, right) => left - right);
+    if (
+      !MACHINE_IDS.includes(target as (typeof MACHINE_IDS)[number]) ||
+      target === state.owner ||
+      input.expected_version !== state.placement_version ||
+      JSON.stringify(expectedIDs) !== JSON.stringify(receivedIDs)
+    ) {
+      const body = { message: 'Synthetic placement preview is stale or incomplete' };
+      recordRest(request, path, input, body);
+      writeJSON(response, 409, body);
+      return true;
+    }
+
+    const savedAt = new Date().toISOString();
+    state.placement_version += 1;
+    state.owner = target;
+    state.change = {
+      request_id: input.request_id ?? '',
+      placement_version: state.placement_version,
+      channel_ids: group.channelIDs,
+      from: group.owner,
+      to: target,
+      saved_at: savedAt,
+    };
+    state.target = { node: target, placement_version: state.placement_version, ready: true };
+    state.worker_ack = undefined;
+    state.observationReads = 1;
+    for (const id of group.channelIDs) {
+      placementStates.set(id, state);
+      const channel = channels.find((item) => Number(item.id.split('/').at(-1)) === id);
+      if (channel) channel.executionMachine = target;
+    }
+
+    const observation = placementObservation(channelID, state);
+    recordRest(request, path, input, observation);
+    writeJSON(response, 200, observation);
+    return true;
+  }
+
+  const body = { message: 'Synthetic placement endpoint accepts GET or POST only' };
+  recordRest(request, path, undefined, body);
+  writeJSON(response, 405, body);
+  return true;
+}
+
+export function getRestRequestLog() {
+  return restLog.map((entry) => ({ ...entry }));
 }

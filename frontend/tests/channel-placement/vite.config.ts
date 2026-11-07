@@ -5,7 +5,9 @@ import tailwindcss from '@tailwindcss/vite';
 import {
   clearRequestLog,
   getRequestLog,
+  getRestRequestLog,
   handleGraphQLRequest,
+  handlePlacementRequest,
   handlePortalGraphQLRequest,
 } from './mock-server';
 
@@ -23,6 +25,10 @@ export default defineConfig({
         server.middlewares.use(async (request, response, next) => {
           const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
 
+          if (pathname.startsWith('/admin/cluster/placement')) {
+            if (await handlePlacementRequest(request, response)) return;
+          }
+
           if (pathname === '/admin/graphql') {
             await handleGraphQLRequest(request, response);
             return;
@@ -36,7 +42,7 @@ export default defineConfig({
           if (pathname === '/__channel_placement/requests' && request.method === 'GET') {
             response.statusCode = 200;
             response.setHeader('Content-Type', 'application/json; charset=utf-8');
-            response.end(JSON.stringify({ requests: getRequestLog() }));
+            response.end(JSON.stringify({ requests: getRequestLog(), rest: getRestRequestLog() }));
             return;
           }
 

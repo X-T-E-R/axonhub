@@ -33,22 +33,27 @@ window.fetch = (input, init) => {
 const requestedLanguage = new URLSearchParams(window.location.search).get('lang');
 await i18n.changeLanguage(requestedLanguage === 'zh' ? 'zh' : 'en');
 
+const requestedRole = new URLSearchParams(window.location.search).get('role') ?? 'readonly';
+const isPrivileged = requestedRole === 'admin' || requestedRole === 'owner';
 const auth = useAuthStore.getState().auth;
 auth.reset();
 auth.setUser({
-  id: 'fixture-read-only-user',
+  id: `fixture-${isPrivileged ? requestedRole : 'read-only'}-user`,
   email: 'fixture@example.invalid',
   firstName: 'Channel',
   lastName: 'Fixture',
-  isOwner: false,
+  isOwner: requestedRole === 'owner',
   accessMode: 'legacy',
   preferLanguage: 'en',
-  scopes: ['read_channels', 'read_system'],
+  scopes: ['read_channels', 'read_system', ...(isPrivileged ? ['write_channels'] : [])],
   roles: [],
   projects: [],
   oidcIdentities: [],
   hasPassword: true,
 });
+if (isPrivileged) {
+  auth.setAccessToken(`channel-placement-fixture-${requestedRole}-token`);
+}
 localStorage.setItem('channels-table-page-size', '20');
 localStorage.setItem('channels-table-sorting', JSON.stringify([{ id: 'createdAt', desc: true }]));
 localStorage.removeItem('channels-table-column-visibility');
