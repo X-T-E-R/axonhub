@@ -9,7 +9,7 @@ import (
 )
 
 // ChannelExecutionInventory reports registered node IDs, not inferred hostnames or
-// UI labels. Static placement remains authoritative until a migration is fenced.
+// UI labels. Channel owners come from the effective placement snapshot.
 type ChannelExecutionInventory struct {
 	ClusterEnabled bool     `json:"cluster_enabled"`
 	Machines       []string `json:"machines"`

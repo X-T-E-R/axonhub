@@ -248,7 +248,7 @@ function ChannelsContent() {
   }, [resetCursor]);
 
   const columns = useMemo(
-    () => createColumns(t, channelPermissions.canWrite, executionInventory?.clusterEnabled, canChangePlacement && (executionInventory?.machines.length ?? 0) > 1),
+    () => createColumns(t, channelPermissions.canWrite, executionInventory?.clusterEnabled, canChangePlacement ? executionInventory?.machines.length ?? 0 : 0),
     [t, channelPermissions.canWrite, executionInventory, canChangePlacement]
   );
 

@@ -1,14 +1,16 @@
 package biz
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
@@ -117,58 +119,90 @@ func (svc *ChannelService) PreviewPlacement(ctx context.Context, channelID int, 
 	if err != nil {
 		return nil, err
 	}
-	node := svc.node.AtPlacement(state.PlacementSnapshot)
-	bindings := node.Bindings()
-	binding, ok := bindings[channelID]
-	if !ok || binding.Identity == "" {
-		return nil, errors.New("channel requires a registered credential identity")
-	}
-	all, err := observationPrimaryClient(svc.db).Channel.Query().All(ctx)
+	bindings := svc.node.AtPlacement(state.PlacementSnapshot).Bindings()
+	binding := bindings[channelID]
+	all, err := observationPrimaryClient(svc.db).Channel.Query().Order(ent.Asc(channel.FieldID)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
-	identities := map[string]bool{binding.Identity: true}
+	identities := map[string]bool{}
 	secrets := map[string]bool{}
-	selected := map[int]*ent.Channel{}
+	selected := map[int]bool{}
 	for changed := true; changed; {
 		changed = false
 		for _, ch := range all {
-			if selected[ch.ID] != nil {
+			if selected[ch.ID] {
 				continue
 			}
 			keys := placementCredentialKeys(ch)
-			shares := identities[bindings[ch.ID].Identity]
+			peer := bindings[ch.ID]
+			shares := ch.ID == channelID || identities[peer.Identity]
 			for _, key := range keys {
 				shares = shares || secrets[key]
 			}
 			if !shares {
 				continue
 			}
-			peer, registered := bindings[ch.ID]
-			if !registered || peer.Identity == "" {
-				return nil, fmt.Errorf("shared credential channel %d has no registered identity", ch.ID)
+			if peer.Identity == "" && (ch.Status == channel.StatusEnabled || (ch.ID == channelID && ch.Status != channel.StatusDisabled)) {
+				return nil, fmt.Errorf("disable channel %d before assigning its execution machine", ch.ID)
 			}
-			if peer.Owner != binding.Owner {
-				return nil, fmt.Errorf("shared credential channel %d has inconsistent owner", ch.ID)
+			selected[ch.ID] = true
+			if peer.Identity != "" {
+				identities[peer.Identity] = true
 			}
-			selected[ch.ID] = ch
-			identities[peer.Identity] = true
 			for _, key := range keys {
 				secrets[key] = true
 			}
 			changed = true
 		}
 	}
-	if selected[channelID] == nil {
+	if !selected[channelID] {
 		return nil, errors.New("channel not found")
 	}
-	plan := &PlacementPlan{Version: state.Version, ChannelID: channelID, From: binding.Owner, To: target, Channels: []PlacementChannel{}, Identities: map[int]string{}}
-	for id, ch := range selected {
-		plan.Channels = append(plan.Channels, PlacementChannel{ID: id, Name: ch.Name, Status: ch.Status.String()})
-		plan.Identities[id] = bindings[id].Identity
+	owner, identity := binding.Owner, binding.Identity
+	for _, ch := range all {
+		peer := bindings[ch.ID]
+		if !selected[ch.ID] || peer.Identity == "" {
+			continue
+		}
+		if identity == "" {
+			owner, identity = peer.Owner, peer.Identity
+		}
+		if peer.Owner != owner {
+			return nil, fmt.Errorf("shared credential channel %d has inconsistent owner", ch.ID)
+		}
 	}
-	sort.Slice(plan.Channels, func(i, j int) bool { return plan.Channels[i].ID < plan.Channels[j].ID })
+	if binding.Identity == "" && owner != "" && target != owner {
+		return nil, fmt.Errorf("shared credentials already use %q; assign this channel there before moving the group", owner)
+	}
+	if identity == "" {
+		identity = uuid.NewString()
+	}
+	plan := &PlacementPlan{Version: state.Version, ChannelID: channelID, From: binding.Owner, To: target, Channels: []PlacementChannel{}, Identities: map[int]string{}}
+	for _, ch := range all {
+		if selected[ch.ID] {
+			plan.Channels = append(plan.Channels, PlacementChannel{ID: ch.ID, Name: ch.Name, Status: ch.Status.String()})
+			plan.Identities[ch.ID] = cmp.Or(bindings[ch.ID].Identity, identity)
+		}
+	}
 	return plan, nil
+}
+
+// apply updates the identity registrations and their owner in the same snapshot.
+func (plan *PlacementPlan) apply(snapshot *cluster.PlacementSnapshot, existing cluster.Config) error {
+	for _, peer := range plan.Channels {
+		identity := plan.Identities[peer.ID]
+		current := existing.Binding(peer.ID).Identity
+		if identity == "" || (current != "" && current != identity) {
+			return fmt.Errorf("placement identity mismatch for channel %d", peer.ID)
+		}
+		if current == "" {
+			snapshot.ChannelIdentities[peer.ID] = identity
+		}
+		snapshot.Owners[identity] = plan.To
+	}
+	snapshot.Version++
+	return nil
 }
 
 // Prepare constructs target providers without starting OAuth loops or issuing an
@@ -187,23 +221,21 @@ func (svc *ChannelService) PreparePlacement(ctx context.Context, plan PlacementP
 	if state.Version != plan.Version {
 		return nil, errors.New("placement changed; refresh the preview")
 	}
-	preview := cluster.PlacementSnapshot{Version: state.Version + 1, Owners: map[string]string{}}
-	for identity, owner := range state.Owners {
-		preview.Owners[identity] = owner
+	existing := svc.node.AtPlacement(state.PlacementSnapshot)
+	if err := plan.apply(&state.PlacementSnapshot, existing); err != nil {
+		return nil, err
 	}
-	for id, identity := range plan.Identities {
-		if svc.node.Channels[id].Identity != identity {
-			return nil, fmt.Errorf("target identity mismatch for channel %d", id)
-		}
-		preview.Owners[identity] = plan.To
-	}
-	prepared := &ChannelService{AbstractService: &AbstractService{db: observationPrimaryClient(svc.db)}, node: svc.node.AtPlacement(preview), SystemService: svc.SystemService, httpClient: svc.httpClient}
+	prepared := &ChannelService{AbstractService: &AbstractService{db: observationPrimaryClient(svc.db)}, node: svc.node.AtPlacement(state.PlacementSnapshot), SystemService: svc.SystemService, httpClient: svc.httpClient}
 	for _, peer := range plan.Channels {
 		ch, err := observationPrimaryClient(svc.db).Channel.Get(ctx, peer.ID)
 		if err != nil {
 			return nil, err
 		}
-		if ch.Status != channel.StatusEnabled {
+		current := existing.Binding(peer.ID)
+		if current.Identity == "" && (ch.Status == channel.StatusEnabled || (peer.ID == plan.ChannelID && ch.Status != channel.StatusDisabled)) {
+			return nil, fmt.Errorf("disable channel %d before assigning its execution machine", ch.ID)
+		}
+		if ch.Status != channel.StatusEnabled || current.Owner == plan.To {
 			continue
 		}
 		candidate, err := prepared.buildChannelWithOutbounds(ch)
@@ -212,7 +244,7 @@ func (svc *ChannelService) PreparePlacement(ctx context.Context, plan PlacementP
 		}
 		prepared.cleanupSwappedChannels([]*Channel{candidate})
 	}
-	return &PlacementNodeReadback{Node: svc.node.NodeID, Version: state.Version, Ready: true}, nil
+	return &PlacementNodeReadback{Node: svc.node.NodeID, Version: plan.Version, Ready: true}, nil
 }
 
 func (svc *ChannelService) callPlacementNode(ctx context.Context, node, path string, input, output any) error {
@@ -281,9 +313,8 @@ func (svc *ChannelService) SavePlacement(ctx context.Context, input PlacementSav
 		if state.Version != input.ExpectedVersion {
 			return errors.New("placement changed; refresh the preview")
 		}
-		state.Version++
-		for _, identity := range plan.Identities {
-			state.Owners[identity] = plan.To
+		if err := plan.apply(&state.PlacementSnapshot, svc.node.AtPlacement(state.PlacementSnapshot)); err != nil {
+			return err
 		}
 		change := PlacementChange{RequestID: input.RequestID, Version: state.Version, From: plan.From, To: plan.To, SavedAt: time.Now().UTC()}
 		for _, peer := range plan.Channels {

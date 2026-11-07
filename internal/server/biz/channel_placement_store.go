@@ -46,7 +46,7 @@ func placementSystemContext(ctx context.Context) context.Context {
 }
 
 func readChannelPlacement(ctx context.Context, client *ent.Client) (*ent.System, ChannelPlacementState, error) {
-	state := ChannelPlacementState{PlacementSnapshot: cluster.PlacementSnapshot{Owners: map[string]string{}}, Changes: map[int]PlacementChange{}}
+	state := ChannelPlacementState{PlacementSnapshot: cluster.PlacementSnapshot{Owners: map[string]string{}, ChannelIdentities: map[int]string{}}, Changes: map[int]PlacementChange{}}
 	row, err := observationPrimaryClient(client).System.Query().Where(system.KeyEQ(channelPlacementSystemKey)).Only(placementSystemContext(ctx))
 	if ent.IsNotFound(err) {
 		return nil, state, nil

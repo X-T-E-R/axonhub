@@ -36,6 +36,8 @@ const checks = [
   ['fixture renders the production default export', source.main.includes("import ChannelsManagement from '@/features/channels'")],
   ['fixture supports privileged and read-only roles', source.main.includes("requestedRole === 'admin' || requestedRole === 'owner'") && source.mock.includes('isPrivilegedRequest')],
   ['fixture implements synthetic placement REST', source.mock.includes('handlePlacementRequest') && source.vite.includes('handlePlacementRequest')],
+  ['fixture includes a disabled first-registration row', source.mock.includes('Placement unassigned disabled') && source.mock.includes("status: 'disabled'") && source.mock.includes('executionMachine: null')],
+  ['fixture has an unassigned placement branch', source.mock.includes("return { owner: '', channelIDs: [channelID] }")],
   ['fixture has a loopback-only Vite server', source.vite.includes("host: '127.0.0.1'") && source.vite.includes('port: 5195')],
   ['fixture keeps Vite cache under ignored .runtime', source.vite.includes('.runtime/channel-placement-vite-cache')],
   ['fixture does not point at the managed frontend or backend ports', !source.vite.includes('5173') && !source.vite.includes('8090')],

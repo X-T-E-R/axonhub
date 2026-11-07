@@ -657,7 +657,7 @@ export const createColumns = (
   t: ReturnType<typeof useTranslation>['t'],
   canWrite: boolean = true,
   clusterEnabled?: boolean,
-  canChangePlacement = false
+  placementMachineCount = 0
 ): ColumnDef<Channel>[] => {
   return [
     {
@@ -715,7 +715,7 @@ export const createColumns = (
     {
       accessorKey: 'executionMachine',
       header: () => t('channels.columns.executionMachine'),
-      cell: ({ row }) => <ChannelExecutionMachineCell channel={row.original} clusterEnabled={clusterEnabled} editable={canChangePlacement} />,
+      cell: ({ row }) => <ChannelExecutionMachineCell channel={row.original} clusterEnabled={clusterEnabled} editable={placementMachineCount > (row.original.executionMachine ? 1 : 0)} />,
       meta: { className: 'text-center whitespace-nowrap' },
       enableSorting: false,
       enableHiding: false,

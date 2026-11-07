@@ -51,6 +51,26 @@ func (svc *ChannelService) AuthorizeExecutionChannel(ctx context.Context, id int
 	return (ch.Status == channel.StatusEnabled || managementTest) && KeyAllowsChannel(key, ch.ID, ch.Tags), nil
 }
 
+func (svc *ChannelService) requireExecutionPlacement(ctx context.Context, ids ...int) error {
+	if !svc.node.Enabled {
+		return nil
+	}
+	if err := authz.RequireScope(ctx, scopes.ScopeWriteChannels); err != nil {
+		return err
+	}
+	_, state, err := readChannelPlacement(ctx, svc.entFromContext(ctx))
+	if err != nil {
+		return err
+	}
+	node := svc.node.AtPlacement(state.PlacementSnapshot)
+	for _, id := range ids {
+		if node.Owner(id) == "" {
+			return fmt.Errorf("channel %d must have an execution machine before enabling it", id)
+		}
+	}
+	return nil
+}
+
 // Validate identity placement before constructing any provider. Stable identities
 // preserve placement across token rotation; duplicate current credentials provide
 // a second check against accidentally splitting an account across nodes.
@@ -68,9 +88,6 @@ func (svc *ChannelService) validateExecutionIdentities(ctx context.Context) erro
 	owners := map[string]string{}
 	for _, ch := range channels {
 		owner := svc.node.Owner(ch.ID)
-		if ch.Status == channel.StatusEnabled && owner == "" {
-			return fmt.Errorf("enabled channel %d has no execution owner", ch.ID)
-		}
 		if owner == "" {
 			continue
 		}
