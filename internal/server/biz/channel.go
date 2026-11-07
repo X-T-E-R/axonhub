@@ -108,7 +108,7 @@ func NewChannelService(params ChannelServiceParams) *ChannelService {
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
-		node:               params.Node,
+		node:               params.Node.WithRuntime(),
 		SystemService:      params.SystemService,
 		WebhookNotifier:    params.WebhookNotifier,
 		httpClient:         params.HttpClient,
@@ -209,6 +209,9 @@ type ChannelService struct {
 	// Used by external caches (e.g., association cache) to detect cache refreshes.
 	cacheVersion atomic.Int64
 
+	// loadedPlacementVersion tracks providers, independently of the latest owner map.
+	loadedPlacementVersion atomic.Int64
+
 	// perfCh is the channel for performance records for async processing.
 	perfCh chan *PerformanceRecord
 }
@@ -230,7 +233,7 @@ func (svc *ChannelService) RegisterScheduledTasks(ctx context.Context, s *schedu
 	}, svc.runChannelKeyHealthChecksScheduled)
 }
 
-func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []*Channel, lastUpdate time.Time) ([]*Channel, time.Time, bool, error) {
+func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []*Channel, lastUpdate time.Time, placementChanged bool) ([]*Channel, time.Time, bool, error) {
 	if err := svc.validateExecutionIdentities(ctx); err != nil {
 		return current, lastUpdate, false, err
 	}
@@ -242,13 +245,15 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 		return current, lastUpdate, false, err
 	}
 
-	if latestUpdatedChannel == nil {
-		if lastUpdate.IsZero() && len(current) == 0 {
-			return current, time.Time{}, false, nil
+	if !placementChanged {
+		if latestUpdatedChannel == nil {
+			if lastUpdate.IsZero() && len(current) == 0 {
+				return current, time.Time{}, false, nil
+			}
+		} else if !latestUpdatedChannel.UpdatedAt.After(lastUpdate) {
+			log.Debug(ctx, "no new channels updated")
+			return current, lastUpdate, false, nil
 		}
-	} else if !latestUpdatedChannel.UpdatedAt.After(lastUpdate) {
-		log.Debug(ctx, "no new channels updated")
-		return current, lastUpdate, false, nil
 	}
 
 	entities, err := svc.entFromContext(ctx).Channel.Query().
@@ -260,8 +265,26 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 	}
 
 	var channels []*Channel
+	var unchanged map[int]*Channel
+	// A placement-only update should not restart unrelated providers.
+	if placementChanged && !lastUpdate.IsZero() && latestUpdatedChannel != nil && !latestUpdatedChannel.UpdatedAt.After(lastUpdate) {
+		unchanged = make(map[int]*Channel, len(current))
+		for _, ch := range current {
+			unchanged[ch.ID] = ch
+		}
+	}
 
 	for _, c := range entities {
+		if previous := unchanged[c.ID]; previous != nil && c.UpdatedAt.Equal(previous.UpdatedAt) {
+			remoteOwner := svc.node.Owner(c.ID)
+			if remoteOwner == svc.node.NodeID {
+				remoteOwner = ""
+			}
+			if previous.RemoteOwner == remoteOwner {
+				channels = append(channels, previous)
+				continue
+			}
+		}
 		channel, err := svc.buildChannelWithOutbounds(c)
 		if err != nil {
 			log.Warn(ctx, "failed to build channel",
@@ -302,18 +325,27 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 func (svc *ChannelService) onEnabledChannelsSwap(old, new []*Channel) {
 	svc.cacheVersion.Add(1)
 
+	retained := make(map[*Channel]bool, len(new))
+	previous := make(map[*Channel]bool, len(old))
+	for _, ch := range old {
+		previous[ch] = true
+	}
 	for _, ch := range new {
-		if ch != nil && ch.startTokenProvider != nil {
+		retained[ch] = true
+		if ch != nil && !previous[ch] && ch.startTokenProvider != nil {
 			ch.startTokenProvider()
 		}
 	}
 
-	if len(old) == 0 {
-		return
+	var retired []*Channel
+	for _, ch := range old {
+		if !retained[ch] {
+			retired = append(retired, ch)
+		}
 	}
-
-	oldChannels := append([]*Channel(nil), old...)
-	go svc.cleanupSwappedChannels(oldChannels)
+	if len(retired) > 0 {
+		go svc.cleanupSwappedChannels(retired)
+	}
 }
 
 func (svc *ChannelService) cleanupSwappedChannels(channels []*Channel) {

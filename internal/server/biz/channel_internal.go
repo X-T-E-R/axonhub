@@ -60,7 +60,16 @@ func getIntervalMinutesFromAutoSyncFrequency(frequency AutoSyncFrequency) int {
 
 func (svc *ChannelService) onCacheRefreshed(ctx context.Context, current []*Channel, lastUpdate time.Time) ([]*Channel, time.Time, bool, error) {
 	ctx = authz.WithSystemBypass(ctx, "channel-refresh-cache")
-	return svc.reloadEnabledChannels(ctx, current, lastUpdate)
+	if err := svc.syncExecutionPlacement(ctx); err != nil {
+		return current, lastUpdate, false, err
+	}
+	version := svc.node.PlacementVersion()
+	placementChanged := version > svc.loadedPlacementVersion.Load()
+	channels, updated, changed, err := svc.reloadEnabledChannels(ctx, current, lastUpdate, placementChanged)
+	if err == nil {
+		svc.loadedPlacementVersion.Store(version)
+	}
+	return channels, updated, changed, err
 }
 
 func (svc *ChannelService) onTokenRefreshed(ch *ent.Channel) func(ctx context.Context, refreshed *oauth.OAuthCredentials) error {

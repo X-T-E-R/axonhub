@@ -59,7 +59,7 @@ func (svc *ChannelService) QueryChannels(ctx context.Context, input QueryChannel
 			return nil, fmt.Errorf("execution machine %q is not registered", machine)
 		}
 		var ids []int
-		for id, binding := range svc.node.Channels {
+		for id, binding := range svc.node.Bindings() {
 			if binding.Owner == machine {
 				ids = append(ids, id)
 			}

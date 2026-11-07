@@ -49,6 +49,7 @@ import { useChannels } from '../context/channels-context';
 import { useTestChannel, useUpdateChannel } from '../data/channels';
 import { CHANNEL_CONFIGS, getProvider } from '../data/config_channels';
 import { Channel } from '../data/schema';
+import { ChannelExecutionMachineCell } from './channel-execution-machine-cell';
 import { ChannelHealthCell } from './channel-health-cell';
 import { ChannelLimiterCell } from './channel-limiter-cell';
 import { ChannelsStatusDialog } from './channels-status-dialog';
@@ -703,7 +704,8 @@ CreatedAtCell.displayName = 'CreatedAtCell';
 export const createColumns = (
   t: ReturnType<typeof useTranslation>['t'],
   canWrite: boolean = true,
-  clusterEnabled?: boolean
+  clusterEnabled?: boolean,
+  canChangePlacement = false
 ): ColumnDef<Channel>[] => {
   return [
     {
@@ -761,15 +763,7 @@ export const createColumns = (
     {
       accessorKey: 'executionMachine',
       header: () => t('channels.columns.executionMachine'),
-      cell: ({ row }) => (
-        <span
-          data-testid='channel-execution-machine'
-          className={row.original.executionMachine ? 'font-mono text-sm' : 'text-muted-foreground text-sm'}
-        >
-          {row.original.executionMachine ??
-            (clusterEnabled === undefined ? '—' : t(clusterEnabled ? 'channels.placement.unassigned' : 'channels.placement.standalone'))}
-        </span>
-      ),
+      cell: ({ row }) => <ChannelExecutionMachineCell channel={row.original} clusterEnabled={clusterEnabled} editable={canChangePlacement} />,
       meta: { className: 'text-center whitespace-nowrap' },
       enableSorting: false,
       enableHiding: false,

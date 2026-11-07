@@ -20,7 +20,8 @@ const ChannelsDialogs = lazy(() => import('./components/channels-dialogs').then(
 function ChannelsContent() {
   const { t } = useTranslation();
   useProvidersData();
-  const { channelPermissions } = usePermissions();
+  const { channelPermissions, hasSystemScope } = usePermissions();
+  const canChangePlacement = hasSystemScope('write_channels');
   const { pageSize, setCursors, setPageSize, resetCursor, paginationArgs } = usePaginationSearch({
     defaultPageSize: 20,
     pageSizeStorageKey: 'channels-table-page-size',
@@ -247,8 +248,8 @@ function ChannelsContent() {
   }, [resetCursor]);
 
   const columns = useMemo(
-    () => createColumns(t, channelPermissions.canWrite, executionInventory?.clusterEnabled),
-    [t, channelPermissions.canWrite, executionInventory?.clusterEnabled]
+    () => createColumns(t, channelPermissions.canWrite, executionInventory?.clusterEnabled, canChangePlacement && (executionInventory?.machines.length ?? 0) > 1),
+    [t, channelPermissions.canWrite, executionInventory, canChangePlacement]
   );
 
   return (

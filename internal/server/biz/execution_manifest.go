@@ -9,6 +9,7 @@ import (
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/server/cluster"
 )
 
 const ExecutionManifestVersion = 1
@@ -22,16 +23,21 @@ type ModelExecutionRoute struct {
 	Status string `json:"status"`
 }
 type ExecutionManifest struct {
-	Version     int                   `json:"version"`
-	GeneratedAt time.Time             `json:"generated_at"`
-	Nodes       map[string]string     `json:"nodes"`
-	Models      []ModelExecutionRoute `json:"models"`
+	Version          int                   `json:"version"`
+	GeneratedAt      time.Time             `json:"generated_at"`
+	Nodes            map[string]string     `json:"nodes"`
+	Models           []ModelExecutionRoute `json:"models"`
+	PlacementVersion int64                 `json:"placement_version,omitempty"`
 }
 
 // ExecutionRouteForKey preserves public aliases and both group/model bounds.
 // Conditions are deliberately not interpreted at the edge: a route is definitive
 // only when all authorized connections (including conditional ones) share owner.
 func (svc *ModelService) ExecutionRouteForKey(ctx context.Context, key *ent.APIKey, publicModel string) (ModelExecutionRoute, error) {
+	return svc.executionRouteForKey(ctx, key, publicModel, svc.channelService.node)
+}
+
+func (svc *ModelService) executionRouteForKey(ctx context.Context, key *ent.APIKey, publicModel string, node cluster.Config) (ModelExecutionRoute, error) {
 	route := ModelExecutionRoute{Model: publicModel, Owners: []string{}, Status: "unavailable"}
 	connections, err := svc.modelConnectionsForKey(ctx, key, publicModel)
 	if err != nil {
@@ -39,7 +45,7 @@ func (svc *ModelService) ExecutionRouteForKey(ctx context.Context, key *ent.APIK
 	}
 	owners := map[string]bool{}
 	for _, conn := range connections {
-		owner := svc.channelService.node.Owner(conn.Channel.ID)
+		owner := node.Owner(conn.Channel.ID)
 		if owner == "" {
 			return route, fmt.Errorf("channel %d has no owner", conn.Channel.ID)
 		}
@@ -62,7 +68,15 @@ func (svc *ModelService) ExecutionRouteForKey(ctx context.Context, key *ent.APIK
 // current public catalog. It contains no key IDs, secrets, credentials or bodies.
 func (svc *ModelService) BuildExecutionManifest(ctx context.Context) (*ExecutionManifest, error) {
 	ctx = authz.WithSystemBypass(ctx, "cluster-execution-manifest")
-	manifest := &ExecutionManifest{Version: ExecutionManifestVersion, GeneratedAt: time.Now().UTC(), Nodes: svc.channelService.node.Nodes, Models: []ModelExecutionRoute{}}
+	node := svc.channelService.node
+	if node.Enabled {
+		_, state, err := readChannelPlacement(ctx, svc.channelService.db)
+		if err != nil {
+			return nil, err
+		}
+		node = node.AtPlacement(state.PlacementSnapshot)
+	}
+	manifest := &ExecutionManifest{Version: ExecutionManifestVersion, GeneratedAt: time.Now().UTC(), Nodes: node.Nodes, Models: []ModelExecutionRoute{}, PlacementVersion: node.PlacementVersion()}
 	modelOwners := map[string]map[string]bool{}
 	cursor := 0
 	for {
@@ -83,7 +97,7 @@ func (svc *ModelService) BuildExecutionManifest(ctx context.Context) (*Execution
 				return nil, err
 			}
 			for _, m := range catalogs {
-				route, err := svc.ExecutionRouteForKey(ctx, key, m.ID)
+				route, err := svc.executionRouteForKey(ctx, key, m.ID, node)
 				if err != nil {
 					return nil, err
 				}
