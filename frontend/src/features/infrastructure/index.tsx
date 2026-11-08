@@ -21,11 +21,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
+import { TopologyMap } from './components/topology-map';
 import {
   useActivateInfraRelease,
   useCreateInfraRelease,
@@ -364,14 +364,6 @@ export default function InfrastructurePage() {
     }
   };
 
-  const topologyColumns = useMemo(() => {
-    const tNodes = topology?.nodes ?? [];
-    const entry = tNodes.filter((n) => n.kind === 'entry' || n.kind === 'worker');
-    const execution = tNodes.filter((n) => n.kind === 'server' || n.kind === 'node');
-    const egress = tNodes.filter((n) => n.kind === 'endpoint' || n.kind === 'service' || n.kind === 'egress');
-    return { entry, execution, egress };
-  }, [topology]);
-
   const selectedKomodo: KomodoObservation | undefined = selectedNode
     ? komodoMap[selectedNode.id]
     : undefined;
@@ -569,7 +561,7 @@ export default function InfrastructurePage() {
 
             {/* TAB 1: TOPOLOGY & FLOW */}
             <TabsContent value='topology' className='mt-0 space-y-3'>
-              <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]'>
+              <div className='grid min-w-0 gap-3 2xl:grid-cols-[minmax(0,1fr)_300px]'>
                 <Card className='shadow-none'>
                   <CardHeader className='p-3.5 pb-2 sm:p-4 sm:pb-3'>
                     <div className='flex items-center justify-between'>
@@ -584,152 +576,7 @@ export default function InfrastructurePage() {
                     </div>
                   </CardHeader>
                   <CardContent className='p-3.5 pt-0 sm:p-4 sm:pt-0'>
-                    <div className='grid gap-3 md:grid-cols-3'>
-                      {/* Column 1: Edge Ingress */}
-                      <div className='space-y-2 rounded-lg border bg-muted/15 p-2.5 sm:p-3'>
-                        <div className='text-muted-foreground flex items-center justify-between text-xs font-medium'>
-                          <span>{t('infrastructure.topology.entryTitle')}</span>
-                          <span className='font-mono'>{topologyColumns.entry.length}</span>
-                        </div>
-                        <div className='space-y-1.5'>
-                          {topologyColumns.entry.map((item) => (
-                            <div
-                              key={item.id}
-                              className='rounded-md border bg-background p-2 text-xs'
-                            >
-                              <div className='flex items-center justify-between gap-2'>
-                                <span className='truncate font-medium'>{item.label}</span>
-                                <Badge variant='outline' className='text-[10px] uppercase'>
-                                  {item.kind}
-                                </Badge>
-                              </div>
-                              <div className='text-muted-foreground mt-0.5 font-mono text-[11px]'>
-                                {item.id === 'worker'
-                                  ? `v:${formatShortId(workerLive?.version ?? '400c7c56')}`
-                                  : item.address || 'HTTPS / WSS'}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        <Separator className='my-2' />
-                        <div className='space-y-1 text-xs'>
-                          <div className='text-muted-foreground text-[11px] font-medium'>
-                            {t('infrastructure.topology.defaultLanes')}
-                          </div>
-                          <div className='flex items-center justify-between font-mono text-[11px]'>
-                            <span>/v1/messages</span>
-                            <Badge variant='secondary' className='font-mono text-[10px]'>
-                              {workerLive?.defaults?.messages ?? 'gcp'}
-                            </Badge>
-                          </div>
-                          <div className='flex items-center justify-between font-mono text-[11px]'>
-                            <span>/v1/responses</span>
-                            <Badge variant='secondary' className='font-mono text-[10px]'>
-                              {workerLive?.defaults?.responses ?? 'gcp-kiki-usw1'}
-                            </Badge>
-                          </div>
-                          <div className='flex items-center justify-between font-mono text-[11px]'>
-                            <span>/v1/chat/completions</span>
-                            <Badge variant='secondary' className='font-mono text-[10px]'>
-                              {workerLive?.defaults?.inference ?? 'gcp'}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Column 2: 10 Execution & Relay Hosts */}
-                      <div className='space-y-2 rounded-lg border bg-muted/15 p-2.5 sm:p-3'>
-                        <div className='text-muted-foreground flex items-center justify-between text-xs font-medium'>
-                          <span>{t('infrastructure.topology.executionTitle')}</span>
-                          <span className='font-mono'>{nodes.length}</span>
-                        </div>
-                        <div className='max-h-[420px] space-y-1.5 overflow-y-auto pr-1'>
-                          {nodes.map((node) => {
-                            const obs = komodoMap[node.id];
-                            const isSelected = selectedNode?.id === node.id;
-                            const isSub2Active = node.id === 'gcp-nailong-usw1';
-                            return (
-                              <button
-                                key={node.id}
-                                type='button'
-                                onClick={() => setSelectedNodeId(node.id)}
-                                className={`w-full rounded-md border p-2 text-left transition-colors ${
-                                  isSelected
-                                    ? 'border-primary bg-primary/5'
-                                    : 'bg-background hover:bg-muted/60'
-                                }`}
-                              >
-                                <div className='flex items-center justify-between gap-1.5'>
-                                  <span className='truncate font-mono text-xs font-semibold'>
-                                    {node.id}
-                                  </span>
-                                  <div className='flex items-center gap-1'>
-                                    {isSub2Active ? (
-                                      <Badge variant='default' className='px-1.5 py-0 text-[10px]'>
-                                        Sub2
-                                      </Badge>
-                                    ) : null}
-                                    <Badge
-                                      variant={
-                                        obs?.state === 'Ok'
-                                          ? 'default'
-                                          : obs?.registered === false
-                                            ? 'outline'
-                                            : 'secondary'
-                                      }
-                                      className='px-1.5 py-0 text-[10px]'
-                                    >
-                                      {translateNodeState(obs?.state, obs?.registered)}
-                                    </Badge>
-                                  </div>
-                                </div>
-                                <div className='text-muted-foreground mt-1 flex items-center justify-between font-mono text-[11px]'>
-                                  <span>
-                                    {obs?.publicIp ??
-                                      node.vpn?.publicIp ??
-                                      t('infrastructure.nodes.noPublicIp')}
-                                  </span>
-                                  <span>
-                                    {obs?.metrics && obs.metricsStatus === 'fresh'
-                                      ? `CPU ${formatPct(obs.metrics.cpuPercent)}`
-                                      : translateMetricsStatus(obs?.metricsStatus)}
-                                  </span>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Column 3: Upstream Egress & Sub2 Origins */}
-                      <div className='space-y-2 rounded-lg border bg-muted/15 p-2.5 sm:p-3'>
-                        <div className='text-muted-foreground flex items-center justify-between text-xs font-medium'>
-                          <span>{t('infrastructure.topology.egressTitle')}</span>
-                          <span className='font-mono'>{topologyColumns.egress.length}</span>
-                        </div>
-                        <div className='max-h-[420px] space-y-1.5 overflow-y-auto pr-1'>
-                          {topologyColumns.egress.map((eg) => (
-                            <div
-                              key={eg.id}
-                              className='rounded-md border bg-background p-2 text-xs'
-                            >
-                              <div className='flex items-center justify-between gap-2'>
-                                <span className='truncate font-medium'>{eg.label}</span>
-                                <Badge variant='outline' className='font-mono text-[10px]'>
-                                  {eg.nodeId ?? eg.kind}
-                                </Badge>
-                              </div>
-                              {eg.address ? (
-                                <div className='text-muted-foreground mt-0.5 truncate font-mono text-[11px]'>
-                                  {eg.address}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+                    <TopologyMap graph={topology} komodo={komodoMap} onSelectNode={setSelectedNodeId} />
                   </CardContent>
                 </Card>
 
