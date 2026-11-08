@@ -3,12 +3,17 @@ package biz
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/pkg/xregexp"
 	"github.com/samber/lo"
 )
+
+func isLiteralModelAlias(pattern string) bool {
+	return pattern != "" && !strings.ContainsAny(pattern, "*?+[]{}()^$|\\")
+}
 
 // modelConnectionsForKey resolves the same logical target as the execution
 // mapper. The original public ID is checked against the key; the mapped target
@@ -81,6 +86,11 @@ func (svc *ModelService) listMappedModelFacades(ctx context.Context, key *ent.AP
 		var aliases []string
 		if profile := key.GetActiveProfile(); profile != nil {
 			aliases = append(aliases, profile.ModelIDs...)
+			for _, mapping := range profile.ModelMappings {
+				if isLiteralModelAlias(mapping.From) {
+					aliases = append(aliases, mapping.From)
+				}
+			}
 		}
 		if group := key.Edges.Project.GetActiveProfile(); group != nil && group.ModelIDs != nil {
 			aliases = append(aliases, *group.ModelIDs...)

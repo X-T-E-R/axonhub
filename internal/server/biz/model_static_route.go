@@ -333,6 +333,11 @@ func routePublicIDs(key *ent.APIKey, configured []string, query ModelRouteQuery)
 		for _, id := range profile.ModelIDs {
 			add(id)
 		}
+		for _, mapping := range profile.ModelMappings {
+			if isLiteralModelAlias(mapping.From) {
+				add(mapping.From)
+			}
+		}
 	}
 	if group := key.Edges.Project.GetActiveProfile(); group != nil && group.ModelIDs != nil {
 		for _, id := range *group.ModelIDs {

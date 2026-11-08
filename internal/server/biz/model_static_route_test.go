@@ -70,7 +70,8 @@ func TestStaticManifestConvergesToSingleWinnerAndReportsNotices(t *testing.T) {
 			{Type: "channel_model", Priority: 2, When: &objects.ModelAssociationWhen{Enabled: true}, ChannelModel: &objects.ChannelModelAssociation{ChannelID: lag.ID, ModelID: "when-model"}},
 		}}).SaveX(ctx)
 	group := db.Project.Create().SetName("static route").SaveX(ctx)
-	open := db.APIKey.Create().SetName("open").SetKey("ah-static-open").SetType(apikey.TypeUser).SetProjectID(group.ID).SaveX(ctx)
+	open := db.APIKey.Create().SetName("open").SetKey("ah-static-open").SetType(apikey.TypeUser).SetProjectID(group.ID).
+		SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "open-p", Profiles: []objects.APIKeyProfile{{Name: "open-p", ModelMappings: []objects.ModelMapping{{From: "gpt-5.5", To: "m"}}}}}).SaveX(ctx)
 	restricted := db.APIKey.Create().SetName("restricted").SetKey("ah-static-restricted").SetType(apikey.TypeUser).SetProjectID(group.ID).
 		SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "p", Profiles: []objects.APIKeyProfile{{Name: "p", ChannelIDs: []int{lag.ID}, ModelIDs: []string{"m", "public-alias"}, ModelMappings: []objects.ModelMapping{{From: "public-alias", To: "m"}}}}}).SaveX(ctx)
 	models := NewModelService(ModelServiceParams{Ent: db, SystemService: NewSystemService(SystemServiceParams{Ent: db}), ChannelService: channels})
@@ -84,6 +85,7 @@ func TestStaticManifestConvergesToSingleWinnerAndReportsNotices(t *testing.T) {
 	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "unconfigured-shared", Owner: "gcp", Owners: []string{"gcp"}, Status: "ready"})
 	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "when-model", Owner: "lag", Owners: []string{"lag"}, Status: "ready"})
 	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "public-alias", Owner: "lag", Owners: []string{"lag"}, Status: "ready"})
+	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "gpt-5.5", Owner: "gcp", Owners: []string{"gcp"}, Status: "ready"})
 
 	openRoute, err := models.ExecutionRouteForKey(ctx, load(open), "m")
 	require.NoError(t, err)
@@ -95,6 +97,7 @@ func TestStaticManifestConvergesToSingleWinnerAndReportsNotices(t *testing.T) {
 	notices, err := models.ModelMachineNotices(ctx, ModelRouteQuery{Focus: map[int]bool{gcp.ID: true, lag.ID: true}})
 	require.NoError(t, err)
 	require.Equal(t, []ModelMachineNotice{
+		{Model: "gpt-5.5", Machines: []string{"gcp", "lag"}, Winner: "gcp"},
 		{Model: "m", Machines: []string{"gcp", "lag"}, Winner: "gcp"},
 		{Model: "unconfigured-shared", Machines: []string{"gcp", "lag"}, Winner: "gcp"},
 		{Model: "when-model", Machines: []string{"gcp", "lag"}, Winner: "lag"},
