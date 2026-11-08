@@ -98,3 +98,39 @@ func readPlacementWorkerAck(ctx context.Context, client *ent.Client) (*Placement
 	}
 	return &ack, nil
 }
+
+// InfrastructurePlacementContext summarizes authoritative cluster placement and Worker
+// acknowledgement state for the native infrastructure control plane without exposing secrets.
+type InfrastructurePlacementContext struct {
+	ClusterEnabled   bool                `json:"clusterEnabled"`
+	ControlNode      string              `json:"controlNode"`
+	PlacementVersion int64               `json:"placementVersion"`
+	Machines         []string            `json:"machines"`
+	WorkerAck        *PlacementWorkerAck `json:"workerAck,omitempty"`
+}
+
+func (svc *ChannelService) ReadInfrastructurePlacementContext(ctx context.Context) (*InfrastructurePlacementContext, error) {
+	inv, err := svc.ExecutionInventory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	_, state, err := readChannelPlacement(ctx, svc.db)
+	if err != nil {
+		return nil, err
+	}
+	ack, err := readPlacementWorkerAck(ctx, svc.db)
+	if err != nil {
+		return nil, err
+	}
+	controlNode := svc.node.ControlNode
+	if controlNode == "" {
+		controlNode = "lag"
+	}
+	return &InfrastructurePlacementContext{
+		ClusterEnabled:   inv.ClusterEnabled,
+		ControlNode:      controlNode,
+		PlacementVersion: state.Version,
+		Machines:         inv.Machines,
+		WorkerAck:        ack,
+	}, nil
+}

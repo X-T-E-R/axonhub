@@ -132,7 +132,7 @@ func (h *ClusterHandlers) ChannelHealth(c *gin.Context) {
 func DataNodeRoutes(node cluster.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
-		if strings.HasPrefix(path, "/v1/axon/") || strings.HasPrefix(path, "/__axon/") || path == "/admin/cluster/manifest" {
+		if strings.HasPrefix(path, "/v1/axon/") || strings.HasPrefix(path, "/__axon/") || path == "/admin/cluster/manifest" || strings.HasPrefix(path, "/admin/cluster/infrastructure/") {
 			c.Header("Cache-Control", "no-store")
 		}
 		if node.IsControl() {

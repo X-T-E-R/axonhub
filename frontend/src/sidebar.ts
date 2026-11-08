@@ -14,6 +14,7 @@ import {
   IconAi,
   IconNote,
   IconChartBar,
+  IconServer,
 } from '@tabler/icons-react';
 import { Command } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -87,6 +88,11 @@ export function useSidebarData(): SidebarData {
           title: t('sidebar.items.monitoring'),
           url: '/monitoring',
           icon: IconActivityHeartbeat,
+        } as NavLink,
+        {
+          title: t('sidebar.items.infrastructure'),
+          url: '/infrastructure',
+          icon: IconServer,
         } as NavLink,
         {
           title: t('sidebar.items.models'),

@@ -155,6 +155,24 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			placementAdmin.POST("", handlers.Cluster.SaveChannelPlacement)
 			placementAdmin.POST("/worker-ack", handlers.Cluster.AcknowledgePlacementWorker)
 		}
+		if handlers.Cluster != nil && (!services.Node.Enabled || services.Node.IsControl()) {
+			infraAdmin := server.Group("/admin/cluster/infrastructure", middleware.WithJWTAuth(services.AuthService), middleware.WithLegacyUser(), middleware.WithTimeout(server.Config.RequestTimeout))
+			infraAdmin.GET("/state", handlers.Cluster.InfrastructureState)
+			infraAdmin.GET("/topology", handlers.Cluster.InfrastructureTopology)
+			infraAdmin.GET("/nodes/:id", handlers.Cluster.InfrastructureGetNode)
+			infraAdmin.PUT("/nodes/:id", handlers.Cluster.InfrastructurePutNode)
+			infraAdmin.POST("/nodes/:id/actions/:step", handlers.Cluster.InfrastructureNodeAction)
+			infraAdmin.PUT("/rules/:id", handlers.Cluster.InfrastructurePutRule)
+			infraAdmin.DELETE("/rules/:id", handlers.Cluster.InfrastructureDeleteRule)
+			infraAdmin.PUT("/draft", handlers.Cluster.InfrastructurePutDraft)
+			infraAdmin.POST("/validate", handlers.Cluster.InfrastructureValidate)
+			infraAdmin.POST("/explain", handlers.Cluster.InfrastructureExplain)
+			infraAdmin.GET("/releases", handlers.Cluster.InfrastructureReleases)
+			infraAdmin.GET("/releases/:id", handlers.Cluster.InfrastructureGetRelease)
+			infraAdmin.POST("/releases/preview", handlers.Cluster.InfrastructurePreviewRelease)
+			infraAdmin.POST("/releases", handlers.Cluster.InfrastructureCreateRelease)
+			infraAdmin.POST("/releases/:id/activate", handlers.Cluster.InfrastructureActivateRelease)
+		}
 		adminGroup.GET("/playground", middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
 			handlers.Graphql.Playground.ServeHTTP(c.Writer, c.Request)
 		})
