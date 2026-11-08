@@ -29,7 +29,8 @@
   "infrastructure.summary.controlLabel": "ctrl:{{node}}",
   "infrastructure.summary.standbyLabel": "stby:{{node}}",
   "infrastructure.adapter.isolated": "Isolated Rehearsal",
-  "infrastructure.adapter.wrangler": "Managed Wrangler",
+  "infrastructure.adapter.wrangler": "Production Worker",
+  "infrastructure.adapter.unavailable": "Control connection pending",
   "infrastructure.status.synchronized": "Synchronized",
   "infrastructure.status.drift": "Config Drift",
   "infrastructure.status.ack_mismatch": "ACK Revision Mismatch",
@@ -101,5 +102,5 @@
   "infrastructure.releases.activeBadge": "Active",
   "infrastructure.releases.rehearsalActiveBadge": "Rehearsal Active",
   "infrastructure.releases.guardrailIsolated": "Connected to isolated rehearsal adapter (Miniflare). Activation and rollback apply only to local rehearsal.",
-  "infrastructure.releases.guardrailWrangler": "Connected to managed Wrangler adapter. Activation and rollback verify strict bindings and deployment readback."
+  "infrastructure.releases.guardrailWrangler": "Activation and rollback update the production Worker, preserve current bindings and verify deployment readback. Manage owned model placement on the channel page."
 }

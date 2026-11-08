@@ -106,6 +106,7 @@ export interface InfraValidationIssue {
 
 export interface InfraVersion {
   id: string;
+  target?: 'isolated' | 'managed' | 'wrangler';
   baseVersion?: string | null;
   revision: number;
   createdAt: string;

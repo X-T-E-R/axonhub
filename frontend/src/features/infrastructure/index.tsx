@@ -172,7 +172,7 @@ export default function InfrastructurePage() {
   const axonLive = state?.liveSources?.axon;
   const komodoLive = state?.liveSources?.komodo;
   const sub2Plane = state?.baseline?.inventory?.sub2Runtime;
-  const isRehearsal = state?.adapterInfo?.rehearsal ?? state?.adapter !== 'wrangler';
+  const isRehearsal = state?.adapterInfo?.rehearsal ?? !['wrangler', 'managed'].includes(state?.adapter ?? '');
 
   const translateSyncStatus = (status?: string) => {
     switch (status) {
@@ -398,9 +398,11 @@ export default function InfrastructurePage() {
               className='text-[11px]'
               data-testid='adapter-mode-badge'
             >
-              {isRehearsal
-                ? t('infrastructure.adapter.isolated')
-                : t('infrastructure.adapter.wrangler')}
+              {!state?.adapter
+                ? t('infrastructure.adapter.unavailable')
+                : isRehearsal
+                  ? t('infrastructure.adapter.isolated')
+                  : t('infrastructure.adapter.wrangler')}
             </Badge>
             <Button
               variant='outline'
@@ -1520,7 +1522,7 @@ export default function InfrastructurePage() {
                               {ver.note || 'Baseline snapshot'} · rev {ver.revision}
                             </div>
                           </div>
-                          {!isActive ? (
+                          {!isActive && !(state?.adapter === 'managed' && ver.target !== 'managed') ? (
                             <Button
                               size='sm'
                               variant='outline'

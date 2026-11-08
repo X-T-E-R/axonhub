@@ -29,7 +29,8 @@
   "infrastructure.summary.controlLabel": "主控:{{node}}",
   "infrastructure.summary.standbyLabel": "冷备:{{node}}",
   "infrastructure.adapter.isolated": "隔离演练模式",
-  "infrastructure.adapter.wrangler": "受管 Wrangler 模式",
+  "infrastructure.adapter.wrangler": "生产 Worker 模式",
+  "infrastructure.adapter.unavailable": "控制连接待就绪",
   "infrastructure.status.synchronized": "已同步",
   "infrastructure.status.drift": "配置漂移",
   "infrastructure.status.ack_mismatch": "回执版本不匹配",
@@ -101,5 +102,5 @@
   "infrastructure.releases.activeBadge": "当前生效",
   "infrastructure.releases.rehearsalActiveBadge": "本地演练生效",
   "infrastructure.releases.guardrailIsolated": "当前连接为隔离演练适配器（Miniflare），激活与回退仅作用于本地演练环境，不改动生产 Worker。",
-  "infrastructure.releases.guardrailWrangler": "当前连接受管 Wrangler 适配器，激活与回退将执行严格绑定校验与现役部署读回。"
+  "infrastructure.releases.guardrailWrangler": "激活与回退作用于生产 Worker，保留现役绑定并读回部署结果。已归属模型的执行机器请在原渠道页调整。"
 }
