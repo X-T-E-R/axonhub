@@ -420,6 +420,39 @@ function responseUnauthorized(request: IncomingMessage, response: ServerResponse
 export async function handlePlacementRequest(request: IncomingMessage, response: ServerResponse) {
   const parsedURL = new URL(request.url ?? '/', 'http://127.0.0.1');
   const path = parsedURL.pathname;
+  if (path === '/admin/cluster/model-routes' && request.method === 'GET') {
+    if (!isPrivilegedRequest(request)) {
+      responseUnauthorized(request, response, path);
+      return true;
+    }
+    const channelID = Number(parsedURL.searchParams.get('channel_id'));
+    const status = parsedURL.searchParams.get('status') ?? '';
+    const body = {
+      model_routes: [
+        { model: 'gpt-4o', machines: ['node-alpha', 'node-beta'], winner: 'node-alpha' },
+        { model: 'deepseek-v4-flash', machines: ['node-alpha', 'node-beta'] },
+      ],
+    };
+    recordRest(request, path, { channel_id: channelID, status }, body);
+    writeJSON(response, 200, body);
+    return true;
+  }
+  if (path === '/admin/cluster/model-routes/preview' && request.method === 'POST') {
+    if (!isPrivilegedRequest(request)) {
+      responseUnauthorized(request, response, path);
+      return true;
+    }
+    const raw = await readRequestBody(request);
+    const input = raw ? JSON.parse(raw) : {};
+    const body = {
+      model_routes: [
+        { model: input.model || 'gpt-4o', machines: ['node-alpha', 'node-beta'], winner: 'node-alpha' },
+      ],
+    };
+    recordRest(request, path, input, body);
+    writeJSON(response, 200, body);
+    return true;
+  }
   const placementMatch = path.match(/^\/admin\/cluster\/placement\/(\d+)(\/preview)?$/);
   const isSave = path === '/admin/cluster/placement' && request.method === 'POST';
   if (!placementMatch && !isSave) return false;
@@ -438,6 +471,7 @@ export async function handlePlacementRequest(request: IncomingMessage, response:
       const group = placementGroup(channelID);
       const preview = {
         placement_version: state.placement_version,
+        model_routes: [{ model: 'shared-model', machines: ['source', 'target'], winner: 'target' }],
         channel_id: channelID,
         from: state.owner,
         to: target,

@@ -5,9 +5,12 @@ import { IconAlertTriangle, IconFlask, IconLoader2 } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { extractNumberID } from '@/lib/utils';
 import { useUpdateChannelStatus, useTestChannel } from '../data/channels';
+import { useModelRoutes } from '../data/placement';
 import { Channel } from '../data/schema';
 import { ErrorDisplay } from '../utils/error-formatter';
+import { ModelRouteNotice } from './model-route-notice';
 
 interface Props {
   open: boolean;
@@ -62,6 +65,7 @@ export function ChannelsStatusDialog({ open, onOpenChange, currentRow }: Props) 
 
   const isDisabling = currentRow.status === 'enabled';
   const title = isDisabling ? t('channels.dialogs.status.disable.title') : t('channels.dialogs.status.enable.title');
+  const routeNotice = useModelRoutes(Number(extractNumberID(currentRow.id)), isDisabling ? 'disabled' : 'enabled', open);
 
   // Enhanced description with warning for enabling
   const getDescription = () => {
@@ -153,7 +157,12 @@ export function ChannelsStatusDialog({ open, onOpenChange, currentRow }: Props) 
           {title}
         </span>
       }
-      desc={getDescription()}
+      desc={
+        <div className='space-y-3'>
+          {getDescription()}
+          <ModelRouteNotice routes={routeNotice.data?.model_routes} />
+        </div>
+      }
       confirmText={actionText}
       cancelBtnText={t('common.buttons.cancel')}
     />

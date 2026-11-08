@@ -147,6 +147,8 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 	{
 		if services.Node.Enabled {
 			adminGroup.GET("/cluster/manifest", middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.Manifest)
+			adminGroup.GET("/cluster/model-routes", middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.ModelRoutes)
+			adminGroup.POST("/cluster/model-routes/preview", middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.PreviewModelRoutes)
 			placementAdmin := server.Group("/admin/cluster/placement", middleware.WithJWTAuth(services.AuthService), middleware.WithLegacyUser(), middleware.WithTimeout(server.Config.RequestTimeout))
 			placementAdmin.GET("/:id", handlers.Cluster.ObserveChannelPlacement)
 			placementAdmin.GET("/:id/preview", handlers.Cluster.PreviewChannelPlacement)

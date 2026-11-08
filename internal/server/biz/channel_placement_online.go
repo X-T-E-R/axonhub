@@ -29,12 +29,13 @@ type PlacementChannel struct {
 }
 
 type PlacementPlan struct {
-	Version    int64              `json:"placement_version"`
-	ChannelID  int                `json:"channel_id"`
-	From       string             `json:"from"`
-	To         string             `json:"to"`
-	Channels   []PlacementChannel `json:"channels"`
-	Identities map[int]string     `json:"identities,omitempty"`
+	Version     int64                `json:"placement_version"`
+	ChannelID   int                  `json:"channel_id"`
+	From        string               `json:"from"`
+	To          string               `json:"to"`
+	Channels    []PlacementChannel   `json:"channels"`
+	Identities  map[int]string       `json:"identities,omitempty"`
+	ModelRoutes []ModelMachineNotice `json:"model_routes"`
 }
 
 type PlacementSaveInput struct {

@@ -2,7 +2,6 @@ package biz
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -31,36 +30,26 @@ type ExecutionManifest struct {
 }
 
 // ExecutionRouteForKey preserves public aliases and both group/model bounds.
-// Conditions are deliberately not interpreted at the edge: a route is definitive
-// only when all authorized connections (including conditional ones) share owner.
+// An unconditional model uses the lowest association priority and the sorted
+// owner id. Conditional connections that still span machines stay ambiguous.
 func (svc *ModelService) ExecutionRouteForKey(ctx context.Context, key *ent.APIKey, publicModel string) (ModelExecutionRoute, error) {
-	return svc.executionRouteForKey(ctx, key, publicModel, svc.channelService.node)
+	node, err := svc.routeNode(ctx)
+	if err != nil {
+		return ModelExecutionRoute{}, err
+	}
+	return svc.executionRouteForKey(ctx, key, publicModel, node)
 }
 
 func (svc *ModelService) executionRouteForKey(ctx context.Context, key *ent.APIKey, publicModel string, node cluster.Config) (ModelExecutionRoute, error) {
 	route := ModelExecutionRoute{Model: publicModel, Owners: []string{}, Status: "unavailable"}
-	connections, err := svc.modelConnectionsForKey(ctx, key, publicModel)
+	links, err := svc.routeLinks(ctx, key, publicModel, svc.routeChannels(ModelRouteQuery{}), node, ModelRouteQuery{})
 	if err != nil {
 		return route, err
 	}
-	owners := map[string]bool{}
-	for _, conn := range connections {
-		owner := node.Owner(conn.Channel.ID)
-		if owner == "" {
-			return route, fmt.Errorf("channel %d has no owner", conn.Channel.ID)
-		}
-		owners[owner] = true
-	}
-	for owner := range owners {
-		route.Owners = append(route.Owners, owner)
-	}
-	sort.Strings(route.Owners)
-	if len(route.Owners) == 1 {
-		route.Owner = route.Owners[0]
-		route.Status = "ready"
-	} else if len(route.Owners) > 1 {
-		route.Status = "ambiguous"
-	}
+	owner, owners, status := selectStaticRoute(links)
+	route.Owner = owner
+	route.Owners = owners
+	route.Status = status
 	return route, nil
 }
 

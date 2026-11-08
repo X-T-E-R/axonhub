@@ -20,6 +20,8 @@ import { AutoCompleteSelect } from '@/components/auto-complete-select';
 import { FilterBuilder, type FilterBuilderCondition, type FilterBuilderField, type FilterBuilderGroupListValue } from '@/components/filter-builder';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAllChannelSummarys, useAllChannelTags } from '@/features/channels/data/channels';
+import { previewModelRoutes } from '@/features/channels/data/placement';
+import { ModelRouteNotice, type ModelRouteNoticeItem } from '@/features/channels/components/model-route-notice';
 import { useModelSettings, useUpdateModelSettings } from '@/features/system/data/system';
 import { useModels } from '../context/models-context';
 import { useQueryModelChannelConnections, ModelAssociationInput, ModelChannelConnection } from '../data/models';
@@ -713,6 +715,7 @@ export function ModelsAssociationDialog() {
   const { data: allTags = [] } = useAllChannelTags();
   const { mutateAsync: queryConnections } = useQueryModelChannelConnections();
   const [connections, setConnections] = useState<ModelChannelConnection[]>([]);
+  const [routeNotice, setRouteNotice] = useState<ModelRouteNoticeItem[]>([]);
   const [channelFilter, setChannelFilter] = useState('');
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
@@ -799,6 +802,7 @@ export function ModelsAssociationDialog() {
   useEffect(() => {
     if (!isOpen) {
       setConnections([]);
+      setRouteNotice([]);
       return;
     }
 
@@ -835,8 +839,28 @@ export function ModelsAssociationDialog() {
       }
     };
 
+    const loadRouteNotice = async (associations: ModelAssociationInput[]) => {
+      const notice = await previewModelRoutes(isDeveloperMode ? activeDeveloper || '' : currentRow?.modelID || '', associations, isDeveloperMode);
+      setRouteNotice(notice.model_routes ?? []);
+    };
+
     fetchConnections();
-  }, [channelOptions, currentRow?.modelID, debouncedAssociationsString, inheritedAssociations, isOpen, isDeveloperMode, queryConnections]);
+    if (isOpen) {
+      try {
+        const debouncedAssociations = JSON.parse(debouncedAssociationsString) || [];
+        if (isDeveloperMode) {
+          const associations = sortAssociationsByPriority(debouncedAssociations).map((assoc) => formAssociationToInput(assoc)).filter((item): item is ModelAssociationInput => item !== undefined);
+          void loadRouteNotice(associations);
+        } else {
+          const inheritedInputs = inheritedAssociations.map((assoc) => modelAssociationToInput(assoc, currentRow?.modelID));
+          const formInputs = sortAssociationsByPriority(debouncedAssociations).map((assoc) => formAssociationToInput(assoc)).filter((item): item is ModelAssociationInput => item !== undefined);
+          void loadRouteNotice(sortAssociationsByPriority([...formInputs, ...inheritedInputs]));
+        }
+      } catch {
+        setRouteNotice([]);
+      }
+    }
+  }, [activeDeveloper, channelOptions, currentRow?.modelID, debouncedAssociationsString, inheritedAssociations, isDeveloperMode, isOpen, queryConnections]);
 
   useEffect(() => {
     if (isOpen) {
@@ -1096,6 +1120,7 @@ export function ModelsAssociationDialog() {
           </div>
         </div>
 
+        <ModelRouteNotice routes={routeNotice} />
         <DialogFooter className='shrink-0 border-t pt-4 flex flex-col sm:flex-row gap-2 sm:gap-0 sm:justify-end'>
           <Button type='button' variant='outline' onClick={handleClose} className='w-full sm:w-auto'>
             {t('common.buttons.cancel')}

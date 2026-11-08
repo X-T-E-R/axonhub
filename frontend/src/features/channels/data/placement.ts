@@ -20,13 +20,26 @@ const observationSchema = z.object({
   worker_ack: z.object({ placement_version: z.number(), worker_revision: z.string() }).optional(),
 });
 
+const modelRouteSchema = z.object({
+  model: z.string(),
+  machines: z.array(z.string()),
+  winner: z.string().optional(),
+});
+
+const modelRoutesSchema = z.object({
+  model_routes: z.array(modelRouteSchema).optional(),
+});
+
 const previewSchema = z.object({
   placement_version: z.number(),
   channel_id: z.number(),
   from: z.string(),
   to: z.string(),
   channels: z.array(z.object({ id: z.number(), name: z.string(), status: z.enum(['enabled', 'disabled', 'archived']) })),
+  model_routes: z.array(modelRouteSchema).optional(),
 });
+
+export type ModelRouteNotice = z.infer<typeof modelRouteSchema>;
 
 export type PlacementObservation = z.infer<typeof observationSchema>;
 
@@ -60,6 +73,31 @@ export function usePlacementPreview(channelID: number, target: string, enabled: 
       requireAuth: true,
     })),
   });
+}
+
+export function useModelRoutes(channelID: number, status: 'enabled' | 'disabled', enabled: boolean) {
+  return useQuery({
+    queryKey: ['modelRoutes', channelID, status],
+    enabled: enabled && channelID > 0,
+    retry: false,
+    queryFn: async () => {
+      try {
+        return modelRoutesSchema.parse(await apiRequest<unknown>(`/admin/cluster/model-routes?${new URLSearchParams({ channel_id: String(channelID), status })}`, { requireAuth: true }));
+      } catch {
+        return { model_routes: [] };
+      }
+    },
+  });
+}
+
+export async function previewModelRoutes(model: string, associations: unknown[], structural = false) {
+  try {
+    return modelRoutesSchema.parse(await apiRequest<unknown>('/admin/cluster/model-routes/preview', {
+      method: 'POST', body: { model, associations, structural }, requireAuth: true,
+    }));
+  } catch {
+    return { model_routes: [] };
+  }
 }
 
 export function useSavePlacement(channelID: number) {

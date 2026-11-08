@@ -25,7 +25,7 @@ export default defineConfig({
         server.middlewares.use(async (request, response, next) => {
           const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
 
-          if (pathname.startsWith('/admin/cluster/placement')) {
+          if (pathname.startsWith('/admin/cluster/placement') || pathname.startsWith('/admin/cluster/model-routes')) {
             if (await handlePlacementRequest(request, response)) return;
           }
 

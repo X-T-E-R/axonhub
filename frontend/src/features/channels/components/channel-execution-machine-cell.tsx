@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useChannels } from '../context/channels-context';
 import { useChannelExecutionInventory } from '../data/channels';
 import { placementSyncState, usePlacementObservation, usePlacementPreview, useSavePlacement } from '../data/placement';
+import { ModelRouteNotice } from './model-route-notice';
 import { Channel } from '../data/schema';
 
 export function ChannelPlacementDialog({ channel, onClose }: { channel: Channel; onClose: () => void }) {
@@ -76,6 +77,7 @@ export function ChannelPlacementDialog({ channel, onClose }: { channel: Channel;
               </ul>
             </div>
           )}
+          {preview.data && !savedThisRequest && <ModelRouteNotice routes={preview.data.model_routes} />}
           {!savedThisRequest && <p className='text-muted-foreground text-sm'>{t(assigning ? 'channels.placement.assignHelp' : 'channels.placement.onlineHelp')}</p>}
           {value?.change && (
             <div role='status' className='bg-muted/50 space-y-2 rounded-lg p-3 text-sm' data-testid='placement-sync-status'>
