@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -192,4 +195,50 @@ func TestInfrastructureHTTP(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, expRes.Code, expRes.Body.String())
 	require.Contains(t, expRes.Body.String(), `"ruleId":"r-native-test"`)
+
+	// 7. Reverse-proxy Basic Auth + Host rewrite + X-Axon-Authorization forwarding (simulating https://console.zjuam.art -> 127.0.0.1:18751)
+	parsedBridge, err := url.Parse(bridgeURL)
+	require.NoError(t, err)
+	var observedCallerBearer string
+	caddySim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != "admin" || pass != "synthetic-console-pass-123" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"code":"unauthorized"}}`))
+			return
+		}
+		observedCallerBearer = r.Header.Get("X-Axon-Authorization")
+		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, bridgeURL+r.URL.RequestURI(), r.Body)
+		require.NoError(t, err)
+		outReq.Host = parsedBridge.Host
+		outReq.Header = r.Header.Clone()
+		outReq.Header.Del("Authorization")
+		resp, err := http.DefaultClient.Do(outReq)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	t.Cleanup(caddySim.Close)
+
+	t.Setenv("AXONHUB_INFRA_CONTROL_URL", caddySim.URL)
+	// Without AXONHUB_INFRA_CONTROL_AUTH_FILE, Caddy returns 401
+	noBasicRes := request(control, http.MethodGet, "/admin/cluster/infrastructure/state", readerJWT, nil)
+	require.Equal(t, http.StatusUnauthorized, noBasicRes.Code)
+
+	// Unreadable AXONHUB_INFRA_CONTROL_AUTH_FILE returns 503 infrastructure_control_auth_unconfigured
+	t.Setenv("AXONHUB_INFRA_CONTROL_AUTH_FILE", filepath.Join(t.TempDir(), "missing-auth.password"))
+	missingAuthRes := request(control, http.MethodGet, "/admin/cluster/infrastructure/state", readerJWT, nil)
+	require.Equal(t, http.StatusServiceUnavailable, missingAuthRes.Code)
+	require.Contains(t, missingAuthRes.Body.String(), `"infrastructure_control_auth_unconfigured"`)
+
+	// Valid password-only file (matching /opt/task51-tencent-sites/console/private/admin.password format) succeeds
+	passFile := filepath.Join(t.TempDir(), "admin.password")
+	require.NoError(t, os.WriteFile(passFile, []byte("synthetic-console-pass-123\n"), 0o600))
+	t.Setenv("AXONHUB_INFRA_CONTROL_AUTH_FILE", passFile)
+	authedRes := request(control, http.MethodGet, "/admin/cluster/infrastructure/state", readerJWT, nil)
+	require.Equal(t, http.StatusOK, authedRes.Code, authedRes.Body.String())
+	require.Contains(t, authedRes.Body.String(), `"r-native-test"`)
+	require.Equal(t, "Bearer "+readerJWT, observedCallerBearer)
 }

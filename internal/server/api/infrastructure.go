@@ -46,6 +46,38 @@ func resolveInfrastructureControlURL() (string, *url.URL, error) {
 	return cleanBase, parsed, nil
 }
 
+// resolveInfrastructureControlAuthorization reads an optional server-side Basic Auth
+// credential file (AXONHUB_INFRA_CONTROL_AUTH_FILE) when connecting to a reverse-proxied
+// HTTPS control endpoint (such as https://console.zjuam.art). Credentials are read from a
+// protected server-side file and never exposed to browsers or accepted from URLs.
+func resolveInfrastructureControlAuthorization() (string, error) {
+	authFile := strings.TrimSpace(os.Getenv("AXONHUB_INFRA_CONTROL_AUTH_FILE"))
+	if authFile == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(authFile)
+	if err != nil {
+		return "", errors.New("infrastructure control credential file is unreadable")
+	}
+	content := strings.TrimSpace(string(raw))
+	if content == "" || strings.ContainsAny(content, "\r\n") {
+		return "", errors.New("infrastructure control credential file is invalid")
+	}
+	lower := strings.ToLower(content)
+	if strings.HasPrefix(lower, "basic ") || strings.HasPrefix(lower, "bearer ") {
+		return content, nil
+	}
+	user := strings.TrimSpace(os.Getenv("AXONHUB_INFRA_CONTROL_AUTH_USER"))
+	if user == "" {
+		user = "admin"
+	}
+	pair := content
+	if !strings.Contains(content, ":") {
+		pair = user + ":" + content
+	}
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(pair)), nil
+}
+
 func requireSystemChannelScope(c *gin.Context, scope scopes.ScopeSlug) bool {
 	c.Header("Cache-Control", "no-store")
 	ctx := c.Request.Context()
@@ -125,6 +157,17 @@ func (h *ClusterHandlers) proxyInfrastructure(c *gin.Context, method, upstreamPa
 		})
 		return
 	}
+	upstreamAuth, err := resolveInfrastructureControlAuthorization()
+	if err != nil {
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{
+				"code":    "infrastructure_control_auth_unconfigured",
+				"message": "Managed infrastructure control credential is unreadable or invalid.",
+			},
+		})
+		return
+	}
 	var bodyReader io.Reader
 	if method != http.MethodGet && c.Request.Body != nil {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 256*1024)
@@ -153,6 +196,12 @@ func (h *ClusterHandlers) proxyInfrastructure(c *gin.Context, method, upstreamPa
 	}
 	req.Host = parsedBase.Host
 	req.Header.Set("Content-Type", "application/json")
+	if upstreamAuth != "" {
+		req.Header.Set("Authorization", upstreamAuth)
+	}
+	if callerAuth := strings.TrimSpace(c.GetHeader("Authorization")); strings.HasPrefix(strings.ToLower(callerAuth), "bearer ") {
+		req.Header.Set("X-Axon-Authorization", callerAuth)
+	}
 	if ctxHeader := h.buildBridgeHeader(c.Request.Context()); ctxHeader != "" {
 		req.Header.Set("X-Axon-Context", ctxHeader)
 	}
