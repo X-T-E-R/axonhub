@@ -17,9 +17,7 @@ type ModelExecutionRoute struct {
 	Model  string   `json:"model"`
 	Owner  string   `json:"owner,omitempty"`
 	Owners []string `json:"owners"`
-	// Ambiguous models need authenticated resolution or configuration alignment;
-	// they must never silently fall back to a default origin.
-	Status string `json:"status"`
+	Status string   `json:"status"`
 }
 type ExecutionManifest struct {
 	Version          int                   `json:"version"`
@@ -29,9 +27,8 @@ type ExecutionManifest struct {
 	PlacementVersion int64                 `json:"placement_version,omitempty"`
 }
 
-// ExecutionRouteForKey preserves public aliases and both group/model bounds.
-// An unconditional model uses the lowest association priority and the sorted
-// owner id. Conditional connections that still span machines stay ambiguous.
+// ExecutionRouteForKey preserves public aliases and both group/model bounds,
+// selecting a single static owner by the lowest association priority and sorted owner id.
 func (svc *ModelService) ExecutionRouteForKey(ctx context.Context, key *ent.APIKey, publicModel string) (ModelExecutionRoute, error) {
 	node, err := svc.routeNode(ctx)
 	if err != nil {
@@ -53,8 +50,10 @@ func (svc *ModelService) executionRouteForKey(ctx context.Context, key *ent.APIK
 	return route, nil
 }
 
-// BuildExecutionManifest is a conservative projection over every enabled Key's
-// current public catalog. It contains no key IDs, secrets, credentials or bodies.
+// BuildExecutionManifest projects every enabled Key's current public catalog
+// (including public aliases) to a single static owner using lowest association
+// priority and a stable sorted owner tie-breaker. It contains no key IDs,
+// secrets, credentials or bodies.
 func (svc *ModelService) BuildExecutionManifest(ctx context.Context) (*ExecutionManifest, error) {
 	ctx = authz.WithSystemBypass(ctx, "cluster-execution-manifest")
 	node := svc.channelService.node
@@ -66,7 +65,8 @@ func (svc *ModelService) BuildExecutionManifest(ctx context.Context) (*Execution
 		node = node.AtPlacement(state.PlacementSnapshot)
 	}
 	manifest := &ExecutionManifest{Version: ExecutionManifestVersion, GeneratedAt: time.Now().UTC(), Nodes: node.Nodes, Models: []ModelExecutionRoute{}, PlacementVersion: node.PlacementVersion()}
-	modelOwners := map[string]map[string]bool{}
+	channels := svc.routeChannels(ModelRouteQuery{})
+	modelLinks := map[string][]routeLink{}
 	cursor := 0
 	for {
 		keys, err := svc.entFromContext(ctx).APIKey.Query().Where(apikey.IDGT(cursor), apikey.StatusEQ(apikey.StatusEnabled)).Order(ent.Asc(apikey.FieldID)).WithProject().Limit(100).All(ctx)
@@ -86,30 +86,28 @@ func (svc *ModelService) BuildExecutionManifest(ctx context.Context) (*Execution
 				return nil, err
 			}
 			for _, m := range catalogs {
-				route, err := svc.executionRouteForKey(ctx, key, m.ID, node)
+				links, err := svc.routeLinks(ctx, key, m.ID, channels, node, ModelRouteQuery{})
 				if err != nil {
 					return nil, err
 				}
-				if modelOwners[m.ID] == nil {
-					modelOwners[m.ID] = map[string]bool{}
+				if len(links) == 0 {
+					continue
 				}
-				for _, owner := range route.Owners {
-					modelOwners[m.ID][owner] = true
-				}
+				modelLinks[m.ID] = append(modelLinks[m.ID], links...)
 			}
 		}
 	}
-	for model, owners := range modelOwners {
-		route := ModelExecutionRoute{Model: model, Owners: []string{}, Status: "ambiguous"}
-		for owner := range owners {
-			route.Owners = append(route.Owners, owner)
+	for model, links := range modelLinks {
+		owner, owners, status := selectStaticRoute(links)
+		if status == "unavailable" {
+			continue
 		}
-		sort.Strings(route.Owners)
-		if len(route.Owners) == 1 {
-			route.Owner = route.Owners[0]
-			route.Status = "ready"
-		}
-		manifest.Models = append(manifest.Models, route)
+		manifest.Models = append(manifest.Models, ModelExecutionRoute{
+			Model:  model,
+			Owner:  owner,
+			Owners: owners,
+			Status: status,
+		})
 	}
 	sort.Slice(manifest.Models, func(i, j int) bool { return manifest.Models[i].Model < manifest.Models[j].Model })
 	return manifest, nil

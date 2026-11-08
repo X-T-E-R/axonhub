@@ -27,12 +27,18 @@ func TestSelectStaticRouteUsesLowestPriorityAndSortedOwner(t *testing.T) {
 	require.Equal(t, "ready", status)
 	require.Equal(t, []string{"gcp"}, owners)
 
-	_, owners, status = selectStaticRoute([]routeLink{{Owner: "lag", Priority: 10, Conditional: true}, {Owner: "gcp", Priority: 0, Conditional: true}})
-	require.Equal(t, "ambiguous", status)
-	require.Equal(t, []string{"gcp", "lag"}, owners)
+	owner, owners, status = selectStaticRoute([]routeLink{{Owner: "lag", Priority: 10, Conditional: true}, {Owner: "gcp", Priority: 0, Conditional: true}})
+	require.Equal(t, "ready", status)
+	require.Equal(t, "gcp", owner)
+	require.Equal(t, []string{"gcp"}, owners)
+
+	owner, owners, status = selectStaticRoute([]routeLink{{Owner: "lag", Priority: 5, Conditional: true}, {Owner: "gcp", Priority: 5, Conditional: true}})
+	require.Equal(t, "ready", status)
+	require.Equal(t, "gcp", owner)
+	require.Equal(t, []string{"gcp"}, owners)
 }
 
-func TestStaticManifestKeepsKeyVisibility(t *testing.T) {
+func TestStaticManifestConvergesToSingleWinnerAndReportsNotices(t *testing.T) {
 	db := enttest.NewEntClient(t, "sqlite3", "file:static-route-"+uuid.NewString()+"?mode=memory&_fk=1")
 	defer db.Close()
 	ctx := ent.NewContext(authz.WithTestBypass(t.Context()), db)
@@ -44,8 +50,8 @@ func TestStaticManifestKeepsKeyVisibility(t *testing.T) {
 			SetCredentials(objects.ChannelCredentials{APIKey: "synthetic"}).SetSupportedModels(models).SetDefaultTestModel(models[0]).SaveX(ctx)
 		return &Channel{Channel: row}
 	}
-	gcp := makeChannel("gcp-channel", "m", "unconfigured-shared")
-	lag := makeChannel("lag-channel", "m", "unconfigured-shared")
+	gcp := makeChannel("gcp-channel", "m", "unconfigured-shared", "when-model")
+	lag := makeChannel("lag-channel", "m", "unconfigured-shared", "when-model")
 	channels := NewChannelServiceForTest(db)
 	defer channels.Stop()
 	channels.SetEnabledChannelsForTest([]*Channel{gcp, lag})
@@ -58,10 +64,15 @@ func TestStaticManifestKeepsKeyVisibility(t *testing.T) {
 			{Type: "channel_model", Priority: 10, ChannelModel: &objects.ChannelModelAssociation{ChannelID: lag.ID, ModelID: "m"}},
 			{Type: "channel_model", Priority: 0, ChannelModel: &objects.ChannelModelAssociation{ChannelID: gcp.ID, ModelID: "m"}},
 		}}).SaveX(ctx)
+	db.Model.Create().SetModelID("when-model").SetName("WhenModel").SetType(model.TypeChat).SetStatus(model.StatusEnabled).SetDeveloper("synthetic").SetIcon("OpenAI").SetGroup("catalog").
+		SetModelCard(&objects.ModelCard{}).SetSettings(&objects.ModelSettings{Associations: []*objects.ModelAssociation{
+			{Type: "channel_model", Priority: 10, When: &objects.ModelAssociationWhen{Enabled: true}, ChannelModel: &objects.ChannelModelAssociation{ChannelID: gcp.ID, ModelID: "when-model"}},
+			{Type: "channel_model", Priority: 2, When: &objects.ModelAssociationWhen{Enabled: true}, ChannelModel: &objects.ChannelModelAssociation{ChannelID: lag.ID, ModelID: "when-model"}},
+		}}).SaveX(ctx)
 	group := db.Project.Create().SetName("static route").SaveX(ctx)
 	open := db.APIKey.Create().SetName("open").SetKey("ah-static-open").SetType(apikey.TypeUser).SetProjectID(group.ID).SaveX(ctx)
 	restricted := db.APIKey.Create().SetName("restricted").SetKey("ah-static-restricted").SetType(apikey.TypeUser).SetProjectID(group.ID).
-		SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "p", Profiles: []objects.APIKeyProfile{{Name: "p", ChannelIDs: []int{lag.ID}}}}).SaveX(ctx)
+		SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "p", Profiles: []objects.APIKeyProfile{{Name: "p", ChannelIDs: []int{lag.ID}, ModelIDs: []string{"m", "public-alias"}, ModelMappings: []objects.ModelMapping{{From: "public-alias", To: "m"}}}}}).SaveX(ctx)
 	models := NewModelService(ModelServiceParams{Ent: db, SystemService: NewSystemService(SystemServiceParams{Ent: db}), ChannelService: channels})
 	load := func(row *ent.APIKey) *ent.APIKey {
 		t.Helper()
@@ -69,25 +80,25 @@ func TestStaticManifestKeepsKeyVisibility(t *testing.T) {
 	}
 	manifest, err := models.BuildExecutionManifest(ctx)
 	require.NoError(t, err)
-	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "m", Owners: []string{"gcp", "lag"}, Status: "ambiguous"})
+	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "m", Owner: "gcp", Owners: []string{"gcp"}, Status: "ready"})
+	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "unconfigured-shared", Owner: "gcp", Owners: []string{"gcp"}, Status: "ready"})
+	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "when-model", Owner: "lag", Owners: []string{"lag"}, Status: "ready"})
+	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "public-alias", Owner: "lag", Owners: []string{"lag"}, Status: "ready"})
+
 	openRoute, err := models.ExecutionRouteForKey(ctx, load(open), "m")
 	require.NoError(t, err)
 	require.Equal(t, ModelExecutionRoute{Model: "m", Owner: "gcp", Owners: []string{"gcp"}, Status: "ready"}, openRoute)
 	restrictedRoute, err := models.ExecutionRouteForKey(ctx, load(restricted), "m")
 	require.NoError(t, err)
 	require.Equal(t, ModelExecutionRoute{Model: "m", Owner: "lag", Owners: []string{"lag"}, Status: "ready"}, restrictedRoute)
+
 	notices, err := models.ModelMachineNotices(ctx, ModelRouteQuery{Focus: map[int]bool{gcp.ID: true, lag.ID: true}})
 	require.NoError(t, err)
 	require.Equal(t, []ModelMachineNotice{
-		{Model: "m", Machines: []string{"gcp", "lag"}},
-		{Model: "unconfigured-shared", Machines: []string{"gcp", "lag"}},
+		{Model: "m", Machines: []string{"gcp", "lag"}, Winner: "gcp"},
+		{Model: "unconfigured-shared", Machines: []string{"gcp", "lag"}, Winner: "gcp"},
+		{Model: "when-model", Machines: []string{"gcp", "lag"}, Winner: "lag"},
 	}, notices)
-
-	db.APIKey.UpdateOne(restricted).SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "p", Profiles: []objects.APIKeyProfile{{Name: "p", ChannelIDs: []int{gcp.ID, lag.ID}}}}).SaveX(ctx)
-	manifest, err = models.BuildExecutionManifest(ctx)
-	require.NoError(t, err)
-	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "m", Owner: "gcp", Owners: []string{"gcp"}, Status: "ready"})
-	require.Contains(t, manifest.Models, ModelExecutionRoute{Model: "unconfigured-shared", Owner: "gcp", Owners: []string{"gcp"}, Status: "ready"})
 
 	notices, err = models.ModelMachineNotices(ctx, ModelRouteQuery{
 		UseDraft:   true,
@@ -98,7 +109,10 @@ func TestStaticManifestKeepsKeyVisibility(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []ModelMachineNotice{{Model: "m", Machines: []string{"gcp", "lag"}, Winner: "gcp"}}, notices)
+	require.Equal(t, []ModelMachineNotice{
+		{Model: "m", Machines: []string{"gcp", "lag"}, Winner: "gcp"},
+		{Model: "when-model", Machines: []string{"gcp", "lag"}, Winner: "lag"},
+	}, notices)
 
 	notices, err = models.ModelMachineNotices(ctx, ModelRouteQuery{OwnerOverride: map[int]string{gcp.ID: "lag"}, Focus: map[int]bool{gcp.ID: true}})
 	require.NoError(t, err)

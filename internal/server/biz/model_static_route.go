@@ -43,35 +43,24 @@ func associationConditional(assoc *objects.ModelAssociation) bool {
 	return assoc != nil && assoc.When != nil && assoc.When.Enabled
 }
 
-// selectStaticRoute keeps one machine when every unconditional connection can
-// agree. Conditional connections that still span machines stay ambiguous.
-// The smallest association priority wins. Equal priorities use the sorted owner id.
+// selectStaticRoute always converges to a single static winner machine when
+// candidate links exist: the smallest association priority wins, and equal
+// priorities break ties by the sorted owner id.
 func selectStaticRoute(links []routeLink) (string, []string, string) {
-	owners := map[string]struct{}{}
-	for _, link := range links {
-		if link.Owner != "" {
-			owners[link.Owner] = struct{}{}
-		}
-	}
-	list := lo.Keys(owners)
-	sort.Strings(list)
-	if len(list) == 0 {
+	valid := lo.Filter(links, func(link routeLink, _ int) bool { return link.Owner != "" })
+	if len(valid) == 0 {
 		return "", []string{}, "unavailable"
 	}
-	if len(list) == 1 {
-		return list[0], list, "ready"
-	}
-	unconditional := lo.Filter(links, func(link routeLink, _ int) bool { return !link.Conditional && link.Owner != "" })
-	if len(unconditional) == 0 {
-		return "", list, "ambiguous"
-	}
-	winner := lowestPriorityOwner(unconditional)
+	winner := lowestPriorityOwner(valid)
 	return winner, []string{winner}, "ready"
 }
 
 func lowestPriorityOwner(links []routeLink) string {
 	best := map[string]int{}
 	for _, link := range links {
+		if link.Owner == "" {
+			continue
+		}
 		if priority, ok := best[link.Owner]; !ok || link.Priority < priority {
 			best[link.Owner] = link.Priority
 		}
@@ -254,9 +243,8 @@ func (svc *ModelService) ModelMachineNotices(ctx context.Context, query ModelRou
 	}
 	ids = lo.Uniq(ids)
 	type acc struct {
+		links    []routeLink
 		raw      map[string]bool
-		winners  map[string]bool
-		blocked  bool
 		focused  bool
 		seenKeys int
 	}
@@ -285,7 +273,7 @@ func (svc *ModelService) ModelMachineNotices(ctx context.Context, query ModelRou
 				}
 				row := rows[publicID]
 				if row == nil {
-					row = &acc{raw: map[string]bool{}, winners: map[string]bool{}}
+					row = &acc{raw: map[string]bool{}}
 					rows[publicID] = row
 				}
 				row.seenKeys++
@@ -295,12 +283,7 @@ func (svc *ModelService) ModelMachineNotices(ctx context.Context, query ModelRou
 				for _, link := range links {
 					row.raw[link.Owner] = true
 				}
-				owner, _, status := selectStaticRoute(links)
-				if status != "ready" {
-					row.blocked = true
-					continue
-				}
-				row.winners[owner] = true
+				row.links = append(row.links, links...)
 			}
 		}
 	}
@@ -323,11 +306,8 @@ func (svc *ModelService) ModelMachineNotices(ctx context.Context, query ModelRou
 		if len(machines) < 2 {
 			continue
 		}
-		notice := ModelMachineNotice{Model: name, Machines: machines}
-		if !row.blocked && len(row.winners) == 1 {
-			notice.Winner = lo.Keys(row.winners)[0]
-		}
-		notices = append(notices, notice)
+		winner, _, _ := selectStaticRoute(row.links)
+		notices = append(notices, ModelMachineNotice{Model: name, Machines: machines, Winner: winner})
 	}
 	sort.Slice(notices, func(i, j int) bool { return notices[i].Model < notices[j].Model })
 	return notices, nil
@@ -387,8 +367,8 @@ func noticesFromLinks(model string, links []routeLink, hidden bool) []ModelMachi
 	if len(machines) < 2 {
 		return []ModelMachineNotice{}
 	}
-	notice := ModelMachineNotice{Model: model, Machines: machines}
 	owner, _, status := selectStaticRoute(links)
+	notice := ModelMachineNotice{Model: model, Machines: machines}
 	if status == "ready" {
 		notice.Winner = owner
 	}
