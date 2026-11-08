@@ -170,7 +170,53 @@ export default function InfrastructurePage() {
 
   const workerLive = state?.liveSources?.worker;
   const axonLive = state?.liveSources?.axon;
+  const komodoLive = state?.liveSources?.komodo;
   const sub2Plane = state?.baseline?.inventory?.sub2Runtime;
+  const isRehearsal = state?.adapterInfo?.rehearsal ?? state?.adapter !== 'wrangler';
+
+  const translateSyncStatus = (status?: string) => {
+    switch (status) {
+      case 'synchronized':
+        return t('infrastructure.status.synchronized');
+      case 'drift':
+        return t('infrastructure.status.drift');
+      case 'ack_mismatch':
+        return t('infrastructure.status.ack_mismatch');
+      case 'ack_pending':
+        return t('infrastructure.status.ack_pending');
+      case 'worker_stale':
+        return t('infrastructure.status.worker_stale');
+      case 'axon_stale':
+        return t('infrastructure.status.axon_stale');
+      case 'static_manifest':
+        return t('infrastructure.status.static_manifest');
+      default:
+        return status || t('infrastructure.status.static_manifest');
+    }
+  };
+
+  const translateNodeState = (st?: string, reg?: boolean) => {
+    if (reg === false || st === 'unregistered') return t('infrastructure.status.unregistered');
+    if (st === 'Ok') return t('infrastructure.status.ok');
+    if (st === 'NotOk') return t('infrastructure.status.notOk');
+    if (st === 'Disabled') return t('infrastructure.status.disabled');
+    return st ?? t('infrastructure.status.ok');
+  };
+
+  const translateMetricsStatus = (ms?: string) => {
+    switch (ms) {
+      case 'fresh':
+        return t('infrastructure.status.fresh');
+      case 'pending':
+        return t('infrastructure.status.pending');
+      case 'stale':
+        return t('infrastructure.status.stale');
+      case 'unavailable':
+        return t('infrastructure.status.unavailable');
+      default:
+        return ms || '-';
+    }
+  };
 
   const handleRefresh = async () => {
     try {
@@ -209,7 +255,7 @@ export default function InfrastructurePage() {
     if (!selectedNode) return;
     try {
       await runNodeAction.mutateAsync({ nodeId: selectedNode.id, step });
-      toast.success(`${selectedNode.id}: ${step} checked`);
+      toast.success(`${selectedNode.id}: ${step}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -339,25 +385,32 @@ export default function InfrastructurePage() {
   return (
     <>
       <Header fixed>
-        <div className='flex flex-1 flex-wrap items-center justify-between gap-3'>
+        <div className='flex flex-1 flex-wrap items-center justify-between gap-2'>
           <div className='flex items-baseline gap-3'>
-            <h2 className='text-xl font-bold tracking-tight'>{t('infrastructure.title')}</h2>
-            <span className='text-muted-foreground hidden text-xs sm:inline'>
+            <h2 className='text-lg font-bold tracking-tight sm:text-xl'>{t('infrastructure.title')}</h2>
+            <span className='text-muted-foreground hidden text-xs md:inline'>
               {t('infrastructure.subtitle')}
             </span>
           </div>
-          <div className='flex items-center gap-2'>
-            <Badge variant='outline' className='font-mono text-xs'>
-              adapter: {state?.adapter ?? 'isolated'}
+          <div className='flex items-center gap-1.5'>
+            <Badge
+              variant={isRehearsal ? 'secondary' : 'default'}
+              className='text-[11px]'
+              data-testid='adapter-mode-badge'
+            >
+              {isRehearsal
+                ? t('infrastructure.adapter.isolated')
+                : t('infrastructure.adapter.wrangler')}
             </Badge>
             <Button
               variant='outline'
               size='sm'
+              className='h-8 px-2.5 text-xs'
               onClick={handleRefresh}
               disabled={isLoading || refreshLive.isPending}
               data-testid='infra-refresh-btn'
             >
-              <IconRefresh className={`mr-1.5 h-4 w-4 ${refreshLive.isPending ? 'animate-spin' : ''}`} />
+              <IconRefresh className={`mr-1 h-3.5 w-3.5 ${refreshLive.isPending ? 'animate-spin' : ''}`} />
               {t('infrastructure.actions.refreshLive')}
             </Button>
           </div>
@@ -365,120 +418,133 @@ export default function InfrastructurePage() {
       </Header>
 
       <Main>
-        <div className='flex flex-col gap-5 pb-8'>
-          {/* Compact 4-metric Strip */}
-          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+        <div className='flex flex-col gap-3 sm:gap-4 pb-8'>
+          {/* Compact 2-column (mobile) / 4-column (desktop) KPI Strip */}
+          <div className='grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4'>
             <Card className='shadow-none'>
-              <CardContent className='flex items-center justify-between gap-2 p-3.5'>
+              <CardContent className='flex items-center justify-between gap-1.5 p-2.5 sm:p-3.5'>
                 <div className='min-w-0'>
-                  <span className='text-muted-foreground text-xs font-medium'>
+                  <span className='text-muted-foreground block truncate text-[11px] font-medium'>
                     {t('infrastructure.summary.komodo')}
                   </span>
-                  <div className='mt-0.5 flex items-baseline gap-1.5'>
-                    <span className='font-mono text-xl font-semibold'>
+                  <div className='mt-0.5 flex items-baseline gap-1'>
+                    <span className='font-mono text-base font-semibold sm:text-xl'>
                       {komodoSummary.okCount}/{komodoSummary.registered}
                     </span>
-                    <span className='text-muted-foreground text-xs'>
-                      {komodoSummary.pendingCount > 0
-                        ? `${komodoSummary.pendingCount} pending`
-                        : `${komodoSummary.freshCount} fresh`}
+                    <span className='text-muted-foreground truncate text-[10px] sm:text-xs'>
+                      {komodoLive?.stale
+                        ? t('infrastructure.status.stale')
+                        : komodoSummary.pendingCount > 0
+                          ? `1 ${t('infrastructure.status.pending')}`
+                          : t('infrastructure.status.fresh')}
                     </span>
                   </div>
                 </div>
-                <Badge variant={komodoSummary.okCount > 0 ? 'default' : 'secondary'} className='shrink-0 text-xs'>
-                  v{state?.liveSources?.komodo?.version ?? '2.3.4'}
+                <Badge
+                  variant={komodoLive?.stale ? 'destructive' : komodoSummary.okCount > 0 ? 'default' : 'secondary'}
+                  className='shrink-0 px-1.5 py-0 text-[10px] sm:text-xs'
+                >
+                  v{komodoLive?.version ?? '2.3.4'}
                 </Badge>
               </CardContent>
             </Card>
 
             <Card className='shadow-none'>
-              <CardContent className='flex items-center justify-between gap-2 p-3.5'>
+              <CardContent className='flex items-center justify-between gap-1.5 p-2.5 sm:p-3.5'>
                 <div className='min-w-0'>
-                  <span className='text-muted-foreground text-xs font-medium'>
+                  <span className='text-muted-foreground block truncate text-[11px] font-medium'>
                     {t('infrastructure.summary.worker')}
                   </span>
-                  <div className='mt-0.5 flex items-baseline gap-1.5'>
-                    <span className='font-mono text-lg font-semibold'>
+                  <div className='mt-0.5 flex items-baseline gap-1'>
+                    <span className='font-mono text-sm font-semibold sm:text-lg' data-testid='summary-worker-version'>
                       {formatShortId(workerLive?.version ?? '400c7c56', 8)}
                     </span>
-                    <span className='text-muted-foreground text-xs'>
-                      ctrl:{workerLive?.control ?? 'lag'}
+                    <span className='text-muted-foreground hidden truncate text-[10px] sm:inline sm:text-xs'>
+                      {t('infrastructure.summary.controlLabel', { node: workerLive?.control ?? 'lag' })}
                     </span>
                   </div>
                 </div>
-                <Badge variant='outline' className='shrink-0 font-mono text-xs'>
-                  {axonLive?.syncStatus === 'synchronized'
-                    ? t('infrastructure.status.synchronized')
-                    : axonLive?.syncStatus ?? 'ready'}
+                <Badge
+                  variant={
+                    axonLive?.syncStatus === 'synchronized'
+                      ? 'outline'
+                      : axonLive?.syncStatus === 'drift' ||
+                          axonLive?.syncStatus === 'ack_mismatch' ||
+                          axonLive?.syncStatus === 'worker_stale' ||
+                          axonLive?.syncStatus === 'axon_stale'
+                        ? 'destructive'
+                        : 'secondary'
+                  }
+                  className='shrink-0 px-1.5 py-0 text-[10px] sm:text-xs'
+                  data-testid='summary-sync-badge'
+                >
+                  {translateSyncStatus(axonLive?.syncStatus)}
                 </Badge>
               </CardContent>
             </Card>
 
             <Card className='shadow-none'>
-              <CardContent className='flex items-center justify-between gap-2 p-3.5'>
+              <CardContent className='flex items-center justify-between gap-1.5 p-2.5 sm:p-3.5'>
                 <div className='min-w-0'>
-                  <span className='text-muted-foreground text-xs font-medium'>
+                  <span className='text-muted-foreground block truncate text-[11px] font-medium'>
                     {t('infrastructure.summary.sub2')}
                   </span>
-                  <div className='mt-0.5 flex items-baseline gap-1.5'>
-                    <span className='truncate font-mono text-sm font-semibold sm:text-base'>
+                  <div className='mt-0.5 flex items-baseline gap-1'>
+                    <span className='truncate font-mono text-xs font-semibold sm:text-base'>
                       {sub2Plane?.activeNodeId ?? 'gcp-nailong-usw1'}
-                    </span>
-                    <span className='text-muted-foreground shrink-0 text-xs'>
-                      stby:{sub2Plane?.standbyNodeId ?? 'gcp'}
                     </span>
                   </div>
                 </div>
-                <Badge variant='default' className='shrink-0 text-xs'>
+                <Badge variant='default' className='shrink-0 px-1.5 py-0 text-[10px] sm:text-xs'>
                   {t('infrastructure.status.singleActive')}
                 </Badge>
               </CardContent>
             </Card>
 
             <Card className='shadow-none'>
-              <CardContent className='flex items-center justify-between gap-2 p-3.5'>
+              <CardContent className='flex items-center justify-between gap-1.5 p-2.5 sm:p-3.5'>
                 <div className='min-w-0'>
-                  <span className='text-muted-foreground text-xs font-medium'>
+                  <span className='text-muted-foreground block truncate text-[11px] font-medium'>
                     {t('infrastructure.summary.revision')}
                   </span>
-                  <div className='mt-0.5 flex items-baseline gap-1.5'>
-                    <span className='font-mono text-xl font-semibold'>
+                  <div className='mt-0.5 flex items-baseline gap-1'>
+                    <span className='font-mono text-base font-semibold sm:text-xl'>
                       r{state?.revision ?? 1}
                     </span>
-                    <span className='text-muted-foreground truncate font-mono text-xs'>
+                    <span className='text-muted-foreground truncate font-mono text-[10px] sm:text-xs' data-testid='summary-active-version'>
                       {formatShortId(state?.activeVersion ?? 'baseline', 10)}
                     </span>
                   </div>
                 </div>
-                <Badge variant='secondary' className='shrink-0 font-mono text-xs'>
-                  {rules.length} rules
+                <Badge variant='secondary' className='shrink-0 px-1.5 py-0 text-[10px] sm:text-xs'>
+                  {t('infrastructure.summary.rulesCount', { count: rules.length })}
                 </Badge>
               </CardContent>
             </Card>
           </div>
 
           {/* Primary Workspace Tabs */}
-          <Tabs defaultValue='topology' className='space-y-4'>
+          <Tabs defaultValue='topology' className='space-y-3'>
             <div className='flex flex-wrap items-center justify-between gap-2'>
-              <TabsList className='grid h-auto w-full grid-cols-2 gap-1 sm:w-auto sm:grid-cols-5'>
-                <TabsTrigger value='topology' data-testid='tab-topology'>
-                  <IconNetwork className='mr-1.5 h-4 w-4' />
+              <TabsList className='grid h-auto w-full grid-cols-3 gap-1 sm:w-auto sm:grid-cols-5'>
+                <TabsTrigger value='topology' data-testid='tab-topology' className='px-2 py-1 text-xs'>
+                  <IconNetwork className='mr-1 h-3.5 w-3.5' />
                   {t('infrastructure.tabs.topology')}
                 </TabsTrigger>
-                <TabsTrigger value='nodes' data-testid='tab-nodes'>
-                  <IconServer className='mr-1.5 h-4 w-4' />
+                <TabsTrigger value='nodes' data-testid='tab-nodes' className='px-2 py-1 text-xs'>
+                  <IconServer className='mr-1 h-3.5 w-3.5' />
                   {t('infrastructure.tabs.nodes')}
                 </TabsTrigger>
-                <TabsTrigger value='rules' data-testid='tab-rules'>
-                  <IconRoute className='mr-1.5 h-4 w-4' />
+                <TabsTrigger value='rules' data-testid='tab-rules' className='px-2 py-1 text-xs'>
+                  <IconRoute className='mr-1 h-3.5 w-3.5' />
                   {t('infrastructure.tabs.rules')}
                 </TabsTrigger>
-                <TabsTrigger value='explain' data-testid='tab-explain'>
-                  <IconSparkles className='mr-1.5 h-4 w-4' />
+                <TabsTrigger value='explain' data-testid='tab-explain' className='px-2 py-1 text-xs'>
+                  <IconSparkles className='mr-1 h-3.5 w-3.5' />
                   {t('infrastructure.tabs.explain')}
                 </TabsTrigger>
-                <TabsTrigger value='releases' data-testid='tab-releases'>
-                  <IconShieldLock className='mr-1.5 h-4 w-4' />
+                <TabsTrigger value='releases' data-testid='tab-releases' className='px-2 py-1 text-xs'>
+                  <IconShieldLock className='mr-1 h-3.5 w-3.5' />
                   {t('infrastructure.tabs.releases')}
                 </TabsTrigger>
               </TabsList>
@@ -489,50 +555,53 @@ export default function InfrastructurePage() {
                     key={src}
                     variant={topoSource === src ? 'secondary' : 'ghost'}
                     size='sm'
-                    className='h-7 px-2.5 text-xs capitalize'
+                    className='h-7 px-2.5 text-xs'
+                    data-testid={`topo-source-${src}`}
                     onClick={() => setTopoSource(src)}
                   >
-                    {src}
+                    {t(`infrastructure.sources.${src}`)}
                   </Button>
                 ))}
               </div>
             </div>
 
             {/* TAB 1: TOPOLOGY & FLOW */}
-            <TabsContent value='topology' className='mt-0 space-y-4'>
-              <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]'>
+            <TabsContent value='topology' className='mt-0 space-y-3'>
+              <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]'>
                 <Card className='shadow-none'>
-                  <CardHeader className='pb-3'>
+                  <CardHeader className='p-3.5 pb-2 sm:p-4 sm:pb-3'>
                     <div className='flex items-center justify-between'>
-                      <CardTitle className='text-base'>
-                        {t('infrastructure.tabs.topology')} · {topoSource}
+                      <CardTitle className='text-sm sm:text-base'>
+                        {t('infrastructure.tabs.topology')} · {t(`infrastructure.sources.${topoSource}`)}
                       </CardTitle>
                       <Badge variant='outline' className='font-mono text-xs'>
-                        {topology?.connections?.length ?? 0} links
+                        {t('infrastructure.summary.linksCount', {
+                          count: topology?.connections?.length ?? 0,
+                        })}
                       </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className='p-3.5 pt-0 sm:p-4 sm:pt-0'>
                     <div className='grid gap-3 md:grid-cols-3'>
                       {/* Column 1: Edge Ingress */}
-                      <div className='space-y-2 rounded-lg border bg-muted/15 p-3'>
+                      <div className='space-y-2 rounded-lg border bg-muted/15 p-2.5 sm:p-3'>
                         <div className='text-muted-foreground flex items-center justify-between text-xs font-medium'>
                           <span>{t('infrastructure.topology.entryTitle')}</span>
                           <span className='font-mono'>{topologyColumns.entry.length}</span>
                         </div>
-                        <div className='space-y-2'>
+                        <div className='space-y-1.5'>
                           {topologyColumns.entry.map((item) => (
                             <div
                               key={item.id}
-                              className='rounded-md border bg-background p-2.5 text-sm'
+                              className='rounded-md border bg-background p-2 text-xs'
                             >
                               <div className='flex items-center justify-between gap-2'>
-                                <span className='truncate font-medium text-xs'>{item.label}</span>
+                                <span className='truncate font-medium'>{item.label}</span>
                                 <Badge variant='outline' className='text-[10px] uppercase'>
                                   {item.kind}
                                 </Badge>
                               </div>
-                              <div className='text-muted-foreground mt-1 font-mono text-[11px]'>
+                              <div className='text-muted-foreground mt-0.5 font-mono text-[11px]'>
                                 {item.id === 'worker'
                                   ? `v:${formatShortId(workerLive?.version ?? '400c7c56')}`
                                   : item.address || 'HTTPS / WSS'}
@@ -542,8 +611,10 @@ export default function InfrastructurePage() {
                         </div>
 
                         <Separator className='my-2' />
-                        <div className='space-y-1.5 text-xs'>
-                          <div className='text-muted-foreground text-[11px] font-medium'>Default Lanes</div>
+                        <div className='space-y-1 text-xs'>
+                          <div className='text-muted-foreground text-[11px] font-medium'>
+                            {t('infrastructure.topology.defaultLanes')}
+                          </div>
                           <div className='flex items-center justify-between font-mono text-[11px]'>
                             <span>/v1/messages</span>
                             <Badge variant='secondary' className='font-mono text-[10px]'>
@@ -566,7 +637,7 @@ export default function InfrastructurePage() {
                       </div>
 
                       {/* Column 2: 10 Execution & Relay Hosts */}
-                      <div className='space-y-2 rounded-lg border bg-muted/15 p-3'>
+                      <div className='space-y-2 rounded-lg border bg-muted/15 p-2.5 sm:p-3'>
                         <div className='text-muted-foreground flex items-center justify-between text-xs font-medium'>
                           <span>{t('infrastructure.topology.executionTitle')}</span>
                           <span className='font-mono'>{nodes.length}</span>
@@ -607,20 +678,20 @@ export default function InfrastructurePage() {
                                       }
                                       className='px-1.5 py-0 text-[10px]'
                                     >
-                                      {obs?.state ?? 'mapped'}
+                                      {translateNodeState(obs?.state, obs?.registered)}
                                     </Badge>
                                   </div>
                                 </div>
                                 <div className='text-muted-foreground mt-1 flex items-center justify-between font-mono text-[11px]'>
-                                  <span>{obs?.publicIp ?? node.vpn?.publicIp ?? 'LAN'}</span>
+                                  <span>
+                                    {obs?.publicIp ??
+                                      node.vpn?.publicIp ??
+                                      t('infrastructure.nodes.noPublicIp')}
+                                  </span>
                                   <span>
                                     {obs?.metrics && obs.metricsStatus === 'fresh'
                                       ? `CPU ${formatPct(obs.metrics.cpuPercent)}`
-                                      : obs?.metricsStatus === 'pending'
-                                        ? 'stats pending'
-                                        : obs?.metricsStatus === 'stale'
-                                          ? 'stats stale'
-                                          : (node.roles ?? []).slice(0, 2).join('·')}
+                                      : translateMetricsStatus(obs?.metricsStatus)}
                                   </span>
                                 </div>
                               </button>
@@ -630,7 +701,7 @@ export default function InfrastructurePage() {
                       </div>
 
                       {/* Column 3: Upstream Egress & Sub2 Origins */}
-                      <div className='space-y-2 rounded-lg border bg-muted/15 p-3'>
+                      <div className='space-y-2 rounded-lg border bg-muted/15 p-2.5 sm:p-3'>
                         <div className='text-muted-foreground flex items-center justify-between text-xs font-medium'>
                           <span>{t('infrastructure.topology.egressTitle')}</span>
                           <span className='font-mono'>{topologyColumns.egress.length}</span>
@@ -662,22 +733,25 @@ export default function InfrastructurePage() {
 
                 {/* Right-hand Focused Node Inspector */}
                 <Card className='shadow-none'>
-                  <CardHeader className='pb-3'>
+                  <CardHeader className='p-3.5 pb-2 sm:p-4 sm:pb-3'>
                     <div className='flex items-start justify-between gap-2'>
                       <div>
                         <CardTitle className='font-mono text-base'>
                           {selectedNode?.id ?? '-'}
                         </CardTitle>
                         <CardDescription className='text-xs'>
-                          {selectedNode?.provider} · {selectedKomodo?.publicIp ?? selectedNode?.vpn?.publicIp ?? 'LAN host'}
+                          {selectedNode?.provider} ·{' '}
+                          {selectedKomodo?.publicIp ??
+                            selectedNode?.vpn?.publicIp ??
+                            t('infrastructure.nodes.noPublicIp')}
                         </CardDescription>
                       </div>
                       <Badge variant={selectedKomodo?.state === 'Ok' ? 'default' : 'outline'}>
-                        {selectedKomodo?.state ?? 'mapped'}
+                        {translateNodeState(selectedKomodo?.state, selectedKomodo?.registered)}
                       </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className='space-y-3.5 text-sm'>
+                  <CardContent className='space-y-3 p-3.5 pt-0 text-sm sm:p-4 sm:pt-0'>
                     <div className='grid grid-cols-2 gap-2.5 rounded-lg border p-3 text-xs'>
                       <div>
                         <span className='text-muted-foreground block'>
@@ -725,12 +799,14 @@ export default function InfrastructurePage() {
                         </span>
                       </div>
                       <div>
-                        <span className='text-muted-foreground block'>Sample Status</span>
+                        <span className='text-muted-foreground block'>
+                          {t('infrastructure.topology.sampleStatus')}
+                        </span>
                         <Badge
                           variant={selectedKomodo?.metricsStatus === 'fresh' ? 'secondary' : 'outline'}
-                          className='mt-0.5 font-mono text-[10px]'
+                          className='mt-0.5 text-[10px]'
                         >
-                          {selectedKomodo?.metricsStatus ?? '-'}
+                          {translateMetricsStatus(selectedKomodo?.metricsStatus)}
                         </Badge>
                       </div>
                     </div>
@@ -748,7 +824,7 @@ export default function InfrastructurePage() {
 
                     <div className='space-y-1.5'>
                       <span className='text-muted-foreground text-xs font-medium'>
-                        Step Verification
+                        {t('infrastructure.topology.stepVerification')}
                       </span>
                       <div className='flex flex-wrap gap-1.5'>
                         {PROBE_STEPS.map((step) => {
@@ -813,16 +889,24 @@ export default function InfrastructurePage() {
                                     ? 'secondary'
                                     : 'outline'
                               }
-                              className='font-mono text-[10px]'
+                              className='text-[10px]'
                             >
                               {obs?.registered === false
-                                ? 'unregistered'
-                                : `${obs?.state ?? 'mapped'} · ${obs?.metricsStatus ?? 'ready'}`}
+                                ? t('infrastructure.status.unregistered')
+                                : `${translateNodeState(obs?.state, obs?.registered)} · ${translateMetricsStatus(obs?.metricsStatus)}`}
                             </Badge>
                           </div>
                           <div className='text-muted-foreground mt-1 flex items-center justify-between font-mono text-[11px]'>
-                            <span>{obs?.publicIp ?? node.vpn?.publicIp ?? 'no public IP'}</span>
-                            <span>{obs?.komodoServerId ? formatShortId(obs.komodoServerId, 10) : 'unregistered'}</span>
+                            <span>
+                              {obs?.publicIp ??
+                                node.vpn?.publicIp ??
+                                t('infrastructure.nodes.noPublicIp')}
+                            </span>
+                            <span>
+                              {obs?.komodoServerId
+                                ? formatShortId(obs.komodoServerId, 10)
+                                : t('infrastructure.status.unregistered')}
+                            </span>
                           </div>
                         </button>
                       );
@@ -876,7 +960,7 @@ export default function InfrastructurePage() {
                           <div className='mt-1 font-mono text-xs font-semibold'>
                             {selectedKomodo?.statsAt
                               ? selectedKomodo.statsAt.replace('T', ' ').slice(0, 19)
-                              : selectedKomodo?.metricsStatus ?? 'pending'}
+                              : translateMetricsStatus(selectedKomodo?.metricsStatus)}
                           </div>
                         </div>
                       </div>
@@ -905,7 +989,7 @@ export default function InfrastructurePage() {
 
                       <div className='grid gap-4 sm:grid-cols-2'>
                         <div className='space-y-1.5'>
-                          <Label htmlFor='node-name'>Name</Label>
+                          <Label htmlFor='node-name'>{t('infrastructure.nodes.name')}</Label>
                           <Input
                             id='node-name'
                             value={nodeDraft.name}
@@ -916,7 +1000,7 @@ export default function InfrastructurePage() {
                           />
                         </div>
                         <div className='space-y-1.5'>
-                          <Label htmlFor='node-provider'>Provider</Label>
+                          <Label htmlFor='node-provider'>{t('infrastructure.nodes.provider')}</Label>
                           <Input
                             id='node-provider'
                             value={nodeDraft.provider}
@@ -1018,7 +1102,7 @@ export default function InfrastructurePage() {
                   <CardContent className='space-y-2'>
                     {rules.length === 0 ? (
                       <div className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
-                        No custom rules saved yet.
+                        {t('infrastructure.rules.empty')}
                       </div>
                     ) : (
                       rules.map((r) => (
@@ -1208,7 +1292,9 @@ export default function InfrastructurePage() {
                             {t('infrastructure.explain.sourceBaseline')}
                           </SelectItem>
                           <SelectItem value='production'>
-                            Production ({formatShortId(workerLive?.version ?? '400c7c56')})
+                            {t('infrastructure.explain.sourceProduction', {
+                              version: formatShortId(workerLive?.version ?? '400c7c56'),
+                            })}
                           </SelectItem>
                         </SelectContent>
                       </Select>
@@ -1254,14 +1340,18 @@ export default function InfrastructurePage() {
                       <div className='space-y-3'>
                         <div className='flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 p-3.5'>
                           <div>
-                            <span className='text-muted-foreground block text-xs'>Selected Owner</span>
+                            <span className='text-muted-foreground block text-xs'>
+                              {t('infrastructure.explain.selectedOwner')}
+                            </span>
                             <span className='font-mono text-lg font-bold' data-testid='explain-owner'>
                               {explainRoute.data.owner ?? 'key-resolver'}
                             </span>
                           </div>
                           <IconArrowRight className='text-muted-foreground h-4 w-4' />
                           <div>
-                            <span className='text-muted-foreground block text-xs'>Decision</span>
+                            <span className='text-muted-foreground block text-xs'>
+                              {t('infrastructure.explain.decision')}
+                            </span>
                             <Badge variant='default' className='font-mono'>
                               {explainRoute.data.reason}
                             </Badge>
@@ -1294,7 +1384,7 @@ export default function InfrastructurePage() {
                       </div>
                     ) : (
                       <div className='text-muted-foreground rounded-lg border border-dashed p-6 text-center text-xs'>
-                        Run trace to inspect node resolution.
+                        {t('infrastructure.explain.empty')}
                       </div>
                     )}
                   </CardContent>
@@ -1311,12 +1401,14 @@ export default function InfrastructurePage() {
                       {t('infrastructure.actions.createRelease')}
                     </CardTitle>
                     <CardDescription className='text-xs'>
-                      {t('infrastructure.releases.guardrail')}
+                      {isRehearsal
+                        ? t('infrastructure.releases.guardrailIsolated')
+                        : t('infrastructure.releases.guardrailWrangler')}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className='space-y-3.5'>
                     <div className='space-y-1.5'>
-                      <Label htmlFor='release-note'>Release Note</Label>
+                      <Label htmlFor='release-note'>{t('infrastructure.releases.noteLabel')}</Label>
                       <Input
                         id='release-note'
                         value={releaseNote}
@@ -1350,13 +1442,24 @@ export default function InfrastructurePage() {
                     {previewRelease.data ? (
                       <div className='space-y-1.5 rounded-lg border bg-muted/20 p-3 text-xs'>
                         <div className='flex items-center justify-between font-medium'>
-                          <span>Diff vs {formatShortId(previewRelease.data.baseVersion, 12)}</span>
-                          <Badge variant={previewRelease.data.valid ? 'default' : 'destructive'} className='text-[10px]'>
-                            {previewRelease.data.valid ? 'valid' : 'issues'}
+                          <span>
+                            {t('infrastructure.releases.diffTitle', {
+                              base: formatShortId(previewRelease.data.baseVersion, 12),
+                            })}
+                          </span>
+                          <Badge
+                            variant={previewRelease.data.valid ? 'default' : 'destructive'}
+                            className='text-[10px]'
+                          >
+                            {previewRelease.data.valid
+                              ? t('infrastructure.status.valid')
+                              : t('infrastructure.status.issues')}
                           </Badge>
                         </div>
                         {(previewRelease.data.diff ?? []).length === 0 ? (
-                          <div className='text-muted-foreground'>No pending draft changes.</div>
+                          <div className='text-muted-foreground'>
+                            {t('infrastructure.releases.noChanges')}
+                          </div>
                         ) : (
                           (previewRelease.data.diff ?? []).map((d, idx) => (
                             <div key={idx} className='font-mono text-[11px]'>
@@ -1392,15 +1495,26 @@ export default function InfrastructurePage() {
                                 {formatShortId(ver.id, 16)}
                               </span>
                               {isActive ? (
-                                <Badge variant='default' className='text-[10px]'>
+                                <Badge variant='default' className='text-[10px]' data-testid={`active-badge-${ver.id}`}>
                                   <IconCheck className='mr-1 h-3 w-3' />
-                                  {t('infrastructure.releases.activeBadge')}
+                                  {isRehearsal
+                                    ? t('infrastructure.releases.rehearsalActiveBadge')
+                                    : t('infrastructure.releases.activeBadge')}
                                 </Badge>
                               ) : (
                                 <Badge variant='outline' className='text-[10px]'>
-                                  {ver.status}
+                                  {ver.status === 'candidate'
+                                    ? t('infrastructure.status.candidate')
+                                    : ver.status === 'superseded'
+                                      ? t('infrastructure.status.superseded')
+                                      : ver.status}
                                 </Badge>
                               )}
+                              {ver.readBack?.version ? (
+                                <Badge variant='secondary' className='font-mono text-[10px]'>
+                                  {ver.readBack.adapter}:{formatShortId(ver.readBack.version, 8)}
+                                </Badge>
+                              ) : null}
                             </div>
                             <div className='text-muted-foreground text-xs'>
                               {ver.note || 'Baseline snapshot'} · rev {ver.revision}
@@ -1415,8 +1529,12 @@ export default function InfrastructurePage() {
                               onClick={() => handleActivateRelease(ver.id)}
                             >
                               {ver.id === 'baseline'
-                                ? t('infrastructure.actions.rollback')
-                                : t('infrastructure.actions.activate')}
+                                ? isRehearsal
+                                  ? t('infrastructure.actions.rollbackRehearsal')
+                                  : t('infrastructure.actions.rollback')
+                                : isRehearsal
+                                  ? t('infrastructure.actions.activateRehearsal')
+                                  : t('infrastructure.actions.activate')}
                             </Button>
                           ) : null}
                         </div>

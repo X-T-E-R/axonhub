@@ -165,6 +165,12 @@ export interface InfrastructureStateResponse {
   activeVersion: string;
   versions: InfraVersion[];
   adapter?: string;
+  adapterInfo?: {
+    kind: 'isolated' | 'wrangler' | string;
+    rehearsal: boolean;
+    canStageProduction: boolean;
+    label: string;
+  };
   edgeUrl?: string;
   liveSources: {
     nodeMap: {
@@ -195,12 +201,18 @@ export interface InfrastructureStateResponse {
       version: string | null;
       deployment: string | null;
       observedAt: string | null;
+      lastSuccessAt?: string | null;
+      stale?: boolean;
+      error?: string | null;
       source: string | null;
+      readMode?: string;
       defaults: Record<string, string> | null;
       control: string;
       responsesMode: string;
       privateLane: { origin?: string; secretRef?: string } | null;
       fixedModelOwners: Record<string, string>;
+      ruleCount?: number;
+      placementVersion?: number | null;
       historicalBaselineVersion: string;
     };
     axon: {
@@ -208,11 +220,18 @@ export interface InfrastructureStateResponse {
       controlNode: string;
       placementVersion: number;
       manifestGeneratedAt: string | null;
+      lastSuccessAt?: string | null;
+      stale?: boolean;
+      error?: string | null;
       modelCount: number;
       readyModelCount: number;
       registeredMachines: string[];
       workerAck: { placement_version: number; worker_revision: string; acknowledged_at?: string } | null;
-      syncStatus: 'synchronized' | 'ack_pending' | 'static_manifest' | string;
+      ackMatchesPlacement?: boolean;
+      ackMatchesWorkerRevision?: boolean;
+      routingDrift?: boolean;
+      syncStatus: 'synchronized' | 'drift' | 'ack_mismatch' | 'ack_pending' | 'worker_stale' | 'axon_stale' | 'static_manifest' | string;
+      syncReason?: string;
     };
   };
 }

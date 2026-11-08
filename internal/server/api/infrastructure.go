@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -10,13 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,122 +22,28 @@ import (
 	"github.com/looplj/axonhub/internal/server/biz"
 )
 
-type managedInfrastructureBridge struct {
-	mu      sync.Mutex
-	baseURL string
-	cmd     *exec.Cmd
-}
-
-var defaultInfraBridge = &managedInfrastructureBridge{}
-
-func resolveControlBridgeScript() (string, error) {
-	if explicit := strings.TrimSpace(os.Getenv("AXONHUB_INFRA_BRIDGE_SCRIPT")); explicit != "" {
-		if _, err := os.Stat(explicit); err == nil {
-			return explicit, nil
-		}
+// resolveInfrastructureControlURL validates and returns the operator-configured
+// managed control service endpoint (e.g. http://127.0.0.1:18751). It never spawns
+// child processes or accepts target overrides from HTTP request parameters.
+func resolveInfrastructureControlURL() (string, *url.URL, error) {
+	raw := strings.TrimSpace(os.Getenv("AXONHUB_INFRA_CONTROL_URL"))
+	if raw == "" {
+		return "", nil, errors.New("AXONHUB_INFRA_CONTROL_URL is not configured")
 	}
-	_, file, _, ok := runtime.Caller(0)
-	if ok {
-		candidate := filepath.Clean(filepath.Join(filepath.Dir(file), "../../../../axon-edge-worker/control/axon-bridge.mjs"))
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "", nil, errors.New("invalid AXONHUB_INFRA_CONTROL_URL")
 	}
-	cwd, err := os.Getwd()
-	if err == nil {
-		for _, rel := range []string{
-			"../axon-edge-worker/control/axon-bridge.mjs",
-			"../../axon-edge-worker/control/axon-bridge.mjs",
-			"../../../axon-edge-worker/control/axon-bridge.mjs",
-			"systems/axon-edge-worker/control/axon-bridge.mjs",
-		} {
-			candidate := filepath.Clean(filepath.Join(cwd, rel))
-			if _, err := os.Stat(candidate); err == nil {
-				return candidate, nil
-			}
-		}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", nil, errors.New("AXONHUB_INFRA_CONTROL_URL must not contain credentials, query or fragment")
 	}
-	return "", errors.New("axon-edge-worker control/axon-bridge.mjs not found")
-}
-
-func (b *managedInfrastructureBridge) endpoint() (string, error) {
-	if explicit := strings.TrimSpace(os.Getenv("AXONHUB_INFRA_CONTROL_URL")); explicit != "" {
-		return strings.TrimRight(explicit, "/"), nil
+	host := strings.ToLower(parsed.Hostname())
+	isLoopback := host == "127.0.0.1" || host == "localhost" || host == "::1"
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLoopback) {
+		return "", nil, errors.New("AXONHUB_INFRA_CONTROL_URL must use https or loopback http")
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.baseURL != "" && b.cmd != nil && b.cmd.ProcessState == nil {
-		return b.baseURL, nil
-	}
-	script, err := resolveControlBridgeScript()
-	if err != nil {
-		return "", err
-	}
-	dataDir := strings.TrimSpace(os.Getenv("AXONHUB_INFRA_DATA_DIR"))
-	if dataDir == "" {
-		dataDir = filepath.Join(os.TempDir(), fmt.Sprintf("axonhub-infra-bridge-%d", os.Getpid()))
-	}
-	args := []string{script, "--port", "0", "--data", dataDir}
-	if snap := strings.TrimSpace(os.Getenv("TASK51_KOMODO_SNAPSHOT_FILE")); snap != "" {
-		args = append(args, "--komodo-snapshot", snap)
-	}
-	if nm := strings.TrimSpace(os.Getenv("TASK51_KOMODO_NODE_MAP_FILE")); nm != "" {
-		args = append(args, "--node-map", nm)
-	}
-	cmd := exec.Command("node", args...)
-	cmd.Dir = filepath.Dir(filepath.Dir(script))
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("start infrastructure bridge: %w", err)
-	}
-	type startMsg struct {
-		URL string `json:"url"`
-		Err error
-	}
-	ch := make(chan startMsg, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				ch <- startMsg{Err: fmt.Errorf("bridge reader panic: %v", r)}
-			}
-		}()
-		scanner := bufio.NewScanner(stdout)
-		if scanner.Scan() {
-			var parsed struct {
-				URL string `json:"url"`
-			}
-			if err := json.Unmarshal(scanner.Bytes(), &parsed); err != nil {
-				ch <- startMsg{Err: err}
-				return
-			}
-			ch <- startMsg{URL: strings.TrimRight(parsed.URL, "/")}
-			return
-		}
-		if err := scanner.Err(); err != nil {
-			ch <- startMsg{Err: err}
-			return
-		}
-		ch <- startMsg{Err: fmt.Errorf("bridge exited before ready: %s", strings.TrimSpace(stderr.String()))}
-	}()
-
-	select {
-	case msg := <-ch:
-		if msg.Err != nil || msg.URL == "" {
-			_ = cmd.Process.Kill()
-			return "", fmt.Errorf("infrastructure bridge failed: %v", msg.Err)
-		}
-		b.cmd = cmd
-		b.baseURL = msg.URL
-		return b.baseURL, nil
-	case <-time.After(15 * time.Second):
-		_ = cmd.Process.Kill()
-		return "", errors.New("infrastructure bridge startup timed out")
-	}
+	cleanBase := strings.TrimRight(parsed.String(), "/")
+	return cleanBase, parsed, nil
 }
 
 func requireSystemChannelScope(c *gin.Context, scope scopes.ScopeSlug) bool {
@@ -172,13 +74,14 @@ func requireSystemChannelScope(c *gin.Context, scope scopes.ScopeSlug) bool {
 	return false
 }
 
+// axonBridgeEnvelope carries only bounded cluster placement and Worker ACK metadata
+// (typically < 300 bytes) rather than serializing the full model manifest on every call.
 type axonBridgeEnvelope struct {
 	ClusterEnabled   bool                    `json:"clusterEnabled"`
 	ControlNode      string                  `json:"controlNode"`
 	PlacementVersion int64                   `json:"placementVersion"`
 	Machines         []string                `json:"machines"`
 	WorkerAck        *biz.PlacementWorkerAck `json:"workerAck,omitempty"`
-	Manifest         *biz.ExecutionManifest  `json:"manifest,omitempty"`
 }
 
 func (h *ClusterHandlers) buildBridgeHeader(ctx context.Context) string {
@@ -196,11 +99,6 @@ func (h *ClusterHandlers) buildBridgeHeader(ctx context.Context) string {
 		Machines:         placementCtx.Machines,
 		WorkerAck:        placementCtx.WorkerAck,
 	}
-	if h.models != nil {
-		if m, err := h.models.BuildExecutionManifest(ctx); err == nil {
-			env.Manifest = m
-		}
-	}
 	raw, err := json.Marshal(env)
 	if err != nil {
 		return ""
@@ -208,45 +106,87 @@ func (h *ClusterHandlers) buildBridgeHeader(ctx context.Context) string {
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
+var infraHTTPClient = &http.Client{
+	Timeout: 25 * time.Second,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 func (h *ClusterHandlers) proxyInfrastructure(c *gin.Context, method, upstreamPath string) {
-	baseURL, err := defaultInfraBridge.endpoint()
+	baseURL, parsedBase, err := resolveInfrastructureControlURL()
 	if err != nil {
-		JSONError(c, http.StatusServiceUnavailable, err)
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{
+				"code":    "infrastructure_control_unconfigured",
+				"message": "Managed infrastructure control endpoint is not configured on this control node.",
+			},
+		})
 		return
 	}
 	var bodyReader io.Reader
 	if method != http.MethodGet && c.Request.Body != nil {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 512*1024)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 256*1024)
 		rawBody, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			JSONError(c, http.StatusBadRequest, errors.New("invalid request body"))
+			JSONError(c, http.StatusBadRequest, errors.New("invalid or oversized request body"))
 			return
 		}
 		bodyReader = bytes.NewReader(rawBody)
 	}
 	targetURL := baseURL + "/api/v1/" + strings.TrimLeft(upstreamPath, "/")
-	if q := c.Request.URL.RawQuery; q != "" {
-		targetURL += "?" + q
+	if c.Request.URL.Query().Get("refresh") == "1" || c.Request.URL.Query().Get("source") != "" {
+		q := url.Values{}
+		if c.Request.URL.Query().Get("refresh") == "1" {
+			q.Set("refresh", "1")
+		}
+		if src := c.Request.URL.Query().Get("source"); src != "" {
+			q.Set("source", src)
+		}
+		targetURL += "?" + q.Encode()
 	}
 	req, err := http.NewRequestWithContext(c.Request.Context(), method, targetURL, bodyReader)
 	if err != nil {
-		JSONError(c, http.StatusInternalServerError, err)
+		JSONError(c, http.StatusInternalServerError, errors.New("failed to construct control request"))
 		return
 	}
+	req.Host = parsedBase.Host
 	req.Header.Set("Content-Type", "application/json")
 	if ctxHeader := h.buildBridgeHeader(c.Request.Context()); ctxHeader != "" {
 		req.Header.Set("X-Axon-Context", ctxHeader)
 	}
-	client := &http.Client{Timeout: 25 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := infraHTTPClient.Do(req)
 	if err != nil {
-		JSONError(c, http.StatusServiceUnavailable, fmt.Errorf("infrastructure control unavailable: %w", err))
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{
+				"code":    "infrastructure_control_unavailable",
+				"message": "Managed infrastructure control service is unreachable.",
+			},
+		})
 		return
 	}
 	defer resp.Body.Close()
-	payload, err := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": gin.H{
+				"code":    "infrastructure_control_redirect_rejected",
+				"message": "Upstream redirects are not permitted on the infrastructure control channel.",
+			},
+		})
+		return
+	}
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		JSONError(c, http.StatusBadGateway, err)
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": gin.H{
+				"code":    "infrastructure_control_bad_response",
+				"message": "Invalid response from managed infrastructure control service.",
+			},
+		})
 		return
 	}
 	c.Header("Cache-Control", "no-store")

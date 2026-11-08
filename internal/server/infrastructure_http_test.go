@@ -1,12 +1,15 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,10 +30,37 @@ import (
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
+func startManagedControlBridgeForTest(t *testing.T, snapPath string) string {
+	t.Helper()
+	script, err := filepath.Abs("../../../axon-edge-worker/control/axon-bridge.mjs")
+	require.NoError(t, err)
+	dataDir := filepath.Join(t.TempDir(), "managed-control-state")
+	cmd := exec.Command("node", script, "--port", "0", "--data", dataDir, "--komodo-snapshot", snapPath)
+	cmd.Dir = filepath.Dir(filepath.Dir(script))
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+
+	scanner := bufio.NewScanner(stdout)
+	require.True(t, scanner.Scan(), "bridge exited early: %s", stderr.String())
+	var ready struct {
+		URL string `json:"url"`
+	}
+	require.NoError(t, json.Unmarshal(scanner.Bytes(), &ready))
+	require.NotEmpty(t, ready.URL)
+	return strings.TrimRight(ready.URL, "/")
+}
+
 func TestInfrastructureHTTP(t *testing.T) {
-	t.Setenv("AXONHUB_INFRA_DATA_DIR", filepath.Join(t.TempDir(), "infra-state"))
-	snapPath := filepath.Clean("../../outputs/task51-komodo-reconcile-20261108/core-final.json")
-	t.Setenv("TASK51_KOMODO_SNAPSHOT_FILE", snapPath)
+	snapPath := filepath.Clean("C:/Programs/AI/MLAIGateWay/outputs/task51-komodo-reconcile-20261108/core-final.json")
+	bridgeURL := startManagedControlBridgeForTest(t, snapPath)
 
 	provider := sdkmetric.NewMeterProvider()
 	require.NoError(t, metrics.SetupMetrics(provider, "infra-test"))
@@ -102,12 +132,29 @@ func TestInfrastructureHTTP(t *testing.T) {
 		return rec
 	}
 
-	// Auth and data-node guard checks
+	// 1. Auth and data-node guard checks
 	require.Equal(t, http.StatusUnauthorized, request(control, http.MethodGet, "/admin/cluster/infrastructure/state", "", nil).Code)
 	require.Equal(t, http.StatusForbidden, request(control, http.MethodGet, "/admin/cluster/infrastructure/state", noPermJWT, nil).Code)
 	require.Equal(t, http.StatusNotFound, request(dataNode, http.MethodGet, "/admin/cluster/infrastructure/state", ownerJWT, nil).Code)
 
-	// Reader can read state, topology, explain
+	// 2. Unconfigured AXONHUB_INFRA_CONTROL_URL returns clean 503 without spawning processes or leaking internal paths
+	t.Setenv("AXONHUB_INFRA_CONTROL_URL", "")
+	unconfRes := request(control, http.MethodGet, "/admin/cluster/infrastructure/state", readerJWT, nil)
+	require.Equal(t, http.StatusServiceUnavailable, unconfRes.Code)
+	require.Contains(t, unconfRes.Body.String(), `"infrastructure_control_unconfigured"`)
+
+	// 3. Upstream redirect is rejected with 502
+	redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://evil.example.com/api/v1/state", http.StatusFound)
+	}))
+	t.Cleanup(redirectSrv.Close)
+	t.Setenv("AXONHUB_INFRA_CONTROL_URL", redirectSrv.URL)
+	redirRes := request(control, http.MethodGet, "/admin/cluster/infrastructure/state", readerJWT, nil)
+	require.Equal(t, http.StatusBadGateway, redirRes.Code)
+	require.Contains(t, redirRes.Body.String(), `"infrastructure_control_redirect_rejected"`)
+
+	// 4. Point to the explicit managed loopback control bridge
+	t.Setenv("AXONHUB_INFRA_CONTROL_URL", bridgeURL)
 	stateRes := request(control, http.MethodGet, "/admin/cluster/infrastructure/state?refresh=1", readerJWT, nil)
 	require.Equal(t, http.StatusOK, stateRes.Code, stateRes.Body.String())
 	require.Contains(t, stateRes.Body.String(), `"dmit-154-31-115-2"`)
@@ -119,7 +166,7 @@ func TestInfrastructureHTTP(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(stateRes.Body.Bytes(), &stateBody))
 
-	// Reader cannot mutate rules
+	// 5. Reader cannot mutate rules
 	rulePayload := map[string]any{
 		"revision": stateBody.Revision,
 		"rule": map[string]any{
@@ -133,7 +180,7 @@ func TestInfrastructureHTTP(t *testing.T) {
 	}
 	require.Equal(t, http.StatusForbidden, request(control, http.MethodPut, "/admin/cluster/infrastructure/rules/r-native-test", readerJWT, rulePayload).Code)
 
-	// Owner can save rule, explain, preview, create release, activate and rollback
+	// 6. Owner can save rule and explain
 	putRes := request(control, http.MethodPut, "/admin/cluster/infrastructure/rules/r-native-test", ownerJWT, rulePayload)
 	require.Equal(t, http.StatusOK, putRes.Code, putRes.Body.String())
 
