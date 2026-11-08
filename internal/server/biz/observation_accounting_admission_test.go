@@ -71,7 +71,7 @@ func TestObservationMetadataFailureDoesNotBlockRequiredUsage(t *testing.T) {
 	}
 }
 
-func TestObservationAccountingAdmissionBeforeExecution(t *testing.T) {
+func TestObservationAccountingCapacityDoesNotGateRequest(t *testing.T) {
 	legacy, client, base, project := setupRequestExecutionStorageTest(t)
 	defer client.Close()
 	w := NewForwardingObservationWriter(ManagedRequestBodyWriterConfig{MaxItems: 5})
@@ -85,9 +85,12 @@ func TestObservationAccountingAdmissionBeforeExecution(t *testing.T) {
 		EndForwardingObservation(second)
 		require.NoError(t, w.Stop(context.Background()))
 	}()
-	_, err := svc.CreateRequest(second, &llm.Request{Model: "m"}, &httpclient.Request{}, llm.APIFormatOpenAIResponse)
-	require.ErrorContains(t, err, "accounting", "no required slot must fail before any provider dispatch, not after executed usage")
+	parent, err := svc.CreateRequest(second, &llm.Request{Model: "m"}, &httpclient.Request{}, llm.APIFormatOpenAIResponse)
+	require.NoError(t, err)
+	_, err = svc.UsageLogService.CreateUsageLogFromRequest(second, parent, &ent.RequestExecution{ChannelID: 1, ModelID: "m"}, &llm.Usage{TotalTokens: 5})
+	require.ErrorIs(t, err, errObservationQueueUnavailable, "the capture caller can observe a dropped fact")
 	require.Zero(t, client.PendingUsage.Query().CountX(base))
+	require.Zero(t, client.UsageLog.Query().CountX(base))
 }
 
 func TestObservationPreservesRequiredVideoTaskIdentity(t *testing.T) {

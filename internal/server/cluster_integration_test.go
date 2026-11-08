@@ -577,7 +577,7 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	retry.Enabled, retry.MaxChannelRetries, retry.MaxSingleChannelRetries, retry.RetryDelayMs = true, 2, 2, 0
 	require.NoError(t, ib.system.SetRetryPolicy(ctx, retry))
 	var unavailable atomic.Bool
-	var publicationAttempts atomic.Int32
+	var publicationAttempts, publicationFailures atomic.Int32
 	var factsMu sync.Mutex
 	frozenFacts := map[string]string{}
 	b.PendingUsage.Use(func(next ent.Mutator) ent.Mutator {
@@ -603,6 +603,7 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 				}
 				factsMu.Unlock()
 				if unavailable.Load() {
+					publicationFailures.Add(1)
 					return nil, errors.New("synthetic pending publication unavailable")
 				}
 			}
@@ -619,7 +620,7 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 			}
 			beforeCalls, beforeUsage := calls.Load(), a.UsageLog.Query().CountX(ctx)
 			beforeIDs := a.Request.Query().IDsX(ctx)
-			beforeAttempts := publicationAttempts.Load()
+			beforeAttempts, beforeFailures := publicationAttempts.Load(), publicationFailures.Load()
 			unavailable.Store(true)
 			defer unavailable.Store(false)
 			if protocol == "ws" {
@@ -632,11 +633,10 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 					_, raw, err = conn.ReadMessage()
 					require.NoError(t, err)
 					require.NotContains(t, string(raw), `"execution":"not_executed"`)
-					require.NotContains(t, string(raw), `"type":"response.completed"`)
 					var event map[string]any
 					require.NoError(t, json.Unmarshal(raw, &event))
-					if event["type"] == "response.failed" || event["type"] == "error" {
-						require.Contains(t, string(raw), `"code":"accounting_failed"`)
+					require.NotContains(t, []any{"response.failed", "error"}, event["type"])
+					if event["type"] == "response.completed" {
 						break
 					}
 				}
@@ -650,20 +650,19 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 					path, body = "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"accounting"}],"stream":true}`
 				}
 				code, raw = requestHTTP(nodes["b"], "POST", path, legacy.Key, body)
-				if protocol == "http" {
-					require.Equal(t, 500, code, string(raw))
-				} else {
-					require.Equal(t, 200, code, "the partial stream is already established")
-					require.Contains(t, string(raw), "partial")
-					require.True(t, strings.Contains(string(raw), "response.failed") || strings.Contains(string(raw), "event:error"), string(raw))
-					require.Contains(t, string(raw), "accounting")
-					require.NotContains(t, string(raw), "Internal server error")
-					require.NotContains(t, string(raw), `"type":"response.completed"`)
-					require.NotContains(t, string(raw), "[DONE]")
+				require.Equal(t, http.StatusOK, code, string(raw))
+				switch protocol {
+				case "http":
+					require.Contains(t, string(raw), `"status":"completed"`)
+				case "sse":
+					require.Contains(t, string(raw), `"type":"response.completed"`)
+				case "chat_sse":
+					require.Contains(t, string(raw), "[DONE]")
 				}
 				require.NotContains(t, string(raw), `"execution":"not_executed"`)
 			}
 			require.Equal(t, beforeCalls+1, calls.Load(), "accounting failure must not replay provider")
+			require.Eventually(t, func() bool { return publicationFailures.Load() > beforeFailures }, 2*time.Second, 10*time.Millisecond)
 			require.Zero(t, a.PendingUsage.Query().CountX(ctx))
 			require.Equal(t, beforeUsage, a.UsageLog.Query().CountX(ctx))
 			unavailable.Store(false)
@@ -674,12 +673,12 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 			require.Zero(t, a.PendingUsage.Query().CountX(ctx))
 			require.Equal(t, beforeCalls+1, calls.Load())
 			created := a.Request.Query().Where(request.IDNotIn(beforeIDs...)).OnlyX(ctx)
-			require.Equal(t, request.StatusFailed, created.Status)
+			require.Equal(t, request.StatusCompleted, created.Status)
 			usage := a.UsageLog.Query().Order(ent.Desc("id")).FirstX(ctx)
 			require.Equal(t, int64(5), usage.TotalTokens)
 			require.Nil(t, usage.TotalCost, "unknown price must remain NULL")
 			require.Greater(t, publicationAttempts.Load()-beforeAttempts, int32(1), "same fact must be retried after recovery")
-			t.Logf("%s provider=1 recovered usage=1 pending=0 terminal=failed publication_attempts=%d", protocol, publicationAttempts.Load()-beforeAttempts)
+			t.Logf("%s provider=1 recovered usage=1 pending=0 terminal=completed publication_attempts=%d", protocol, publicationAttempts.Load()-beforeAttempts)
 		})
 	}
 	factsMu.Lock()

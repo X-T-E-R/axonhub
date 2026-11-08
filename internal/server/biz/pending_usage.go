@@ -60,6 +60,9 @@ func (w *ForwardingObservationWriter) handoffPendingUsage(ctx context.Context, i
 				return err
 			}
 		}
+		if fact, _ := ctx.Value(observationPendingUsageKey{}).(*observationPendingUsage); fact != nil {
+			fact.requestID.Store(int64(requestID))
+		}
 		exists, err := client.UsageLog.Query().Where(usagelog.RequestIDEQ(requestID), usagelog.APIKeyIDEQ(p.APIKeyID)).Exist(txCtx)
 		if err != nil {
 			return err

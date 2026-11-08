@@ -75,12 +75,11 @@ func (ts *InboundPersistentStream) Next() bool {
 		return false
 	}
 	ts.currentEvent = ts.stream.Current()
-	if biz.ForwardingAccountingEnabled(ts.ctx) && !ts.state.accountingReady.Load() {
+	if biz.ForwardingAccountingEnabled(ts.ctx) && !ts.state.providerUsageFinal.Load() {
 		format := ts.state.LlmRequest.APIFormat
 		if providerStreamTerminal(format, ts.currentEvent) && terminalStreamStatusForFormat(ts.currentEvent, format) == streamTerminalCompleted {
-			// A transformer can synthesize a downstream terminal before consuming
-			// the provider's final usage. The same reader owns that remaining tail;
-			// settle it before exposing success, without waiting for optional Close I/O.
+			// A transformer can synthesize success before reading the provider's
+			// terminal. Drain that provider tail so late stream errors remain visible.
 			for ts.stream.Next() {
 				_ = ts.stream.Current()
 			}

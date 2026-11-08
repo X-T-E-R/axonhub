@@ -437,12 +437,6 @@ func observationFromContext(ctx context.Context) *observationScope {
 	return scope
 }
 
-func (s *observationScope) hasAccountingAdmission() bool {
-	s.writer.mu.Lock()
-	defer s.writer.mu.Unlock()
-	return s.writer.started && !s.writer.stopping && !s.ended && s.reservedUsage
-}
-
 // Async task correlation is business state, not optional request history.
 func (s *observationScope) admitTaskIdentity() bool {
 	s.writer.mu.Lock()

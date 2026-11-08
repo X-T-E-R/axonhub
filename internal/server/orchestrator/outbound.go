@@ -40,23 +40,21 @@ type OutboundPersistentStream struct {
 	request     *ent.Request
 	requestExec *ent.RequestExecution
 
-	transformer       transformer.Outbound
-	perf              *biz.PerformanceRecord
-	responseChunks    []*httpclient.StreamEvent
-	observation       *biz.ObservationStreamBuffer
-	streamMeta        llm.ResponseMeta
-	usageMeta         streamObservationMeta
-	currentEvent      *httpclient.StreamEvent
-	accountingErr     error
-	accountingBarrier *accountingCaptureBarrier
-	usageCaptured     bool
-	channel           *biz.Channel
-	closed            bool
-	state             *PersistenceState
-	streamCompleted   bool
-	providerStatus    streamTerminalStatus
-	failureInfoOnce   sync.Once
-	failureInfo       *biz.ExecutionErrorInfo
+	transformer     transformer.Outbound
+	perf            *biz.PerformanceRecord
+	responseChunks  []*httpclient.StreamEvent
+	observation     *biz.ObservationStreamBuffer
+	streamMeta      llm.ResponseMeta
+	usageMeta       streamObservationMeta
+	currentEvent    *httpclient.StreamEvent
+	usageCaptured   bool
+	channel         *biz.Channel
+	closed          bool
+	state           *PersistenceState
+	streamCompleted bool
+	providerStatus  streamTerminalStatus
+	failureInfoOnce sync.Once
+	failureInfo     *biz.ExecutionErrorInfo
 }
 
 var _ streams.Stream[*httpclient.StreamEvent] = (*OutboundPersistentStream)(nil)
@@ -77,20 +75,19 @@ func NewOutboundPersistentStream(
 		channel = state.CurrentCandidate.Channel
 	}
 	s := &OutboundPersistentStream{
-		ctx:               ctx,
-		stream:            stream,
-		request:           request,
-		requestExec:       requestExec,
-		RequestService:    requestService,
-		UsageLogService:   usageLogService,
-		transformer:       outboundTransformer,
-		perf:              perf,
-		responseChunks:    make([]*httpclient.StreamEvent, 0),
-		closed:            false,
-		state:             state,
-		accountingBarrier: state.accountingBarrier,
-		channel:           channel,
-		observation:       requestService.NewObservationStreamBuffer(ctx, channel, true),
+		ctx:             ctx,
+		stream:          stream,
+		request:         request,
+		requestExec:     requestExec,
+		RequestService:  requestService,
+		UsageLogService: usageLogService,
+		transformer:     outboundTransformer,
+		perf:            perf,
+		responseChunks:  make([]*httpclient.StreamEvent, 0),
+		closed:          false,
+		state:           state,
+		channel:         channel,
+		observation:     requestService.NewObservationStreamBuffer(ctx, channel, true),
 	}
 	state.registerFailedStreamEvidence(s)
 
@@ -109,9 +106,6 @@ func captureProviderStreamResponse(outbound *PersistentOutboundTransformer) pipe
 }
 
 func (ts *OutboundPersistentStream) Next() bool {
-	if ts.accountingErr != nil {
-		return false
-	}
 	if !ts.stream.Next() {
 		if ts.stream.Err() == nil {
 			ts.captureUsageBeforeTerminal()
@@ -147,8 +141,8 @@ func (ts *OutboundPersistentStream) Next() bool {
 		}
 	}
 
-	// Hold the actual protocol completion, not an individual choice's finish
-	// reason: usage can arrive in a later frame (and Gemini has many candidates).
+	// Capture the final usage projection on the provider's terminal, not an
+	// individual choice's finish reason: usage can arrive in a later frame.
 	if event != nil {
 		kind := event.Type
 		if kind == "" {
@@ -161,23 +155,18 @@ func (ts *OutboundPersistentStream) Next() bool {
 			ts.captureUsageBeforeTerminal()
 		}
 	}
-	return ts.accountingErr == nil
+	return true
 }
 
 func (ts *OutboundPersistentStream) Current() *httpclient.StreamEvent { return ts.currentEvent }
 
-func (ts *OutboundPersistentStream) Err() error {
-	return errors.Join(ts.accountingErr, ts.stream.Err())
-}
+func (ts *OutboundPersistentStream) Err() error { return ts.stream.Err() }
 
 func (ts *OutboundPersistentStream) captureUsageBeforeTerminal() {
 	if !biz.ForwardingAccountingEnabled(ts.ctx) {
 		return
 	}
-	defer func() {
-		ts.state.accountingReady.Store(ts.accountingErr == nil)
-		ts.accountingBarrier.finish(ts.accountingErr)
-	}()
+	defer ts.state.providerUsageFinal.Store(true)
 	if ts.usageCaptured || ts.requestExec == nil {
 		return
 	}
@@ -199,9 +188,8 @@ func (ts *OutboundPersistentStream) captureUsageBeforeTerminal() {
 	ts.usageCaptured = true
 	ctx, cancel := xcontext.DetachWithTimeout(ts.ctx, 10*time.Second)
 	defer cancel()
-	_, ts.accountingErr = ts.UsageLogService.CreateUsageLogFromRequest(ctx, ts.request, ts.requestExec, meta.Usage)
-	if ts.accountingErr != nil {
-		ts.state.accountingFailed.Store(true)
+	if _, err := ts.UsageLogService.CreateUsageLogFromRequest(ctx, ts.request, ts.requestExec, meta.Usage); err != nil {
+		log.Warn(ctx, "Failed to submit forwarding usage", log.Cause(err))
 	}
 }
 
@@ -211,7 +199,6 @@ func (ts *OutboundPersistentStream) Close() error {
 	}
 
 	ts.closed = true
-	defer func() { ts.accountingBarrier.finish(ts.Err()) }()
 	defer ts.state.clearFailedStreamEvidence(ts)
 	defer ts.observation.Close()
 	defer func() { ts.responseChunks = nil }()
@@ -235,11 +222,7 @@ func (ts *OutboundPersistentStream) Close() error {
 			ts.persistTerminalStreamFailure(ctx, deferredErr)
 		}
 
-		return errors.Join(ts.accountingErr, closeErr)
-	}
-	if ts.accountingErr != nil {
-		ts.persistTerminalStreamFailure(ctx, ts.accountingErr)
-		return errors.Join(ts.accountingErr, closeErr)
+		return closeErr
 	}
 
 	if ts.providerStatus != streamTerminalNone {
@@ -657,11 +640,6 @@ func (ts *OutboundPersistentStream) persistAggregatedResponse(ctx context.Contex
 			}
 		}
 	}
-	if ts.accountingErr != nil {
-		ts.persistTerminalStreamFailure(ctx, ts.accountingErr)
-		return
-	}
-
 	// Build latency metrics from performance record
 	var metrics *biz.LatencyMetrics
 

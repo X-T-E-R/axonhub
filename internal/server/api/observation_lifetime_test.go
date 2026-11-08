@@ -474,7 +474,7 @@ func observationAccountingEvent(data string) *httpclient.StreamEvent {
 	return &httpclient.StreamEvent{Data: []byte(data)}
 }
 
-func TestObservationAccountingRejectsBeforeProviderAndRecovers(t *testing.T) {
+func TestObservationAccountingCapacityDoesNotGateProvider(t *testing.T) {
 	events := []*httpclient.StreamEvent{
 		observationAccountingEvent(`{"id":"chat-admission","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`),
 		observationAccountingEvent(`[DONE]`),
@@ -483,14 +483,21 @@ func TestObservationAccountingRejectsBeforeProviderAndRecovers(t *testing.T) {
 	blocked := biz.NewForwardingObservationScope(f.ctx)
 	t.Cleanup(func() { biz.EndForwardingObservation(blocked) })
 	w := f.serve(blocked)
-	require.GreaterOrEqual(t, w.Code, 400)
-	require.Zero(t, f.executor.calls.Load(), "no required capacity must reject before invoking the provider")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "[DONE]")
+	require.Equal(t, int32(1), f.executor.calls.Load(), "the full writer must neither reject nor replay the provider")
 	require.Zero(t, f.db.PendingUsage.Query().CountX(f.ctx))
+	require.Zero(t, f.db.UsageLog.Query().CountX(f.ctx))
 
 	biz.EndForwardingObservation(f.ctx)
 	f.ctx = biz.NewForwardingObservationScope(f.ctx)
 	t.Cleanup(func() { biz.EndForwardingObservation(f.ctx) })
-	require.Contains(t, f.run(t), "[DONE]")
+	require.Contains(t, f.serve(f.ctx).Body.String(), "[DONE]")
+	biz.EndForwardingObservation(f.ctx)
+	drain, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	require.NoError(t, f.writer.Wait(drain))
+	require.Equal(t, int32(2), f.executor.calls.Load())
 	require.EqualValues(t, 5, f.db.UsageLog.Query().OnlyX(f.ctx).TotalTokens)
 	require.Zero(t, f.db.RequestExecution.Query().CountX(f.ctx), "optional history did not have a slot")
 }
@@ -517,7 +524,7 @@ func TestObservationAccountingFreezesFinalChatUsage(t *testing.T) {
 	}
 }
 
-func TestObservationAccountingPrecedesSemanticCompletion(t *testing.T) {
+func TestObservationAccountingDoesNotWaitForPublication(t *testing.T) {
 	for _, passThrough := range []bool{false, true} {
 		t.Run(fmt.Sprintf("passthrough=%v", passThrough), func(t *testing.T) {
 			events := []*httpclient.StreamEvent{
@@ -529,6 +536,9 @@ func TestObservationAccountingPrecedesSemanticCompletion(t *testing.T) {
 			f := newObservationAccountingFixture(t, true, passThrough, events)
 			var mu sync.Mutex
 			var frozen []string
+			entered, release, failed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			t.Cleanup(unblock)
 			f.db.PendingUsage.Use(func(next ent.Mutator) ent.Mutator {
 				return hook.PendingUsageFunc(func(ctx context.Context, m *ent.PendingUsageMutation) (ent.Value, error) {
 					if m.Op().Is(ent.OpCreate) {
@@ -546,19 +556,45 @@ func TestObservationAccountingPrecedesSemanticCompletion(t *testing.T) {
 						first := len(frozen) == 1
 						mu.Unlock()
 						if first {
-							time.Sleep(2500 * time.Millisecond)
-							return nil, errors.New("slow pending publication failure")
+							close(entered)
+							<-release
+							close(failed)
+							return nil, errors.New("pending publication unavailable")
 						}
 					}
 					return next.Mutate(ctx, m)
 				})
 			})
-			body := f.run(t)
-			require.NotContains(t, body, "[DONE]", "semantic grace cannot bypass required accounting")
-			require.NotContains(t, body, `"type":"response.completed"`)
-			require.Contains(t, body, "event:error")
-			require.Contains(t, body, "accounting failed after upstream execution")
-			require.NotContains(t, body, `"execution":"not_executed"`)
+			response := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				defer func() {
+					if p := recover(); p != nil {
+						t.Errorf("fixture handler panicked: %v", p)
+					}
+				}()
+				response <- f.serve(f.ctx)
+			}()
+			select {
+			case <-entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("usage never reached the background publisher")
+			}
+			select {
+			case w := <-response:
+				require.Equal(t, http.StatusOK, w.Code)
+				require.Contains(t, w.Body.String(), "[DONE]")
+				require.NotContains(t, w.Body.String(), "event:error")
+			case <-time.After(2 * time.Second):
+				t.Fatal("client completion waited for the parked accounting write")
+			}
+			require.Equal(t, int32(1), f.executor.calls.Load())
+			require.Zero(t, f.db.UsageLog.Query().CountX(f.ctx))
+			biz.EndForwardingObservation(f.ctx)
+			unblock()
+			drain, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			require.NoError(t, f.writer.Wait(drain))
+			require.Zero(t, f.db.PendingUsage.Query().CountX(f.ctx))
 			bill := f.db.UsageLog.Query().OnlyX(f.ctx)
 			require.Equal(t, int64(5), bill.TotalTokens)
 			require.Nil(t, bill.TotalCost)
@@ -636,11 +672,10 @@ func TestObservationAccountingGuardsTransformedMessagesTerminal(t *testing.T) {
 				})
 			})
 			body := f.run(t)
+			require.Contains(t, body, "event:message_stop")
+			require.NotContains(t, body, "accounting failed after upstream execution")
 			if failPublication {
-				require.NotContains(t, body, "event:message_stop")
-				require.Contains(t, body, "accounting failed after upstream execution")
-			} else {
-				require.Contains(t, body, "event:message_stop")
+				require.Equal(t, int32(2), attempts.Load())
 			}
 			require.Equal(t, int64(5), f.db.UsageLog.Query().OnlyX(f.ctx).TotalTokens)
 		})

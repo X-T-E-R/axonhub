@@ -2,7 +2,6 @@ package biz
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -53,10 +52,6 @@ func (s *QuotaService) CheckAPIKeyQuota(ctx context.Context, apiKeyID int, quota
 	if quota == nil {
 		return QuotaCheckResult{Allowed: true}, nil
 	}
-	if scope := observationFromContext(ctx); s.observation != nil && scope != nil && !scope.hasAccountingAdmission() {
-		return QuotaCheckResult{}, errors.New("quota accounting queue is full; retry after persistence recovers")
-	}
-
 	loc := s.system.TimeLocation(ctx)
 
 	window, err := quotaWindow(xtime.UTCNow(), quota.Period, loc)

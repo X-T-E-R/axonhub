@@ -13,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/log"
+	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm"
 )
@@ -305,26 +306,11 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		if err != nil {
 			return nil, err
 		}
-		var publishErr error
-		if scope.writer.node.Enabled {
-			publishErr = scope.writer.publishPendingUsage(ctx, scope.usageID, &requestCopy, &executionCopy, usageCopy, capturedAt, cost)
-			if publishErr == nil {
-				// PG already owns the fact. Queue just the IDs, not another copy
-				// of the usage details, cost breakdown or request metadata.
-				localID := requestCopy.ID
-				err = scope.submitUsage(usageCtx, 0, func(workerCtx context.Context) error {
-					actualID, _ := scope.resolve(localID)
-					return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID)
-				})
-				if err != nil {
-					return nil, &ExecutedAccountingError{Cause: err}
-				}
-				return nil, nil
-			}
-		}
-		// An ambiguous initial publication transfers the frozen fact to the
-		// required writer. Once acknowledged, retry only handoff: a missing
-		// pending row means it was already consumed, not that it needs insertion.
+		pending.usageID = scope.usageID
+		// Publication and handoff both belong to the bounded background writer.
+		// No SQL or remote acknowledgement may hold up a provider response.
+		// Once publication is acknowledged, retry only handoff: a missing pending
+		// row means it was consumed, not that it needs insertion again.
 		pendingAcknowledged := false
 		err = scope.submitUsage(usageCtx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
 			actualID, err := scope.resolve(requestCopy.ID)
@@ -383,8 +369,8 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 			_, err = s.CreateUsageLogFromRequest(workerCtx, &persistedRequest, &executionCopy, &usageCopy)
 			return err
 		})
-		if scope.writer.node.Enabled && (publishErr != nil || err != nil) {
-			return nil, &ExecutedAccountingError{Cause: errors.Join(publishErr, err)}
+		if err != nil {
+			metrics.RecordManagedObservabilityFailure(ctx, "forwarding_accounting", "capture_not_admitted")
 		}
 		return nil, err
 	}

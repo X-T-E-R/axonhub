@@ -185,9 +185,9 @@ func (m *streamLivenessMiddleware) OnOutboundRawStream(
 		if m.state == nil {
 			return false
 		}
-		// A finish reason is not final usage. Let the stream owner read through
-		// the real provider terminal/EOF and settle required capture first.
-		if biz.ForwardingAccountingEnabled(ctx) && !m.state.accountingReady.Load() {
+		// A choice finish can precede the provider's terminal and final usage.
+		// Do not interrupt that wire tail; this flag never waits for persistence.
+		if biz.ForwardingAccountingEnabled(ctx) && !m.state.providerUsageFinal.Load() {
 			return false
 		}
 		return m.state.confirmStreamCompletion()

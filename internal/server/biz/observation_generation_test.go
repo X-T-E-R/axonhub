@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/contexts"
+	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm"
@@ -116,7 +117,7 @@ func TestObservationGenerationResolvesPendingTransportAssociations(t *testing.T)
 	}
 }
 
-func TestObservationGenerationAdmissionPreservesQuotaFailure(t *testing.T) {
+func TestObservationGenerationAdmissionIsIndependentOfInference(t *testing.T) {
 	legacy, client, base, project := setupRequestExecutionStorageTest(t)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	w := NewForwardingObservationWriter(ManagedRequestBodyWriterConfig{MaxItems: 5, MaxBytesMiB: 1})
@@ -135,10 +136,12 @@ func TestObservationGenerationAdmissionPreservesQuotaFailure(t *testing.T) {
 	key := client.APIKey.Create().SetName("limited").SetKey("synthetic-generation-quota").SetType(apikey.TypeUser).SetProjectID(project.ID).
 		SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "limited", Profiles: []objects.APIKeyProfile{{Name: "limited", Quota: quota}}}).SaveX(base)
 	blocked := NewForwardingObservationScope(parent)
-	_, err := svc.CreateRequest(contexts.WithAPIKey(blocked, key), &llm.Request{Model: "quota"}, &httpclient.Request{}, llm.APIFormatOpenAIResponse)
-	require.ErrorContains(t, err, "quota accounting observation admission unavailable")
-	_, err = svc.CreateRequest(contexts.WithAPIKey(blocked, nil), &llm.Request{Model: "no-quota"}, &httpclient.Request{}, llm.APIFormatOpenAIResponse)
-	require.ErrorContains(t, err, "accounting observation admission unavailable before upstream execution")
+	require.False(t, observationFromContext(blocked).reservedUsage)
+	for _, apiKey := range []*ent.APIKey{key, nil} {
+		req, err := svc.CreateRequest(contexts.WithAPIKey(blocked, apiKey), &llm.Request{Model: "m"}, &httpclient.Request{}, llm.APIFormatOpenAIResponse)
+		require.NoError(t, err, "a generation can forward without observation capacity")
+		require.Negative(t, req.ID)
+	}
 	EndForwardingObservation(blocked)
 	release()
 	ctx := NewForwardingObservationScope(parent)

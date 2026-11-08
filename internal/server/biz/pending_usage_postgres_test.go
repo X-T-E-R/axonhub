@@ -290,13 +290,7 @@ func TestClusterUsageRetryDoesNotRepublishAfterCommit(t *testing.T) {
 			defer release()
 			usage := &llm.Usage{PromptTokens: 17, CompletionTokens: 3, TotalTokens: 20}
 			_, err := w.usageService.CreateUsageLogFromRequest(requestCtx, parent, exec, usage)
-			if losePublicationACK {
-				var accountingErr *ExecutedAccountingError
-				require.ErrorAs(t, err, &accountingErr)
-				require.ErrorIs(t, err, context.Canceled)
-			} else {
-				require.NoError(t, err)
-			}
+			require.NoError(t, err, "submission does not wait for publication ACK")
 			cancel()
 			EndForwardingObservation(requestCtx)
 			select {
@@ -489,7 +483,7 @@ func TestClusterUsageSurvivesFailedMetadata(t *testing.T) {
 	require.JSONEq(t, `{}`, string(parent.RequestBody))
 }
 
-func TestClusterAcknowledgedUsageQueuesOnlyHandoff(t *testing.T) {
+func TestClusterUsageCaptureHonorsByteLimit(t *testing.T) {
 	a, b, base := clusterAccountingClients(t)
 	w := accountingNode(a, "a")
 	w.config.MaxBytesMiB = 1
@@ -501,13 +495,13 @@ func TestClusterAcknowledgedUsageQueuesOnlyHandoff(t *testing.T) {
 	usage := &llm.Usage{PromptTokens: 17, CompletionTokens: 3, TotalTokens: 20,
 		PromptModalityTokenDetails: []llm.ModalityTokenCount{{Modality: strings.Repeat("x", 1<<20), TokenCount: 17}}}
 	_, err := w.usageService.CreateUsageLogFromRequest(ctx, parent, exec, usage)
-	require.NoError(t, err, "the acknowledged PG fact must not be re-admitted at its serialized size")
+	require.ErrorIs(t, err, errObservationQueueUnavailable, "oversized captures are reported, not retained without a bound")
 	EndForwardingObservation(ctx)
 	drain, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, w.Wait(drain))
 	require.Zero(t, b.PendingUsage.Query().CountX(base))
-	require.EqualValues(t, 20, b.UsageLog.Query().OnlyX(base).TotalTokens)
+	require.Zero(t, b.UsageLog.Query().CountX(base))
 }
 
 func startClusterUsageTestWriter(t *testing.T, w *ForwardingObservationWriter, reader *ent.Client, ctx context.Context) {

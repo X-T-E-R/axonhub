@@ -68,6 +68,11 @@ func (s *wsObservationSelector) Select(context.Context, *llm.Request) ([]*orches
 // peer is a loopback synthetic Responses provider.
 func newWSObservationFixture(t *testing.T) *wsObservationFixture {
 	t.Helper()
+	return newWSObservationFixtureWithLimit(t, 0)
+}
+
+func newWSObservationFixtureWithLimit(t *testing.T, maxItems int) *wsObservationFixture {
+	t.Helper()
 	f := &wsObservationFixture{received: make(chan []byte, 32), started: make(chan struct{}, 4), canceled: make(chan struct{}, 4)}
 	f.client = enttest.NewEntClient(t, "sqlite3", "file:ws-observation-"+uuid.NewString()+"?mode=memory&_fk=1")
 	t.Cleanup(func() { require.NoError(t, f.client.Close()) })
@@ -86,7 +91,7 @@ func newWSObservationFixture(t *testing.T) *wsObservationFixture {
 	t.Cleanup(f.keys.Stop)
 	auth := &biz.AuthService{APIKeyService: f.keys}
 	channels, legacy, _, usage := setupSpeechAPITestServices(t, f.client)
-	f.writer = biz.NewForwardingObservationWriter(biz.ManagedRequestBodyWriterConfig{AttemptTimeout: time.Second})
+	f.writer = biz.NewForwardingObservationWriter(biz.ManagedRequestBodyWriterConfig{MaxItems: maxItems, AttemptTimeout: time.Second})
 	requests := biz.NewRequestServiceWithObservationWriter(f.client, system, usage, legacy.DataStorageService, legacy.LiveStreamRegistry, nil, f.writer)
 	require.NoError(t, f.writer.Start(f.ctx))
 	t.Cleanup(func() {
@@ -441,4 +446,38 @@ func TestResponsesWebSocketObservationChannelSwitchPerGeneration(t *testing.T) {
 	f.assertCompleted(t, f.key, 3)
 	require.Equal(t, int32(3), f.calls.Load())
 	require.Equal(t, 3, f.client.UsageLog.Query().CountX(f.ctx))
+}
+
+func TestResponsesWebSocketObservationUnavailableStillContinues(t *testing.T) {
+	for _, unavailable := range []string{"full", "stopped"} {
+		t.Run(unavailable, func(t *testing.T) {
+			f := newWSObservationFixtureWithLimit(t, 1)
+			if unavailable == "full" {
+				held := f.writer.WithScope(f.ctx)
+				t.Cleanup(func() { biz.EndForwardingObservation(held) })
+			} else {
+				require.NoError(t, f.writer.Stop(f.ctx))
+			}
+			conn := f.dial(t, f.key)
+			for _, frame := range []string{
+				`{"type":"response.create","model":"m","input":[{"role":"user","content":"first"}]}`,
+				`{"type":"response.create","model":"m","previous_response_id":"resp_1","input":[{"role":"user","content":"suffix"}]}`,
+			} {
+				require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(frame)))
+				require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
+			}
+			wsObservationBarrier(t, conn)
+			require.Equal(t, int32(2), f.calls.Load(), "one provider call per generation, without replay")
+			<-f.received
+			var resumed struct {
+				Input []json.RawMessage `json:"input"`
+			}
+			require.NoError(t, json.Unmarshal(<-f.received, &resumed))
+			require.Len(t, resumed.Input, 3)
+			require.Contains(t, string(resumed.Input[1]), "answer")
+			require.Contains(t, string(resumed.Input[2]), "suffix")
+			require.Zero(t, f.client.Request.Query().CountX(f.ctx))
+			require.Zero(t, f.client.UsageLog.Query().CountX(f.ctx))
+		})
+	}
 }

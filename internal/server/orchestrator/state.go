@@ -19,11 +19,9 @@ type PersistenceState struct {
 	APIKey *ent.APIKey
 
 	cyberSession *cyberSessionRequestState
-	// Accounting errors occur after execution; no provider retry is safe.
-	accountingFailed atomic.Bool
-	// Final usage capture must settle before semantic success can be confirmed.
-	accountingReady   atomic.Bool
-	accountingBarrier *accountingCaptureBarrier
+	// The provider reached its final usage frame or EOF. This describes the
+	// wire stream, regardless of whether usage could be submitted to the writer.
+	providerUsageFinal atomic.Bool
 
 	RequestService      *biz.RequestService
 	UsageLogService     *biz.UsageLogService
@@ -288,7 +286,7 @@ func (s *PersistenceState) resetStreamTerminalState() {
 	s.failedStreamEvidence = nil
 	s.streamCompletionConfirmed = false
 	s.semanticInterruptStarted = false
-	s.accountingReady.Store(false)
+	s.providerUsageFinal.Store(false)
 	s.deferredFailureMu.Unlock()
 }
 

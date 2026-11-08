@@ -383,15 +383,6 @@ func observationTerminalContext(ctx context.Context, capturedAt time.Time, respo
 	return withObservationResponseBodyInfo(ctx, responseInfo)
 }
 
-func observationAPIKeyHasActiveQuota(ctx context.Context) bool {
-	apiKey, ok := observationAPIKey(ctx)
-	if !ok || apiKey == nil {
-		return false
-	}
-	profile := apiKey.GetActiveProfile()
-	return profile != nil && profile.Quota != nil
-}
-
 func observationStableLastChannelCacheKey(ctx context.Context) string {
 	projectID, projectOK := observationProjectID(ctx)
 	trace, traceOK := observationTrace(ctx)
@@ -740,15 +731,6 @@ func (s *RequestService) CreateRequest(
 	scope := observationFromContext(ctx)
 	if scope == nil {
 		return s.createRequest(ctx, llmRequest, httpRequest, format)
-	}
-	// This is before provider dispatch. Optional history may degrade, but an
-	// executed fact must already have a bounded recovery owner even if its first
-	// durable publication fails. Never discover missing capacity after execution.
-	if !scope.hasAccountingAdmission() {
-		if observationAPIKeyHasActiveQuota(ctx) {
-			return nil, errors.New("quota accounting observation admission unavailable")
-		}
-		return nil, errors.New("accounting observation admission unavailable before upstream execution")
 	}
 	taskIdentity := llmRequest != nil && llmRequest.RequestType == llm.RequestTypeVideo
 	if taskIdentity && !scope.admitTaskIdentity() {

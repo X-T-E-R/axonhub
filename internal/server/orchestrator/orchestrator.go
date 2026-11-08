@@ -278,10 +278,9 @@ func (processor *ChatCompletionOrchestrator) process(
 		))
 	}
 	commitObserver, hasCommitObserver := streamLivenessObserver.(downstreamCommitObserver)
-	// All protocols must stop business retries after an accounting failure.
 	pipelineOpts = append(pipelineOpts, pipeline.WithRetryAllowed(func() bool {
-		// Native WS also has no exactly-once/retrieve contract.
-		if state.accountingFailed.Load() || shared.NativeResponsesWebSocket(ctx) || (hasCommitObserver && commitObserver.IsDownstreamCommitted()) {
+		// Native WS has no exactly-once/retrieve contract.
+		if shared.NativeResponsesWebSocket(ctx) || (hasCommitObserver && commitObserver.IsDownstreamCommitted()) {
 			return false
 		}
 		return cyberSessionState == nil || !cyberSessionState.retryBlocked(ctx)
