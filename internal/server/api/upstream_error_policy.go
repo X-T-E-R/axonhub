@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tidwall/gjson"
-
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/llm"
@@ -143,9 +141,9 @@ func (s *upstreamErrorStream) Close() error {
 }
 
 func upstreamErrorTypeFromHTTP(httpErr *httpclient.Error) string {
-	if httpErr != nil && len(httpErr.Body) > 0 {
-		if t := gjson.GetBytes(httpErr.Body, "error.type"); t.Exists() && t.Type == gjson.String && t.String() != "" {
-			return t.String()
+	if httpErr != nil {
+		if detail, ok := llm.ExtractUpstreamErrorDetail(httpErr.Body, httpErr.Headers); ok && detail.Type != "" {
+			return detail.Type
 		}
 	}
 
@@ -153,9 +151,9 @@ func upstreamErrorTypeFromHTTP(httpErr *httpclient.Error) string {
 }
 
 func upstreamErrorCodeFromHTTP(httpErr *httpclient.Error) string {
-	if httpErr != nil && len(httpErr.Body) > 0 {
-		if c := gjson.GetBytes(httpErr.Body, "error.code"); c.Exists() && c.Type == gjson.String && c.String() != "" {
-			return c.String()
+	if httpErr != nil {
+		if detail, ok := llm.ExtractUpstreamErrorDetail(httpErr.Body, httpErr.Headers); ok && detail.Code != "" {
+			return detail.Code
 		}
 	}
 
@@ -163,10 +161,11 @@ func upstreamErrorCodeFromHTTP(httpErr *httpclient.Error) string {
 }
 
 func upstreamRequestIDFromHTTP(httpErr *httpclient.Error) string {
-	if httpErr != nil && len(httpErr.Body) > 0 {
-		if rid := gjson.GetBytes(httpErr.Body, "request_id"); rid.Exists() && rid.Type == gjson.String && rid.String() != "" {
-			return rid.String()
+	if httpErr != nil {
+		if detail, ok := llm.ExtractUpstreamErrorDetail(httpErr.Body, httpErr.Headers); ok && detail.RequestID != "" {
+			return detail.RequestID
 		}
+		return llm.ExtractRequestIDFromHeaders(httpErr.Headers)
 	}
 
 	return ""

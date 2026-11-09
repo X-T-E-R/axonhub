@@ -668,7 +668,10 @@ func (s *sseLivenessSession) awaitProcess(
 
 func (s *sseLivenessSession) writeError(c *gin.Context, httpErr *httpclient.Error) error {
 	event := "error"
-	var value any = json.RawMessage(httpErr.Body)
+	var value any = FormatStreamError(s.ctx, httpErr)
+	if httpErr != nil && len(httpErr.Body) > 0 && json.Valid(httpErr.Body) {
+		value = json.RawMessage(httpErr.Body)
+	}
 	if retryAfter := httpclient.RetryAfterHeader(httpErr.Headers); s.responsesAPI && retryAfter != "" {
 		var body struct {
 			Error map[string]json.RawMessage `json:"error"`

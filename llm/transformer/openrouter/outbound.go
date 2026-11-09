@@ -509,19 +509,19 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 	var openaiError openRouterError
 
 	err := json.Unmarshal(rawErr.Body, &openaiError)
-	if err == nil {
-		return &llm.ResponseError{
+	if err == nil && openaiError.Error.Message != "" {
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail:     openaiError.ToLLMError(),
-		}
+		}, rawErr, t.APIFormat())
 	}
 
 	// If JSON parsing fails, use the upstream status text
-	return &llm.ResponseError{
+	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: rawErr.StatusCode,
 		Detail: llm.ErrorDetail{
 			Message: http.StatusText(rawErr.StatusCode),
 			Type:    "api_error",
 		},
-	}
+	}, rawErr, t.APIFormat())
 }

@@ -731,6 +731,43 @@ func TestInboundTransformer_TransformError(t *testing.T) {
 			},
 		},
 		{
+			name: "same protocol openai error preserves raw body and unknown fields",
+			err: &llm.ResponseError{
+				StatusCode: http.StatusBadRequest,
+				APIFormat:  llm.APIFormatOpenAIChatCompletion,
+				HTTPError: &httpclient.Error{
+					StatusCode: http.StatusBadRequest,
+					Body:       []byte(`{"error":{"message":"Invalid value","type":"invalid_request_error","code":"invalid_value","param":"tools","custom_detail":{"hint":"check schema"}},"trace_id":"tr_oai_1"}`),
+				},
+			},
+			expectedError: &httpclient.Error{
+				StatusCode: http.StatusBadRequest,
+				Body:       []byte(`{"error":{"message":"Invalid value","type":"invalid_request_error","code":"invalid_value","param":"tools","custom_detail":{"hint":"check schema"}},"trace_id":"tr_oai_1"}`),
+			},
+		},
+		{
+			name: "cross protocol anthropic error converts to openai envelope without leaking anthropic raw envelope",
+			err: &llm.ResponseError{
+				StatusCode: http.StatusBadRequest,
+				APIFormat:  llm.APIFormatAnthropicMessage,
+				Detail: llm.ErrorDetail{
+					Message:   "messages.1: invalid content",
+					Type:      "invalid_request_error",
+					Code:      "invalid_content",
+					RequestID: "req_anth_77",
+					Details:   json.RawMessage(`[{"index":1}]`),
+				},
+				HTTPError: &httpclient.Error{
+					StatusCode: http.StatusBadRequest,
+					Body:       []byte(`{"type":"error","error":{"type":"invalid_request_error","code":"invalid_content","message":"messages.1: invalid content","details":[{"index":1}]},"request_id":"req_anth_77"}`),
+				},
+			},
+			expectedError: &httpclient.Error{
+				StatusCode: http.StatusBadRequest,
+				Body:       []byte(`{"error":{"code":"invalid_content","message":"messages.1: invalid content","type":"invalid_request_error","request_id":"req_anth_77","details":[{"index":1}]}}`),
+			},
+		},
+		{
 			name: "nil error",
 			err:  nil,
 			expectedError: &httpclient.Error{

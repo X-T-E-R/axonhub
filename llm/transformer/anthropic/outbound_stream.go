@@ -556,13 +556,25 @@ func parseAnthropicStreamErrorEvent(event *httpclient.StreamEvent) *llm.Response
 		detail.RequestID = rid
 	} else if rid := errObj.Get("request_id").String(); rid != "" {
 		detail.RequestID = rid
+	} else if rid := candidate.Get("trace_id").String(); rid != "" {
+		detail.RequestID = rid
+	} else if rid := errObj.Get("trace_id").String(); rid != "" {
+		detail.RequestID = rid
+	}
+	if detailsNode := errObj.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
+		detail.Details = json.RawMessage(detailsNode.Raw)
+	} else if detailsNode := candidate.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
+		detail.Details = json.RawMessage(detailsNode.Raw)
 	}
 
 	if detail.Type == "" && candidate.Get("type").String() == "error" {
 		detail.Type = "stream_error"
 	}
 
-	return &llm.ResponseError{Detail: detail}
+	return &llm.ResponseError{
+		Detail:    detail,
+		APIFormat: llm.APIFormatAnthropicMessage,
+	}
 }
 
 func (s *outboundStream) Current() *llm.Response {

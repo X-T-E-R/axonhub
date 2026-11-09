@@ -140,13 +140,7 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 			_ = liveness.writeError(c, httpErr)
 			liveness.finish(sseCloseUpstreamError)
 		} else {
-			if inbound, ok := handlers.ChatCompletionOrchestrator.Inbound.(interface{ APIFormat() llm.APIFormat }); ok && llm.IsDecisionAPIFormat(inbound.APIFormat()) {
-				copyProviderResponseHeaders(c.Writer.Header(), httpErr.Headers, false)
-			}
-			if value := httpclient.RetryAfterHeader(httpErr.Headers); value != "" {
-				c.Header("Retry-After", value)
-			}
-			c.JSON(httpErr.StatusCode, json.RawMessage(httpErr.Body))
+			writeHTTPErrorResponse(c, httpErr)
 			if liveness != nil {
 				liveness.finish(sseCloseUpstreamError)
 			}
@@ -917,6 +911,44 @@ func streamErrorStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
+func writeHTTPErrorResponse(c *gin.Context, httpErr *httpclient.Error) {
+	if httpErr == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{
+				"message": http.StatusText(http.StatusInternalServerError),
+				"type":    "internal_server_error",
+			},
+		})
+		return
+	}
+
+	copyProviderResponseHeaders(c.Writer.Header(), httpErr.Headers, false)
+	if value := httpclient.RetryAfterHeader(httpErr.Headers); value != "" {
+		c.Header("Retry-After", value)
+	}
+
+	statusCode := httpErr.StatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusInternalServerError
+	}
+
+	if len(httpErr.Body) > 0 && json.Valid(httpErr.Body) {
+		c.JSON(statusCode, json.RawMessage(httpErr.Body))
+		return
+	}
+
+	msg := strings.TrimSpace(string(httpErr.Body))
+	if msg == "" {
+		msg = http.StatusText(statusCode)
+	}
+	c.JSON(statusCode, gin.H{
+		"error": gin.H{
+			"message": msg,
+			"type":    "api_error",
+		},
+	})
+}
+
 // FormatStreamError formats a stream error into an OpenAI-compatible JSON error object.
 func FormatStreamError(_ context.Context, err error) any {
 	errType := "server_error"
@@ -936,6 +968,36 @@ func FormatStreamError(_ context.Context, err error) any {
 
 	var respErr *llm.ResponseError
 	if errors.As(err, &respErr) {
+		if respErr.HTTPError != nil && llm.IsStructuredJSONErrorBody(respErr.HTTPError.Body) {
+			var raw map[string]any
+			if json.Unmarshal(respErr.HTTPError.Body, &raw) == nil && len(raw) > 0 {
+				if errObj, ok := raw["error"].(map[string]any); ok {
+					if _, hasMsg := errObj["message"]; !hasMsg && respErr.Detail.Message != "" {
+						errObj["message"] = respErr.Detail.Message
+					}
+					if _, hasType := errObj["type"]; !hasType {
+						if respErr.Detail.Type != "" {
+							errObj["type"] = respErr.Detail.Type
+						} else {
+							errObj["type"] = errType
+						}
+					}
+					if _, hasCode := errObj["code"]; !hasCode {
+						errObj["code"] = respErr.Detail.Code
+					}
+					if len(respErr.Detail.Details) > 0 {
+						if _, hasDetails := errObj["details"]; !hasDetails {
+							errObj["details"] = respErr.Detail.Details
+						}
+					}
+				}
+				if _, hasReqID := raw["request_id"]; !hasReqID && respErr.Detail.RequestID != "" {
+					raw["request_id"] = respErr.Detail.RequestID
+				}
+				return raw
+			}
+		}
+
 		if respErr.Detail.Type != "" {
 			errType = respErr.Detail.Type
 		}
@@ -943,18 +1005,41 @@ func FormatStreamError(_ context.Context, err error) any {
 		errCode = respErr.Detail.Code
 		requestID = respErr.Detail.RequestID
 
+		errMap := gin.H{
+			"message": respErr.Detail.Message,
+			"type":    errType,
+			"code":    errCode,
+		}
+		if respErr.Detail.Param != "" {
+			errMap["param"] = respErr.Detail.Param
+		}
+		if len(respErr.Detail.Details) > 0 {
+			errMap["details"] = respErr.Detail.Details
+		}
+
 		return gin.H{
-			"error": gin.H{
-				"message": respErr.Detail.Message,
-				"type":    errType,
-				"code":    errCode,
-			},
+			"error":      errMap,
 			"request_id": requestID,
 		}
 	}
 
 	var httpErr *httpclient.Error
 	if errors.As(err, &httpErr) && len(httpErr.Body) > 0 {
+		if llm.IsStructuredJSONErrorBody(httpErr.Body) {
+			var raw map[string]any
+			if json.Unmarshal(httpErr.Body, &raw) == nil && len(raw) > 0 {
+				if errObj, ok := raw["error"].(map[string]any); ok {
+					if _, hasType := errObj["type"]; !hasType {
+						errObj["type"] = errType
+					}
+					if _, hasCode := errObj["code"]; !hasCode {
+						errObj["code"] = errCode
+					}
+				}
+				return raw
+			}
+		}
+
 		if t := gjson.GetBytes(httpErr.Body, "error.type"); t.Exists() && t.Type == gjson.String && t.String() != "" {
 			errType = t.String()
 		}

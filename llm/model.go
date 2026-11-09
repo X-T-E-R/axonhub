@@ -870,6 +870,8 @@ type ResponseError struct {
 	RetryAfter string `json:"-"`
 	// HTTPError retains native upstream envelopes when a transformer promises raw errors.
 	HTTPError *httpclient.Error `json:"-"`
+	// APIFormat records the upstream protocol format that produced this error.
+	APIFormat APIFormat `json:"-"`
 }
 
 func (e ResponseError) Unwrap() error {
@@ -910,11 +912,12 @@ func (e ResponseError) Error() string {
 
 // ErrorDetail represents error details.
 type ErrorDetail struct {
-	Code      string `json:"code,omitempty"`
-	Message   string `json:"message"`
-	Type      string `json:"type"`
-	Param     string `json:"param,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
+	Code      string          `json:"code,omitempty"`
+	Message   string          `json:"message"`
+	Type      string          `json:"type"`
+	Param     string          `json:"param,omitempty"`
+	RequestID string          `json:"request_id,omitempty"`
+	Details   json.RawMessage `json:"details,omitempty"`
 }
 
 // ModalityTokenCount Represents token counting info for a single modality.

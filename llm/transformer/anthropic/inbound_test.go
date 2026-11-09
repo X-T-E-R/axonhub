@@ -2038,6 +2038,49 @@ func TestInboundTransformer_TransformError(t *testing.T) {
 			},
 		},
 		{
+			name: "same protocol anthropic upstream error preserves raw body and unknown fields",
+			llmErr: &llm.ResponseError{
+				StatusCode: http.StatusBadRequest,
+				APIFormat:  llm.APIFormatAnthropicMessage,
+				RetryAfter: "12",
+				HTTPError: &httpclient.Error{
+					StatusCode: http.StatusBadRequest,
+					Status:     "400 Bad Request",
+					Headers:    http.Header{"Request-Id": {"req_upstream_hdr"}, "Set-Cookie": {"secret=1"}},
+					Body:       []byte(`{"type":"error","error":{"type":"invalid_request_error","code":"invalid_schema","message":"schema rejected","unknown_nested":{"k":"v"}},"request_id":"req_body_1","provider_trace":"tr_9"}`),
+				},
+			},
+			expected: &httpclient.Error{
+				StatusCode: http.StatusBadRequest,
+				Status:     "400 Bad Request",
+				Body:       []byte(`{"type":"error","error":{"type":"invalid_request_error","code":"invalid_schema","message":"schema rejected","unknown_nested":{"k":"v"}},"request_id":"req_body_1","provider_trace":"tr_9"}`),
+			},
+		},
+		{
+			name: "cross protocol error preserves code param details and request_id",
+			llmErr: &llm.ResponseError{
+				StatusCode: http.StatusBadRequest,
+				APIFormat:  llm.APIFormatOpenAIChatCompletion,
+				Detail: llm.ErrorDetail{
+					Message:   "invalid parameter",
+					Type:      "invalid_request_error",
+					Code:      "invalid_param",
+					Param:     "temperature",
+					RequestID: "req_oai_1",
+					Details:   json.RawMessage(`[{"reason":"OUT_OF_RANGE"}]`),
+				},
+				HTTPError: &httpclient.Error{
+					StatusCode: http.StatusBadRequest,
+					Body:       []byte(`{"error":{"message":"invalid parameter","type":"invalid_request_error","code":"invalid_param","param":"temperature","details":[{"reason":"OUT_OF_RANGE"}]}}`),
+				},
+			},
+			expected: &httpclient.Error{
+				StatusCode: http.StatusBadRequest,
+				Status:     "Bad Request",
+				Body:       []byte(`{"type":"invalid_request_error","error":{"type":"invalid_request_error","message":"invalid parameter","code":"invalid_param","param":"temperature","details":[{"reason":"OUT_OF_RANGE"}]},"request_id":"req_oai_1"}`),
+			},
+		},
+		{
 			name:   "nil error",
 			llmErr: nil,
 			expected: &httpclient.Error{

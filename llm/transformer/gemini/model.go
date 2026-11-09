@@ -480,9 +480,10 @@ type GeminiError struct {
 
 // ErrorDetail contains error details.
 type ErrorDetail struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Status  string `json:"status"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Status  string          `json:"status"`
+	Details json.RawMessage `json:"details,omitempty"`
 }
 
 // GroundingMetadata is the metadata returned to client when grounding is enabled.

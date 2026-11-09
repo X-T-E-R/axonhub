@@ -190,10 +190,6 @@ func (t *TextTransformer) TransformError(ctx context.Context, rawErr error) *htt
 		}
 	}
 
-	if httpErr, ok := errors.AsType[*httpclient.Error](rawErr); ok {
-		return httpErr
-	}
-
 	// Handle validation errors
 	if errors.Is(rawErr, transformer.ErrInvalidRequest) {
 		return &httpclient.Error{
@@ -207,8 +203,13 @@ func (t *TextTransformer) TransformError(ctx context.Context, rawErr error) *htt
 		return &httpclient.Error{
 			StatusCode: llmErr.StatusCode,
 			Status:     http.StatusText(llmErr.StatusCode),
+			Headers:    llm.ErrorHeadersFromResponseError(llmErr),
 			Body:       fmt.Appendf(nil, `{"message":"%s","type":"%s"}`, llmErr.Detail.Message, llmErr.Detail.Type),
 		}
+	}
+
+	if httpErr, ok := errors.AsType[*httpclient.Error](rawErr); ok {
+		return httpErr
 	}
 
 	return &httpclient.Error{

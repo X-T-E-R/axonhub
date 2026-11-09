@@ -1291,6 +1291,7 @@ func (s *responsesOutboundStream) transformStreamChunk(event *httpclient.StreamE
 
 	case StreamEventTypeError:
 		return &llm.ResponseError{
+			APIFormat: llm.APIFormatOpenAIResponse,
 			Detail: llm.ErrorDetail{
 				Code:    streamEvent.Code,
 				Message: streamEvent.Message,

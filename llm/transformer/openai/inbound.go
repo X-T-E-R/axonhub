@@ -612,10 +612,6 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 		}
 	}
 
-	if httpErr, ok := errors.AsType[*httpclient.Error](rawErr); ok {
-		return httpErr
-	}
-
 	// Handle validation errors
 	if errors.Is(rawErr, transformer.ErrInvalidRequest) {
 		return &httpclient.Error{
@@ -626,10 +622,45 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 	}
 
 	if llmErr, ok := errors.AsType[*llm.ResponseError](rawErr); ok {
+		if raw := llm.RawErrorForInbound(llm.APIFormatOpenAIChatCompletion, llmErr); raw != nil {
+			return raw
+		}
+
+		detail := llmErr.Detail
+		if detail.Message == "" && llmErr.StatusCode != 0 {
+			detail.Message = http.StatusText(llmErr.StatusCode)
+		}
+		if detail.Type == "" {
+			detail.Type = "api_error"
+		}
+
 		return &httpclient.Error{
 			StatusCode: llmErr.StatusCode,
 			Status:     http.StatusText(llmErr.StatusCode),
-			Body:       xjson.MustMarshal(&OpenAIError{Detail: llmErr.Detail}),
+			Body:       xjson.MustMarshal(&OpenAIError{Detail: detail}),
+			Headers:    llm.ErrorHeadersFromResponseError(llmErr),
+		}
+	}
+
+	if httpErr, ok := errors.AsType[*httpclient.Error](rawErr); ok {
+		if llm.IsStructuredJSONErrorBody(httpErr.Body) {
+			return httpErr
+		}
+
+		msg := strings.TrimSpace(string(httpErr.Body))
+		if msg == "" {
+			msg = http.StatusText(httpErr.StatusCode)
+		}
+
+		return &httpclient.Error{
+			StatusCode: httpErr.StatusCode,
+			Status:     httpErr.Status,
+			Headers:    httpErr.Headers,
+			Body: xjson.MustMarshal(&OpenAIError{Detail: llm.ErrorDetail{
+				Message:   msg,
+				Type:      "api_error",
+				RequestID: llm.ExtractRequestIDFromHeaders(httpErr.Headers),
+			}}),
 		}
 	}
 

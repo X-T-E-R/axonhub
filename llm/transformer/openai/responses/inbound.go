@@ -92,9 +92,12 @@ type ResponseError struct {
 }
 
 type ResponseErrorDetail struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Code    string `json:"code,omitempty"`
+	Message   string          `json:"message"`
+	Type      string          `json:"type"`
+	Code      string          `json:"code,omitempty"`
+	Param     string          `json:"param,omitempty"`
+	RequestID string          `json:"request_id,omitempty"`
+	Details   json.RawMessage `json:"details,omitempty"`
 }
 
 // TransformError transforms LLM error response to HTTP error response in Responses API format.
@@ -115,31 +118,6 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 		}
 	}
 
-	if llmErr, ok := errors.AsType[*llm.ResponseError](rawErr); ok {
-		errResp := ResponseError{
-			Error: ResponseErrorDetail{
-				Message: llmErr.Detail.Message,
-				Type:    llmErr.Detail.Type,
-				Code:    llmErr.Detail.Code,
-			},
-		}
-
-		var headers http.Header
-		if value := httpclient.RetryAfterHeader(http.Header{"Retry-After": {llmErr.RetryAfter}}); value != "" {
-			headers = http.Header{"Retry-After": {value}}
-		}
-		return &httpclient.Error{
-			StatusCode: llmErr.StatusCode,
-			Status:     http.StatusText(llmErr.StatusCode),
-			Body:       xjson.MustMarshal(&errResp),
-			Headers:    headers,
-		}
-	}
-
-	if httpErr, ok := errors.AsType[*httpclient.Error](rawErr); ok {
-		return httpErr
-	}
-
 	// Handle validation errors
 	if errors.Is(rawErr, transformer.ErrInvalidRequest) {
 		errResp := ResponseError{
@@ -152,6 +130,65 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 		return &httpclient.Error{
 			StatusCode: http.StatusBadRequest,
 			Status:     http.StatusText(http.StatusBadRequest),
+			Body:       xjson.MustMarshal(&errResp),
+		}
+	}
+
+	if llmErr, ok := errors.AsType[*llm.ResponseError](rawErr); ok {
+		if raw := llm.RawErrorForInbound(llm.APIFormatOpenAIResponse, llmErr); raw != nil {
+			return raw
+		}
+
+		errType := llmErr.Detail.Type
+		if errType == "" {
+			errType = "api_error"
+		}
+		msg := llmErr.Detail.Message
+		if msg == "" && llmErr.StatusCode != 0 {
+			msg = http.StatusText(llmErr.StatusCode)
+		}
+
+		errResp := ResponseError{
+			Error: ResponseErrorDetail{
+				Message:   msg,
+				Type:      errType,
+				Code:      llmErr.Detail.Code,
+				Param:     llmErr.Detail.Param,
+				RequestID: llmErr.Detail.RequestID,
+				Details:   llmErr.Detail.Details,
+			},
+		}
+
+		return &httpclient.Error{
+			StatusCode: llmErr.StatusCode,
+			Status:     http.StatusText(llmErr.StatusCode),
+			Body:       xjson.MustMarshal(&errResp),
+			Headers:    llm.ErrorHeadersFromResponseError(llmErr),
+		}
+	}
+
+	if httpErr, ok := errors.AsType[*httpclient.Error](rawErr); ok {
+		if llm.IsStructuredJSONErrorBody(httpErr.Body) {
+			return httpErr
+		}
+
+		msg := strings.TrimSpace(string(httpErr.Body))
+		if msg == "" {
+			msg = http.StatusText(httpErr.StatusCode)
+		}
+
+		errResp := ResponseError{
+			Error: ResponseErrorDetail{
+				Message:   msg,
+				Type:      "api_error",
+				RequestID: llm.ExtractRequestIDFromHeaders(httpErr.Headers),
+			},
+		}
+
+		return &httpclient.Error{
+			StatusCode: httpErr.StatusCode,
+			Status:     httpErr.Status,
+			Headers:    httpErr.Headers,
 			Body:       xjson.MustMarshal(&errResp),
 		}
 	}

@@ -85,7 +85,7 @@ func (h *DoubaoHandlers) CreateTask(c *gin.Context) {
 		log.Error(ctx, "Error processing doubao create", log.Cause(err))
 
 		httpErr := transformOrchestratorError(ctx, err, h.CreateOrchestrator)
-		c.JSON(httpErr.StatusCode, json.RawMessage(httpErr.Body))
+		writeHTTPErrorResponse(c, httpErr)
 		return
 	}
 

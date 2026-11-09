@@ -141,26 +141,6 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 		}
 	}
 
-	llmErr := &llm.ResponseError{}
-	if errors.As(rawErr, &llmErr) {
-		return &httpclient.Error{
-			StatusCode: llmErr.StatusCode,
-			Status:     http.StatusText(llmErr.StatusCode),
-			Body: xjson.MustMarshal(&GeminiError{
-				Error: ErrorDetail{
-					Code:    llmErr.StatusCode,
-					Message: llmErr.Detail.Message,
-					Status:  mapHTTPStatusToGeminiStatus(llmErr.StatusCode),
-				},
-			}),
-		}
-	}
-
-	httpErr := &httpclient.Error{}
-	if errors.As(rawErr, &httpErr) {
-		return httpErr
-	}
-
 	// Handle validation errors
 	if errors.Is(rawErr, transformer.ErrInvalidRequest) || errors.Is(rawErr, transformer.ErrInvalidModel) {
 		return &httpclient.Error{
@@ -171,6 +151,63 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 					Code:    http.StatusBadRequest,
 					Message: rawErr.Error(),
 					Status:  mapHTTPStatusToGeminiStatus(http.StatusBadRequest),
+				},
+			}),
+		}
+	}
+
+	llmErr := &llm.ResponseError{}
+	if errors.As(rawErr, &llmErr) {
+		if raw := llm.RawErrorForInbound(llm.APIFormatGeminiContents, llmErr); raw != nil {
+			return raw
+		}
+
+		status := mapHTTPStatusToGeminiStatus(llmErr.StatusCode)
+		if isGeminiCanonicalStatus(llmErr.Detail.Type) {
+			status = llmErr.Detail.Type
+		} else if isGeminiCanonicalStatus(llmErr.Detail.Code) {
+			status = llmErr.Detail.Code
+		}
+		msg := llmErr.Detail.Message
+		if msg == "" && llmErr.StatusCode != 0 {
+			msg = http.StatusText(llmErr.StatusCode)
+		}
+
+		return &httpclient.Error{
+			StatusCode: llmErr.StatusCode,
+			Status:     http.StatusText(llmErr.StatusCode),
+			Headers:    llm.ErrorHeadersFromResponseError(llmErr),
+			Body: xjson.MustMarshal(&GeminiError{
+				Error: ErrorDetail{
+					Code:    llmErr.StatusCode,
+					Message: msg,
+					Status:  status,
+					Details: llmErr.Detail.Details,
+				},
+			}),
+		}
+	}
+
+	httpErr := &httpclient.Error{}
+	if errors.As(rawErr, &httpErr) {
+		if llm.IsStructuredJSONErrorBody(httpErr.Body) {
+			return httpErr
+		}
+
+		msg := strings.TrimSpace(string(httpErr.Body))
+		if msg == "" {
+			msg = http.StatusText(httpErr.StatusCode)
+		}
+
+		return &httpclient.Error{
+			StatusCode: httpErr.StatusCode,
+			Status:     httpErr.Status,
+			Headers:    httpErr.Headers,
+			Body: xjson.MustMarshal(&GeminiError{
+				Error: ErrorDetail{
+					Code:    httpErr.StatusCode,
+					Message: msg,
+					Status:  mapHTTPStatusToGeminiStatus(httpErr.StatusCode),
 				},
 			}),
 		}
@@ -187,6 +224,19 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 			},
 		}),
 	}
+}
+
+func isGeminiCanonicalStatus(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if (ch < 'A' || ch > 'Z') && ch != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // mapHTTPStatusToGeminiStatus maps HTTP status codes to Gemini status strings.

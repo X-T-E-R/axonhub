@@ -235,7 +235,7 @@ func (t *CompletionOutboundTransformer) TransformError(
 	ctx context.Context,
 	rawErr *httpclient.Error,
 ) *llm.ResponseError {
-	return TransformOpenAIError(ctx, rawErr)
+	return transformOpenAIErrorWithFormat(ctx, rawErr, t.APIFormat())
 }
 
 var _ transformer.Outbound = (*CompletionOutboundTransformer)(nil)

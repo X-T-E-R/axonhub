@@ -499,13 +499,13 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, err *httpclien
 		return nil
 	}
 
-	return &llm.ResponseError{
+	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: err.StatusCode,
 		Detail: llm.ErrorDetail{
 			Message: string(err.Body),
 			Type:    "ollama_error",
 		},
-	}
+	}, err, t.APIFormat())
 }
 
 func (t *OutboundTransformer) AggregateStreamChunks(ctx context.Context, _ *httpclient.Request, chunks []*httpclient.StreamEvent) ([]byte, llm.ResponseMeta, error) {

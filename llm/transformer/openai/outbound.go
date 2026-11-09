@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/spf13/cast"
 	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/llm"
@@ -461,9 +460,21 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 			detail.RequestID = rid
 		} else if rid := errObj.Get("request_id").String(); rid != "" {
 			detail.RequestID = rid
+		} else if rid := root.Get("trace_id").String(); rid != "" {
+			detail.RequestID = rid
+		} else if rid := errObj.Get("trace_id").String(); rid != "" {
+			detail.RequestID = rid
+		}
+		if detailsNode := errObj.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
+			detail.Details = json.RawMessage(detailsNode.Raw)
+		} else if detailsNode := root.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
+			detail.Details = json.RawMessage(detailsNode.Raw)
 		}
 
-		return &llm.ResponseError{Detail: detail}
+		return &llm.ResponseError{
+			Detail:    detail,
+			APIFormat: llm.APIFormatOpenAIChatCompletion,
+		}
 	}
 
 	// OpenAI-style: {"error":{...}} or {"error":"..."}
@@ -490,9 +501,21 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 		detail.RequestID = rid
 	} else if rid := ep.Get("request_id").String(); rid != "" {
 		detail.RequestID = rid
+	} else if rid := root.Get("trace_id").String(); rid != "" {
+		detail.RequestID = rid
+	} else if rid := ep.Get("trace_id").String(); rid != "" {
+		detail.RequestID = rid
+	}
+	if detailsNode := ep.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
+		detail.Details = json.RawMessage(detailsNode.Raw)
+	} else if detailsNode := root.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
+		detail.Details = json.RawMessage(detailsNode.Raw)
 	}
 
-	return &llm.ResponseError{Detail: detail}
+	return &llm.ResponseError{
+		Detail:    detail,
+		APIFormat: llm.APIFormatOpenAIChatCompletion,
+	}
 }
 
 // buildFullRequestURL constructs the appropriate URL based on the platform.
@@ -558,61 +581,5 @@ func (t *OutboundTransformer) AggregateStreamChunks(
 
 // TransformError transforms HTTP error response to unified error response.
 func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpclient.Error) *llm.ResponseError {
-	if rawErr == nil {
-		return &llm.ResponseError{
-			StatusCode: http.StatusInternalServerError,
-			Detail: llm.ErrorDetail{
-				Message: http.StatusText(http.StatusInternalServerError),
-				Type:    "api_error",
-			},
-		}
-	}
-
-	// Try to parse as OpenAI error format first
-	// Use flexible types for code field to handle both string and number formats
-	// (e.g., NVIDIA returns {"error":{"code":400}} while OpenAI returns {"error":{"code":"invalid_model"}})
-	var openaiError struct {
-		Error struct {
-			Message   string `json:"message"`
-			Type      string `json:"type"`
-			Param     string `json:"param,omitempty"`
-			Code      any    `json:"code"` // Accept both string and number
-			RequestID string `json:"request_id,omitempty"`
-		} `json:"error"`
-		Errors struct {
-			Message   string `json:"message"`
-			Type      string `json:"type"`
-			Param     string `json:"param,omitempty"`
-			Code      any    `json:"code"` // Accept both string and number
-			RequestID string `json:"request_id,omitempty"`
-		} `json:"errors"`
-	}
-
-	err := json.Unmarshal(rawErr.Body, &openaiError)
-	if err == nil && (openaiError.Error.Message != "" || openaiError.Errors.Message != "") {
-		errDetail := openaiError.Error
-		if errDetail.Message == "" {
-			errDetail = openaiError.Errors
-		}
-
-		return &llm.ResponseError{
-			StatusCode: rawErr.StatusCode,
-			Detail: llm.ErrorDetail{
-				Message:   errDetail.Message,
-				Type:      errDetail.Type,
-				Param:     errDetail.Param,
-				Code:      cast.ToString(errDetail.Code),
-				RequestID: errDetail.RequestID,
-			},
-		}
-	}
-
-	// If JSON parsing fails, use the upstream status text
-	return &llm.ResponseError{
-		StatusCode: rawErr.StatusCode,
-		Detail: llm.ErrorDetail{
-			Message: http.StatusText(rawErr.StatusCode),
-			Type:    "api_error",
-		},
-	}
+	return transformOpenAIErrorWithFormat(ctx, rawErr, t.APIFormat())
 }

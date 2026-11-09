@@ -460,9 +460,10 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 	}
 
 	type geminiOpenAIErrorDetail struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-		Status  string `json:"status"`
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Status  string          `json:"status"`
+		Details json.RawMessage `json:"details,omitempty"`
 	}
 
 	type geminiOpenAIErrorEnvelope struct {
@@ -476,14 +477,18 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 			detailType = "api_error"
 		}
 
-		return &llm.ResponseError{
+		// Gemini's OpenAI-compatible endpoint returns Gemini-shaped [{"error":{"code":400,"status":"..."}}]
+		// envelopes rather than standard OpenAI {"error":{"type":"...","code":"..."}} objects, so mark
+		// APIFormatGeminiContents to avoid passing a raw array/int-code envelope to OpenAI clients verbatim.
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail: llm.ErrorDetail{
 				Code:    strconv.Itoa(arr[0].Error.Code),
 				Message: arr[0].Error.Message,
 				Type:    detailType,
+				Details: arr[0].Error.Details,
 			},
-		}
+		}, rawErr, llm.APIFormatGeminiContents)
 	}
 
 	var obj geminiOpenAIErrorEnvelope
@@ -493,24 +498,30 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 			detailType = "api_error"
 		}
 
-		return &llm.ResponseError{
+		format := t.APIFormat()
+		if obj.Error.Status != "" {
+			format = llm.APIFormatGeminiContents
+		}
+
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail: llm.ErrorDetail{
 				Code:    strconv.Itoa(obj.Error.Code),
 				Message: obj.Error.Message,
 				Type:    detailType,
+				Details: obj.Error.Details,
 			},
-		}
+		}, rawErr, format)
 	}
 
 	if len(rawErr.Body) > 0 {
-		return &llm.ResponseError{
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail: llm.ErrorDetail{
 				Message: string(rawErr.Body),
 				Type:    "api_error",
 			},
-		}
+		}, rawErr, t.APIFormat())
 	}
 
 	return t.Outbound.TransformError(ctx, rawErr)

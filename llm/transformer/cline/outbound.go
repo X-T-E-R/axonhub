@@ -134,7 +134,7 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 		return clineResponseError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
-	return parseClineError(rawErr.StatusCode, rawErr.Body)
+	return llm.EnrichResponseError(parseClineError(rawErr.StatusCode, rawErr.Body), rawErr, t.APIFormat())
 }
 
 func clineChunkTransform(ctx context.Context, chunk *httpclient.StreamEvent) (*openai.Response, error) {

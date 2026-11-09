@@ -151,6 +151,10 @@ func (t *RerankInboundTransformer) TransformError(
 	// Try to extract ResponseError if possible
 	var respErr *llm.ResponseError
 	if errors.As(err, &respErr) {
+		if raw := llm.RawErrorForInbound(llm.APIFormatJinaRerank, respErr); raw != nil {
+			return raw
+		}
+
 		// Build error response body
 		errorBody := map[string]any{
 			"error": respErr.Detail,
@@ -166,7 +170,9 @@ func (t *RerankInboundTransformer) TransformError(
 
 		return &httpclient.Error{
 			StatusCode: respErr.StatusCode,
+			Status:     http.StatusText(respErr.StatusCode),
 			Body:       body,
+			Headers:    llm.ErrorHeadersFromResponseError(respErr),
 		}
 	}
 

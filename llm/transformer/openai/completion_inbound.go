@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -248,45 +247,5 @@ func (t *CompletionInboundTransformer) AggregateStreamChunks(
 }
 
 func (t *CompletionInboundTransformer) TransformError(ctx context.Context, rawErr error) *httpclient.Error {
-	if rawErr == nil {
-		return &httpclient.Error{
-			StatusCode: http.StatusInternalServerError,
-			Status:     http.StatusText(http.StatusInternalServerError),
-			Body:       xjson.MustMarshal(&OpenAIError{Detail: llm.ErrorDetail{Message: "An unexpected error occurred", Type: "unexpected_error"}}),
-		}
-	}
-
-	if errors.Is(rawErr, transformer.ErrInvalidModel) {
-		return &httpclient.Error{
-			StatusCode: http.StatusUnprocessableEntity,
-			Status:     http.StatusText(http.StatusUnprocessableEntity),
-			Body:       xjson.MustMarshal(&OpenAIError{Detail: llm.ErrorDetail{Message: rawErr.Error(), Type: "invalid_model_error"}}),
-		}
-	}
-
-	if httpErr, ok := errors.AsType[*httpclient.Error](rawErr); ok {
-		return httpErr
-	}
-
-	if errors.Is(rawErr, transformer.ErrInvalidRequest) {
-		return &httpclient.Error{
-			StatusCode: http.StatusBadRequest,
-			Status:     http.StatusText(http.StatusBadRequest),
-			Body:       xjson.MustMarshal(&OpenAIError{Detail: llm.ErrorDetail{Message: rawErr.Error(), Type: "invalid_request_error"}}),
-		}
-	}
-
-	if llmErr, ok := errors.AsType[*llm.ResponseError](rawErr); ok {
-		return &httpclient.Error{
-			StatusCode: llmErr.StatusCode,
-			Status:     http.StatusText(llmErr.StatusCode),
-			Body:       xjson.MustMarshal(&OpenAIError{Detail: llmErr.Detail}),
-		}
-	}
-
-	return &httpclient.Error{
-		StatusCode: http.StatusInternalServerError,
-		Status:     http.StatusText(http.StatusInternalServerError),
-		Body:       xjson.MustMarshal(&OpenAIError{Detail: llm.ErrorDetail{Message: rawErr.Error(), Type: "internal_server_error"}}),
-	}
+	return NewInboundTransformer().TransformError(ctx, rawErr)
 }

@@ -166,30 +166,31 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 		}
 	}
 
-	// Try to parse as OpenAI error format first
-	var openaiError struct {
-		Error llm.ErrorDetail `json:"error"`
-	}
-
 	retryAfter := httpclient.RetryAfterHeader(rawErr.Headers)
-	err := json.Unmarshal(rawErr.Body, &openaiError)
-	if err == nil && openaiError.Error.Message != "" {
-		return &llm.ResponseError{
-			StatusCode: rawErr.StatusCode,
-			Detail:     openaiError.Error,
-			RetryAfter: retryAfter,
+	if extracted, ok := llm.ExtractUpstreamErrorDetail(rawErr.Body, rawErr.Headers); ok && extracted.Message != "" {
+		if extracted.Type == "" {
+			extracted.Type = "api_error"
 		}
+		return llm.EnrichResponseError(&llm.ResponseError{
+			StatusCode: rawErr.StatusCode,
+			Detail:     extracted,
+			RetryAfter: retryAfter,
+		}, rawErr, t.APIFormat())
 	}
 
-	// If JSON parsing fails, use the upstream status text
-	return &llm.ResponseError{
+	// If JSON parsing fails, use the upstream body text or status text
+	msg := strings.TrimSpace(string(rawErr.Body))
+	if msg == "" {
+		msg = http.StatusText(rawErr.StatusCode)
+	}
+	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: rawErr.StatusCode,
 		RetryAfter: retryAfter,
 		Detail: llm.ErrorDetail{
-			Message: strings.TrimSpace(string(rawErr.Body)),
+			Message: msg,
 			Type:    "api_error",
 		},
-	}
+	}, rawErr, t.APIFormat())
 }
 
 func (t *OutboundTransformer) TransformRequest(ctx context.Context, llmReq *llm.Request) (*httpclient.Request, error) {

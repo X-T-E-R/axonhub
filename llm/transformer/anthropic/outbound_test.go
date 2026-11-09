@@ -928,6 +928,22 @@ func TestOutboundTransformer_TransformError(t *testing.T) {
 			},
 		},
 		{
+			name: "anthropic envelope preserves error type code details and request_id",
+			httpErr: &httpclient.Error{
+				StatusCode: http.StatusBadRequest,
+				Body:       []byte(`{"type":"error","error":{"type":"invalid_request_error","code":"invalid_tool_use","message":"tool_use blocks must be followed by tool_result","details":[{"field":"messages.3"}]},"request_id":"req_anth_456"}`),
+			},
+			expected: &llm.ResponseError{
+				Detail: llm.ErrorDetail{
+					Type:      "invalid_request_error",
+					Message:   "tool_use blocks must be followed by tool_result",
+					Code:      "invalid_tool_use",
+					RequestID: "req_anth_456",
+					Details:   json.RawMessage(`[{"field":"messages.3"}]`),
+				},
+			},
+		},
+		{
 			name:    "nil error",
 			httpErr: nil,
 			expected: &llm.ResponseError{
@@ -945,6 +961,15 @@ func TestOutboundTransformer_TransformError(t *testing.T) {
 			require.NotNil(t, result)
 			require.Equal(t, tt.expected.Detail.Type, result.Detail.Type)
 			require.Equal(t, tt.expected.Detail.Message, result.Detail.Message)
+			if tt.expected.Detail.Code != "" {
+				require.Equal(t, tt.expected.Detail.Code, result.Detail.Code)
+			}
+			if tt.expected.Detail.RequestID != "" {
+				require.Equal(t, tt.expected.Detail.RequestID, result.Detail.RequestID)
+			}
+			if len(tt.expected.Detail.Details) > 0 {
+				require.JSONEq(t, string(tt.expected.Detail.Details), string(result.Detail.Details))
+			}
 		})
 	}
 }

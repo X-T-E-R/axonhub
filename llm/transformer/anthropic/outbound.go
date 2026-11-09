@@ -382,18 +382,29 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 
 	aErr, err := xjson.To[AnthropicError](rawErr.Body)
 	if err == nil && aErr.Error.Message != "" {
-		// Successfully parsed as Anthropic error format
-		return &llm.ResponseError{
+		errType := aErr.Error.Type
+		if errType == "" {
+			if aErr.Type != "" && aErr.Type != "error" {
+				errType = aErr.Type
+			} else {
+				errType = "api_error"
+			}
+		}
+
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail: llm.ErrorDetail{
-				Type:      "api_error",
+				Type:      errType,
 				Message:   aErr.Error.Message,
+				Code:      aErr.Error.Code,
+				Param:     aErr.Error.Param,
 				RequestID: aErr.RequestID,
+				Details:   aErr.Error.Details,
 			},
-		}
+		}, rawErr, t.APIFormat())
 	}
 
-	return &llm.ResponseError{
+	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: rawErr.StatusCode,
 		Detail: llm.ErrorDetail{
 			Message:   lo.Ternary(string(rawErr.Body) != "", strings.TrimSpace(string(rawErr.Body)), http.StatusText(rawErr.StatusCode)),
@@ -402,7 +413,7 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 			Param:     "",
 			RequestID: "",
 		},
-	}
+	}, rawErr, t.APIFormat())
 }
 
 // containsNativeWebSearchTool checks if the Anthropic tools slice contains the native web search tool.

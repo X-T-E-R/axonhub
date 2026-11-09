@@ -420,18 +420,18 @@ func (t *OutboundTransformer) TransformError(
 
 	err := json.Unmarshal(httpErr.Body, &jinaError)
 	if err == nil && jinaError.Error.Message != "" {
-		return &llm.ResponseError{
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: httpErr.StatusCode,
 			Detail:     jinaError.Error,
-		}
+		}, httpErr, t.APIFormat())
 	}
 
 	// If JSON parsing fails, use upstream status text
-	return &llm.ResponseError{
+	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: httpErr.StatusCode,
 		Detail: llm.ErrorDetail{
 			Message: http.StatusText(httpErr.StatusCode),
 			Type:    "api_error",
 		},
-	}
+	}, httpErr, t.APIFormat())
 }

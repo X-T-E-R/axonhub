@@ -274,23 +274,24 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 
 	var geminiErr GeminiError
 	if err := json.Unmarshal(rawErr.Body, &geminiErr); err == nil && geminiErr.Error.Message != "" {
-		return &llm.ResponseError{
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail: llm.ErrorDetail{
 				Type:    geminiErr.Error.Status,
 				Message: geminiErr.Error.Message,
 				Code:    fmt.Sprintf("%d", geminiErr.Error.Code),
+				Details: geminiErr.Error.Details,
 			},
-		}
+		}, rawErr, t.APIFormat())
 	}
 
-	return &llm.ResponseError{
+	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: rawErr.StatusCode,
 		Detail: llm.ErrorDetail{
 			Message: string(rawErr.Body),
 			Type:    "api_error",
 		},
-	}
+	}, rawErr, t.APIFormat())
 }
 
 // SetAPIKey updates the API key.

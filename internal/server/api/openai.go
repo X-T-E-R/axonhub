@@ -446,7 +446,7 @@ func (handlers *OpenAIHandlers) CreateVideo(c *gin.Context) {
 		log.Error(ctx, "Error processing openai video create", log.Cause(err))
 
 		httpErr := transformOrchestratorError(ctx, err, handlers.VideoHandlers.ChatCompletionOrchestrator)
-		c.JSON(httpErr.StatusCode, json.RawMessage(httpErr.Body))
+		writeHTTPErrorResponse(c, httpErr)
 		return
 	}
 

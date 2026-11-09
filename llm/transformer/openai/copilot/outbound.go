@@ -548,20 +548,20 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 			errDetail = openaiError.Errors
 		}
 
-		return &llm.ResponseError{
+		return llm.EnrichResponseError(&llm.ResponseError{
 			StatusCode: rawErr.StatusCode,
 			Detail:     errDetail,
-		}
+		}, rawErr, t.APIFormat())
 	}
 
 	// If JSON parsing fails, use the upstream status text.
-	return &llm.ResponseError{
+	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: rawErr.StatusCode,
 		Detail: llm.ErrorDetail{
 			Message: http.StatusText(rawErr.StatusCode),
 			Type:    "api_error",
 		},
-	}
+	}, rawErr, t.APIFormat())
 }
 
 // AggregateStreamChunks aggregates streaming chunks into a complete response.

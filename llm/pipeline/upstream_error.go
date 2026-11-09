@@ -1,6 +1,12 @@
 package pipeline
 
-import "errors"
+import (
+	"context"
+	"errors"
+
+	"github.com/looplj/axonhub/llm"
+	"github.com/looplj/axonhub/llm/httpclient"
+)
 
 // UpstreamError marks errors that originate from the upstream provider path.
 type UpstreamError struct {
@@ -39,4 +45,14 @@ func WrapUpstreamError(err error) error {
 func IsUpstreamError(err error) bool {
 	var upstreamErr *UpstreamError
 	return errors.As(err, &upstreamErr)
+}
+
+func (p *pipeline) transformOutboundError(ctx context.Context, request *httpclient.Request, httpErr *httpclient.Error) error {
+	apiFormat := p.Outbound.APIFormat()
+	if request != nil && request.APIFormat != "" {
+		apiFormat = llm.APIFormat(request.APIFormat)
+	}
+
+	respErr := p.Outbound.TransformError(ctx, httpErr)
+	return WrapUpstreamError(llm.EnrichResponseError(respErr, httpErr, apiFormat))
 }
