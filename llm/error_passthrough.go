@@ -257,6 +257,9 @@ func EnrichResponseError(respErr *ResponseError, rawErr *httpclient.Error, apiFo
 		if respErr.Detail.RequestID == "" {
 			respErr.Detail.RequestID = extracted.RequestID
 		}
+		if respErr.Detail.TraceID == "" {
+			respErr.Detail.TraceID = extracted.TraceID
+		}
 		if len(respErr.Detail.Details) == 0 && len(extracted.Details) > 0 {
 			respErr.Detail.Details = extracted.Details
 		}
@@ -370,6 +373,15 @@ func ExtractUpstreamErrorDetail(body []byte, headers http.Header) (ErrorDetail, 
 		}
 	}
 
+	traceID := firstNonEmptyGJSONString(
+		candidate.Get("trace_id"),
+		errNode.Get("trace_id"),
+		root.Get("trace_id"),
+	)
+	if traceID == "" && len(headers) > 0 {
+		traceID = strings.TrimSpace(headers.Get("X-Trace-Id"))
+	}
+
 	detail.RequestID = firstNonEmptyGJSONString(
 		candidate.Get("request_id"),
 		errNode.Get("request_id"),
@@ -380,6 +392,9 @@ func ExtractUpstreamErrorDetail(body []byte, headers http.Header) (ErrorDetail, 
 	)
 	if detail.RequestID == "" {
 		detail.RequestID = ExtractRequestIDFromHeaders(headers)
+	}
+	if traceID != "" && traceID != detail.RequestID {
+		detail.TraceID = traceID
 	}
 
 	matched := detail.Message != "" || detail.Type != "" || detail.Code != "" || len(detail.Details) > 0

@@ -920,6 +920,7 @@ type ErrorDetail struct {
 	Type      string          `json:"type"`
 	Param     string          `json:"param,omitempty"`
 	RequestID string          `json:"request_id,omitempty"`
+	TraceID   string          `json:"trace_id,omitempty"`
 	Details   json.RawMessage `json:"details,omitempty"`
 }
 

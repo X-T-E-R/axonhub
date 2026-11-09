@@ -556,5 +556,6 @@ type AnthropicError struct {
 	Type       string      `json:"type,omitempty"`
 	StatusCode int         `json:"-"`
 	RequestID  string      `json:"request_id"`
+	TraceID    string      `json:"trace_id,omitempty"`
 	Error      ErrorDetail `json:"error"`
 }

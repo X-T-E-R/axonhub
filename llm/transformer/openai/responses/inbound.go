@@ -97,6 +97,7 @@ type ResponseErrorDetail struct {
 	Code      string          `json:"code,omitempty"`
 	Param     string          `json:"param,omitempty"`
 	RequestID string          `json:"request_id,omitempty"`
+	TraceID   string          `json:"trace_id,omitempty"`
 	Details   json.RawMessage `json:"details,omitempty"`
 }
 
@@ -155,6 +156,7 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 				Code:      llmErr.Detail.Code,
 				Param:     llmErr.Detail.Param,
 				RequestID: llmErr.Detail.RequestID,
+				TraceID:   llmErr.Detail.TraceID,
 				Details:   llmErr.Detail.Details,
 			},
 		}

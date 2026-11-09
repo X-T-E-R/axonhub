@@ -751,6 +751,7 @@ func TestReviewGeminiHTTPBridgeFields(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "invalid_tool_result")
 	require.Contains(t, rec.Body.String(), "invalid_request_error")
 	require.Contains(t, rec.Body.String(), "req_anth_bridge")
+	require.Contains(t, rec.Body.String(), "trace_anth_bridge")
 	require.Contains(t, rec.Body.String(), "TOOL_MISMATCH")
 }
 

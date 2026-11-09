@@ -259,6 +259,9 @@ func mergeGeminiErrorDetails(detail llm.ErrorDetail, geminiCode int, geminiStatu
 	if detail.RequestID != "" {
 		meta["request_id"] = detail.RequestID
 	}
+	if detail.TraceID != "" && detail.TraceID != detail.RequestID {
+		meta["trace_id"] = detail.TraceID
+	}
 
 	if len(meta) == 0 {
 		return detail.Details

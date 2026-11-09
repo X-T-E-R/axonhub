@@ -213,6 +213,7 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 					Type:       topType,
 					StatusCode: llmErr.StatusCode,
 					RequestID:  llmErr.Detail.RequestID,
+					TraceID:    llmErr.Detail.TraceID,
 					Error: ErrorDetail{
 						Type:    errType,
 						Message: msg,

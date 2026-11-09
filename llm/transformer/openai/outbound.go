@@ -465,6 +465,13 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 		} else if rid := errObj.Get("trace_id").String(); rid != "" {
 			detail.RequestID = rid
 		}
+		if tid := root.Get("trace_id").String(); tid != "" && tid != detail.RequestID {
+			detail.TraceID = tid
+		} else if tid := root.Get("data.trace_id").String(); tid != "" && tid != detail.RequestID {
+			detail.TraceID = tid
+		} else if tid := errObj.Get("trace_id").String(); tid != "" && tid != detail.RequestID {
+			detail.TraceID = tid
+		}
 		if detailsNode := errObj.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
 			detail.Details = json.RawMessage(detailsNode.Raw)
 		} else if detailsNode := root.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
@@ -506,6 +513,11 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 		detail.RequestID = rid
 	} else if rid := ep.Get("trace_id").String(); rid != "" {
 		detail.RequestID = rid
+	}
+	if tid := root.Get("trace_id").String(); tid != "" && tid != detail.RequestID {
+		detail.TraceID = tid
+	} else if tid := ep.Get("trace_id").String(); tid != "" && tid != detail.RequestID {
+		detail.TraceID = tid
 	}
 	if detailsNode := ep.Get("details"); detailsNode.Exists() && detailsNode.Type != gjson.Null {
 		detail.Details = json.RawMessage(detailsNode.Raw)
