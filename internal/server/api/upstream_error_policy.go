@@ -1,10 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
@@ -119,7 +124,109 @@ func (s *upstreamErrorStream) Next() bool {
 }
 
 func (s *upstreamErrorStream) Current() *httpclient.StreamEvent {
-	return s.stream.Current()
+	cur := s.stream.Current()
+	if cur == nil || len(cur.Data) == 0 {
+		return cur
+	}
+
+	policy := s.systemService.RetryPolicyOrDefault(s.ctx).UpstreamErrorPolicy
+	if policy.Mode == "" || policy.Mode == biz.UpstreamErrorModePassthrough {
+		return cur
+	}
+
+	return rewriteStreamEventIfUpstreamError(cur, policy)
+}
+
+func rewriteStreamEventIfUpstreamError(cur *httpclient.StreamEvent, policy biz.UpstreamErrorPolicy) *httpclient.StreamEvent {
+	trimmed := bytes.TrimSpace(cur.Data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("[DONE]")) || !json.Valid(trimmed) {
+		return cur
+	}
+
+	message := biz.DefaultUpstreamErrorMessage
+	if policy.Mode == biz.UpstreamErrorModeCustom {
+		if custom := strings.TrimSpace(policy.CustomMessage); custom != "" {
+			message = custom
+		}
+	}
+
+	root := gjson.ParseBytes(trimmed)
+	eventType := cur.Type
+	if eventType == "" {
+		eventType = root.Get("type").String()
+	}
+
+	// 1. OpenAI Responses stream terminal failure event: response.failed
+	if eventType == "response.failed" || root.Get("type").String() == "response.failed" {
+		rewritten, err := sjson.SetBytes(cur.Data, "response.error.message", message)
+		if err != nil {
+			return cur
+		}
+		rewritten, _ = sjson.DeleteBytes(rewritten, "response.error.details")
+		clone := *cur
+		clone.Data = rewritten
+		return &clone
+	}
+
+	// 2. OpenAI Responses stream error event: {"type":"error","message":"...","code":"..."}
+	if (eventType == "error" || root.Get("type").String() == "error") && !root.Get("error").Exists() && root.Get("message").Exists() {
+		rewritten, err := sjson.SetBytes(cur.Data, "message", message)
+		if err != nil {
+			return cur
+		}
+		rewritten, _ = sjson.DeleteBytes(rewritten, "details")
+		clone := *cur
+		clone.Data = rewritten
+		return &clone
+	}
+
+	// 3. Raw pass-through or provider SSE error envelope: {"error": ...} or event: error
+	errNode := root.Get("error")
+	if !errNode.Exists() || errNode.Type == gjson.Null {
+		if eventType != "error" && root.Get("event").String() != "error" {
+			return cur
+		}
+	}
+
+	detail, _ := llm.ExtractUpstreamErrorDetail(trimmed, nil)
+	if detail.Code == errCodeQuotaExhausted || detail.Type == errTypeQuotaExhausted {
+		return cur
+	}
+
+	errType := detail.Type
+	if errType == "" {
+		errType = "upstream_error"
+	}
+
+	errMap := map[string]any{
+		"message": message,
+		"type":    errType,
+	}
+	if detail.Code != "" {
+		errMap["code"] = detail.Code
+	}
+	if detail.RequestID != "" {
+		errMap["request_id"] = detail.RequestID
+	}
+
+	envelope := map[string]any{
+		"error": errMap,
+	}
+	if root.Get("type").String() == "error" {
+		envelope["type"] = "error"
+		if detail.RequestID != "" {
+			envelope["request_id"] = detail.RequestID
+		}
+	}
+
+	rewritten, err := json.Marshal(envelope)
+	if err != nil {
+		return cur
+	}
+
+	clone := *cur
+	clone.Data = rewritten
+	return &clone
 }
 
 func (s *upstreamErrorStream) Err() error {

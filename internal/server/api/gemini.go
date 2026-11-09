@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -69,15 +70,27 @@ func (handlers *GeminiHandlers) GenerateContent(c *gin.Context) {
 	alt := c.Query("alt")
 	switch alt {
 	case "sse":
-		handlers.ChatCompletionHandlers.WithStreamWriter(WriteSSEStream).ChatCompletion(c)
+		handlers.ChatCompletionHandlers.WithStreamWriter(func(c *gin.Context, stream streams.Stream[*httpclient.StreamEvent]) {
+			WriteSSEStreamWithErrorFormatter(c, stream, formatStreamErrorForInbound(handlers.ChatCompletionHandlers.ChatCompletionOrchestrator.Inbound))
+		}).ChatCompletion(c)
 	default:
-		handlers.ChatCompletionHandlers.WithStreamWriter(WriteGeminiStream).ChatCompletion(c)
+		handlers.ChatCompletionHandlers.WithStreamWriter(func(c *gin.Context, stream streams.Stream[*httpclient.StreamEvent]) {
+			WriteGeminiStreamWithErrorFormatter(c, stream, formatStreamErrorForInbound(handlers.ChatCompletionHandlers.ChatCompletionOrchestrator.Inbound))
+		}).ChatCompletion(c)
 	}
 }
 
 func WriteGeminiStream(c *gin.Context, stream streams.Stream[*httpclient.StreamEvent]) {
+	WriteGeminiStreamWithErrorFormatter(c, stream, formatStreamErrorForInbound(gemini.NewInboundTransformer()))
+}
+
+func WriteGeminiStreamWithErrorFormatter(c *gin.Context, stream streams.Stream[*httpclient.StreamEvent], formatErr StreamErrorFormatter) {
 	ctx := c.Request.Context()
 	clientDisconnected := false
+
+	if formatErr == nil {
+		formatErr = formatStreamErrorForInbound(gemini.NewInboundTransformer())
+	}
 
 	defer func() {
 		if clientDisconnected {
@@ -115,13 +128,34 @@ func WriteGeminiStream(c *gin.Context, stream streams.Stream[*httpclient.StreamE
 			} else {
 				if err := stream.Err(); err != nil {
 					log.Error(ctx, "Error in stream", log.Cause(err))
+					if errPayload, marshalErr := marshalStreamErrorPayload(formatErr(ctx, err)); marshalErr == nil && len(errPayload) > 0 {
+						if !first {
+							_, _ = c.Writer.Write([]byte(","))
+						}
+						_, _ = c.Writer.Write(errPayload)
+						first = false
+					}
 				}
 
 				_, _ = c.Writer.Write([]byte("]"))
+				c.Writer.Flush()
 
 				return
 			}
 		}
+	}
+}
+
+func marshalStreamErrorPayload(formatted any) ([]byte, error) {
+	switch v := formatted.(type) {
+	case nil:
+		return nil, nil
+	case json.RawMessage:
+		return v, nil
+	case []byte:
+		return v, nil
+	default:
+		return json.Marshal(v)
 	}
 }
 

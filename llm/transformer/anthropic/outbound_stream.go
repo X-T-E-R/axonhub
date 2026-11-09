@@ -572,8 +572,9 @@ func parseAnthropicStreamErrorEvent(event *httpclient.StreamEvent) *llm.Response
 	}
 
 	return &llm.ResponseError{
-		Detail:    detail,
-		APIFormat: llm.APIFormatAnthropicMessage,
+		Detail:             detail,
+		StreamErrorPayload: append([]byte(nil), event.Data...),
+		APIFormat:          llm.APIFormatAnthropicMessage,
 	}
 }
 

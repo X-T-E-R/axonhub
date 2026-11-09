@@ -472,8 +472,9 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 		}
 
 		return &llm.ResponseError{
-			Detail:    detail,
-			APIFormat: llm.APIFormatOpenAIChatCompletion,
+			Detail:             detail,
+			StreamErrorPayload: append([]byte(nil), event.Data...),
+			APIFormat:          llm.APIFormatOpenAIChatCompletion,
 		}
 	}
 
@@ -513,8 +514,9 @@ func parseStreamErrorEvent(event *httpclient.StreamEvent) *llm.ResponseError {
 	}
 
 	return &llm.ResponseError{
-		Detail:    detail,
-		APIFormat: llm.APIFormatOpenAIChatCompletion,
+		Detail:             detail,
+		StreamErrorPayload: append([]byte(nil), event.Data...),
+		APIFormat:          llm.APIFormatOpenAIChatCompletion,
 	}
 }
 

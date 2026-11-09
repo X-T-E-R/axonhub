@@ -79,7 +79,7 @@ func IsStructuredJSONErrorBody(body []byte) bool {
 // error format is compatible with inboundFormat and the raw body is a structured JSON error.
 // It ensures any RetryAfter advice on llmErr is preserved in the returned Headers.
 func RawErrorForInbound(inboundFormat APIFormat, llmErr *ResponseError) *httpclient.Error {
-	if llmErr == nil || llmErr.HTTPError == nil {
+	if llmErr == nil {
 		return nil
 	}
 
@@ -87,28 +87,45 @@ func RawErrorForInbound(inboundFormat APIFormat, llmErr *ResponseError) *httpcli
 		return nil
 	}
 
-	if !IsStructuredJSONErrorBody(llmErr.HTTPError.Body) {
-		return nil
+	if llmErr.HTTPError != nil {
+		if !IsStructuredJSONErrorBody(llmErr.HTTPError.Body) {
+			return nil
+		}
+
+		statusCode := llmErr.StatusCode
+		if statusCode == 0 {
+			statusCode = llmErr.HTTPError.StatusCode
+		}
+
+		status := llmErr.HTTPError.Status
+		if status == "" && statusCode != 0 {
+			status = http.StatusText(statusCode)
+		}
+
+		return &httpclient.Error{
+			Method:     llmErr.HTTPError.Method,
+			URL:        llmErr.HTTPError.URL,
+			StatusCode: statusCode,
+			Status:     status,
+			Body:       append([]byte(nil), llmErr.HTTPError.Body...),
+			Headers:    ErrorHeadersFromResponseError(llmErr),
+		}
 	}
 
-	statusCode := llmErr.StatusCode
-	if statusCode == 0 {
-		statusCode = llmErr.HTTPError.StatusCode
+	if len(llmErr.StreamErrorPayload) > 0 && IsStructuredJSONErrorBody(llmErr.StreamErrorPayload) {
+		var status string
+		if llmErr.StatusCode != 0 {
+			status = http.StatusText(llmErr.StatusCode)
+		}
+		return &httpclient.Error{
+			StatusCode: llmErr.StatusCode,
+			Status:     status,
+			Body:       append([]byte(nil), llmErr.StreamErrorPayload...),
+			Headers:    ErrorHeadersFromResponseError(llmErr),
+		}
 	}
 
-	status := llmErr.HTTPError.Status
-	if status == "" && statusCode != 0 {
-		status = http.StatusText(statusCode)
-	}
-
-	return &httpclient.Error{
-		Method:     llmErr.HTTPError.Method,
-		URL:        llmErr.HTTPError.URL,
-		StatusCode: statusCode,
-		Status:     status,
-		Body:       append([]byte(nil), llmErr.HTTPError.Body...),
-		Headers:     ErrorHeadersFromResponseError(llmErr),
-	}
+	return nil
 }
 
 // ErrorHeadersFromResponseError extracts safe public upstream headers and validated Retry-After

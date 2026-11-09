@@ -28,6 +28,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/anthropic"
 	"github.com/looplj/axonhub/llm/transformer/gemini"
 	"github.com/looplj/axonhub/llm/transformer/openai"
+	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
 
 func setupErrorPassthroughHandler(
@@ -642,4 +643,153 @@ func TestErrorPassthrough_CommittedSSECrossProtocolLateErrorsUseInboundShape(t *
 		}`, dataLine)
 		require.NotContains(t, wire, "message_stop")
 	})
+}
+
+const (
+	reviewChatChunk = `{"id":"chatcmpl-review","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"}}]}`
+	reviewError     = `{"error":{"message":"provider shard exploded","type":"upstream_worker_error","code":"worker_bad","param":"messages","details":[{"shard":2}],"unknown_vendor_nested":{"future":9007199254740993}},"request_id":"req_review_1","trace_id":"trace_review_1","future_top":"keep"}`
+)
+
+func TestReviewGeminiLateErrorEntrypoints(t *testing.T) {
+	for _, alt := range []string{"sse", ""} {
+		t.Run("alt="+alt, func(t *testing.T) {
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\n", reviewChatChunk, reviewError)
+			}))
+			defer upstream.Close()
+			client := enttest.NewEntClient(t, "sqlite3", "file:review-gemini-late-"+alt+"?mode=memory&_fk=0")
+			defer client.Close()
+			ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+			project := client.Project.Create().SetName("p").SaveX(ctx)
+			ctx = contexts.WithProjectID(ctx, project.ID)
+			outbound, err := openai.NewOutboundTransformer(upstream.URL, "fixture-key")
+			require.NoError(t, err)
+			base := setupErrorPassthroughHandler(t, ctx, client, channel.TypeOpenai, upstream.URL, false, gemini.NewInboundTransformer(), outbound, nil)
+			handlers := &GeminiHandlers{ChatCompletionHandlers: base}
+			router := gin.New()
+			router.POST("/v1beta/models/*action", handlers.GenerateContent)
+			rec := httptest.NewRecorder()
+			path := "/v1beta/models/fixture-model:streamGenerateContent"
+			if alt != "" {
+				path += "?alt=" + alt
+			}
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)).WithContext(ctx)
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			require.Equal(t, int32(1), calls.Load())
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Contains(t, rec.Body.String(), "provider shard exploded", "late error must reach Gemini client")
+			require.Contains(t, rec.Body.String(), `"status":`, "Gemini error must use inbound Gemini shape")
+			require.Contains(t, rec.Body.String(), `"worker_bad"`)
+			require.Contains(t, rec.Body.String(), `"req_review_1"`)
+			if alt == "" {
+				var items []json.RawMessage
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &items), "default Gemini stream must be a valid closed JSON array")
+				require.Len(t, items, 2)
+			}
+		})
+	}
+}
+
+func TestReviewSameProtocolLateUnknownFields(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\n", reviewChatChunk, reviewError)
+	}))
+	defer upstream.Close()
+	client := enttest.NewEntClient(t, "sqlite3", "file:review-same-late?mode=memory&_fk=0")
+	defer client.Close()
+	ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+	project := client.Project.Create().SetName("p").SaveX(ctx)
+	ctx = contexts.WithProjectID(ctx, project.ID)
+	outbound, err := openai.NewOutboundTransformer(upstream.URL, "fixture-key")
+	require.NoError(t, err)
+	handler := setupErrorPassthroughHandler(t, ctx, client, channel.TypeOpenai, upstream.URL, false, openai.NewInboundTransformer(), outbound, nil)
+	handler.sseHeartbeatFormat = sseHeartbeatOpenAI
+	router := gin.New()
+	router.POST("/v1/chat/completions", handler.ChatCompletion)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"fixture-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, int32(1), calls.Load())
+	require.Contains(t, rec.Body.String(), reviewError)
+}
+
+func TestReviewGeminiHTTPBridgeFields(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = fmt.Fprint(w, `{"type":"error","error":{"message":"bad tool result","type":"invalid_request_error","code":"invalid_tool_result","details":[{"reason":"TOOL_MISMATCH"}]},"request_id":"req_anth_bridge","trace_id":"trace_anth_bridge"}`)
+	}))
+	defer upstream.Close()
+	client := enttest.NewEntClient(t, "sqlite3", "file:review-gemini-http?mode=memory&_fk=0")
+	defer client.Close()
+	ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+	project := client.Project.Create().SetName("p").SaveX(ctx)
+	ctx = contexts.WithProjectID(ctx, project.ID)
+	outbound, err := anthropic.NewOutboundTransformer(upstream.URL, "fixture-key")
+	require.NoError(t, err)
+	handler := setupErrorPassthroughHandler(t, ctx, client, channel.TypeAnthropic, upstream.URL, false, gemini.NewInboundTransformer(), outbound, nil)
+	handlers := &GeminiHandlers{ChatCompletionHandlers: handler}
+	router := gin.New()
+	router.POST("/v1beta/models/*action", handlers.GenerateContent)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/fixture-model:generateContent", strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, int32(1), calls.Load())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	require.Contains(t, rec.Body.String(), "bad tool result")
+	require.Contains(t, rec.Body.String(), "invalid_tool_result")
+	require.Contains(t, rec.Body.String(), "invalid_request_error")
+	require.Contains(t, rec.Body.String(), "req_anth_bridge")
+	require.Contains(t, rec.Body.String(), "TOOL_MISMATCH")
+}
+
+func TestReviewExplicitRewriteStreamEvents(t *testing.T) {
+	for _, mode := range []string{"responses", "raw-chat"} {
+		t.Run(mode, func(t *testing.T) {
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\n", reviewChatChunk, reviewError)
+			}))
+			defer upstream.Close()
+			client := enttest.NewEntClient(t, "sqlite3", "file:review-rewrite-"+mode+"?mode=memory&_fk=0")
+			defer client.Close()
+			ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+			project := client.Project.Create().SetName("p").SaveX(ctx)
+			ctx = contexts.WithProjectID(ctx, project.ID)
+			outbound, err := openai.NewOutboundTransformer(upstream.URL, "fixture-key")
+			require.NoError(t, err)
+			policy := &biz.RetryPolicy{Enabled: false, UpstreamErrorPolicy: biz.UpstreamErrorPolicy{Mode: biz.UpstreamErrorModeCustom, CustomMessage: "configured safe message"}}
+			handler := setupErrorPassthroughHandler(t, ctx, client, channel.TypeOpenai, upstream.URL, mode == "raw-chat", openai.NewInboundTransformer(), outbound, policy)
+			path := "/v1/chat/completions"
+			body := `{"model":"fixture-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`
+			if mode == "responses" {
+				handler.ChatCompletionOrchestrator.Inbound = responses.NewInboundTransformer()
+				path = "/v1/responses"
+				body = `{"model":"fixture-model","stream":true,"input":"hi"}`
+			}
+			handler.sseHeartbeatFormat = sseHeartbeatOpenAI
+			router := gin.New()
+			router.POST(path, handler.ChatCompletion)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)).WithContext(ctx)
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			require.Equal(t, int32(1), calls.Load())
+			require.NotContains(t, rec.Body.String(), "provider shard exploded")
+			require.Contains(t, rec.Body.String(), "configured safe message")
+		})
+	}
 }

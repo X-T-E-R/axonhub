@@ -870,6 +870,9 @@ type ResponseError struct {
 	RetryAfter string `json:"-"`
 	// HTTPError retains native upstream envelopes when a transformer promises raw errors.
 	HTTPError *httpclient.Error `json:"-"`
+	// StreamErrorPayload retains the raw in-band SSE error payload when an upstream
+	// stream emits an error event after HTTP 200 without fabricating an HTTPError.
+	StreamErrorPayload []byte `json:"-"`
 	// APIFormat records the upstream protocol format that produced this error.
 	APIFormat APIFormat `json:"-"`
 }

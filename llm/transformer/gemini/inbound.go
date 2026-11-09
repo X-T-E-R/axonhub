@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/looplj/axonhub/llm"
@@ -162,27 +163,32 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 			return raw
 		}
 
-		status := mapHTTPStatusToGeminiStatus(llmErr.StatusCode)
+		statusCode := llmErr.StatusCode
+		code := statusCode
+		if code == 0 {
+			code = http.StatusInternalServerError
+		}
+		status := mapHTTPStatusToGeminiStatus(code)
 		if isGeminiCanonicalStatus(llmErr.Detail.Type) {
 			status = llmErr.Detail.Type
 		} else if isGeminiCanonicalStatus(llmErr.Detail.Code) {
 			status = llmErr.Detail.Code
 		}
 		msg := llmErr.Detail.Message
-		if msg == "" && llmErr.StatusCode != 0 {
-			msg = http.StatusText(llmErr.StatusCode)
+		if msg == "" && code != 0 {
+			msg = http.StatusText(code)
 		}
 
 		return &httpclient.Error{
-			StatusCode: llmErr.StatusCode,
-			Status:     http.StatusText(llmErr.StatusCode),
+			StatusCode: statusCode,
+			Status:     http.StatusText(statusCode),
 			Headers:    llm.ErrorHeadersFromResponseError(llmErr),
 			Body: xjson.MustMarshal(&GeminiError{
 				Error: ErrorDetail{
-					Code:    llmErr.StatusCode,
+					Code:    code,
 					Message: msg,
 					Status:  status,
-					Details: llmErr.Detail.Details,
+					Details: mergeGeminiErrorDetails(llmErr.Detail, code, status),
 				},
 			}),
 		}
@@ -237,6 +243,43 @@ func isGeminiCanonicalStatus(s string) bool {
 		}
 	}
 	return true
+}
+
+func mergeGeminiErrorDetails(detail llm.ErrorDetail, geminiCode int, geminiStatus string) json.RawMessage {
+	meta := make(map[string]any)
+	if detail.Type != "" && detail.Type != geminiStatus {
+		meta["type"] = detail.Type
+	}
+	if detail.Code != "" && detail.Code != geminiStatus && detail.Code != strconv.Itoa(geminiCode) {
+		meta["code"] = detail.Code
+	}
+	if detail.Param != "" {
+		meta["param"] = detail.Param
+	}
+	if detail.RequestID != "" {
+		meta["request_id"] = detail.RequestID
+	}
+
+	if len(meta) == 0 {
+		return detail.Details
+	}
+
+	metaRaw, err := json.Marshal(meta)
+	if err != nil {
+		return detail.Details
+	}
+
+	if len(detail.Details) == 0 {
+		return xjson.MustMarshal([]json.RawMessage{metaRaw})
+	}
+
+	var existing []json.RawMessage
+	if err := json.Unmarshal(detail.Details, &existing); err == nil {
+		existing = append(existing, metaRaw)
+		return xjson.MustMarshal(existing)
+	}
+
+	return xjson.MustMarshal([]json.RawMessage{detail.Details, metaRaw})
 }
 
 // mapHTTPStatusToGeminiStatus maps HTTP status codes to Gemini status strings.
