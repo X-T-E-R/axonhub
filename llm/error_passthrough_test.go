@@ -81,3 +81,32 @@ func TestRawErrorForInbound_SameProtocolAndCrossProtocolGuard(t *testing.T) {
 	require.Nil(t, RawErrorForInbound(APIFormatOpenAIChatCompletion, respErr))
 	require.Nil(t, RawErrorForInbound(APIFormatGeminiContents, respErr))
 }
+
+func TestRawErrorForInbound_ArbitraryUnknownJSONShapeAndDiagnosticHeaders(t *testing.T) {
+	// Arbitrary JSON object without error/message/code/type/status keys, containing
+	// indentation, HTML-like characters, and 64-bit integer above IEEE-754 float53 precision.
+	rawBody := []byte("{\n  \"reason\": \"backend <restarting> & draining\",\n  \"vendor_payload\": {\n    \"seq\": 9007199254740993\n  }\n}\n")
+	rawHTTP := &httpclient.Error{
+		StatusCode: http.StatusServiceUnavailable,
+		Status:     "503 Service Unavailable",
+		Body:       rawBody,
+		Headers: http.Header{
+			"X-Trace-Id":        {"trace_hdr_999"},
+			"X-Goog-Request-Id": {"goog_req_888"},
+			"X-Amzn-Requestid":  {"amzn_req_777"},
+			"Authorization":     {"Bearer secret"},
+		},
+	}
+
+	respErr := EnrichResponseError(&ResponseError{
+		StatusCode: http.StatusServiceUnavailable,
+	}, rawHTTP, APIFormatOpenAIChatCompletion)
+
+	sameProto := RawErrorForInbound(APIFormatOpenAIChatCompletion, respErr)
+	require.NotNil(t, sameProto)
+	require.Equal(t, rawBody, sameProto.Body)
+	require.Equal(t, "trace_hdr_999", sameProto.Headers.Get("X-Trace-Id"))
+	require.Equal(t, "goog_req_888", sameProto.Headers.Get("X-Goog-Request-Id"))
+	require.Equal(t, "amzn_req_777", sameProto.Headers.Get("X-Amzn-Requestid"))
+	require.Empty(t, sameProto.Headers.Get("Authorization"))
+}

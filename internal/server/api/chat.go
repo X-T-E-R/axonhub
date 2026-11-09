@@ -20,6 +20,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 const (
@@ -196,7 +197,7 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 		if liveness != nil {
 			keepAlive = liveness.effectiveConfig()
 		}
-		writeSSEStream(c, stream, FormatStreamError, keepAlive, handlers.sseHeartbeatFormat, liveness)
+		writeSSEStream(c, stream, formatStreamErrorForInbound(handlers.ChatCompletionOrchestrator.Inbound), keepAlive, handlers.sseHeartbeatFormat, liveness)
 	}
 }
 
@@ -933,7 +934,7 @@ func writeHTTPErrorResponse(c *gin.Context, httpErr *httpclient.Error) {
 	}
 
 	if len(httpErr.Body) > 0 && json.Valid(httpErr.Body) {
-		c.JSON(statusCode, json.RawMessage(httpErr.Body))
+		c.Data(statusCode, "application/json", httpErr.Body)
 		return
 	}
 
@@ -947,6 +948,21 @@ func writeHTTPErrorResponse(c *gin.Context, httpErr *httpclient.Error) {
 			"type":    "api_error",
 		},
 	})
+}
+
+func formatStreamErrorForInbound(inbound transformer.Inbound) StreamErrorFormatter {
+	if inbound == nil {
+		return FormatStreamError
+	}
+
+	return func(ctx context.Context, err error) any {
+		httpErr := inbound.TransformError(ctx, wrapQuotaExhaustedAsResponseError(err))
+		if httpErr != nil && len(httpErr.Body) > 0 && json.Valid(httpErr.Body) {
+			return json.RawMessage(httpErr.Body)
+		}
+
+		return FormatStreamError(ctx, err)
+	}
 }
 
 // FormatStreamError formats a stream error into an OpenAI-compatible JSON error object.
@@ -968,36 +984,6 @@ func FormatStreamError(_ context.Context, err error) any {
 
 	var respErr *llm.ResponseError
 	if errors.As(err, &respErr) {
-		if respErr.HTTPError != nil && llm.IsStructuredJSONErrorBody(respErr.HTTPError.Body) {
-			var raw map[string]any
-			if json.Unmarshal(respErr.HTTPError.Body, &raw) == nil && len(raw) > 0 {
-				if errObj, ok := raw["error"].(map[string]any); ok {
-					if _, hasMsg := errObj["message"]; !hasMsg && respErr.Detail.Message != "" {
-						errObj["message"] = respErr.Detail.Message
-					}
-					if _, hasType := errObj["type"]; !hasType {
-						if respErr.Detail.Type != "" {
-							errObj["type"] = respErr.Detail.Type
-						} else {
-							errObj["type"] = errType
-						}
-					}
-					if _, hasCode := errObj["code"]; !hasCode {
-						errObj["code"] = respErr.Detail.Code
-					}
-					if len(respErr.Detail.Details) > 0 {
-						if _, hasDetails := errObj["details"]; !hasDetails {
-							errObj["details"] = respErr.Detail.Details
-						}
-					}
-				}
-				if _, hasReqID := raw["request_id"]; !hasReqID && respErr.Detail.RequestID != "" {
-					raw["request_id"] = respErr.Detail.RequestID
-				}
-				return raw
-			}
-		}
-
 		if respErr.Detail.Type != "" {
 			errType = respErr.Detail.Type
 		}
@@ -1025,18 +1011,30 @@ func FormatStreamError(_ context.Context, err error) any {
 
 	var httpErr *httpclient.Error
 	if errors.As(err, &httpErr) && len(httpErr.Body) > 0 {
-		if llm.IsStructuredJSONErrorBody(httpErr.Body) {
-			var raw map[string]any
-			if json.Unmarshal(httpErr.Body, &raw) == nil && len(raw) > 0 {
-				if errObj, ok := raw["error"].(map[string]any); ok {
-					if _, hasType := errObj["type"]; !hasType {
-						errObj["type"] = errType
-					}
-					if _, hasCode := errObj["code"]; !hasCode {
-						errObj["code"] = errCode
-					}
-				}
-				return raw
+		if detail, ok := llm.ExtractUpstreamErrorDetail(httpErr.Body, httpErr.Headers); ok {
+			if detail.Type != "" {
+				errType = detail.Type
+			}
+			errCode = detail.Code
+			requestID = detail.RequestID
+			msg := detail.Message
+			if msg == "" {
+				msg = orchestrator.ExtractErrorMessage(err)
+			}
+			errMap := gin.H{
+				"message": msg,
+				"type":    errType,
+				"code":    errCode,
+			}
+			if detail.Param != "" {
+				errMap["param"] = detail.Param
+			}
+			if len(detail.Details) > 0 {
+				errMap["details"] = detail.Details
+			}
+			return gin.H{
+				"error":      errMap,
+				"request_id": requestID,
 			}
 		}
 

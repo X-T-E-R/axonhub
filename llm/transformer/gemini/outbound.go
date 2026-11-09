@@ -285,6 +285,20 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 		}, rawErr, t.APIFormat())
 	}
 
+	var geminiErrList []GeminiError
+	if err := json.Unmarshal(rawErr.Body, &geminiErrList); err == nil && len(geminiErrList) > 0 && geminiErrList[0].Error.Message != "" {
+		first := geminiErrList[0].Error
+		return llm.EnrichResponseError(&llm.ResponseError{
+			StatusCode: rawErr.StatusCode,
+			Detail: llm.ErrorDetail{
+				Type:    first.Status,
+				Message: first.Message,
+				Code:    fmt.Sprintf("%d", first.Code),
+				Details: first.Details,
+			},
+		}, rawErr, t.APIFormat())
+	}
+
 	return llm.EnrichResponseError(&llm.ResponseError{
 		StatusCode: rawErr.StatusCode,
 		Detail: llm.ErrorDetail{

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -70,9 +71,5 @@ func shouldForwardProviderResponseHeader(key string, fullPassThrough bool, conne
 	if fullPassThrough {
 		return true
 	}
-	return key == "X-Request-Id" ||
-		key == "Request-Id" ||
-		key == "Anthropic-Request-Id" ||
-		key == "X-Typesafe-Request-Id" ||
-		strings.HasPrefix(strings.ToLower(key), "x-codex-")
+	return llm.IsPublicDiagnosticHeader(key)
 }

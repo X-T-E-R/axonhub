@@ -84,20 +84,7 @@ func setupErrorPassthroughHandler(
 }
 
 func TestErrorPassthrough_SameProtocolAnthropicPreservesBodyUnknownFieldsAndHeaders(t *testing.T) {
-	const rawErrorBody = `{
-		"type": "error",
-		"error": {
-			"type": "invalid_request_error",
-			"code": "invalid_tool_result",
-			"message": "messages.3.content.0: unexpected tool_use_id",
-			"param": "messages.3",
-			"details": [{"reason":"TOOL_MISMATCH","extra":42}],
-			"unknown_vendor_nested": {"keep": true}
-		},
-		"request_id": "req_anth_body_001",
-		"trace_id": "tr_anth_001",
-		"unknown_top_level": "survives"
-	}`
+	const rawErrorBody = "{\n\t\"type\": \"error\",\n\t\"error\": {\n\t\t\"type\": \"invalid_request_error\",\n\t\t\"code\": \"invalid_tool_result\",\n\t\t\"message\": \"messages.3.content.0: unexpected <tool_use_id> & state\",\n\t\t\"param\": \"messages.3\",\n\t\t\"details\": [{\"reason\":\"TOOL_MISMATCH\",\"extra\":9007199254740993}],\n\t\t\"unknown_vendor_nested\": {\"keep\": true}\n\t},\n\t\"request_id\": \"req_anth_body_001\",\n\t\"trace_id\": \"tr_anth_001\",\n\t\"unknown_top_level\": \"survives\"\n}\n"
 
 	for _, passThroughBody := range []bool{false, true} {
 		t.Run(fmt.Sprintf("passThroughBody=%v", passThroughBody), func(t *testing.T) {
@@ -105,6 +92,7 @@ func TestErrorPassthrough_SameProtocolAnthropicPreservesBodyUnknownFieldsAndHead
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Request-Id", "req_anth_hdr_001")
 				w.Header().Set("X-Request-Id", "xreq_anth_hdr_001")
+				w.Header().Set("X-Trace-Id", "xtrace_anth_hdr_001")
 				w.Header().Set("Retry-After", "7")
 				w.Header().Set("Set-Cookie", "secret=must-not-leak")
 				w.WriteHeader(http.StatusBadRequest)
@@ -133,13 +121,54 @@ func TestErrorPassthrough_SameProtocolAnthropicPreservesBodyUnknownFieldsAndHead
 			router.ServeHTTP(rec, req)
 
 			require.Equal(t, http.StatusBadRequest, rec.Code)
-			require.JSONEq(t, rawErrorBody, rec.Body.String())
+			require.Equal(t, []byte(rawErrorBody), rec.Body.Bytes())
 			require.Equal(t, "req_anth_hdr_001", rec.Result().Header.Get("Request-Id"))
 			require.Equal(t, "xreq_anth_hdr_001", rec.Result().Header.Get("X-Request-Id"))
+			require.Equal(t, "xtrace_anth_hdr_001", rec.Result().Header.Get("X-Trace-Id"))
 			require.Equal(t, "7", rec.Result().Header.Get("Retry-After"))
 			require.Empty(t, rec.Result().Header.Get("Set-Cookie"))
 		})
 	}
+}
+
+func TestErrorPassthrough_SameProtocolArbitraryUnknownJSONShapePreservesExactBytesAndHeaders(t *testing.T) {
+	const rawUnknownShapeBody = "{\n  \"reason\": \"backend <restarting> & draining\",\n  \"vendor_payload\": {\n    \"node\": \"us-east-1a\",\n    \"seq\": 9007199254740993\n  }\n}\n"
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Trace-Id", "trace_only_in_header_001")
+		w.Header().Set("X-Goog-Request-Id", "goog_req_001")
+		w.Header().Set("X-Amzn-Requestid", "amzn_req_001")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(rawUnknownShapeBody))
+	}))
+	defer upstream.Close()
+
+	client := enttest.NewEntClient(t, "sqlite3", "file:err-pass-unknown-shape?mode=memory&_fk=0")
+	defer client.Close()
+	ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+	project := client.Project.Create().SetName("p").SaveX(ctx)
+	ctx = contexts.WithProjectID(ctx, project.ID)
+
+	outbound, err := openai.NewOutboundTransformer(upstream.URL, "fixture-key")
+	require.NoError(t, err)
+	handler := setupErrorPassthroughHandler(
+		t, ctx, client, channel.TypeOpenai, upstream.URL, false,
+		openai.NewInboundTransformer(), outbound, nil,
+	)
+
+	router := gin.New()
+	router.POST("/v1/chat/completions", handler.ChatCompletion)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"fixture-model","messages":[{"role":"user","content":"hi"}]}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Equal(t, []byte(rawUnknownShapeBody), rec.Body.Bytes())
+	require.Equal(t, "trace_only_in_header_001", rec.Result().Header.Get("X-Trace-Id"))
+	require.Equal(t, "goog_req_001", rec.Result().Header.Get("X-Goog-Request-Id"))
+	require.Equal(t, "amzn_req_001", rec.Result().Header.Get("X-Amzn-Requestid"))
 }
 
 func TestErrorPassthrough_SameProtocolGeminiPreservesDetailsAndUnknownFields(t *testing.T) {
@@ -456,5 +485,161 @@ func TestErrorPassthrough_MidStreamErrorPreservesFieldsAndNeverEmitsFakeSuccess(
 	require.Contains(t, wire, `"message":"Provider overloaded mid-stream"`)
 	require.Contains(t, wire, `"request_id":"req_mid_1"`)
 	require.Contains(t, wire, `"details":[{"node":"n1"}]`)
+	require.NotContains(t, wire, `"type":"error"`)
 	require.NotContains(t, wire, "[DONE]")
+}
+
+func TestErrorPassthrough_CommittedSSECrossProtocolLateErrorsUseInboundShape(t *testing.T) {
+	t.Run("Anthropic upstream late HTTP error to OpenAI inbound", func(t *testing.T) {
+		const rawAnthropicError = `{"type":"error","error":{"type":"invalid_request_error","code":"invalid_prompt","message":"system prompt exceeds limit","param":"system","details":[{"limit":10000}]},"request_id":"req_cross_late_anth_1","anthropic_only_field":"must_not_leak"}`
+
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(25 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(rawAnthropicError))
+		}))
+		defer upstream.Close()
+
+		client := enttest.NewEntClient(t, "sqlite3", "file:err-late-cross-anth-oai?mode=memory&_fk=0")
+		defer client.Close()
+		ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+		project := client.Project.Create().SetName("p").SaveX(ctx)
+		ctx = contexts.WithProjectID(ctx, project.ID)
+
+		outbound, err := anthropic.NewOutboundTransformer(upstream.URL, "fixture-key")
+		require.NoError(t, err)
+		handler := setupErrorPassthroughHandler(
+			t, ctx, client, channel.TypeAnthropic, upstream.URL, false,
+			openai.NewInboundTransformer(), outbound, nil,
+		)
+		handler.sseHeartbeatFormat = sseHeartbeatOpenAI
+		handler.sseKeepAlive = SSEKeepAliveConfig{Enabled: true, Interval: 5 * time.Millisecond}
+
+		router := gin.New()
+		router.POST("/v1/chat/completions", handler.ChatCompletion)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"fixture-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		wire := rec.Body.String()
+		idx := strings.Index(wire, "event:error\ndata:")
+		require.NotEqual(t, -1, idx, wire)
+		dataLine := strings.TrimSpace(strings.TrimPrefix(wire[idx:], "event:error\ndata:"))
+		require.JSONEq(t, `{
+			"error": {
+				"message": "system prompt exceeds limit",
+				"type": "invalid_request_error",
+				"code": "invalid_prompt",
+				"param": "system",
+				"request_id": "req_cross_late_anth_1",
+				"details": [{"limit": 10000}]
+			}
+		}`, dataLine)
+		require.NotContains(t, wire, "anthropic_only_field")
+		require.NotContains(t, wire, "[DONE]")
+	})
+
+	t.Run("Gemini array upstream late HTTP error to OpenAI inbound", func(t *testing.T) {
+		const rawGeminiArrayError = `[{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED","details":[{"reason":"RATE_LIMIT_EXCEEDED"}]}}]`
+
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(25 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Goog-Request-Id", "goog_late_req_1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(rawGeminiArrayError))
+		}))
+		defer upstream.Close()
+
+		client := enttest.NewEntClient(t, "sqlite3", "file:err-late-cross-gemini-oai?mode=memory&_fk=0")
+		defer client.Close()
+		ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+		project := client.Project.Create().SetName("p").SaveX(ctx)
+		ctx = contexts.WithProjectID(ctx, project.ID)
+
+		outbound, err := gemini.NewOutboundTransformer(upstream.URL, "fixture-key")
+		require.NoError(t, err)
+		handler := setupErrorPassthroughHandler(
+			t, ctx, client, channel.TypeGemini, upstream.URL, false,
+			openai.NewInboundTransformer(), outbound, nil,
+		)
+		handler.sseHeartbeatFormat = sseHeartbeatOpenAI
+		handler.sseKeepAlive = SSEKeepAliveConfig{Enabled: true, Interval: 5 * time.Millisecond}
+
+		router := gin.New()
+		router.POST("/v1/chat/completions", handler.ChatCompletion)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"fixture-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		wire := rec.Body.String()
+		idx := strings.Index(wire, "event:error\ndata:")
+		require.NotEqual(t, -1, idx, wire)
+		dataLine := strings.TrimSpace(strings.TrimPrefix(wire[idx:], "event:error\ndata:"))
+		require.False(t, strings.HasPrefix(dataLine, "["), "must not emit raw Gemini array to OpenAI SSE client: %s", dataLine)
+		require.JSONEq(t, `{
+			"error": {
+				"message": "Resource has been exhausted",
+				"type": "RESOURCE_EXHAUSTED",
+				"code": "429",
+				"request_id": "goog_late_req_1",
+				"details": [{"reason": "RATE_LIMIT_EXCEEDED"}]
+			}
+		}`, dataLine)
+		require.NotContains(t, wire, "[DONE]")
+	})
+
+	t.Run("OpenAI mid-stream error to Anthropic inbound uses Anthropic error envelope", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"fixture-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hi\"}}]}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"error\":{\"message\":\"OpenAI stream broken\",\"type\":\"server_error\",\"code\":\"stream_broken\",\"param\":\"messages\",\"details\":[{\"shard\":2}]},\"request_id\":\"req_oai_mid_2\"}\n\n")
+		}))
+		defer upstream.Close()
+
+		client := enttest.NewEntClient(t, "sqlite3", "file:err-mid-oai-to-anth?mode=memory&_fk=0")
+		defer client.Close()
+		ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+		project := client.Project.Create().SetName("p").SaveX(ctx)
+		ctx = contexts.WithProjectID(ctx, project.ID)
+
+		outbound, err := openai.NewOutboundTransformer(upstream.URL, "fixture-key")
+		require.NoError(t, err)
+		handler := setupErrorPassthroughHandler(
+			t, ctx, client, channel.TypeOpenai, upstream.URL, false,
+			anthropic.NewInboundTransformer(), outbound, nil,
+		)
+		handler.sseHeartbeatFormat = sseHeartbeatAnthropic
+
+		router := gin.New()
+		router.POST("/v1/messages", handler.ChatCompletion)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"fixture-model","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		wire := rec.Body.String()
+		idx := strings.Index(wire, "event:error\ndata:")
+		require.NotEqual(t, -1, idx, wire)
+		dataLine := strings.TrimSpace(strings.TrimPrefix(wire[idx:], "event:error\ndata:"))
+		require.JSONEq(t, `{
+			"type": "server_error",
+			"request_id": "req_oai_mid_2",
+			"error": {
+				"type": "server_error",
+				"code": "stream_broken",
+				"message": "OpenAI stream broken",
+				"param": "messages",
+				"details": [{"shard": 2}]
+			}
+		}`, dataLine)
+		require.NotContains(t, wire, "message_stop")
+	})
 }

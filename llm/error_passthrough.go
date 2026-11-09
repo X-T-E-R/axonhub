@@ -56,7 +56,7 @@ func isOpenAIStandardErrorFormat(format APIFormat) bool {
 }
 
 // IsStructuredJSONErrorBody reports whether body is a non-empty valid JSON object or array
-// that carries structured error fields rather than an empty object or plain text/HTML.
+// rather than an empty payload, empty container, or plain text/HTML.
 func IsStructuredJSONErrorBody(body []byte) bool {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) < 2 || !json.Valid(trimmed) {
@@ -65,24 +65,11 @@ func IsStructuredJSONErrorBody(body []byte) bool {
 
 	switch trimmed[0] {
 	case '{':
-		parsed := gjson.ParseBytes(trimmed)
-		return parsed.Get("error").Exists() ||
-			parsed.Get("errors").Exists() ||
-			parsed.Get("message").Exists() ||
-			parsed.Get("detail").Exists() ||
-			parsed.Get("type").Exists() ||
-			parsed.Get("code").Exists() ||
-			parsed.Get("status").Exists()
+		var fields map[string]json.RawMessage
+		return json.Unmarshal(trimmed, &fields) == nil && len(fields) > 0
 	case '[':
-		parsed := gjson.ParseBytes(trimmed)
-		arr := parsed.Array()
-		if len(arr) == 0 {
-			return false
-		}
-		first := arr[0]
-		return first.Get("error").Exists() ||
-			first.Get("message").Exists() ||
-			first.Get("detail").Exists()
+		var items []json.RawMessage
+		return json.Unmarshal(trimmed, &items) == nil && len(items) > 0
 	default:
 		return false
 	}
@@ -175,16 +162,32 @@ func ErrorHeadersFromResponseError(llmErr *ResponseError) http.Header {
 	return headers
 }
 
-func isSafePublicErrorHeader(canonicalKey string) bool {
+var publicDiagnosticIDHeaders = []string{
+	"X-Request-Id",
+	"Request-Id",
+	"Anthropic-Request-Id",
+	"X-Typesafe-Request-Id",
+	"X-Amzn-Requestid",
+	"X-Goog-Request-Id",
+	"X-Trace-Id",
+}
+
+// IsPublicDiagnosticHeader reports whether canonicalKey is a recognized public
+// request/trace correlation header or an end-to-end public protocol header.
+func IsPublicDiagnosticHeader(canonicalKey string) bool {
 	if canonicalKey == "" || httpclient.IsSensitiveHeader(canonicalKey) {
 		return false
 	}
-	switch canonicalKey {
-	case "X-Request-Id", "Request-Id", "Anthropic-Request-Id", "X-Typesafe-Request-Id":
-		return true
-	default:
-		return strings.HasPrefix(strings.ToLower(canonicalKey), "x-codex-")
+	for _, key := range publicDiagnosticIDHeaders {
+		if canonicalKey == key {
+			return true
+		}
 	}
+	return strings.HasPrefix(strings.ToLower(canonicalKey), "x-codex-")
+}
+
+func isSafePublicErrorHeader(canonicalKey string) bool {
+	return IsPublicDiagnosticHeader(canonicalKey)
 }
 
 // EnrichResponseError attaches the upstream APIFormat, original HTTPError, StatusCode,
@@ -253,15 +256,7 @@ func ExtractRequestIDFromHeaders(headers http.Header) string {
 		return ""
 	}
 
-	for _, key := range []string{
-		"X-Request-Id",
-		"Request-Id",
-		"Anthropic-Request-Id",
-		"X-Typesafe-Request-Id",
-		"X-Amzn-Requestid",
-		"X-Goog-Request-Id",
-		"X-Trace-Id",
-	} {
+	for _, key := range publicDiagnosticIDHeaders {
 		if v := strings.TrimSpace(headers.Get(key)); v != "" {
 			return v
 		}
