@@ -141,6 +141,9 @@ export type CapabilityPolicy = z.infer<typeof capabilityPolicySchema>;
 
 export const channelPoliciesSchema = z.object({
   stream: capabilityPolicySchema.optional(),
+  allowRequestFormats: z.array(z.string()).nullable().optional(),
+  denyRequestFormats: z.array(z.string()).nullable().optional(),
+  codexOfficialClient: z.boolean().nullable().optional(),
 });
 export type ChannelPolicies = z.infer<typeof channelPoliciesSchema>;
 

@@ -496,6 +496,14 @@ func applyOverrideRequestHeaders(outbound *PersistentOutboundTransformer) pipeli
 			applyOverrideOperationToHeaders(ctx, request.Headers, op, renderCtx)
 		}
 
+		if channel.Policies.RequiresCodexOfficialClient() &&
+			channel.Settings != nil && channel.Settings.PassThroughUserAgent != nil && *channel.Settings.PassThroughUserAgent &&
+			llmReq != nil && llmReq.RawRequest != nil && llmReq.RawRequest.Headers != nil {
+			if clientUA := llmReq.RawRequest.Headers.Get("User-Agent"); clientUA != "" {
+				request.Headers.Set("User-Agent", clientUA)
+			}
+		}
+
 		return request, nil
 	})
 }

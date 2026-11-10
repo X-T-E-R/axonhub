@@ -751,7 +751,10 @@ type ComplexityRoot struct {
 	}
 
 	ChannelPolicies struct {
-		Stream func(childComplexity int) int
+		AllowRequestFormats func(childComplexity int) int
+		CodexOfficialClient func(childComplexity int) int
+		DenyRequestFormats  func(childComplexity int) int
+		Stream              func(childComplexity int) int
 	}
 
 	ChannelProbe struct {
@@ -5525,6 +5528,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelPerformanceStat.TtftMs(childComplexity), true
 
+	case "ChannelPolicies.allowRequestFormats":
+		if e.complexity.ChannelPolicies.AllowRequestFormats == nil {
+			break
+		}
+
+		return e.complexity.ChannelPolicies.AllowRequestFormats(childComplexity), true
+	case "ChannelPolicies.codexOfficialClient":
+		if e.complexity.ChannelPolicies.CodexOfficialClient == nil {
+			break
+		}
+
+		return e.complexity.ChannelPolicies.CodexOfficialClient(childComplexity), true
+	case "ChannelPolicies.denyRequestFormats":
+		if e.complexity.ChannelPolicies.DenyRequestFormats == nil {
+			break
+		}
+
+		return e.complexity.ChannelPolicies.DenyRequestFormats(childComplexity), true
 	case "ChannelPolicies.stream":
 		if e.complexity.ChannelPolicies.Stream == nil {
 			break
@@ -22421,6 +22442,12 @@ func (ec *executionContext) fieldContext_Channel_policies(_ context.Context, fie
 			switch field.Name {
 			case "stream":
 				return ec.fieldContext_ChannelPolicies_stream(ctx, field)
+			case "allowRequestFormats":
+				return ec.fieldContext_ChannelPolicies_allowRequestFormats(ctx, field)
+			case "denyRequestFormats":
+				return ec.fieldContext_ChannelPolicies_denyRequestFormats(ctx, field)
+			case "codexOfficialClient":
+				return ec.fieldContext_ChannelPolicies_codexOfficialClient(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelPolicies", field.Name)
 		},
@@ -31344,6 +31371,93 @@ func (ec *executionContext) fieldContext_ChannelPolicies_stream(_ context.Contex
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type CapabilityPolicy does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelPolicies_allowRequestFormats(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelPolicies) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelPolicies_allowRequestFormats,
+		func(ctx context.Context) (any, error) {
+			return obj.AllowRequestFormats, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelPolicies_allowRequestFormats(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelPolicies",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelPolicies_denyRequestFormats(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelPolicies) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelPolicies_denyRequestFormats,
+		func(ctx context.Context) (any, error) {
+			return obj.DenyRequestFormats, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelPolicies_denyRequestFormats(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelPolicies",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelPolicies_codexOfficialClient(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelPolicies) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelPolicies_codexOfficialClient,
+		func(ctx context.Context) (any, error) {
+			return obj.CodexOfficialClient, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelPolicies_codexOfficialClient(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelPolicies",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -80829,7 +80943,7 @@ func (ec *executionContext) unmarshalInputChannelPoliciesInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"stream"}
+	fieldsInOrder := [...]string{"stream", "allowRequestFormats", "denyRequestFormats", "codexOfficialClient"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -80843,6 +80957,27 @@ func (ec *executionContext) unmarshalInputChannelPoliciesInput(ctx context.Conte
 				return it, err
 			}
 			it.Stream = data
+		case "allowRequestFormats":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("allowRequestFormats"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AllowRequestFormats = data
+		case "denyRequestFormats":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("denyRequestFormats"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DenyRequestFormats = data
+		case "codexOfficialClient":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("codexOfficialClient"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CodexOfficialClient = data
 		}
 	}
 
@@ -108999,6 +109134,12 @@ func (ec *executionContext) _ChannelPolicies(ctx context.Context, sel ast.Select
 			out.Values[i] = graphql.MarshalString("ChannelPolicies")
 		case "stream":
 			out.Values[i] = ec._ChannelPolicies_stream(ctx, field, obj)
+		case "allowRequestFormats":
+			out.Values[i] = ec._ChannelPolicies_allowRequestFormats(ctx, field, obj)
+		case "denyRequestFormats":
+			out.Values[i] = ec._ChannelPolicies_denyRequestFormats(ctx, field, obj)
+		case "codexOfficialClient":
+			out.Values[i] = ec._ChannelPolicies_codexOfficialClient(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

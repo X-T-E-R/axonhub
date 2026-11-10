@@ -752,10 +752,16 @@ enum CapabilityPolicy {
 
 type ChannelPolicies {
   stream: CapabilityPolicy
+  allowRequestFormats: [String!]
+  denyRequestFormats: [String!]
+  codexOfficialClient: Boolean
 }
 
 input ChannelPoliciesInput {
   stream: CapabilityPolicy
+  allowRequestFormats: [String!]
+  denyRequestFormats: [String!]
+  codexOfficialClient: Boolean
 }
 
 input ModelMappingInput {

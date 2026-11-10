@@ -917,7 +917,37 @@ const (
 )
 
 type ChannelPolicies struct {
-	Stream CapabilityPolicy `json:"stream,omitempty"`
+	Stream              CapabilityPolicy `json:"stream,omitempty"`
+	AllowRequestFormats []string         `json:"allowRequestFormats,omitempty"`
+	DenyRequestFormats  []string         `json:"denyRequestFormats,omitempty"`
+	CodexOfficialClient *bool            `json:"codexOfficialClient,omitempty"`
+}
+
+func (p ChannelPolicies) RequiresCodexOfficialClient() bool {
+	return p.CodexOfficialClient != nil && *p.CodexOfficialClient
+}
+
+// AllowsRequestFormat reports whether the given inbound API format is allowed by
+// the channel's format gate. When neither AllowRequestFormats nor DenyRequestFormats
+// is configured, all formats are allowed (preserving default behavior).
+func (p ChannelPolicies) AllowsRequestFormat(apiFormat string) bool {
+	if len(p.DenyRequestFormats) == 0 && len(p.AllowRequestFormats) == 0 {
+		return true
+	}
+	for _, denied := range p.DenyRequestFormats {
+		if denied == apiFormat {
+			return false
+		}
+	}
+	if len(p.AllowRequestFormats) > 0 {
+		for _, allowed := range p.AllowRequestFormats {
+			if allowed == apiFormat {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // ParseOverrideOperations parses the override parameters string.

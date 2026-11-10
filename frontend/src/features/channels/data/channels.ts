@@ -359,6 +359,9 @@ const CREATE_CHANNEL_MUTATION = `
       status
       policies {
         stream
+        allowRequestFormats
+        denyRequestFormats
+        codexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -446,6 +449,9 @@ const DUPLICATE_CHANNEL_MUTATION = `
       status
       policies {
         stream
+        allowRequestFormats
+        denyRequestFormats
+        codexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -533,6 +539,9 @@ const BULK_CREATE_CHANNELS_MUTATION = `
       status
       policies {
         stream
+        allowRequestFormats
+        denyRequestFormats
+        codexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -620,6 +629,9 @@ const UPDATE_CHANNEL_MUTATION = `
       status
       policies {
         stream
+        allowRequestFormats
+        denyRequestFormats
+        codexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -1204,6 +1216,9 @@ const QUERY_CHANNELS_QUERY = `
           status
           policies {
             stream
+            allowRequestFormats
+            denyRequestFormats
+            codexOfficialClient
           }
           credentials {
             apiKey

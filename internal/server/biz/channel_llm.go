@@ -91,6 +91,43 @@ func (c *Channel) ChooseModel(model string) (string, error) {
 	return entry.ActualModel, nil
 }
 
+// AllowsRequestFormat reports whether the inbound API format is allowed by the channel's format gate.
+// When neither AllowRequestFormats nor DenyRequestFormats is configured, it returns true in O(1) with zero allocations.
+func (c *Channel) AllowsRequestFormat(apiFormat string) bool {
+	if c == nil || c.Channel == nil {
+		return true
+	}
+	if len(c.cachedDenyRequestFormats) == 0 && len(c.cachedAllowRequestFormats) == 0 {
+		return c.Policies.AllowsRequestFormat(apiFormat)
+	}
+	if len(c.cachedDenyRequestFormats) > 0 {
+		if _, denied := c.cachedDenyRequestFormats[apiFormat]; denied {
+			return false
+		}
+	}
+	if len(c.cachedAllowRequestFormats) > 0 {
+		_, allowed := c.cachedAllowRequestFormats[apiFormat]
+		return allowed
+	}
+	return true
+}
+
+func buildFormatSet(formats []string) map[string]struct{} {
+	if len(formats) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(formats))
+	for _, f := range formats {
+		if f != "" {
+			set[f] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
 // getProxyConfig extracts proxy configuration from channel settings
 // Returns nil if no proxy configuration is set (backward compatibility).
 func getProxyConfig(channelSettings *objects.ChannelSettings) *httpclient.ProxyConfig {
@@ -125,10 +162,12 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 	}
 
 	ch := &Channel{
-		Channel:              c,
-		HTTPClient:           httpClient,
-		cachedDisabledKeySet: disabledKeySet,
-		cachedEnabledAPIKeys: routableChannelAPIKeys(c.Credentials, c.DisabledAPIKeys, c.Settings, time.Now()),
+		Channel:                   c,
+		HTTPClient:                httpClient,
+		cachedDisabledKeySet:      disabledKeySet,
+		cachedAllowRequestFormats: buildFormatSet(c.Policies.AllowRequestFormats),
+		cachedDenyRequestFormats:  buildFormatSet(c.Policies.DenyRequestFormats),
+		cachedEnabledAPIKeys:      routableChannelAPIKeys(c.Credentials, c.DisabledAPIKeys, c.Settings, time.Now()),
 	}
 
 	// Precompute other caches

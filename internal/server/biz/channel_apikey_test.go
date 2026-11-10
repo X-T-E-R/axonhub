@@ -831,3 +831,40 @@ func TestChannelService_DeleteChannelAPIKey_RemovesArchivedRecordWithoutRawCrede
 	require.Len(t, updated.Settings.KeyHealthCheck.KeyMetadata, 0)
 	require.Equal(t, []string{"active-key"}, updated.Credentials.APIKeys)
 }
+
+func TestMergeAndNormalizeChannelPolicies(t *testing.T) {
+	t.Parallel()
+
+	current := objects.ChannelPolicies{
+		Stream:              objects.CapabilityPolicyUnlimited,
+		AllowRequestFormats: []string{"openai/responses", "openai/responses_compact"},
+		DenyRequestFormats:  []string{"openai/chat_completions", "anthropic/messages"},
+		CodexOfficialClient: lo.ToPtr(true),
+	}
+
+	// Partial update of stream policy preserves format gate and codexOfficialClient
+	merged := mergeChannelPoliciesForUpdate(current, &objects.ChannelPolicies{
+		Stream: objects.CapabilityPolicyRequire,
+	})
+	require.NotNil(t, merged)
+	require.Equal(t, objects.CapabilityPolicyRequire, merged.Stream)
+	require.Equal(t, []string{"openai/responses", "openai/responses_compact"}, merged.AllowRequestFormats)
+	require.Equal(t, []string{"openai/chat_completions", "anthropic/messages"}, merged.DenyRequestFormats)
+	require.NotNil(t, merged.CodexOfficialClient)
+	require.True(t, *merged.CodexOfficialClient)
+
+	// Normalize deduplicates and validates formats
+	toNormalize := &objects.ChannelPolicies{
+		AllowRequestFormats: []string{" openai/responses ", "openai/responses", "openai/responses_compact"},
+		DenyRequestFormats:  []string{"openai/chat_completions", "anthropic/messages", "openai/chat_completions"},
+	}
+	require.NoError(t, NormalizeChannelPolicies(toNormalize))
+	require.Equal(t, []string{"openai/responses", "openai/responses_compact"}, toNormalize.AllowRequestFormats)
+	require.Equal(t, []string{"openai/chat_completions", "anthropic/messages"}, toNormalize.DenyRequestFormats)
+
+	// Invalid format rejected
+	invalid := &objects.ChannelPolicies{
+		AllowRequestFormats: []string{"invalid/format"},
+	}
+	require.Error(t, NormalizeChannelPolicies(invalid))
+}

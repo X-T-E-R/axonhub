@@ -325,6 +325,7 @@ func (processor *ChatCompletionOrchestrator) process(
 
 	// Add outbound middlewares (executed after outbound.TransformRequest)
 	middlewares = append(middlewares,
+		enforceChannelClientAdmission(outbound),
 		requireNativeResponsesWebSocketFormat(outbound),
 		captureBoundedReasoningWire(outbound),
 		// AxonHub full pass-through preserves the original AxonHub API path/query/body
