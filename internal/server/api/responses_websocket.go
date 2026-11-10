@@ -27,8 +27,11 @@ import (
 )
 
 const responsesWSCapabilityHeader = "X-Responses-WebSocket-Capabilities"
-const responsesWSCapabilities = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":8388608,"max_queued_bytes":8388608,"max_state_bytes":8388608,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
-const responsesWSMaxBytes = 8 << 20
+const responsesWSCapabilities = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":%d,"max_queued_bytes":%d,"max_state_bytes":%d,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
+
+// Keep the frame, expanded request, queue and checkpoint byte budgets aligned so
+// a frame admitted by the advertised limit can reach the Responses processor.
+const responsesWSMaxBytes = 32 << 20
 const responsesWSDefaultTurnTimeout = 10 * time.Minute
 const responsesWSAdmissionLifetime = 30 * time.Minute
 const responsesWSTerminalGrace = 15 * time.Second
@@ -88,7 +91,8 @@ func responsesWSSeconds(duration time.Duration) int64 {
 func (h *ResponsesWebSocketHandler) capabilities() string {
 	admission := responsesWSSeconds(h.lifetime)
 	active := responsesWSSeconds(responsesWSTurnTimeout(h.turnTimeout))
-	return fmt.Sprintf(responsesWSCapabilities, admission+active+responsesWSSeconds(responsesWSTerminalGrace), admission, active)
+	return fmt.Sprintf(responsesWSCapabilities, responsesWSMaxBytes, responsesWSMaxBytes, responsesWSMaxBytes,
+		admission+active+responsesWSSeconds(responsesWSTerminalGrace), admission, active)
 }
 
 type responsesWSWriter struct {

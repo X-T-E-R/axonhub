@@ -48,13 +48,20 @@ func wsTestDial(t *testing.T, server *httptest.Server) *websocket.Conn {
 		Admission int64  `json:"admission_lifetime_seconds"`
 		Active    int64  `json:"active_turn_timeout_seconds"`
 		Mode      string `json:"lifetime_mode"`
+		Frame     int    `json:"max_frame_bytes"`
+		Queue     int    `json:"max_queued_bytes"`
+		State     int    `json:"max_state_bytes"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(resp.Header.Get(http.CanonicalHeaderKey(responsesWSCapabilityHeader))), &capabilities))
 	require.Equal(t, 2, capabilities.Version)
 	require.Equal(t, "drain_active", capabilities.Mode)
 	require.Positive(t, capabilities.Active)
 	require.Equal(t, capabilities.Admission+capabilities.Active+15, capabilities.Lifetime)
-	require.JSONEq(t, fmt.Sprintf(responsesWSCapabilities, capabilities.Lifetime, capabilities.Admission, capabilities.Active), resp.Header.Get(http.CanonicalHeaderKey(responsesWSCapabilityHeader)))
+	require.Equal(t, responsesWSMaxBytes, capabilities.Frame)
+	require.Equal(t, responsesWSMaxBytes, capabilities.Queue)
+	require.Equal(t, responsesWSMaxBytes, capabilities.State)
+	require.JSONEq(t, fmt.Sprintf(responsesWSCapabilities, responsesWSMaxBytes, responsesWSMaxBytes, responsesWSMaxBytes,
+		capabilities.Lifetime, capabilities.Admission, capabilities.Active), resp.Header.Get(http.CanonicalHeaderKey(responsesWSCapabilityHeader)))
 	t.Cleanup(func() { conn.Close() })
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	return conn
@@ -79,6 +86,77 @@ func wsErrorCode(event map[string]json.RawMessage) string {
 }
 func wsCompletion(id string, output string) *httpclient.StreamEvent {
 	return &httpclient.StreamEvent{Type: "response.completed", Data: []byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":%q,"status":"completed","output":%s}}`, id, output))}
+}
+
+func TestResponsesWebSocketLargeFrameAndContinuation(t *testing.T) {
+	const oldLimit = 8 << 20
+	large := strings.Repeat("x", oldLimit+1024)
+	var calls atomic.Int32
+	h := wsTestHandler(func(_ context.Context, req *httpclient.Request, _ orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error) {
+		require.Greater(t, len(req.Body), oldLimit)
+		require.Less(t, len(req.Body), responsesWSMaxBytes)
+		var body struct {
+			Input []struct {
+				Content string `json:"content"`
+			} `json:"input"`
+		}
+		require.NoError(t, json.Unmarshal(req.Body, &body))
+		require.Equal(t, large, body.Input[0].Content)
+		n := calls.Add(1)
+		if n == 2 {
+			require.Len(t, body.Input, 2)
+			require.Equal(t, "suffix", body.Input[1].Content)
+		}
+		return orchestrator.ChatCompletionResult{ChatCompletionStream: streams.SliceStream([]*httpclient.StreamEvent{wsCompletion(fmt.Sprintf("large_%d", n), `[]`)})}, nil
+	})
+	conn := wsTestDial(t, wsTestServer(t, h))
+	require.Equal(t, 32<<20, responsesWSMaxBytes)
+	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": large}))
+	require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
+	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "previous_response_id": "large_1", "input": "suffix"}))
+	require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
+	require.Equal(t, int32(2), calls.Load())
+}
+
+func TestResponsesWebSocketOversizedFrameNeverExecutes(t *testing.T) {
+	var calls atomic.Int32
+	h := wsTestHandler(func(context.Context, *httpclient.Request, orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error) {
+		calls.Add(1)
+		return orchestrator.ChatCompletionResult{}, errors.New("oversized frame executed")
+	})
+	conn := wsTestDial(t, wsTestServer(t, h))
+	// The server can close while the client is still writing the oversized frame.
+	_ = conn.WriteMessage(websocket.TextMessage, []byte(strings.Repeat(" ", responsesWSMaxBytes+1)))
+	_, _, err := conn.ReadMessage()
+	require.True(t, websocket.IsCloseError(err, websocket.CloseMessageTooBig), "expected close 1009, got %v", err)
+	require.Zero(t, calls.Load())
+}
+
+func TestResponsesWebSocketQueueByteBudget(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	h := wsTestHandler(func(ctx context.Context, _ *httpclient.Request, _ orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return orchestrator.ChatCompletionResult{ChatCompletionStream: streams.SliceStream([]*httpclient.StreamEvent{wsCompletion("queued", `[]`)})}, nil
+	})
+	conn := wsTestDial(t, wsTestServer(t, h))
+	defer close(release)
+	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": "active"}))
+	<-started
+	queued := map[string]any{"type": "response.create", "stream_id": "large", "model": "m", "input": strings.Repeat("x", responsesWSMaxBytes/2+1024)}
+	require.NoError(t, conn.WriteJSON(queued))
+	require.NoError(t, conn.WriteJSON(queued))
+	overflow := wsRead(t, conn)
+	require.Equal(t, "queue_capacity_exceeded", wsErrorCode(overflow))
+	require.Equal(t, "large", wsEventString(overflow, "stream_id"))
+	require.Equal(t, "not_executed", wsEventString(overflow, "execution"))
+	require.Equal(t, int32(1), calls.Load())
 }
 
 func TestResponsesWebSocketFullDeltaForkAndReconnect(t *testing.T) {
