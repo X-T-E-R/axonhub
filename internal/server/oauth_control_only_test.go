@@ -516,7 +516,7 @@ func TestClusterSharedPGAndRedisControlOnlyOAuthState(t *testing.T) {
 	cacheCfg := xcache.Config{Mode: xcache.ModeRedis, Namespace: schema, Redis: xredis.Config{URL: redisURL}}
 	rawRedis, err := xredis.NewClient(cacheCfg.Redis)
 	require.NoError(t, err)
-	defer rawRedis.Close()
+	t.Cleanup(func() { require.NoError(t, rawRedis.Close()) })
 
 	bootstrap := biz.NewSystemService(biz.SystemServiceParams{Ent: controlDB, CacheConfig: cacheCfg})
 	require.NoError(t, bootstrap.SetSecretKey(env.ctx, "synthetic-pg-redis-oauth-jwt-key"))
@@ -552,7 +552,9 @@ func TestClusterSharedPGAndRedisControlOnlyOAuthState(t *testing.T) {
 		"oidc_exchange:" + exchangeCode,
 		"codex:oauth:" + codexStart.SessionID,
 	}
-	t.Cleanup(func() { _ = rawRedis.Del(context.Background(), keys...).Err() })
+	t.Cleanup(func() {
+		require.NoError(t, rawRedis.Del(context.Background(), keys...).Err())
+	})
 
 	beforeVals := make(map[string]string, len(keys))
 	beforeTTLs := make(map[string]time.Duration, len(keys))
