@@ -8,24 +8,16 @@ import (
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
-	"github.com/looplj/axonhub/llm/httpclient"
-	"github.com/looplj/axonhub/llm/pipeline"
-)
-
-type channelAdmissionRejectionReason uint8
-
-const (
-	channelAdmissionRejectedNone channelAdmissionRejectionReason = iota
-	channelAdmissionRejectedFormat
-	channelAdmissionRejectedCodexUA
 )
 
 // ChannelAdmissionPolicySelector filters candidate channels using each channel's
 // request-format gate (allowRequestFormats / denyRequestFormats) and official
 // Codex User-Agent gate (codexOfficialClient).
 //
-// It evaluates already-parsed req.APIFormat and req.RawRequest.Headers on the
-// hot path with zero body re-parsing, zero regex compilation, and zero DB queries.
+// In selectCandidates, it wraps inbound.state.CandidateSelector (covering DefaultSelector,
+// SpecifiedChannelSelector, and any custom selector) and evaluates already-parsed
+// req.APIFormat and req.RawRequest.Headers on the hot path with zero body re-parsing,
+// zero regex compilation, and zero DB queries.
 type ChannelAdmissionPolicySelector struct {
 	wrapped               CandidateSelector
 	FormatFilteredCount   int
@@ -169,19 +161,4 @@ func checkChannelClientAdmission(ch *biz.Channel, req *llm.Request) error {
 		}
 	}
 	return nil
-}
-
-// enforceChannelClientAdmission provides an outbound defense-in-depth check
-// (covering SpecifiedChannelSelector or custom selectors) before any upstream request is sent.
-func enforceChannelClientAdmission(outbound *PersistentOutboundTransformer) pipeline.Middleware {
-	return pipeline.OnRawRequest("channel-client-admission", func(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error) {
-		ch := outbound.GetCurrentChannel()
-		if ch == nil {
-			return request, nil
-		}
-		if err := checkChannelClientAdmission(ch, outbound.state.LlmRequest); err != nil {
-			return nil, err
-		}
-		return request, nil
-	})
 }

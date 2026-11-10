@@ -36,6 +36,26 @@ func TestIsCodexOfficialClientRequestStrict(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "codex originator override with official codex-tui trailer",
+			userAgent: "cccc/0.104.0 (Mac OS 26.3.0; arm64) iTerm.app/3.6.6 (codex-tui; 0.104.0)",
+			want:      true,
+		},
+		{
+			name:      "codex originator override with official codex_cli_rs trailer",
+			userAgent: "custom_wrapper/1.0 (Linux; x86_64) (codex_cli_rs; 0.159.2)",
+			want:      true,
+		},
+		{
+			name:      "unknown codex_ prefix in trailer is rejected",
+			userAgent: "curl/8.7.1 (codex_unknown; 1.0.0)",
+			want:      false,
+		},
+		{
+			name:      "unknown codex_ prefix in primary UA is rejected",
+			userAgent: "codex_unknown/1.0.0 (Linux; x86_64)",
+			want:      false,
+		},
+		{
 			name:      "codex vscode prefix",
 			userAgent: "codex_vscode/1.2.3 (Windows 10.0.22635; x86_64)",
 			want:      true,

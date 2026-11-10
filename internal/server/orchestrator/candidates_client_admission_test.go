@@ -267,12 +267,11 @@ func TestUserAgentPassThroughAndHeaderOverridePreservation(t *testing.T) {
 		Headers:   make(http.Header),
 	}
 
-	// 1. Outbound admission check passes
-	var err error
-	rawReq, err = enforceChannelClientAdmission(outbound).OnOutboundRawRequest(context.Background(), rawReq)
-	require.NoError(t, err)
+	// 1. Inbound admission check passes
+	require.NoError(t, checkChannelClientAdmission(ch, llmReq))
 
 	// 2. applyUserAgentPassThrough sets inbound UA
+	var err error
 	rawReq, err = applyUserAgentPassThrough(outbound, nil).OnOutboundRawRequest(context.Background(), rawReq)
 	require.NoError(t, err)
 	require.Equal(t, inboundUA, rawReq.Headers.Get("User-Agent"))
@@ -282,27 +281,6 @@ func TestUserAgentPassThroughAndHeaderOverridePreservation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, inboundUA, rawReq.Headers.Get("User-Agent"))
 	require.Equal(t, "preserved", rawReq.Headers.Get("X-Custom-Header"))
-
-	// 4. Even if outbound transformer converted APIFormat to "openai/responses" for an inbound "openai/chat_completions" request,
-	// enforceChannelClientAdmission inspects inbound LlmRequest.APIFormat and rejects before upstream send.
-	chatConvertedState := &PersistenceState{
-		OriginalModel: "gpt-6.1-sol",
-		LlmRequest:    newRequestWithFormatAndUA("gpt-6.1-sol", llm.APIFormatOpenAIChatCompletion, inboundUA, nil),
-		CurrentCandidate: &ChannelModelsCandidate{
-			Channel: ch,
-			Models:  []biz.ChannelModelEntry{{RequestModel: "gpt-6.1-sol", ActualModel: "gpt-6.1-sol"}},
-		},
-	}
-	chatOutbound := &PersistentOutboundTransformer{state: chatConvertedState}
-	convertedRawReq := &httpclient.Request{
-		APIFormat: string(llm.APIFormatOpenAIResponse),
-		Headers:   make(http.Header),
-	}
-	_, err = enforceChannelClientAdmission(chatOutbound).OnOutboundRawRequest(context.Background(), convertedRawReq)
-	var respErr *llm.ResponseError
-	require.ErrorAs(t, err, &respErr)
-	require.Equal(t, http.StatusBadRequest, respErr.StatusCode)
-	require.Equal(t, "unsupported_request_format", respErr.Detail.Code)
 }
 
 func BenchmarkChannelClientAdmission(b *testing.B) {
