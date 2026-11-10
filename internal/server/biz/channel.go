@@ -84,6 +84,11 @@ type Channel struct {
 	// cachedDisabledKeySet caches disabled key lookup set for O(1) check
 	cachedDisabledKeySet map[string]struct{}
 
+	// cachedAllowRequestFormats and cachedDenyRequestFormats pre-index configured format gate policies
+	// for zero-allocation O(1) hot-path checks when non-empty.
+	cachedAllowRequestFormats map[string]struct{}
+	cachedDenyRequestFormats  map[string]struct{}
+
 	// apiKeyOverride, if non-empty, forces all outbound transformers to use this key
 	// instead of the channel's normal key selection. Used by the channel key test flow.
 	apiKeyOverride string
@@ -642,7 +647,11 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 	}
 
 	if input.Policies != nil {
-		createBuilder.SetPolicies(*input.Policies)
+		policies := *input.Policies
+		if err := NormalizeChannelPolicies(&policies); err != nil {
+			return nil, err
+		}
+		createBuilder.SetPolicies(policies)
 	}
 
 	channel, err := createBuilder.Save(ctx)
@@ -787,11 +796,21 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 	}
 
 	var current *ent.Channel
-	if input.Settings != nil || input.Credentials != nil || input.BaseURL != nil || input.SupportedModels != nil {
+	if input.Settings != nil || input.Policies != nil || input.Credentials != nil || input.BaseURL != nil || input.SupportedModels != nil {
 		var err error
 		current, err = svc.entFromContext(ctx).Channel.Get(ctx, id)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get channel for update merge: %w", err)
+		}
+	}
+
+	policies := input.Policies
+	if policies != nil && current != nil {
+		policies = mergeChannelPoliciesForUpdate(current.Policies, policies)
+	}
+	if policies != nil {
+		if err := NormalizeChannelPolicies(policies); err != nil {
+			return nil, err
 		}
 	}
 
@@ -892,8 +911,8 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 			mut.SetSettings(settings)
 		}
 
-		if input.Policies != nil {
-			mut.SetPolicies(*input.Policies)
+		if policies != nil {
+			mut.SetPolicies(*policies)
 		}
 
 		if input.Credentials != nil {

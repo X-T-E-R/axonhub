@@ -873,3 +873,66 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 
 	return next
 }
+
+func mergeChannelPoliciesForUpdate(current objects.ChannelPolicies, input *objects.ChannelPolicies) *objects.ChannelPolicies {
+	if input == nil {
+		return nil
+	}
+	next := *input
+	if next.Stream == "" {
+		next.Stream = current.Stream
+	}
+	if next.AllowRequestFormats == nil && current.AllowRequestFormats != nil {
+		next.AllowRequestFormats = slices.Clone(current.AllowRequestFormats)
+	}
+	if next.DenyRequestFormats == nil && current.DenyRequestFormats != nil {
+		next.DenyRequestFormats = slices.Clone(current.DenyRequestFormats)
+	}
+	if next.CodexOfficialClient == nil && current.CodexOfficialClient != nil {
+		val := *current.CodexOfficialClient
+		next.CodexOfficialClient = &val
+	}
+	return &next
+}
+
+// NormalizeChannelPolicies validates and deduplicates AllowRequestFormats and DenyRequestFormats.
+func NormalizeChannelPolicies(policies *objects.ChannelPolicies) error {
+	if policies == nil {
+		return nil
+	}
+	if len(policies.AllowRequestFormats) > 0 {
+		normalized, err := normalizePolicyAPIFormats("allowRequestFormats", policies.AllowRequestFormats)
+		if err != nil {
+			return err
+		}
+		policies.AllowRequestFormats = normalized
+	}
+	if len(policies.DenyRequestFormats) > 0 {
+		normalized, err := normalizePolicyAPIFormats("denyRequestFormats", policies.DenyRequestFormats)
+		if err != nil {
+			return err
+		}
+		policies.DenyRequestFormats = normalized
+	}
+	return nil
+}
+
+func normalizePolicyAPIFormats(field string, formats []string) ([]string, error) {
+	out := make([]string, 0, len(formats))
+	seen := make(map[string]struct{}, len(formats))
+	for _, f := range formats {
+		trimmed := strings.TrimSpace(f)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := SupportedAPIFormats[trimmed]; !ok {
+			return nil, fmt.Errorf("invalid %s format %q", field, trimmed)
+		}
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out, nil
+}

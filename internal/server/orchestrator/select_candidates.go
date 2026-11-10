@@ -63,6 +63,8 @@ func selectCandidates(inbound *PersistentInboundTransformer, quotaProvider Provi
 		}
 
 		selector = &GroupAccessSelector{wrapped: selector, key: inbound.state.APIKey, channels: inbound.state.ChannelService}
+		admissionSelector := WithChannelAdmissionPolicySelector(selector)
+		selector = admissionSelector
 		selector = WithStreamPolicySelector(selector)
 
 		quotaSelector := WithProviderQuotaSelector(selector, quotaProvider, systemService)
@@ -103,6 +105,9 @@ func selectCandidates(inbound *PersistentInboundTransformer, quotaProvider Provi
 		if len(candidates) == 0 {
 			if settings.Enabled && quotaSelector.FilteredCount > 0 {
 				return nil, NewQuotaExhaustedError(llmRequest.Model)
+			}
+			if rejectErr := admissionSelector.RejectionError(llmRequest); rejectErr != nil {
+				return nil, rejectErr
 			}
 			return nil, fmt.Errorf("%w: %s", biz.ErrInvalidModel, llmRequest.Model)
 		}
