@@ -8,6 +8,7 @@ import (
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/apikey"
+	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/server/cluster"
 )
 
@@ -25,6 +26,9 @@ type ExecutionManifest struct {
 	Nodes            map[string]string     `json:"nodes"`
 	Models           []ModelExecutionRoute `json:"models"`
 	PlacementVersion int64                 `json:"placement_version,omitempty"`
+	// RawChannels maps an opaque /raw channel ID to its registered node ID.
+	// It is routing metadata only; the origin still authorizes every request.
+	RawChannels map[int]string `json:"raw_channels,omitempty"`
 }
 
 // ExecutionRouteForKey preserves public aliases and both group/model bounds,
@@ -56,15 +60,26 @@ func (svc *ModelService) executionRouteForKey(ctx context.Context, key *ent.APIK
 // secrets, credentials or bodies.
 func (svc *ModelService) BuildExecutionManifest(ctx context.Context) (*ExecutionManifest, error) {
 	ctx = authz.WithSystemBypass(ctx, "cluster-execution-manifest")
-	node := svc.channelService.node
+	node, err := svc.routeNode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	manifest := &ExecutionManifest{Version: ExecutionManifestVersion, GeneratedAt: time.Now().UTC(), Nodes: node.Nodes, Models: []ModelExecutionRoute{}, PlacementVersion: node.PlacementVersion()}
 	if node.Enabled {
-		_, state, err := readChannelPlacement(ctx, svc.channelService.db)
+		// Unlike model routes, raw routing is a channel-ID projection and is
+		// independent of Key catalogs and of the asynchronous channel cache.
+		rows, err := observationPrimaryClient(svc.channelService.db).Channel.Query().Where(channel.StatusEQ(channel.StatusEnabled)).Select(channel.FieldID, channel.FieldSettings).All(ctx)
 		if err != nil {
 			return nil, err
 		}
-		node = node.AtPlacement(state.PlacementSnapshot)
+		manifest.RawChannels = make(map[int]string)
+		for _, row := range rows {
+			owner := node.Owner(row.ID)
+			if _, registered := node.Nodes[owner]; registered && IsRawHTTPChannel(row) {
+				manifest.RawChannels[row.ID] = owner
+			}
+		}
 	}
-	manifest := &ExecutionManifest{Version: ExecutionManifestVersion, GeneratedAt: time.Now().UTC(), Nodes: node.Nodes, Models: []ModelExecutionRoute{}, PlacementVersion: node.PlacementVersion()}
 	channels := svc.routeChannels(ModelRouteQuery{})
 	modelLinks := map[string][]routeLink{}
 	cursor := 0

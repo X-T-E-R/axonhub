@@ -128,14 +128,14 @@ func (h *ClusterHandlers) ChannelHealth(c *gin.Context) {
 
 // DataNodeRoutes confines control-plane entry points to the designated node.
 // Internal execution endpoints authenticate the original caller with unchanged
-// scopes. Only management surfaces accept explicit channel selection.
+// scopes. Raw HTTP is an explicit, authorized channel surface on every owner.
 func DataNodeRoutes(node cluster.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if strings.HasPrefix(path, "/v1/axon/") || strings.HasPrefix(path, "/__axon/") || path == "/admin/cluster/manifest" || strings.HasPrefix(path, "/admin/cluster/infrastructure/") {
 			c.Header("Cache-Control", "no-store")
 		}
-		if node.IsControl() {
+		if node.IsControl() || strings.HasPrefix(path, "/raw/") {
 			c.Next()
 			return
 		}

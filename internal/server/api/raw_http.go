@@ -52,12 +52,12 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 	}
 	// The only bypass is retrieval of a fixed channel; both authorization upper
 	// bounds are checked before its address or credentials are used.
-	ch, err := h.channels.ResolveRawHTTPChannel(authz.WithSystemBypass(ctx, "raw-http-channel-lookup"), id)
-	if err != nil || !biz.KeyAllowsChannel(key, id, ch.Tags) {
+	row, err := h.channels.ResolveRawHTTPChannel(authz.WithSystemBypass(ctx, "raw-http-channel-lookup"), id)
+	if err != nil || !biz.KeyAllowsChannel(key, id, row.Tags) {
 		JSONError(c, http.StatusForbidden, errors.New("raw HTTP channel unavailable"))
 		return
 	}
-	raw := ch.Settings.RawHTTP
+	raw := row.Settings.RawHTTP
 	if !biz.KeyAllowsModel(key, raw.Resource) {
 		JSONError(c, http.StatusForbidden, errors.New("raw HTTP resource is not allowed"))
 		return
@@ -66,6 +66,17 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 	decoded, err := url.PathUnescape(suffix)
 	if err != nil || !strings.HasPrefix(suffix, "/") || !biz.RawHTTPPathAllowed(decoded) {
 		JSONError(c, http.StatusBadRequest, errors.New("invalid raw HTTP path"))
+		return
+	}
+	ch, err := h.channels.OpenRawHTTPChannel(ctx, row)
+	if err != nil {
+		var ownerErr *biz.ExecutionOwnerError
+		if errors.As(err, &ownerErr) {
+			c.Header("Cache-Control", "no-store")
+			c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "execution_owner_mismatch", "message": "Raw HTTP channel does not execute on this node."}, "execution": "not_executed"})
+			return
+		}
+		JSONError(c, http.StatusForbidden, errors.New("raw HTTP channel unavailable"))
 		return
 	}
 	base, _ := url.Parse(ch.BaseURL) // validated when the current channel is loaded

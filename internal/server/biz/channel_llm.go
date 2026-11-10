@@ -500,11 +500,17 @@ func (svc *ChannelService) buildNonDefaultEndpointOutbound(
 	}
 }
 
-//nolint:maintidx // Checked.
 func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel, apiKeyOverride ...string) (*Channel, error) {
 	if !svc.node.Owns(c.ID) {
 		return nil, svc.ChannelOwnerError(c.ID)
 	}
+	return svc.buildChannelOnOwner(c, apiKeyOverride...)
+}
+
+// buildChannelOnOwner requires the caller to have checked effective placement.
+//
+//nolint:maintidx // Checked.
+func (svc *ChannelService) buildChannelOnOwner(c *ent.Channel, apiKeyOverride ...string) (*Channel, error) {
 	// Validate credentials early so we can fail fast without constructing HTTP clients/transformers.
 	//
 	// NOTE: "enabled" keys excludes keys that were explicitly disabled for this channel.

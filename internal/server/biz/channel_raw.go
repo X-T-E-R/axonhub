@@ -108,13 +108,30 @@ func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) strin
 // ResolveRawHTTPChannel reads the current row so disabled channels and changed
 // authorization/configuration take effect without waiting for a channel cache.
 // The caller must authorize both the channel and logical resource before use.
-func (svc *ChannelService) ResolveRawHTTPChannel(ctx context.Context, id int) (*Channel, error) {
-	row, err := svc.entFromContext(ctx).Channel.Get(ctx, id)
+func (svc *ChannelService) ResolveRawHTTPChannel(ctx context.Context, id int) (*ent.Channel, error) {
+	row, err := observationPrimaryClient(svc.db).Channel.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if row.Status != channel.StatusEnabled || !IsRawHTTPChannel(row) {
 		return nil, fmt.Errorf("raw HTTP channel unavailable")
 	}
-	return svc.buildChannelWithOutbounds(row)
+	return row, nil
+}
+
+// OpenRawHTTPChannel checks committed placement for an authorized row before
+// building its transport. A stale Worker or provider cache cannot execute it
+// on the former owner; existing upstream streams keep their original snapshot.
+func (svc *ChannelService) OpenRawHTTPChannel(ctx context.Context, row *ent.Channel) (*Channel, error) {
+	if svc.node.Enabled {
+		_, state, err := readChannelPlacement(ctx, svc.db)
+		if err != nil {
+			return nil, err
+		}
+		node := svc.node.AtPlacement(state.PlacementSnapshot)
+		if !node.Owns(row.ID) {
+			return nil, &ExecutionOwnerError{ChannelID: row.ID, Owner: node.Owner(row.ID)}
+		}
+	}
+	return svc.buildChannelOnOwner(row)
 }
