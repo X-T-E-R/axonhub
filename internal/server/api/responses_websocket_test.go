@@ -218,7 +218,7 @@ func TestResponsesWebSocketRejectsControlsBeforeInference(t *testing.T) {
 	})
 	conn := wsTestDial(t, wsTestServer(t, h))
 	for _, body := range []string{
-		`{"type":"response.create","model":"m","generate":false}`, `{"type":"response.create","model":"m","background":true}`, `{"type":"response.create","model":"m","stream":true}`, `{"type":"response.create","model":"m","steering":{}}`, `{"type":"response.cancel"}`, `{"type":"response.create","model":"m","previous_response_id":"missing"}`, `{"type":"response.create","model":"m","stream_id":2}`, `null`,
+		`{"type":"response.create","model":"m","stream":true,"generate":false}`, `{"type":"response.create","model":"m","stream":true,"background":true}`, `{"type":"response.create","model":"m","stream":false}`, `{"type":"response.create","model":"m","stream":true,"steering":{}}`, `{"type":"response.cancel"}`, `{"type":"response.create","model":"m","previous_response_id":"missing"}`, `{"type":"response.create","model":"m","stream_id":2}`, `null`,
 	} {
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(body)))
 		event := wsRead(t, conn)

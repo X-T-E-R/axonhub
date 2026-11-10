@@ -45,10 +45,18 @@ func parseResponsesWSCreate(data []byte) (responsesWSCreate, *responsesWSError) 
 	if json.Unmarshal(f.body["type"], &typ) != nil || typ != "response.create" {
 		return f, wsRejected("unsupported_event", "Only response.create generation events are supported.", "type")
 	}
-	for _, key := range []string{"background", "stream", "steering", "conversation", "context_management"} {
+	for _, key := range []string{"background", "steering", "conversation", "context_management"} {
 		if value, ok := f.body[key]; ok && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return f, wsRejected("unsupported_parameter", "This WebSocket endpoint does not support "+key+".", key)
 		}
+	}
+	// Codex includes stream:true in response.create; WebSocket output is already streaming.
+	switch string(bytes.TrimSpace(f.body["stream"])) {
+	case "", "null", "true":
+	case "false":
+		return f, wsRejected("unsupported_parameter", "WebSocket responses always stream; omit stream or set it to true.", "stream")
+	default:
+		return f, wsRejected("invalid_request", "stream must be a boolean or null.", "stream")
 	}
 	if value, ok := f.body["generate"]; ok {
 		var generate bool

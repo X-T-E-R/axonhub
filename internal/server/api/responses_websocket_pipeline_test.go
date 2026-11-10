@@ -126,7 +126,7 @@ func TestResponsesWebSocketActualPipelineNativeAndHTTPControl(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 	send := func(body string) { require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(body))) }
-	send(`{"type":"response.create","model":"m","instructions":"client-instructions","store":false,"input":[{"role":"user","content":"full","future":{"n":9007199254740993},"surrogates":` + wsSurrogateRawItem + `}]}`)
+	send(`{"type":"response.create","model":"m","stream":true,"instructions":"client-instructions","store":false,"input":[{"role":"user","content":"full","future":{"n":9007199254740993},"surrogates":` + wsSurrogateRawItem + `}]}`)
 	event := wsRead(t, conn)
 	require.Equal(t, "response.completed", wsEventString(event, "type"))
 	require.Contains(t, string(event["response"]), "9007199254740993")
@@ -142,11 +142,23 @@ func TestResponsesWebSocketActualPipelineNativeAndHTTPControl(t *testing.T) {
 	require.Contains(t, string(input[2]), "9007199254740993")
 	require.Contains(t, string(input[2]), wsSurrogateItem)
 	require.Contains(t, string(input[3]), "injected-suffix")
-	send(`{"type":"response.create","model":"m","previous_response_id":"resp_1","instructions":"current-instructions","input":[{"role":"user","content":"delta"}]}`)
+	require.Equal(t, "true", string(full["stream"]))
+	// Rejected stream modes cannot execute or evict the completed checkpoint.
+	for _, tc := range []struct{ value, code string }{{"false", "unsupported_parameter"}, {`"true"`, "invalid_request"}} {
+		send(fmt.Sprintf(`{"type":"response.create","model":"m","stream":%s,"previous_response_id":"resp_1","input":"rejected"}`, tc.value))
+		rejected := wsRead(t, conn)
+		require.Equal(t, tc.code, wsErrorCode(rejected))
+		require.Equal(t, "not_executed", wsEventString(rejected, "execution"))
+		require.Equal(t, int32(1), calls.Load())
+		require.Equal(t, 1, client.Request.Query().CountX(ctx))
+		require.Equal(t, 1, client.UsageLog.Query().CountX(ctx))
+	}
+	send(`{"type":"response.create","model":"m","stream":null,"previous_response_id":"resp_1","instructions":"current-instructions","input":[{"role":"user","content":"delta"}]}`)
 	event = wsRead(t, conn)
 	require.Equal(t, "response.completed", wsEventString(event, "type"))
 	var delta map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(<-received, &delta))
+	require.Equal(t, "true", string(delta["stream"]))
 	require.NotContains(t, delta, "previous_response_id")
 	require.NoError(t, json.Unmarshal(delta["input"], &input))
 	require.Len(t, input, 6)
@@ -259,7 +271,10 @@ func TestResponsesWebSocketActualPipelinePerFrameTurnMetadata(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	row := client.Channel.Create().SetType(channel.TypeOpenai).SetName("native-ws").SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{APIKey: "upstream-key"}).SetSupportedModels([]string{"m"}).SetDefaultTestModel("m").SetSettings(&objects.ChannelSettings{OverrideHeaders: []objects.HeaderEntry{{Key: codex.TurnMetadataHeader, Value: `{"turn_id":"channel-default"}`}}}).SaveX(ctx)
+	row := client.Channel.Create().SetType(channel.TypeOpenai).SetName("native-ws").SetBaseURL(upstream.URL).
+		SetCredentials(objects.ChannelCredentials{APIKey: "upstream-key"}).SetSupportedModels([]string{"m"}).SetDefaultTestModel("m").
+		SetPolicies(objects.ChannelPolicies{AllowRequestFormats: []string{string(llm.APIFormatOpenAIResponse)}, CodexOfficialClient: lo.ToPtr(true)}).
+		SetSettings(&objects.ChannelSettings{OverrideHeaders: []objects.HeaderEntry{{Key: codex.TurnMetadataHeader, Value: `{"turn_id":"channel-default"}`}}}).SaveX(ctx)
 	native, err := responses.NewOutboundTransformerWithConfig(&responses.Config{BaseURL: upstream.URL, APIKeyProvider: auth.NewStaticKeyProvider("upstream-key"), Transport: responses.TransportWebSocket})
 	require.NoError(t, err)
 	defer native.Stop()
@@ -282,7 +297,7 @@ func TestResponsesWebSocketActualPipelinePerFrameTurnMetadata(t *testing.T) {
 	router.GET("/v1/responses", h.Serve)
 	server := httptest.NewServer(router)
 	defer server.Close()
-	headers := http.Header{"Authorization": {"Bearer " + key.Key}, codex.TurnMetadataHeader: {wsMetadataBaseline}, "Session_id": {"session"}, "Thread-Id": {"thread"}, "X-Codex-Installation-Id": {"installation"}, "X-Codex-Window-Id": {"window"}}
+	headers := http.Header{"Authorization": {"Bearer " + key.Key}, "User-Agent": {"codex_cli_rs/0.167.0-alpha.3.2 (Windows 10.0.26200; x86_64)"}, codex.TurnMetadataHeader: {wsMetadataBaseline}, "Session_id": {"session"}, "Thread-Id": {"thread"}, "X-Codex-Installation-Id": {"installation"}, "X-Codex-Window-Id": {"window"}}
 	ws, response, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", headers)
 	require.NoError(t, err)
 	defer ws.Close()
@@ -291,7 +306,7 @@ func TestResponsesWebSocketActualPipelinePerFrameTurnMetadata(t *testing.T) {
 
 	const image = "data:image/png;base64,AA=="
 	firstMeta := `{"session_id":"session","thread_id":"thread","installation_id":"installation","window_id":"window","request_kind":"turn","turn_id":"turn-one"}`
-	firstWire := fmt.Sprintf(`{"type":"response.create","model":"m","client_metadata":{"x-codex-turn-metadata":%q},"input":[{"role":"user","content":[{"type":"input_image","image_url":%q},{"type":"input_text","text":"image turn"}]}]}`, firstMeta, image)
+	firstWire := fmt.Sprintf(`{"type":"response.create","model":"m","stream":true,"client_metadata":{"x-codex-turn-metadata":%q},"input":[{"role":"user","content":[{"type":"input_image","image_url":%q},{"type":"input_text","text":"image turn"}]}]}`, firstMeta, image)
 	require.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(firstWire)))
 	event := wsRead(t, ws)
 	require.Equal(t, "response.completed", wsEventString(event, "type"), "%s", event["error"])
@@ -307,7 +322,7 @@ func TestResponsesWebSocketActualPipelinePerFrameTurnMetadata(t *testing.T) {
 	require.Equal(t, int32(1), calls.Load())
 
 	secondMeta := `{"request_kind":"turn","turn_id":"turn-two"}`
-	secondWire := fmt.Sprintf(`{"type":"response.create","model":"m","previous_response_id":"resp_1","client_metadata":{"x-codex-turn-metadata":%q,"Authorization":"Bearer never-map","session_id":"never-map"},"input":[{"role":"user","content":"follow-up"}]}`, secondMeta)
+	secondWire := fmt.Sprintf(`{"type":"response.create","model":"m","stream":true,"previous_response_id":"resp_1","client_metadata":{"x-codex-turn-metadata":%q,"Authorization":"Bearer never-map","session_id":"never-map"},"input":[{"role":"user","content":"follow-up"}]}`, secondMeta)
 	require.NotContains(t, secondWire, image)
 	require.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(secondWire)))
 	event = wsRead(t, ws)
@@ -324,6 +339,8 @@ func TestResponsesWebSocketActualPipelinePerFrameTurnMetadata(t *testing.T) {
 			require.Equal(t, headers.Get(name), got.headers.Get(name))
 		}
 		require.Equal(t, `"upstream-m"`, string(got.body["model"]))
+		require.Equal(t, `"response.create"`, string(got.body["type"]))
+		require.NotContains(t, got.body, "stream", "upstream WebSocket framing is transport-owned")
 	}
 	for _, pair := range []struct {
 		body map[string]json.RawMessage

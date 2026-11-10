@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -157,6 +158,7 @@ func TestResponsesWebSocketActualPipelineProviderErrorBoundary(t *testing.T) {
 	client.DataStorage.Create().SetName("primary").SetDescription("offline").SetType(datastorage.TypeDatabase).SetPrimary(true).SetStatus(datastorage.StatusActive).SetSettings(&objects.DataStorageSettings{}).SaveX(ctx)
 	cache := xcache.Config{Mode: xcache.ModeMemory}
 	system := biz.NewSystemService(biz.SystemServiceParams{CacheConfig: cache, Ent: client})
+	require.NoError(t, system.SetRetryPolicy(ctx, &biz.RetryPolicy{Enabled: true, MaxChannelRetries: 2, MaxSingleChannelRetries: 2}))
 	projects := biz.NewProjectService(biz.ProjectServiceParams{CacheConfig: cache, Ent: client})
 	keys := biz.NewAPIKeyService(biz.APIKeyServiceParams{CacheConfig: cache, Ent: client, ProjectService: projects, KeyPrefix: "ah"})
 	defer keys.Stop()
@@ -166,15 +168,29 @@ func TestResponsesWebSocketActualPipelineProviderErrorBoundary(t *testing.T) {
 	storage := &biz.DataStorageService{AbstractService: &biz.AbstractService{}, SystemService: system, Cache: xcache.NewFromConfig[ent.DataStorage](cache)}
 	requests := biz.NewRequestService(client, system, usage, storage, biz.NewLiveStreamRegistry())
 	var calls atomic.Int32
+	canceled, release := make(chan struct{}, 1), make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		_, err := io.Copy(io.Discard, r.Body)
-		require.NoError(t, err)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read upstream body: %v", err)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"object\":\"response\",\"model\":\"m\",\"status\":\"in_progress\",\"output\":[]}}\n\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n")
+		if strings.Contains(string(body), "await_disconnect") {
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				canceled <- struct{}{}
+			case <-release:
+			}
+			return
+		}
 		fmt.Fprintf(w, "data: {\"type\":\"error\",\"status\":503,\"code\":%q,\"message\":%q,\"error\":{\"type\":\"server_error\",\"message\":%q},\"execution\":\"not_executed\"}\n\n", sentinel, sentinel, sentinel)
 	}))
 	defer upstream.Close()
+	defer close(release)
 	row := client.Channel.Create().SetType(channel.TypeOpenai).SetName("offline-native").SetBaseURL(upstream.URL).SetCredentials(objects.ChannelCredentials{APIKey: "offline-unused"}).SetSupportedModels([]string{"m"}).SetDefaultTestModel("m").SaveX(ctx)
 	native, err := responses.NewOutboundTransformer(upstream.URL, "offline-unused")
 	require.NoError(t, err)
@@ -210,13 +226,18 @@ func TestResponsesWebSocketActualPipelineProviderErrorBoundary(t *testing.T) {
 		c.Request = c.Request.WithContext(ent.NewContext(log.ForceEnableLevel(c.Request.Context(), log.DebugLevel), client))
 	})
 	router.Use(middleware.WithAPIKeyConfig(auth, nil))
-	router.GET("/v1/responses", h.Serve)
+	served := make(chan struct{})
+	router.GET("/v1/responses", func(c *gin.Context) {
+		defer close(served)
+		h.Serve(c)
+	})
 	server := httptest.NewServer(router)
 	defer server.Close()
 	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", http.Header{"Authorization": []string{"Bearer " + key.Key}})
 	require.NoError(t, err)
 	defer conn.Close()
-	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": sentinel}))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "stream": true, "input": sentinel}))
 	var types []string
 	for {
 		event := wsRead(t, conn)
@@ -227,14 +248,16 @@ func TestResponsesWebSocketActualPipelineProviderErrorBoundary(t *testing.T) {
 		}
 	}
 	require.Equal(t, []string{"response.created", "response.output_text.delta", "error"}, types)
-	// The FIFO barrier joins the prior canonical persistence/error reporting.
-	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "generate": false}))
+	// The FIFO barrier joins persistence and proves that the partial response did not checkpoint.
+	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "stream": true, "previous_response_id": "r", "input": "delta"}))
 	for {
 		event := wsRead(t, conn)
-		if wsErrorCode(event) == "unsupported_parameter" {
+		if wsErrorCode(event) == "previous_response_not_found" {
 			require.Equal(t, "not_executed", wsEventString(event, "execution"))
 			break
 		}
+		require.Equal(t, "incomplete_stream", wsErrorCode(event))
+		require.NotContains(t, event, "execution")
 	}
 	require.Equal(t, int32(1), calls.Load())
 	logMu.Lock()
@@ -243,4 +266,24 @@ func TestResponsesWebSocketActualPipelineProviderErrorBoundary(t *testing.T) {
 	require.Contains(t, captured, "request process failed")
 	require.Contains(t, captured, "upstream_response_error")
 	require.NotContains(t, captured, sentinel)
+
+	// A Codex-shaped streaming turn is canceled all the way to the native upstream
+	// when its socket closes, and any queued turn remains unattempted.
+	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "stream": true, "input": "await_disconnect"}))
+	require.Equal(t, "response.created", wsEventString(wsRead(t, conn), "type"))
+	require.Equal(t, "response.output_text.delta", wsEventString(wsRead(t, conn), "type"))
+	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "stream": true, "input": "queued"}))
+	require.NoError(t, conn.Close())
+	select {
+	case <-canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("socket close did not cancel the upstream request")
+	}
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		t.Fatal("WebSocket handler did not join the canceled turn")
+	}
+	require.Equal(t, int32(2), calls.Load())
+	require.Zero(t, client.UsageLog.Query().CountX(ctx))
 }
