@@ -129,20 +129,23 @@ func (s *upstreamErrorStream) Current() *httpclient.StreamEvent {
 		return cur
 	}
 
+	trimmed := bytes.TrimSpace(cur.Data)
+	bodyType := gjson.GetBytes(trimmed, "type").String()
+	eventType := firstNonEmpty(cur.Type, bodyType)
+	errNode := gjson.GetBytes(trimmed, "error")
+	responseFailed := eventType == "response.failed" || bodyType == "response.failed"
+	flatError := (eventType == "error" || bodyType == "error") && !errNode.Exists() && gjson.GetBytes(trimmed, "message").Exists()
+	errorEnvelope := (errNode.Exists() && errNode.Type != gjson.Null) || eventType == "error" || gjson.GetBytes(trimmed, "event").String() == "error"
+	if !(responseFailed || flatError || errorEnvelope) || !json.Valid(trimmed) {
+		return cur
+	}
+
+	// Only errors need the current rewrite policy. A Redis-backed policy read
+	// on every ordinary delta would serialize streaming on the Redis RTT.
 	policy := s.systemService.RetryPolicyOrDefault(s.ctx).UpstreamErrorPolicy
 	if policy.Mode == "" || policy.Mode == biz.UpstreamErrorModePassthrough {
 		return cur
 	}
-
-	return rewriteStreamEventIfUpstreamError(cur, policy)
-}
-
-func rewriteStreamEventIfUpstreamError(cur *httpclient.StreamEvent, policy biz.UpstreamErrorPolicy) *httpclient.StreamEvent {
-	trimmed := bytes.TrimSpace(cur.Data)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("[DONE]")) || !json.Valid(trimmed) {
-		return cur
-	}
-
 	message := biz.DefaultUpstreamErrorMessage
 	if policy.Mode == biz.UpstreamErrorModeCustom {
 		if custom := strings.TrimSpace(policy.CustomMessage); custom != "" {
@@ -150,14 +153,8 @@ func rewriteStreamEventIfUpstreamError(cur *httpclient.StreamEvent, policy biz.U
 		}
 	}
 
-	root := gjson.ParseBytes(trimmed)
-	eventType := cur.Type
-	if eventType == "" {
-		eventType = root.Get("type").String()
-	}
-
 	// 1. OpenAI Responses stream terminal failure event: response.failed
-	if eventType == "response.failed" || root.Get("type").String() == "response.failed" {
+	if responseFailed {
 		rewritten, err := sjson.SetBytes(cur.Data, "response.error.message", message)
 		if err != nil {
 			return cur
@@ -169,7 +166,7 @@ func rewriteStreamEventIfUpstreamError(cur *httpclient.StreamEvent, policy biz.U
 	}
 
 	// 2. OpenAI Responses stream error event: {"type":"error","message":"...","code":"..."}
-	if (eventType == "error" || root.Get("type").String() == "error") && !root.Get("error").Exists() && root.Get("message").Exists() {
+	if flatError {
 		rewritten, err := sjson.SetBytes(cur.Data, "message", message)
 		if err != nil {
 			return cur
@@ -181,13 +178,6 @@ func rewriteStreamEventIfUpstreamError(cur *httpclient.StreamEvent, policy biz.U
 	}
 
 	// 3. Raw pass-through or provider SSE error envelope: {"error": ...} or event: error
-	errNode := root.Get("error")
-	if !errNode.Exists() || errNode.Type == gjson.Null {
-		if eventType != "error" && root.Get("event").String() != "error" {
-			return cur
-		}
-	}
-
 	detail, _ := llm.ExtractUpstreamErrorDetail(trimmed, nil)
 	if detail.Code == errCodeQuotaExhausted || detail.Type == errTypeQuotaExhausted {
 		return cur
@@ -212,7 +202,7 @@ func rewriteStreamEventIfUpstreamError(cur *httpclient.StreamEvent, policy biz.U
 	envelope := map[string]any{
 		"error": errMap,
 	}
-	if root.Get("type").String() == "error" {
+	if bodyType == "error" {
 		envelope["type"] = "error"
 		if detail.RequestID != "" {
 			envelope["request_id"] = detail.RequestID
