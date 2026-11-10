@@ -18,6 +18,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/oauth"
 	"github.com/looplj/axonhub/llm/transformer/antigravity"
@@ -28,6 +29,7 @@ type AntigravityHandlersParams struct {
 
 	CacheConfig xcache.Config
 	HttpClient  *httpclient.HttpClient
+	Node        cluster.Config `optional:"true"`
 }
 
 type AntigravityHandlers struct {
@@ -36,8 +38,12 @@ type AntigravityHandlers struct {
 }
 
 func NewAntigravityHandlers(params AntigravityHandlersParams) *AntigravityHandlers {
+	var stateCache xcache.Cache[antigravityOAuthState]
+	if params.Node.IsControl() {
+		stateCache = xcache.NewFromConfigWithLegacyPrefixes[antigravityOAuthState](params.CacheConfig, "antigravity:oauth:")
+	}
 	return &AntigravityHandlers{
-		stateCache: xcache.NewFromConfigWithLegacyPrefixes[antigravityOAuthState](params.CacheConfig, "antigravity:oauth:"),
+		stateCache: stateCache,
 		httpClient: params.HttpClient,
 	}
 }
@@ -88,6 +94,10 @@ func antigravityOAuthCacheKey(sessionID string) string {
 // POST /admin/antigravity/oauth/start.
 func (h *AntigravityHandlers) StartOAuth(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.stateCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth state cache is unavailable on data node"))
+		return
+	}
 
 	var req StartAntigravityOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -177,6 +187,10 @@ func parseAntigravityCallbackURL(callbackURL string) (string, string, error) {
 // POST /admin/antigravity/oauth/exchange.
 func (h *AntigravityHandlers) Exchange(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.stateCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth state cache is unavailable on data node"))
+		return
+	}
 
 	var req ExchangeAntigravityOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

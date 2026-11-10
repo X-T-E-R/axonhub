@@ -14,6 +14,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/biz"
+	"github.com/looplj/axonhub/internal/server/cluster"
 )
 
 type OIDCHandlers struct {
@@ -27,11 +28,12 @@ type OIDCHandlerParams struct {
 
 	OIDCService *biz.OIDCService
 	AuthService *biz.AuthService
-	PublicURL   string `name:"public_url"`
+	PublicURL   string         `name:"public_url"`
+	Node        cluster.Config `optional:"true"`
 }
 
 func NewOIDCHandlers(params OIDCHandlerParams) *OIDCHandlers {
-	if params.OIDCService.CountProviders() > 0 && params.PublicURL == "" {
+	if params.Node.IsControl() && params.OIDCService.CountProviders() > 0 && params.PublicURL == "" {
 		log.Warn(contexts.WithUser(context.Background(), &ent.User{IsOwner: true}), "OIDC is enabled but server.public_url is not configured. This is insecure and can lead to Host header injection attacks in production.")
 	}
 

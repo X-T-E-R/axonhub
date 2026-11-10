@@ -16,6 +16,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/oauth"
 	"github.com/looplj/axonhub/llm/transformer/anthropic/claudecode"
@@ -26,6 +27,7 @@ type ClaudeCodeHandlersParams struct {
 
 	CacheConfig xcache.Config
 	HttpClient  *httpclient.HttpClient
+	Node        cluster.Config `optional:"true"`
 }
 
 type ClaudeCodeHandlers struct {
@@ -34,8 +36,12 @@ type ClaudeCodeHandlers struct {
 }
 
 func NewClaudeCodeHandlers(params ClaudeCodeHandlersParams) *ClaudeCodeHandlers {
+	var stateCache xcache.Cache[claudeCodeOAuthState]
+	if params.Node.IsControl() {
+		stateCache = xcache.NewFromConfigWithLegacyPrefixes[claudeCodeOAuthState](params.CacheConfig, "claudecode:oauth:")
+	}
 	return &ClaudeCodeHandlers{
-		stateCache: xcache.NewFromConfigWithLegacyPrefixes[claudeCodeOAuthState](params.CacheConfig, "claudecode:oauth:"),
+		stateCache: stateCache,
 		httpClient: params.HttpClient,
 	}
 }
@@ -83,6 +89,10 @@ func claudeCodeOAuthCacheKey(sessionID string) string {
 // POST /admin/claudecode/oauth/start.
 func (h *ClaudeCodeHandlers) StartOAuth(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.stateCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth state cache is unavailable on data node"))
+		return
+	}
 
 	var req StartClaudeCodeOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -172,6 +182,10 @@ func parseClaudeCodeCallbackURL(callbackURL string) (string, string, error) {
 // POST /admin/claudecode/oauth/exchange.
 func (h *ClaudeCodeHandlers) Exchange(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.stateCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth state cache is unavailable on data node"))
+		return
+	}
 
 	var req ExchangeClaudeCodeOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

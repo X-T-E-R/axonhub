@@ -18,6 +18,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -59,7 +60,8 @@ type CopilotHandlersParams struct {
 
 	CacheConfig xcache.Config
 	HttpClient  *httpclient.HttpClient
-	Clock       Clock `optional:"true"`
+	Clock       Clock          `optional:"true"`
+	Node        cluster.Config `optional:"true"`
 }
 
 // Clock provides time-related functions for testability.
@@ -114,8 +116,12 @@ func NewCopilotHandlers(params CopilotHandlersParams) *CopilotHandlers {
 	if clock == nil {
 		clock = realClock{}
 	}
+	var deviceCodeCache xcache.Cache[copilotDeviceFlowState]
+	if params.Node.IsControl() {
+		deviceCodeCache = xcache.NewFromConfigWithLegacyPrefixes[copilotDeviceFlowState](params.CacheConfig, "copilot:oauth:")
+	}
 	return &CopilotHandlers{
-		deviceCodeCache: xcache.NewFromConfigWithLegacyPrefixes[copilotDeviceFlowState](params.CacheConfig, "copilot:oauth:"),
+		deviceCodeCache: deviceCodeCache,
 		httpClient:      params.HttpClient,
 		clock:           clock,
 	}
@@ -154,6 +160,10 @@ type StartCopilotOAuthResponse struct {
 // POST /admin/copilot/oauth/start
 func (h *CopilotHandlers) StartOAuth(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.deviceCodeCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth device code cache is unavailable on data node"))
+		return
+	}
 
 	var req StartCopilotOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -269,6 +279,10 @@ type PollCopilotOAuthResponse struct {
 // POST /admin/copilot/oauth/poll
 func (h *CopilotHandlers) PollOAuth(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.deviceCodeCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth device code cache is unavailable on data node"))
+		return
+	}
 
 	var req PollCopilotOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

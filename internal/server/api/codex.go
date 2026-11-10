@@ -16,6 +16,7 @@ import (
 
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/oauth"
 	"github.com/looplj/axonhub/llm/transformer/openai/codex"
@@ -26,6 +27,7 @@ type CodexHandlersParams struct {
 
 	CacheConfig xcache.Config
 	HttpClient  *httpclient.HttpClient
+	Node        cluster.Config `optional:"true"`
 }
 
 type CodexHandlers struct {
@@ -34,8 +36,12 @@ type CodexHandlers struct {
 }
 
 func NewCodexHandlers(params CodexHandlersParams) *CodexHandlers {
+	var stateCache xcache.Cache[codexOAuthState]
+	if params.Node.IsControl() {
+		stateCache = xcache.NewFromConfigWithLegacyPrefixes[codexOAuthState](params.CacheConfig, "codex:oauth:")
+	}
 	return &CodexHandlers{
-		stateCache: xcache.NewFromConfigWithLegacyPrefixes[codexOAuthState](params.CacheConfig, "codex:oauth:"),
+		stateCache: stateCache,
 		httpClient: params.HttpClient,
 	}
 }
@@ -83,6 +89,10 @@ func codexOAuthCacheKey(sessionID string) string {
 // POST /admin/codex/oauth/start.
 func (h *CodexHandlers) StartOAuth(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.stateCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth state cache is unavailable on data node"))
+		return
+	}
 
 	var req StartCodexOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -198,6 +208,10 @@ func (h *CodexHandlers) DecodeAuthJSON(c *gin.Context) {
 // POST /admin/codex/oauth/exchange.
 func (h *CodexHandlers) Exchange(c *gin.Context) {
 	ctx := c.Request.Context()
+	if h.stateCache == nil {
+		JSONError(c, http.StatusNotFound, errors.New("oauth state cache is unavailable on data node"))
+		return
+	}
 
 	var req ExchangeCodexOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

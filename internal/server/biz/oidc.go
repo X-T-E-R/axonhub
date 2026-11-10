@@ -33,6 +33,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/server/cluster"
 )
 
 type ProviderInfo struct {
@@ -187,14 +188,19 @@ type OIDCServiceParams struct {
 	Config      OIDCConfig
 	CacheConfig xcache.Config
 	DB          *ent.Client
+	Node        cluster.Config `optional:"true"`
 }
 
 func NewOIDCService(params OIDCServiceParams) (*OIDCService, error) {
 	ctx := context.Background()
+	var cache xcache.Cache[[]byte]
+	if params.Node.IsControl() {
+		cache = xcache.NewFromConfigWithLegacyPrefixes[[]byte](params.CacheConfig, "oidc_")
+	}
 	svc := &OIDCService{
 		AbstractService: &AbstractService{db: params.DB},
 		cfg:             params.Config,
-		cache:           xcache.NewFromConfigWithLegacyPrefixes[[]byte](params.CacheConfig, "oidc_"),
+		cache:           cache,
 		mu:              sync.Mutex{},
 		providers:       make(map[string]*oidcProvider),
 		lastCheck:       make(map[string]int64),
@@ -220,6 +226,9 @@ func NewOIDCService(params OIDCServiceParams) (*OIDCService, error) {
 
 		svc.cfg.Providers[i] = p
 		svc.lastCheck[providerID] = time.Now().Unix()
+		if !params.Node.IsControl() {
+			continue
+		}
 
 		var (
 			provider     *oidc.Provider
@@ -506,6 +515,10 @@ func (s *OIDCService) IsUserRestrictedToOIDC(ctx context.Context, u *ent.User) b
 }
 
 func (s *OIDCService) GetAuthorizeURL(ctx context.Context, providerIdentifier string, baseURL string) (string, string, error) {
+	if s.cache == nil {
+		return "", "", fmt.Errorf("oidc state cache is unavailable on data node")
+	}
+
 	p, _, ok := s.getProviderByIdentifier(providerIdentifier)
 	if !ok {
 		log.Error(ctx, "OIDC provider not found in map", log.String("provider", providerIdentifier))
@@ -614,6 +627,10 @@ func (s *OIDCService) GetLinkAuthorizeURL(ctx context.Context, providerIdentifie
 }
 
 func (s *OIDCService) Callback(ctx context.Context, providerIdentifier, code, state, baseURL string) (string, string, error) {
+	if s.cache == nil {
+		return "", "", fmt.Errorf("oidc state cache is unavailable on data node")
+	}
+
 	// Elevate privileges for database operations as this is an unauthenticated flow
 	ctx = contexts.WithUser(ctx, &ent.User{IsOwner: true})
 
@@ -1250,6 +1267,10 @@ func (s *OIDCService) createIdentity(ctx context.Context, userID int, issuer, su
 }
 
 func (s *OIDCService) ExchangeCode(ctx context.Context, code string) (*ent.User, error) {
+	if s.cache == nil {
+		return nil, fmt.Errorf("oidc state cache is unavailable on data node")
+	}
+
 	// Elevate privileges for user query as this is an unauthenticated flow
 	ctx = contexts.WithUser(ctx, &ent.User{IsOwner: true})
 

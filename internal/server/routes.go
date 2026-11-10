@@ -130,12 +130,14 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		unSecureAdminGroup.POST("/auth/signup", handlers.Auth.SignUp)
 	}
 
-	oauthGroup := server.Group("/oauth", middleware.WithTimeout(server.Config.RequestTimeout))
-	{
-		handlers.OIDC.RegisterRoutes(oauthGroup)
-	}
+	if services.Node.IsControl() {
+		oauthGroup := server.Group("/oauth", middleware.WithTimeout(server.Config.RequestTimeout))
+		{
+			handlers.OIDC.RegisterRoutes(oauthGroup)
+		}
 
-	server.GET("/portal/oidc/link/:provider", middleware.WithJWTAuth(services.AuthService), handlers.OIDC.GetLinkAuthorizeURL)
+		server.GET("/portal/oidc/link/:provider", middleware.WithJWTAuth(services.AuthService), handlers.OIDC.GetLinkAuthorizeURL)
+	}
 	server.POST("/portal/graphql", middleware.WithJWTAuth(services.AuthService), middleware.WithTimeout(server.Config.RequestTimeout), func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024*1024)
 		c.Header("Cache-Control", "no-store")
@@ -181,21 +183,23 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 			handlers.Graphql.Graphql.ServeHTTP(c.Writer, c.Request)
 		})
 
-		adminGroup.POST("/codex/oauth/start", handlers.Codex.StartOAuth)
-		adminGroup.POST("/codex/oauth/exchange", handlers.Codex.Exchange)
-		adminGroup.POST("/codex/auth/decode", handlers.Codex.DecodeAuthJSON)
+		if services.Node.IsControl() {
+			adminGroup.POST("/codex/oauth/start", handlers.Codex.StartOAuth)
+			adminGroup.POST("/codex/oauth/exchange", handlers.Codex.Exchange)
+			adminGroup.POST("/codex/auth/decode", handlers.Codex.DecodeAuthJSON)
 
-		adminGroup.POST("/claudecode/oauth/start", handlers.ClaudeCode.StartOAuth)
-		adminGroup.POST("/claudecode/oauth/exchange", handlers.ClaudeCode.Exchange)
+			adminGroup.POST("/claudecode/oauth/start", handlers.ClaudeCode.StartOAuth)
+			adminGroup.POST("/claudecode/oauth/exchange", handlers.ClaudeCode.Exchange)
 
-		adminGroup.POST("/antigravity/oauth/start", handlers.Antigravity.StartOAuth)
-		adminGroup.POST("/antigravity/oauth/exchange", handlers.Antigravity.Exchange)
+			adminGroup.POST("/antigravity/oauth/start", handlers.Antigravity.StartOAuth)
+			adminGroup.POST("/antigravity/oauth/exchange", handlers.Antigravity.Exchange)
 
-		adminGroup.POST("/copilot/oauth/start", handlers.Copilot.StartOAuth)
-		adminGroup.POST("/copilot/oauth/poll", handlers.Copilot.PollOAuth)
+			adminGroup.POST("/copilot/oauth/start", handlers.Copilot.StartOAuth)
+			adminGroup.POST("/copilot/oauth/poll", handlers.Copilot.PollOAuth)
 
-		// OIDC Manual Linking
-		adminGroup.GET("/oidc/link/:provider", handlers.OIDC.GetLinkAuthorizeURL)
+			// OIDC Manual Linking
+			adminGroup.GET("/oidc/link/:provider", handlers.OIDC.GetLinkAuthorizeURL)
+		}
 
 		// Playground API with channel specification support
 		adminGroup.POST(
