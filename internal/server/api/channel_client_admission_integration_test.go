@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -399,6 +400,30 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 }
 
 func TestCPRAdmissionActivationScriptLiveGraphQLCheckApplyCheck(t *testing.T) {
+	scriptPath := strings.TrimSpace(os.Getenv("AXON_CPR_ADMISSION_TEST_SCRIPT"))
+	if scriptPath == "" {
+		t.Skip("skipping cross-repo activation script harness: set AXON_CPR_ADMISSION_TEST_SCRIPT to run")
+	}
+	scriptInfo, err := os.Stat(scriptPath)
+	require.NoError(t, err, "AXON_CPR_ADMISSION_TEST_SCRIPT is set but invalid: %s", scriptPath)
+	require.False(t, scriptInfo.IsDir(), "AXON_CPR_ADMISSION_TEST_SCRIPT must point to a file: %s", scriptPath)
+
+	var pythonBin string
+	for _, candidate := range []string{"python", "python3"} {
+		bin, lookErr := exec.LookPath(candidate)
+		if lookErr != nil {
+			continue
+		}
+		probeCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		probeErr := exec.CommandContext(probeCtx, bin, "-c", "import sys").Run()
+		cancel()
+		if probeErr == nil {
+			pythonBin = bin
+			break
+		}
+	}
+	require.NotEmpty(t, pythonBin, "working python/python3 executable is required when AXON_CPR_ADMISSION_TEST_SCRIPT is set")
+
 	gin.SetMode(gin.TestMode)
 
 	client := enttest.NewEntClient(t, "sqlite3", "file:cpr-script-e2e-"+uuid.NewString()+"?mode=memory&_fk=1")
@@ -661,22 +686,23 @@ func TestCPRAdmissionActivationScriptLiveGraphQLCheckApplyCheck(t *testing.T) {
 	jwtPath := filepath.Join(t.TempDir(), "owner.jwt")
 	require.NoError(t, os.WriteFile(jwtPath, []byte(syntheticOwnerToken+"\n"), 0o600))
 
-	scriptCandidates := []string{
-		filepath.Clean("../../../.agent/summary/cpr-admission-activation/cpr_admission_activate.py"),
-		filepath.Clean("E:/kiki-wt/cpr-admission-activation-20261110/outputs/axon-cpr-admission-20261110/cpr_admission_activate.py"),
-	}
-	var scriptPath string
-	for _, cand := range scriptCandidates {
-		if _, err := os.Stat(cand); err == nil {
-			scriptPath = cand
-			break
+	filteredEnv := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		switch strings.ToUpper(key) {
+		case "AXON_OWNER_JWT", "AXON_OWNER_JWT_PATH", "AXON_ORIGIN":
+			continue
+		default:
+			filteredEnv = append(filteredEnv, entry)
 		}
 	}
-	require.NotEmpty(t, scriptPath, "cpr_admission_activate.py not found")
 
 	runScript := func(extraArgs ...string) map[string]any {
-		args := append([]string{scriptPath, "--origin", server.URL, "--jwt-path", jwtPath}, extraArgs...)
-		cmd := exec.Command("python", args...)
+		cmdCtx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+		defer cancel()
+		args := append([]string{scriptPath, "--origin", server.URL, "--jwt-path", jwtPath, "--token-env", ""}, extraArgs...)
+		cmd := exec.CommandContext(cmdCtx, pythonBin, args...)
+		cmd.Env = filteredEnv
 		outBytes, err := cmd.CombinedOutput()
 		require.NoError(t, err, "script failed: %s", string(outBytes))
 		outStr := string(outBytes)
