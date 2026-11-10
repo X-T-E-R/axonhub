@@ -19,6 +19,19 @@ func NativeResponsesWebSocket(ctx context.Context) bool {
 	return value
 }
 
+type responsesWebSocketTurnMetadataKey struct{}
+
+// WithResponsesWebSocketTurnMetadata carries the validated current-frame header,
+// independently of the authenticated handshake and continuation checkpoint.
+func WithResponsesWebSocketTurnMetadata(ctx context.Context, value string) context.Context {
+	return context.WithValue(ctx, responsesWebSocketTurnMetadataKey{}, value)
+}
+
+func ResponsesWebSocketTurnMetadata(ctx context.Context) (string, bool) {
+	value, ok := ctx.Value(responsesWebSocketTurnMetadataKey{}).(string)
+	return value, ok
+}
+
 // WithSensitivePayloadLoggingDisabled prevents diagnostic payload logs while
 // retaining metadata logs and the application's configured observation policy.
 func WithSensitivePayloadLoggingDisabled(ctx context.Context) context.Context {

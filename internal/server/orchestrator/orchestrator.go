@@ -343,6 +343,7 @@ func (processor *ChatCompletionOrchestrator) process(
 		// This allows override headers to modify the User-Agent if configured.
 		applyUserAgentPassThrough(outbound, processor.SystemService),
 		applyOverrideRequestHeaders(outbound),
+		applyNativeWSTurnMetadata(),
 	)
 	if streamLivenessObserver != nil {
 		// Publish the selected channel policy after request pass-through has been

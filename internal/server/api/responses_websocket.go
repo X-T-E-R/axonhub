@@ -23,11 +23,12 @@ import (
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/transformer/openai/codex"
 	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
 const responsesWSCapabilityHeader = "X-Responses-WebSocket-Capabilities"
-const responsesWSCapabilities = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":%d,"max_queued_bytes":%d,"max_state_bytes":%d,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
+const responsesWSCapabilities = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":%d,"max_queued_bytes":%d,"max_state_bytes":%d,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"codex_turn_metadata_per_frame":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
 
 // Keep the frame, expanded request, queue and checkpoint byte budgets aligned so
 // a frame admitted by the advertised limit can reach the Responses processor.
@@ -334,6 +335,11 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 		_ = writer.failure(frame.streamID, wsRejected("authentication_context_changed", "Authentication scope changed; reconnect before generating.", ""))
 		return
 	}
+	turnMetadata, metadataErr := responsesWSTurnMetadata(frame, c.Request.Header)
+	if metadataErr != nil {
+		_ = writer.failure(frame.streamID, metadataErr)
+		return
+	}
 	body, input, prepErr := state.prepare(frame, time.Now())
 	if prepErr != nil {
 		_ = writer.failure(frame.streamID, prepErr)
@@ -348,6 +354,10 @@ func (h *ResponsesWebSocketHandler) generate(parent context.Context, c *gin.Cont
 	req.Headers.Set("Content-Type", "application/json")
 	for _, name := range []string{"Connection", "Upgrade", "Sec-WebSocket-Key", "Sec-WebSocket-Version", "Sec-WebSocket-Extensions", "Content-Encoding", "Content-Length"} {
 		req.Headers.Del(name)
+	}
+	if turnMetadata != "" {
+		req.Headers.Set(codex.TurnMetadataHeader, turnMetadata)
+		authenticated = shared.WithResponsesWebSocketTurnMetadata(authenticated, turnMetadata)
 	}
 	observer := &responsesWSObserver{}
 	result, err := h.process(authenticated, req, observer)

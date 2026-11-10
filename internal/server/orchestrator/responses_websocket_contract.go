@@ -10,6 +10,7 @@ import (
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/pipeline"
+	"github.com/looplj/axonhub/llm/transformer/openai/codex"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 	"github.com/looplj/axonhub/llm/transformer/shared"
 )
@@ -32,6 +33,20 @@ func requireNativeResponsesWebSocketFormat(outbound *PersistentOutboundTransform
 			if err != nil || !reflect.DeepEqual(projection.Messages, canonical.Messages) {
 				return nil, &llm.ResponseError{StatusCode: http.StatusBadRequest, Detail: llm.ErrorDetail{Type: "invalid_request_error", Code: "unsupported_prompt_policy", Message: "This request's prompt transformation cannot preserve native Responses items; use the ordinary HTTP endpoint with full input."}}
 			}
+		}
+		return request, nil
+	})
+}
+
+// The validated frame, rather than a channel default, owns this one header
+// when the frame opts in. Ordinary HTTP and legacy WS are unchanged.
+func applyNativeWSTurnMetadata() pipeline.Middleware {
+	return pipeline.OnRawRequest("responses-websocket-turn-metadata", func(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error) {
+		if value, projected := shared.ResponsesWebSocketTurnMetadata(ctx); projected {
+			if request.Headers == nil {
+				request.Headers = make(http.Header)
+			}
+			request.Headers.Set(codex.TurnMetadataHeader, value)
 		}
 		return request, nil
 	})

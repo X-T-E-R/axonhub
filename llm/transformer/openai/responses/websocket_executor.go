@@ -453,6 +453,12 @@ func (e *WebSocketExecutor) dial(ctx context.Context, request *httpclient.Reques
 }
 
 func (e *WebSocketExecutor) poolKey(ctx context.Context, request *httpclient.Request, wsURL string, headers http.Header) (webSocketPoolKey, bool) {
+	// An upstream WS cannot change its handshake headers. The gateway has
+	// already reconstructed full input for a projected turn, so use a fresh
+	// lease rather than reuse stale metadata or retain a socket per turn ID.
+	if _, projected := shared.ResponsesWebSocketTurnMetadata(ctx); projected {
+		return webSocketPoolKey{}, false
+	}
 	sessionID := strings.TrimSpace(headers.Get(webSocketSessionHeader))
 	if sessionID == "" {
 		if value, ok := shared.GetSessionID(ctx); ok {
