@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -32,6 +35,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/gql"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
+	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/transformer/openai"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
@@ -392,4 +396,344 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 	require.Equal(t, "/v1/responses/compact", call2.path)
 	require.Equal(t, codexCLIUA, call2.userAgent)
 	require.Equal(t, "keep-me", call2.customHdr)
+}
+
+func TestCPRAdmissionActivationScriptLiveGraphQLCheckApplyCheck(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	client := enttest.NewEntClient(t, "sqlite3", "file:cpr-script-e2e-"+uuid.NewString()+"?mode=memory&_fk=1")
+	defer client.Close()
+
+	ctx := ent.NewContext(authz.WithTestBypass(t.Context()), client)
+	cache := xcache.Config{Mode: xcache.ModeMemory}
+	system := biz.NewSystemService(biz.SystemServiceParams{CacheConfig: cache, Ent: client})
+	projectService := biz.NewProjectService(biz.ProjectServiceParams{CacheConfig: cache, Ent: client})
+	keyService := biz.NewAPIKeyService(biz.APIKeyServiceParams{CacheConfig: cache, Ent: client, ProjectService: projectService, KeyPrefix: "ah"})
+	defer keyService.Stop()
+	auth := &biz.AuthService{APIKeyService: keyService}
+	httpClient := httpclient.NewHttpClient()
+
+	makeRichSettings := func(includeUAOverride bool) *objects.ChannelSettings {
+		headerOps := []objects.OverrideOperation{
+			{
+				Op:        objects.OverrideOpSet,
+				Path:      "X-Custom-Tenant",
+				Value:     "secret-tenant-token-do-not-echo",
+				Condition: "model == 'gpt-6.1-sol'",
+			},
+			{
+				Op:   objects.OverrideOpCopy,
+				From: "User-Agent",
+				To:   "X-Original-UA",
+			},
+		}
+		if includeUAOverride {
+			headerOps = append([]objects.OverrideOperation{
+				{
+					Op:    objects.OverrideOpSet,
+					Path:  "User-Agent",
+					Value: "Codex Desktop/0.142.3 (Windows 10.0.22635; x86_64) unknown (Codex Desktop; 26.623.61825)",
+				},
+			}, headerOps...)
+		}
+		idx := -1
+		return &objects.ChannelSettings{
+			ExtraModelPrefix:        "cpr",
+			ModelMappings:           []objects.ModelMapping{{From: "gpt-6-sol", To: "gpt-6.1-sol"}},
+			AutoTrimedModelPrefixes: []string{"openai"},
+			HideOriginalModels:      true,
+			HideMappedModels:        false,
+			LowercaseModelID:        true,
+			Proxy: &httpclient.ProxyConfig{
+				Type:                   httpclient.ProxyTypeURL,
+				URL:                    "http://proxy-user:super-secret-pass@10.0.0.1:8080",
+				Username:               "proxy-user",
+				Password:               "super-secret-pass",
+				DisableConnectionReuse: true,
+			},
+			TransformOptions: objects.TransformOptions{
+				ForceArrayInstructions:         true,
+				ForceArrayInputs:               false,
+				ReplaceDeveloperRoleWithSystem: false,
+				CodexAgentToolAliases:          true,
+				ReasoningEffortMapping:         []llm.ReasoningEffortMapping{{From: "xhigh", To: "high"}},
+			},
+			HeaderOverrideOperations: headerOps,
+			BodyOverrideOperations: []objects.OverrideOperation{
+				{
+					Op:        objects.OverrideOpArrayRemove,
+					Path:      "tools",
+					Condition: "true",
+					Match:     &objects.OverrideMatch{Path: "type", Eq: "web_search"},
+					Index:     &idx,
+					Splat:     lo.ToPtr(false),
+				},
+			},
+			PassThroughUserAgent:       lo.ToPtr(true),
+			PassThroughBody:            lo.ToPtr(true),
+			DisableRetries:             true,
+			FullPassThrough:            false,
+			StoreExecutionRequestBody:  lo.ToPtr(true),
+			StoreExecutionResponseBody: lo.ToPtr(false),
+			StoreExecutionStreamChunks: lo.ToPtr(true),
+			SSEKeepAlive: &objects.ChannelSSEKeepAlive{
+				Enabled:         lo.ToPtr(true),
+				IntervalSeconds: lo.ToPtr(15),
+			},
+			RateLimit: &objects.ChannelRateLimit{
+				RPM:            lo.ToPtr(int64(600)),
+				TPM:            lo.ToPtr(int64(120000)),
+				MaxConcurrent:  lo.ToPtr(int64(32)),
+				QueueSize:      lo.ToPtr(int64(64)),
+				QueueTimeoutMs: lo.ToPtr(int64(5000)),
+			},
+			RetryableStatusCodes:   []int{408, 502, 504},
+			RetryableErrorPatterns: []objects.RetryableErrorPattern{{Pattern: "upstream_overloaded", Regex: false}},
+			ProviderQuota: &objects.ChannelProviderQuotaSettings{
+				OpencodeGo: &objects.OpenCodeGoQuotaSettings{
+					WorkspaceID: "ws-123",
+					AuthCookie:  "cookie-secret-val",
+				},
+			},
+			KeySelection: &objects.ChannelKeySelection{
+				Strategy:                 objects.ChannelKeySelectionStrategyCacheAffinity,
+				LikelyAffinityTTLMinutes: lo.ToPtr(10),
+				ExactAffinityTTLMinutes:  lo.ToPtr(30),
+			},
+			BalanceProbe: &objects.ChannelBalanceProbe{
+				Enabled:           true,
+				Preset:            objects.ChannelBalanceProbePresetCustom,
+				Experimental:      false,
+				PreferredCurrency: "USD",
+				PrimarySelection:  objects.ChannelBalancePrimarySelectionPreferredCurrency,
+				IncludeStatuses:   []objects.ChannelKeyStatus{objects.ChannelKeyStatusActive},
+				TimeoutMs:         3000,
+			},
+			FailurePolicy: &objects.ChannelFailurePolicy{
+				Mode: objects.ChannelFailurePolicyModeOverride,
+				KeyProfiles: []objects.FailurePolicyProfile{
+					{
+						ID:                "fp-1",
+						Name:              "401-disable",
+						Enabled:           lo.ToPtr(true),
+						Sources:           []objects.FailurePolicyEventSource{objects.FailurePolicyEventSourceRequestFailure},
+						ConditionCombiner: objects.FailurePolicyConditionCombinerAnd,
+						Conditions: objects.ChannelKeyHealthCheckPolicyCondition{
+							MinFailureCount:      lo.ToPtr(2),
+							Success:              lo.ToPtr(false),
+							StatusCodes:          []int{401},
+							ReasonContains:       "invalid_api_key",
+							AllCheckedKeysFailed: lo.ToPtr(false),
+							KeyStatuses:          []objects.ChannelKeyStatus{objects.ChannelKeyStatusActive},
+						},
+						Actions: []objects.FailurePolicyAction{
+							{
+								Type: objects.FailurePolicyActionBackoffKey,
+								Backoff: &objects.ChannelKeyHealthCheckBackoff{
+									Mode:               objects.ChannelKeyHealthCheckBackoffModeExponential,
+									IntervalMinutes:    5,
+									MaxIntervalMinutes: 60,
+									Multiplier:         2.0,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	// Seed channels up to ID 65 so exact IDs 52, 56, 60, 65 exist in SQLite with real configurations
+	for id := 1; id <= 65; id++ {
+		switch id {
+		case 52:
+			ch := client.Channel.Create().
+				SetType(channel.TypeOpenaiResponses).
+				SetName("MyRs").
+				SetBaseURL("http://10.77.48.4:8080/v1").
+				SetStatus(channel.StatusDisabled).
+				SetCredentials(objects.ChannelCredentials{APIKeys: []string{"test-key-52"}}).
+				SetSupportedModels([]string{"gpt-6.1-sol"}).
+				SetDefaultTestModel("gpt-6.1-sol").
+				SetPolicies(objects.ChannelPolicies{Stream: objects.CapabilityPolicyUnlimited}).
+				SetSettings(makeRichSettings(false)).
+				SaveX(ctx)
+			require.Equal(t, 52, ch.ID)
+		case 56, 60, 65:
+			pol := objects.ChannelPolicies{Stream: objects.CapabilityPolicyUnlimited}
+			if id == 60 {
+				pol.Stream = objects.CapabilityPolicyRequire
+			}
+			if id == 65 {
+				pol.DenyRequestFormats = []string{"anthropic/messages"}
+			}
+			var settings *objects.ChannelSettings
+			if id == 60 {
+				// Exercise sparse/null nested settings alongside User-Agent override + copy-out
+				settings = &objects.ChannelSettings{
+					PassThroughUserAgent: lo.ToPtr(false),
+					PassThroughBody:      lo.ToPtr(true),
+					DisableRetries:       true,
+					HeaderOverrideOperations: []objects.OverrideOperation{
+						{
+							Op:    objects.OverrideOpSet,
+							Path:  "User-Agent",
+							Value: "Codex Desktop/0.142.3 (Windows 10.0.22635; x86_64) unknown (Codex Desktop; 26.623.61825)",
+						},
+						{
+							Op:   objects.OverrideOpCopy,
+							From: "User-Agent",
+							To:   "X-Original-UA",
+						},
+					},
+				}
+			} else {
+				settings = makeRichSettings(true)
+			}
+			ch := client.Channel.Create().
+				SetType(channel.TypeOpenaiResponses).
+				SetName(fmt.Sprintf("MyRs-%d", id)).
+				SetBaseURL("http://10.77.48.4:8080/v1").
+				SetStatus(channel.StatusEnabled).
+				SetCredentials(objects.ChannelCredentials{APIKeys: []string{fmt.Sprintf("test-key-%d", id)}}).
+				SetSupportedModels([]string{"gpt-6.1-sol"}).
+				SetDefaultTestModel("gpt-6.1-sol").
+				SetPolicies(pol).
+				SetSettings(settings).
+				SaveX(ctx)
+			require.Equal(t, id, ch.ID)
+		default:
+			ch := client.Channel.Create().
+				SetType(channel.TypeOpenai).
+				SetName(fmt.Sprintf("filler-%d", id)).
+				SetBaseURL("http://127.0.0.1:9999/v1").
+				SetStatus(channel.StatusDisabled).
+				SetCredentials(objects.ChannelCredentials{APIKeys: []string{"filler"}}).
+				SetSupportedModels([]string{"m"}).
+				SetDefaultTestModel("m").
+				SaveX(ctx)
+			require.Equal(t, id, ch.ID)
+		}
+	}
+
+	channelService := biz.NewChannelService(biz.ChannelServiceParams{
+		CacheConfig:   cache,
+		Ent:           client,
+		SystemService: system,
+		HttpClient:    httpClient,
+	})
+	defer channelService.Stop()
+	modelService := biz.NewModelService(biz.ModelServiceParams{Ent: client, ChannelService: channelService, SystemService: system})
+	defaultSelector := orchestrator.NewDefaultSelector(channelService, modelService, system)
+	usage := biz.NewUsageLogService(client, system, channelService)
+	storage := &biz.DataStorageService{AbstractService: &biz.AbstractService{}, SystemService: system, Cache: xcache.NewFromConfig[ent.DataStorage](cache)}
+	requests := biz.NewRequestService(client, system, usage, storage, biz.NewLiveStreamRegistry())
+
+	gqlHandlers := gql.NewGraphqlHandlers(gql.Dependencies{
+		Ent:             client,
+		AuthService:     auth,
+		APIKeyService:   keyService,
+		SystemService:   system,
+		ChannelService:  channelService,
+		RequestService:  requests,
+		ProjectService:  projectService,
+		UsageLogService: usage,
+		ModelService:    modelService,
+		DefaultSelector: defaultSelector,
+		HttpClient:      httpClient,
+	})
+
+	const syntheticOwnerToken = "synthetic-owner-jwt-for-local-test"
+	router := gin.New()
+	router.POST("/admin/graphql", func(c *gin.Context) {
+		if c.GetHeader("Authorization") != "Bearer "+syntheticOwnerToken {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		reqCtx := ent.NewContext(authz.WithTestBypass(c.Request.Context()), client)
+		c.Request = c.Request.WithContext(reqCtx)
+		gqlHandlers.Graphql.ServeHTTP(c.Writer, c.Request)
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	jwtPath := filepath.Join(t.TempDir(), "owner.jwt")
+	require.NoError(t, os.WriteFile(jwtPath, []byte(syntheticOwnerToken+"\n"), 0o600))
+
+	scriptCandidates := []string{
+		filepath.Clean("../../../.agent/summary/cpr-admission-activation/cpr_admission_activate.py"),
+		filepath.Clean("E:/kiki-wt/cpr-admission-activation-20261110/outputs/axon-cpr-admission-20261110/cpr_admission_activate.py"),
+	}
+	var scriptPath string
+	for _, cand := range scriptCandidates {
+		if _, err := os.Stat(cand); err == nil {
+			scriptPath = cand
+			break
+		}
+	}
+	require.NotEmpty(t, scriptPath, "cpr_admission_activate.py not found")
+
+	runScript := func(extraArgs ...string) map[string]any {
+		args := append([]string{scriptPath, "--origin", server.URL, "--jwt-path", jwtPath}, extraArgs...)
+		cmd := exec.Command("python", args...)
+		outBytes, err := cmd.CombinedOutput()
+		require.NoError(t, err, "script failed: %s", string(outBytes))
+		outStr := string(outBytes)
+		require.NotContains(t, outStr, "super-secret-pass")
+		require.NotContains(t, outStr, "secret-tenant-token-do-not-echo")
+		require.NotContains(t, outStr, "cookie-secret-val")
+		require.NotContains(t, outStr, syntheticOwnerToken)
+		var parsed map[string]any
+		require.NoError(t, json.Unmarshal(outBytes, &parsed), "invalid json: %s", outStr)
+		return parsed
+	}
+
+	// Step 1: check (read-only) against real GraphQL __schema and seeded SQLite rows
+	checkBefore := runScript("--mode", "check")
+	require.Equal(t, "checked", checkBefore["phase"])
+	require.Equal(t, true, checkBefore["schemaVerified"])
+	channelsBefore, _ := checkBefore["channels"].([]any)
+	require.Len(t, channelsBefore, 4)
+
+	// Step 2: apply against real GraphQL updateChannel and readback verification
+	applyRes := runScript("--apply")
+	require.Equal(t, "verified", applyRes["phase"])
+	require.Equal(t, []any{float64(56), float64(60), float64(65)}, applyRes["updatedChannelIds"])
+
+	// Step 3: second check after apply must report noop (needsWrite == false) for all channels
+	checkAfter := runScript("--mode", "check")
+	require.Equal(t, "checked", checkAfter["phase"])
+	channelsAfter, _ := checkAfter["channels"].([]any)
+	require.Len(t, channelsAfter, 4)
+	for _, item := range channelsAfter {
+		chMap, _ := item.(map[string]any)
+		require.Equal(t, false, chMap["needsWrite"], "expected needsWrite=false after apply for %v", chMap)
+	}
+
+	// Verify DB state directly: 52 still disabled, 56/60/65 have exact policies and preserved non-UA header overrides
+	ch52 := client.Channel.GetX(ctx, 52)
+	require.Equal(t, channel.StatusDisabled, ch52.Status)
+
+	for _, cid := range []int{56, 60, 65} {
+		row := client.Channel.GetX(ctx, cid)
+		require.Equal(t, channel.StatusEnabled, row.Status)
+		require.Equal(t, []string{"openai/responses", "openai/responses_compact"}, row.Policies.AllowRequestFormats)
+		require.NotNil(t, row.Policies.CodexOfficialClient)
+		require.True(t, *row.Policies.CodexOfficialClient)
+		require.NotNil(t, row.Settings.PassThroughUserAgent)
+		require.True(t, *row.Settings.PassThroughUserAgent)
+		for _, op := range row.Settings.HeaderOverrideOperations {
+			require.NotEqual(t, "user-agent", strings.ToLower(op.Path))
+		}
+	}
+	ch56 := client.Channel.GetX(ctx, 56)
+	require.Len(t, ch56.Settings.HeaderOverrideOperations, 2)
+	require.Equal(t, "X-Custom-Tenant", ch56.Settings.HeaderOverrideOperations[0].Path)
+	require.Equal(t, "copy", ch56.Settings.HeaderOverrideOperations[1].Op)
+	require.Equal(t, "User-Agent", ch56.Settings.HeaderOverrideOperations[1].From)
+	require.Equal(t, "X-Original-UA", ch56.Settings.HeaderOverrideOperations[1].To)
+	require.Equal(t, "http://proxy-user:super-secret-pass@10.0.0.1:8080", ch56.Settings.Proxy.URL)
+	require.Equal(t, "ws-123", ch56.Settings.ProviderQuota.OpencodeGo.WorkspaceID)
+	require.Equal(t, int64(32), *ch56.Settings.RateLimit.MaxConcurrent)
 }
