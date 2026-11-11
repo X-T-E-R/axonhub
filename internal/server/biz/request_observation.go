@@ -736,6 +736,54 @@ func (s *RequestService) CreateRequest(
 	if taskIdentity && !scope.admitTaskIdentity() {
 		return nil, errors.New("video task identity admission unavailable before upstream execution")
 	}
+	if !taskIdentity {
+		if err := scope.admitCompactAccounting(ctx); err != nil {
+			return nil, fmt.Errorf("compact accounting admission failed before upstream execution: %w", err)
+		}
+		if scope.isCompactOnly() {
+			capturedAt := time.Now().UTC()
+			localID := scope.newID()
+			projectID, _ := observationProjectID(ctx)
+			source := observationSourceOrDefault(ctx, request.SourceAPI)
+			stream := llmRequest != nil && llmRequest.Stream != nil && *llmRequest.Stream
+			apiKeyID := 0
+			if apiKey, ok := observationAPIKey(ctx); ok && apiKey != nil {
+				apiKeyID = apiKey.ID
+			}
+			traceID := 0
+			if trace, ok := observationTrace(ctx); ok && trace != nil {
+				traceID = trace.ID
+			}
+			modelID := ""
+			reasoningEffort := ""
+			if llmRequest != nil {
+				modelID = llmRequest.Model
+				reasoningEffort = llmRequest.ReasoningEffort
+			}
+			clientIP := ""
+			if httpRequest != nil {
+				clientIP = httpRequest.ClientIP
+			}
+			return &ent.Request{
+				ID:                  localID,
+				CreatedAt:           capturedAt,
+				UpdatedAt:           capturedAt,
+				APIKeyID:            apiKeyID,
+				ProjectID:           projectID,
+				TraceID:             traceID,
+				Source:              source,
+				ModelID:             modelID,
+				ReasoningEffort:     reasoningEffort,
+				Format:              string(format),
+				RequestHeaders:      []byte("{}"),
+				RequestBody:         []byte("{}"),
+				Status:              request.StatusProcessing,
+				Stream:              stream,
+				ClientIP:            clientIP,
+				EvidenceDisposition: forwardingUnavailableEvidenceDisposition(capturedAt),
+			}, nil
+		}
+	}
 
 	capturedAt := time.Now().UTC()
 	llmSnapshot := cloneObservationLLMRequest(llmRequest)
@@ -841,6 +889,42 @@ func (s *RequestService) CreateRequestExecution(
 	if scope == nil {
 		return s.createRequestExecution(ctx, channel, modelID, requestEntity, channelRequest, format, passThroughApplied)
 	}
+	if scope.isCompactOnly() {
+		capturedAt := time.Now().UTC()
+		localID := scope.newID()
+		channelID := 0
+		if channel != nil && channel.Channel != nil {
+			channelID = channel.ID
+		}
+		projectID := 0
+		requestID := 0
+		dataStorageID := 0
+		stream := false
+		if requestEntity != nil {
+			projectID = requestEntity.ProjectID
+			requestID = requestEntity.ID
+			dataStorageID = requestEntity.DataStorageID
+			stream = requestEntity.Stream
+		}
+		return &ent.RequestExecution{
+			ID:                  localID,
+			CreatedAt:           capturedAt,
+			UpdatedAt:           capturedAt,
+			ProjectID:           projectID,
+			RequestID:           requestID,
+			ChannelID:           channelID,
+			DataStorageID:       dataStorageID,
+			ModelID:             modelID,
+			Format:              string(format),
+			RequestBody:         []byte("{}"),
+			RequestHeaders:      []byte("{}"),
+			Status:              requestexecution.StatusProcessing,
+			Stream:              stream,
+			RequestURL:          channelRequest.URL,
+			PassThroughApplied:  passThroughApplied,
+			EvidenceDisposition: forwardingUnavailableEvidenceDisposition(capturedAt),
+		}, nil
+	}
 
 	capturedAt := time.Now().UTC()
 	requestSnapshot := cloneObservationRequest(requestEntity)
@@ -942,6 +1026,9 @@ func (s *RequestService) UpdateRequestStatusFromErrorDetails(ctx context.Context
 	if scope == nil {
 		return s.updateRequestStatusFromErrorDetails(ctx, requestID, rawErr, requestContextErr, errorInfo)
 	}
+	if scope.isCompactOnly() {
+		return nil
+	}
 	if isCallerCancellation(rawErr, requestContextErr) {
 		return s.updateRequestStatus(ctx, requestID, request.StatusCanceled, false)
 	}
@@ -982,6 +1069,9 @@ func (s *RequestService) UpdateRequestCompleted(ctx context.Context, requestID i
 	if scope == nil {
 		return s.updateRequestCompleted(ctx, requestID, externalID, responseBody, metrics)
 	}
+	if scope.isCompactOnly() {
+		return nil
+	}
 	enabled := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
 	responseSnapshot, err := observationResponseValue(responseBody, enabled)
 	if err != nil {
@@ -1013,6 +1103,9 @@ func (s *RequestService) UpdateRequestCompletedWithAudio(ctx context.Context, re
 	scope := observationFromContext(ctx)
 	if scope == nil {
 		return s.updateRequestCompletedWithAudio(ctx, requestID, externalID, responseBody, audio, filename, metrics)
+	}
+	if scope.isCompactOnly() {
+		return nil
 	}
 	enabled := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
 	responseSnapshot, err := observationResponseValue(responseBody, enabled)
@@ -1055,6 +1148,9 @@ func (s *RequestService) UpdateRequestStatusExternalIDAndResponseBody(ctx contex
 	if scope == nil {
 		return s.updateRequestStatusExternalIDAndResponseBodyWithDeadline(ctx, requestID, status, externalID, responseBody, metrics)
 	}
+	if scope.isCompactOnly() {
+		return nil
+	}
 	enabled := s.SystemService.StoragePolicyOrDefault(ctx).StoreResponseBody
 	responseSnapshot, err := observationResponseValue(responseBody, enabled)
 	if err != nil {
@@ -1086,6 +1182,9 @@ func (s *RequestService) UpdateRequestExecutionCompletedForChannel(ctx context.C
 	scope := observationFromContext(ctx)
 	if scope == nil {
 		return s.updateRequestExecutionCompletedForChannel(ctx, executionID, externalID, responseBody, metrics, channel)
+	}
+	if scope.isCompactOnly() {
+		return nil
 	}
 	channel = scope.executionChannel(executionID, channel)
 	enabled := s.shouldStoreExecutionResponseBody(ctx, nil, channel)
@@ -1121,6 +1220,9 @@ func (s *RequestService) UpdateRequestExecutionCompletedWithAggregationIncomplet
 	if scope == nil {
 		return s.updateRequestExecutionCompletedWithAggregationIncomplete(ctx, executionID, metrics)
 	}
+	if scope.isCompactOnly() {
+		return nil
+	}
 	metricsSnapshot := cloneObservationMetrics(metrics)
 	payloadBytes := int64(64) + observationContextBytes(ctx)
 	capturedAt := time.Now().UTC()
@@ -1140,6 +1242,9 @@ func (s *RequestService) updateRequestExecutionStatus(ctx context.Context, execu
 	scope := observationFromContext(ctx)
 	if scope == nil {
 		return s.updateRequestExecutionStatusSync(ctx, executionID, status, errorMsg, errorInfo, causalFailure, metrics)
+	}
+	if scope.isCompactOnly() {
+		return nil
 	}
 	channel := scope.executionChannel(executionID, nil)
 	enabled := s.shouldStoreExecutionResponseBody(ctx, nil, channel)
@@ -1201,6 +1306,9 @@ func (s *RequestService) SaveRequestExecutionChunksForChannel(ctx context.Contex
 	if scope == nil {
 		return s.saveRequestExecutionChunksForChannel(ctx, executionID, chunks, channel)
 	}
+	if scope.isCompactOnly() {
+		return nil
+	}
 	channel = scope.executionChannel(executionID, channel)
 	if info, _ := ctx.Value(requestObservationChunksInfoKey{}).(*requestObservationBodyInfo); info != nil {
 		return s.saveObservationChunkDisposition(ctx, executionID, true, info)
@@ -1230,6 +1338,9 @@ func (s *RequestService) SaveRequestChunks(ctx context.Context, requestID int, c
 	if scope == nil {
 		return s.saveRequestChunks(ctx, requestID, chunks)
 	}
+	if scope.isCompactOnly() {
+		return nil
+	}
 	if info, _ := ctx.Value(requestObservationChunksInfoKey{}).(*requestObservationBodyInfo); info != nil {
 		return s.saveObservationChunkDisposition(ctx, requestID, false, info)
 	}
@@ -1253,6 +1364,9 @@ func (s *RequestService) SaveRequestChunks(ctx context.Context, requestID int, c
 
 func (s *RequestService) saveObservationChunkDisposition(ctx context.Context, id int, execution bool, info *requestObservationBodyInfo) error {
 	scope := observationFromContext(ctx)
+	if scope.isCompactOnly() {
+		return nil
+	}
 	disposition := observationUnavailableBodyDisposition(nil, time.Now().UTC())
 	if info.Omitted {
 		disposition = evidenceDisposition("omit", "none", "omitted", nil, nil)
@@ -1289,6 +1403,9 @@ func (s *RequestService) updateRequestStatus(ctx context.Context, requestID int,
 	if scope == nil {
 		return s.updateRequestStatusSync(ctx, requestID, status, causalFailure)
 	}
+	if scope.isCompactOnly() {
+		return nil
+	}
 	payloadBytes := int64(64) + observationContextBytes(ctx)
 	capturedAt := time.Now().UTC()
 	return scope.submitTerminal(observationTerminalContext(ctx, capturedAt, nil), requestID, payloadBytes, func(workerCtx context.Context) error {
@@ -1306,6 +1423,9 @@ func (s *RequestService) UpdateRequestChannelID(ctx context.Context, requestID i
 	scope := observationFromContext(ctx)
 	if scope == nil {
 		return s.updateRequestChannelID(ctx, requestID, channelID)
+	}
+	if scope.isCompactOnly() {
+		return nil
 	}
 	payloadBytes := int64(64) + observationContextBytes(ctx)
 	err := scope.submitMetadata(captureObservationContext(ctx), payloadBytes, func(workerCtx context.Context) error {

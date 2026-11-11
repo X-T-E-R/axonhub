@@ -861,6 +861,11 @@ func (r *usageLogResolver) ID(ctx context.Context, obj *ent.UsageLog) (*objects.
 
 // RequestID is the resolver for the requestID field.
 func (r *usageLogResolver) RequestID(ctx context.Context, obj *ent.UsageLog) (*objects.GUID, error) {
+	if obj.RequestID == 0 {
+		//nolint:nilnil // Checked.
+		return nil, nil
+	}
+
 	return &objects.GUID{
 		Type: ent.TypeRequest,
 		ID:   obj.RequestID,

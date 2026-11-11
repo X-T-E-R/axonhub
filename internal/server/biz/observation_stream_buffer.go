@@ -29,6 +29,9 @@ func (s *RequestService) NewObservationStreamBuffer(ctx context.Context, channel
 	if scope == nil {
 		return nil
 	}
+	if scope.isCompactOnly() {
+		return &ObservationStreamBuffer{writer: scope.writer, BodyEnabled: false, ChunksEnabled: false, Unavailable: true, closed: true}
+	}
 	policy := s.SystemService.StoragePolicyOrDefault(ctx)
 	b := &ObservationStreamBuffer{BodyEnabled: policy.StoreResponseBody, ChunksEnabled: policy.StoreChunks}
 	if execution {

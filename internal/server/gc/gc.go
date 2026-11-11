@@ -1216,16 +1216,19 @@ func (w *Worker) deleteUsageLogCandidate(ctx context.Context, usageLogID int, cu
 	if err != nil {
 		return false, fmt.Errorf("failed to reload usage log %d for cleanup: %w", usageLogID, err)
 	}
-	requestRow, err := client.Request.Query().
-		Where(request.IDEQ(row.RequestID)).
-		Select(request.FieldID, request.FieldTraceID).
-		Only(txCtx)
-	if ent.IsNotFound(err) {
-		requestRow = &ent.Request{}
-		err = nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to load request %d for usage log cleanup: %w", row.RequestID, err)
+	requestRow := &ent.Request{}
+	if row.RequestID != 0 {
+		requestRow, err = client.Request.Query().
+			Where(request.IDEQ(row.RequestID)).
+			Select(request.FieldID, request.FieldTraceID).
+			Only(txCtx)
+		if ent.IsNotFound(err) {
+			requestRow = &ent.Request{}
+			err = nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("failed to load request %d for usage log cleanup: %w", row.RequestID, err)
+		}
 	}
 	owners, eligible, err := lockRetentionOwners(txCtx, client, requestRow.TraceID)
 	if err != nil || !eligible {

@@ -30,6 +30,9 @@ type ChannelOverrideTemplate func(*sql.Selector)
 // ChannelProbe is the predicate function for channelprobe builders.
 type ChannelProbe func(*sql.Selector)
 
+// CompactUsageBatch is the predicate function for compactusagebatch builders.
+type CompactUsageBatch func(*sql.Selector)
+
 // DataStorage is the predicate function for datastorage builders.
 type DataStorage func(*sql.Selector)
 

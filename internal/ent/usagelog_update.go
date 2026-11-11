@@ -457,9 +457,6 @@ func (_u *UsageLogUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *UsageLogUpdate) check() error {
-	if _u.mutation.RequestCleared() && len(_u.mutation.RequestIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "UsageLog.request"`)
-	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UsageLog.project"`)
 	}
@@ -486,6 +483,9 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(usagelog.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.EventIDCleared() {
+		_spec.ClearField(usagelog.FieldEventID, field.TypeString)
 	}
 	if _u.mutation.APIKeyIDCleared() {
 		_spec.ClearField(usagelog.FieldAPIKeyID, field.TypeInt)
@@ -1076,9 +1076,6 @@ func (_u *UsageLogUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *UsageLogUpdateOne) check() error {
-	if _u.mutation.RequestCleared() && len(_u.mutation.RequestIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "UsageLog.request"`)
-	}
 	if _u.mutation.ProjectCleared() && len(_u.mutation.ProjectIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UsageLog.project"`)
 	}
@@ -1122,6 +1119,9 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(usagelog.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.EventIDCleared() {
+		_spec.ClearField(usagelog.FieldEventID, field.TypeString)
 	}
 	if _u.mutation.APIKeyIDCleared() {
 		_spec.ClearField(usagelog.FieldAPIKeyID, field.TypeInt)

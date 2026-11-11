@@ -2422,7 +2422,7 @@ input CreateUsageLogInput {
   Reference ID to the channel model price version used for cost calculation
   """
   costPriceReferenceID: String
-  requestID: ID!
+  requestID: ID
   projectID: ID!
   channelID: ID
 }
@@ -7014,7 +7014,7 @@ type UsageLog implements Node {
   """
   Related request ID
   """
-  requestID: ID!
+  requestID: ID
   apiKeyID: Int
   """
   Project ID, default to 1 for backward compatibility
@@ -7096,7 +7096,7 @@ type UsageLog implements Node {
   Reference ID to the channel model price version used for cost calculation
   """
   costPriceReferenceID: String
-  request: Request!
+  request: Request
   project: Project!
   channel: Channel @goField(forceResolver: true)
 }
@@ -7206,6 +7206,8 @@ input UsageLogWhereInput {
   requestIDNEQ: ID
   requestIDIn: [ID!]
   requestIDNotIn: [ID!]
+  requestIDIsNil: Boolean
+  requestIDNotNil: Boolean
   """
   api_key_id field predicates
   """

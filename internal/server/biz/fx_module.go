@@ -37,6 +37,21 @@ var Module = fx.Module("biz",
 	fx.Provide(NewProviderQuotaService),
 	fx.Provide(NewOIDCService),
 	fx.Provide(NewAPIKeyProfileTemplateService),
+	fx.Provide(NewCompactAccountingService),
+	fx.Invoke(func(writer *ForwardingObservationWriter, compact *CompactAccountingService) {
+		writer.SetCompactAccountingService(compact)
+	}),
+	fx.Invoke(func(lc fx.Lifecycle, svc *SystemService) {
+		lc.Append(fx.Hook{
+			OnStart: func(ctx context.Context) error {
+				return svc.Start(ctx)
+			},
+			OnStop: func(ctx context.Context) error {
+				svc.Stop()
+				return nil
+			},
+		})
+	}),
 	fx.Invoke(func(lc fx.Lifecycle, svc *APIKeyService) {
 		lc.Append(fx.Hook{
 			OnStop: func(ctx context.Context) error {

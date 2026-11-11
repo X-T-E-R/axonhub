@@ -36,12 +36,25 @@ func handleMaintenanceCommand() {
 }
 
 func setupMaintenance(lc fx.Lifecycle, gate *maintenance.Gate, client *ent.Client,
-	writer *biz.ForwardingObservationWriter, bodyWriter *biz.ManagedRequestBodyWriter, node cluster.Config) {
+	writer *biz.ForwardingObservationWriter, bodyWriter *biz.ManagedRequestBodyWriter,
+	compact *biz.CompactAccountingService, node cluster.Config) {
 	path := maintenanceSocket()
 	if path == "" {
 		return
 	}
 	local := &maintenance.Local{Gate: gate}
+	local.Inspect = func(ctx context.Context) (int, int, int) {
+		var unacked, nodePending, globalPending int
+		if compact != nil && compact.Active() {
+			unacked, _ = compact.UnackedCount(ctx)
+		}
+		if node.Enabled {
+			bypassCtx := authz.WithSystemBypass(ctx, "local-maintenance-status-inspect")
+			nodePending, _ = client.PendingUsage.Query().Where(pendingusage.NodeIDEQ(node.NodeID)).Count(bypassCtx)
+			globalPending, _ = client.PendingUsage.Query().Count(bypassCtx)
+		}
+		return unacked, nodePending, globalPending
+	}
 	local.Drain = func(ctx context.Context) (maintenance.DrainResult, error) {
 		result := maintenance.DrainResult{}
 		if err := writer.Stop(ctx); err != nil {
@@ -51,20 +64,38 @@ func setupMaintenance(lc fx.Lifecycle, gate *maintenance.Gate, client *ent.Clien
 			return result, err
 		}
 		result.WritersStopped = true
+
+		var flushErr error
+		if compact != nil && compact.Active() {
+			flushErr = compact.Flush(ctx)
+			unacked, countErr := compact.UnackedCount(ctx)
+			if countErr != nil && flushErr == nil {
+				flushErr = countErr
+			}
+			result.UnackedCompactUsage = unacked
+		}
+
 		if node.Enabled {
-			ctx = authz.WithSystemBypass(ctx, "local-maintenance-pending-status")
+			bypassCtx := authz.WithSystemBypass(ctx, "local-maintenance-pending-status")
 			var err error
-			result.NodePending, err = client.PendingUsage.Query().Where(pendingusage.NodeIDEQ(node.NodeID)).Count(ctx)
+			result.NodePending, err = client.PendingUsage.Query().Where(pendingusage.NodeIDEQ(node.NodeID)).Count(bypassCtx)
 			if err != nil {
-				return result, err
+				return result, errors.Join(flushErr, err)
 			}
-			result.GlobalPending, err = client.PendingUsage.Query().Count(ctx)
+			result.GlobalPending, err = client.PendingUsage.Query().Count(bypassCtx)
 			if err != nil {
-				return result, err
+				return result, errors.Join(flushErr, err)
 			}
-			if result.NodePending != 0 {
-				return result, errors.New("node pending usage remains; retain new reader")
-			}
+		}
+
+		if flushErr != nil {
+			return result, flushErr
+		}
+		if result.UnackedCompactUsage != 0 {
+			return result, errors.New("unacknowledged compact usage remains in local outbox")
+		}
+		if node.Enabled && result.NodePending != 0 {
+			return result, errors.New("node pending usage remains; retain new reader")
 		}
 		return result, nil
 	}

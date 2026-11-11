@@ -170,6 +170,7 @@ func unmarshal(v *viper.Viper) (Config, error) {
 		if !config.Cluster.IsControl() && !config.DB.DisableAutoMigration {
 			return Config{}, errors.New("cluster data node requires db.disable_auto_migration=true")
 		}
+		config.Cluster.CompactAccounting = config.Cluster.CompactAccounting.WithDefaults(config.Cluster.NodeID)
 		config.Cluster = config.Cluster.WithRuntime()
 	}
 	return config, nil
@@ -235,6 +236,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cluster.control_node", "")
 	v.SetDefault("cluster.nodes", map[string]string{})
 	v.SetDefault("cluster.channels", map[int]cluster.ChannelBinding{})
+	v.SetDefault("cluster.compact_accounting.enabled", false)
+	v.SetDefault("cluster.compact_accounting.outbox_path", "")
+	v.SetDefault("cluster.compact_accounting.sync_interval", "5m")
+	v.SetDefault("cluster.compact_accounting.max_batch_count", 256)
+	v.SetDefault("cluster.compact_accounting.max_batch_bytes", 262144)
+	v.SetDefault("cluster.compact_accounting.max_spool_records", 65536)
+	v.SetDefault("cluster.compact_accounting.max_spool_bytes", 67108864)
+	v.SetDefault("cluster.compact_accounting.request_timeout", "15s")
+	v.SetDefault("cluster.compact_accounting.shared_secret", "")
 	v.SetDefault("cache.namespace", "axonhub")
 	// Server defaults
 	v.SetDefault("server.host", "0.0.0.0")

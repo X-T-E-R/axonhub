@@ -762,7 +762,7 @@ type SystemServiceParams struct {
 }
 
 func NewSystemService(params SystemServiceParams) *SystemService {
-	return &SystemService{
+	svc := &SystemService{
 		AbstractService: &AbstractService{
 			db: params.Ent,
 		},
@@ -770,6 +770,8 @@ func NewSystemService(params SystemServiceParams) *SystemService {
 		Cache:                  xcache.NewFromConfigWithDomain[ent.System](params.CacheConfig, "system"),
 		CyberSessionBlockCache: xcache.NewFromConfigWithLegacyPrefixes[CyberSessionBlockEntry](params.CacheConfig, "cyber-session-block:"),
 	}
+	svc.snapshot = newSystemSnapshotSyncer(svc)
+	return svc
 }
 
 type SystemService struct {
@@ -783,6 +785,33 @@ type SystemService struct {
 	cyberSessionBlockMu sync.Mutex
 	timeLocation        *time.Location
 	observationWriter   *ForwardingObservationWriter
+	snapshot            *systemSnapshotSyncer
+}
+
+// Start activates the local system-settings snapshot and, on PostgreSQL, opens a
+// dedicated LISTEN/NOTIFY synchronization loop with reconnect primary reloads.
+func (s *SystemService) Start(ctx context.Context) error {
+	if s == nil || s.snapshot == nil {
+		return nil
+	}
+	return s.snapshot.Start(ctx)
+}
+
+// Stop shuts down any background system-settings listener cleanly.
+func (s *SystemService) Stop() {
+	if s == nil || s.snapshot == nil {
+		return
+	}
+	s.snapshot.Stop()
+}
+
+// ForceSnapshotReconnectForTest closes the underlying LISTEN socket in tests to
+// exercise disconnect recovery and primary reload.
+func (s *SystemService) ForceSnapshotReconnectForTest() {
+	if s == nil || s.snapshot == nil {
+		return
+	}
+	s.snapshot.ForceReconnectForTest()
 }
 
 func (s *SystemService) IsInitialized(ctx context.Context) (bool, error) {
@@ -934,6 +963,10 @@ func (s *SystemService) Initialize(ctx context.Context, params *InitializeSystem
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	if s.snapshot != nil && s.snapshot.IsActive() {
+		_ = s.snapshot.reloadAll(context.Background())
+	}
+
 	return nil
 }
 
@@ -1033,6 +1066,15 @@ func (s *SystemService) SetTitle(ctx context.Context, title string) error {
 }
 
 func (s *SystemService) getSystemValue(ctx context.Context, key string) (string, error) {
+	if s != nil && s.snapshot != nil && ent.TxFromContext(ctx) == nil {
+		if v, found, active := s.snapshot.LoadValue(key); active {
+			if !found {
+				return "", fmt.Errorf("failed to get system value: %w", &ent.NotFoundError{})
+			}
+			return v, nil
+		}
+	}
+
 	cacheKey := "system:" + key
 	if v, err := s.Cache.Get(ctx, cacheKey); err == nil {
 		return v.Value, nil
@@ -1064,9 +1106,17 @@ func (s *SystemService) setSystemValue(ctx context.Context, key, value string) e
 		return fmt.Errorf("failed to create system setting: %w", err)
 	}
 
+	notifySystemSettingChanged(ctx, client, key)
+
 	// Invalidate cache for this key
 	if err := s.Cache.Delete(ctx, "system:"+key); err != nil {
 		log.Warn(ctx, "failed to invalidate cache", log.String("key", key), log.Cause(err))
+	}
+
+	// Only update the local snapshot synchronously when writing outside an
+	// uncommitted transaction; transactional writes notify peers on commit.
+	if ent.TxFromContext(ctx) == nil && s.snapshot != nil {
+		s.snapshot.ApplyLocalSetting(key, value)
 	}
 
 	return nil
@@ -1199,13 +1249,19 @@ func (s *SystemService) SetStoragePolicy(ctx context.Context, policy *StoragePol
 
 // RetryPolicy retrieves the retry policy configuration.
 func (s *SystemService) RetryPolicy(ctx context.Context) (*RetryPolicy, error) {
+	if s != nil && s.snapshot != nil && ent.TxFromContext(ctx) == nil {
+		if policy, ok := s.snapshot.LoadRetryPolicy(); ok {
+			return policy, nil
+		}
+	}
+
 	value, err := s.getSystemValue(ctx, SystemKeyRetryPolicy)
 	if err != nil {
 		if ent.IsNotFound(err) {
 			policy := defaultRetryPolicy
 			normalizeRetryPolicy(&policy)
 
-			return &policy, nil
+			return cloneRetryPolicy(&policy), nil
 		}
 
 		return nil, fmt.Errorf("failed to get retry policy: %w", err)
@@ -1218,7 +1274,7 @@ func (s *SystemService) RetryPolicy(ctx context.Context) (*RetryPolicy, error) {
 
 	normalizeRetryPolicy(&policy)
 
-	return &policy, nil
+	return cloneRetryPolicy(&policy), nil
 }
 
 func (s *SystemService) RetryPolicyOrDefault(ctx context.Context) *RetryPolicy {

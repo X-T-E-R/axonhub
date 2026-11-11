@@ -297,6 +297,52 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		// Prices are already held in the enabled-channel memory snapshot. Freeze
 		// the cost now so a delayed write cannot reprice an earlier response.
 		items, total, reference := s.computeUsageCost(ctx, executionCopy.ChannelID, executionCopy.ModelID, &usageCopy)
+		scope.writer.mu.Lock()
+		compactOnly := scope.compactOnly
+		compactSvc := scope.writer.compact
+		scope.writer.mu.Unlock()
+		if compactOnly {
+			var outbox *CompactAccountingOutbox
+			if compactSvc != nil {
+				outbox = compactSvc.Outbox()
+			}
+			if outbox == nil {
+				execErr := &ExecutedAccountingError{Cause: ErrCompactOutboxUnavailable}
+				scope.lastUsageErr = execErr
+				return nil, execErr
+			}
+			_, appendErr := outbox.Append(ctx, CompactUsageEvent{
+				EventUUID:        scope.usageID,
+				CapturedAt:       capturedAt,
+				ProjectID:        requestCopy.ProjectID,
+				APIKeyID:         requestCopy.APIKeyID,
+				ChannelID:        executionCopy.ChannelID,
+				ModelID:          executionCopy.ModelID,
+				Source:           string(requestCopy.Source),
+				Format:           requestCopy.Format,
+				Usage:            usageCopy,
+				TotalCost:        total,
+				CostItems:        items,
+				PriceReferenceID: reference,
+			})
+			scope.writer.mu.Lock()
+			release := scope.compactRelease
+			scope.compactRelease = nil
+			if appendErr == nil {
+				scope.usageSubmitted = true
+			}
+			scope.writer.mu.Unlock()
+			if release != nil {
+				release()
+			}
+			if appendErr != nil {
+				execErr := &ExecutedAccountingError{Cause: appendErr}
+				scope.lastUsageErr = execErr
+				return nil, execErr
+			}
+			scope.lastUsageErr = nil
+			return nil, nil
+		}
 		cost := observationUsageCost{items: items, total: total, referenceID: reference}
 		pending := &observationPendingUsage{apiKeyID: requestCopy.APIKeyID, createdAt: capturedAt, tokens: usageCopy.TotalTokens, cost: total}
 		// Accounting owns explicit IDs and the frozen fact; it does not need

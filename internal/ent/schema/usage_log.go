@@ -26,6 +26,9 @@ func (UsageLog) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("request_id").
 			StorageKey("usage_logs_by_request_id"),
+		index.Fields("event_id").
+			StorageKey("usage_logs_by_event_id").
+			Unique(),
 		// Performance indexes for analytics queries
 		index.Fields("created_at").
 			StorageKey("usage_logs_by_created_at"),
@@ -42,7 +45,8 @@ func (UsageLog) Indexes() []ent.Index {
 
 func (UsageLog) Fields() []ent.Field {
 	return []ent.Field{
-		field.Int("request_id").Immutable().Comment("Related request ID"),
+		field.Int("request_id").Optional().Immutable().Comment("Related request ID"),
+		field.String("event_id").Optional().Nillable().Immutable().MaxLen(64).Annotations(entgql.Skip(entgql.SkipAll)).Comment("Idempotent compact accounting event UUID"),
 		field.Int("api_key_id").Optional().Immutable(),
 		field.Int("project_id").Immutable().Default(1).Comment("Project ID, default to 1 for backward compatibility"),
 		field.Int("channel_id").Immutable().Optional().Comment("Channel ID used for the request"), // Optional for deleted channel, this field is not null.
@@ -90,7 +94,6 @@ func (UsageLog) Edges() []ent.Edge {
 		edge.From("request", Request.Type).
 			Ref("usage_logs").
 			Field("request_id").
-			Required().
 			Immutable().
 			Unique(),
 		edge.From("project", Project.Type).

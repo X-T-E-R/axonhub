@@ -326,6 +326,41 @@ var (
 			},
 		},
 	}
+	// CompactUsageBatchesColumns holds the columns for the "compact_usage_batches" table.
+	CompactUsageBatchesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "producer_uuid", Type: field.TypeString, Size: 64},
+		{Name: "node_id", Type: field.TypeString, Size: 128},
+		{Name: "seq_start", Type: field.TypeInt64},
+		{Name: "seq_end", Type: field.TypeInt64},
+		{Name: "event_count", Type: field.TypeInt},
+		{Name: "payload_digest", Type: field.TypeString, Size: 64},
+		{Name: "schema_version", Type: field.TypeInt, Default: 1},
+		{Name: "created_at", Type: field.TypeTime},
+	}
+	// CompactUsageBatchesTable holds the schema information for the "compact_usage_batches" table.
+	CompactUsageBatchesTable = &schema.Table{
+		Name:       "compact_usage_batches",
+		Columns:    CompactUsageBatchesColumns,
+		PrimaryKey: []*schema.Column{CompactUsageBatchesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "compact_usage_batches_by_producer_range",
+				Unique:  true,
+				Columns: []*schema.Column{CompactUsageBatchesColumns[1], CompactUsageBatchesColumns[3], CompactUsageBatchesColumns[4]},
+			},
+			{
+				Name:    "compact_usage_batches_by_producer_seq_end",
+				Unique:  false,
+				Columns: []*schema.Column{CompactUsageBatchesColumns[1], CompactUsageBatchesColumns[4]},
+			},
+			{
+				Name:    "compact_usage_batches_by_node_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{CompactUsageBatchesColumns[2], CompactUsageBatchesColumns[8]},
+			},
+		},
+	}
 	// DataStoragesColumns holds the columns for the "data_storages" table.
 	DataStoragesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -1006,6 +1041,7 @@ var (
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "event_id", Type: field.TypeString, Nullable: true, Size: 64},
 		{Name: "api_key_id", Type: field.TypeInt, Nullable: true},
 		{Name: "model_id", Type: field.TypeString},
 		{Name: "prompt_tokens", Type: field.TypeInt64, Default: 0},
@@ -1027,7 +1063,7 @@ var (
 		{Name: "cost_price_reference_id", Type: field.TypeString, Nullable: true},
 		{Name: "channel_id", Type: field.TypeInt, Nullable: true},
 		{Name: "project_id", Type: field.TypeInt, Default: 1},
-		{Name: "request_id", Type: field.TypeInt},
+		{Name: "request_id", Type: field.TypeInt, Nullable: true},
 	}
 	// UsageLogsTable holds the schema information for the "usage_logs" table.
 	UsageLogsTable = &schema.Table{
@@ -1037,28 +1073,33 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "usage_logs_channels_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[22]},
+				Columns:    []*schema.Column{UsageLogsColumns[23]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "usage_logs_projects_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[23]},
+				Columns:    []*schema.Column{UsageLogsColumns[24]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_requests_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[24]},
+				Columns:    []*schema.Column{UsageLogsColumns[25]},
 				RefColumns: []*schema.Column{RequestsColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.SetNull,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
 				Name:    "usage_logs_by_request_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[24]},
+				Columns: []*schema.Column{UsageLogsColumns[25]},
+			},
+			{
+				Name:    "usage_logs_by_event_id",
+				Unique:  true,
+				Columns: []*schema.Column{UsageLogsColumns[3]},
 			},
 			{
 				Name:    "usage_logs_by_created_at",
@@ -1068,22 +1109,22 @@ var (
 			{
 				Name:    "usage_logs_by_model_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[4], UsageLogsColumns[1]},
+				Columns: []*schema.Column{UsageLogsColumns[5], UsageLogsColumns[1]},
 			},
 			{
 				Name:    "usage_logs_by_project_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[23], UsageLogsColumns[1]},
+				Columns: []*schema.Column{UsageLogsColumns[24], UsageLogsColumns[1]},
 			},
 			{
 				Name:    "usage_logs_by_channel_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[22], UsageLogsColumns[1]},
+				Columns: []*schema.Column{UsageLogsColumns[23], UsageLogsColumns[1]},
 			},
 			{
 				Name:    "usage_logs_by_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[3], UsageLogsColumns[1]},
+				Columns: []*schema.Column{UsageLogsColumns[4], UsageLogsColumns[1]},
 			},
 		},
 	}
@@ -1234,6 +1275,7 @@ var (
 		ChannelModelPriceVersionsTable,
 		ChannelOverrideTemplatesTable,
 		ChannelProbesTable,
+		CompactUsageBatchesTable,
 		DataStoragesTable,
 		ManagedObservabilityStatesTable,
 		ModelsTable,

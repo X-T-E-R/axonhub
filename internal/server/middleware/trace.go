@@ -142,6 +142,11 @@ func WithTrace(config tracing.Config, traceService *biz.TraceService) gin.Handle
 		// Bypass privacy policy so tokens without write_requests scope can still trigger tracing.
 		c.Request = c.Request.WithContext(traceService.ForwardingObservationContext(c.Request.Context()))
 		defer biz.EndForwardingObservation(c.Request.Context())
+		if !isAsyncTaskCreatePath(c.Request.URL.Path) && traceService.CompactAccountingBypassMetadata(c.Request.Context()) {
+			c.Request = c.Request.WithContext(shared.WithSessionID(c.Request.Context(), traceID))
+			c.Next()
+			return
+		}
 		bypassCtx := authz.WithSystemBypass(c.Request.Context(), "trace-middleware")
 
 		// Get or create trace (errors are logged but don't block the request)

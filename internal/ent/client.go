@@ -23,6 +23,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
+	"github.com/looplj/axonhub/internal/ent/compactusagebatch"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/model"
@@ -67,6 +68,8 @@ type Client struct {
 	ChannelOverrideTemplate *ChannelOverrideTemplateClient
 	// ChannelProbe is the client for interacting with the ChannelProbe builders.
 	ChannelProbe *ChannelProbeClient
+	// CompactUsageBatch is the client for interacting with the CompactUsageBatch builders.
+	CompactUsageBatch *CompactUsageBatchClient
 	// DataStorage is the client for interacting with the DataStorage builders.
 	DataStorage *DataStorageClient
 	// ManagedObservabilityState is the client for interacting with the ManagedObservabilityState builders.
@@ -130,6 +133,7 @@ func (c *Client) init() {
 	c.ChannelModelPriceVersion = NewChannelModelPriceVersionClient(c.config)
 	c.ChannelOverrideTemplate = NewChannelOverrideTemplateClient(c.config)
 	c.ChannelProbe = NewChannelProbeClient(c.config)
+	c.CompactUsageBatch = NewCompactUsageBatchClient(c.config)
 	c.DataStorage = NewDataStorageClient(c.config)
 	c.ManagedObservabilityState = NewManagedObservabilityStateClient(c.config)
 	c.Model = NewModelClient(c.config)
@@ -251,6 +255,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ChannelModelPriceVersion:  NewChannelModelPriceVersionClient(cfg),
 		ChannelOverrideTemplate:   NewChannelOverrideTemplateClient(cfg),
 		ChannelProbe:              NewChannelProbeClient(cfg),
+		CompactUsageBatch:         NewCompactUsageBatchClient(cfg),
 		DataStorage:               NewDataStorageClient(cfg),
 		ManagedObservabilityState: NewManagedObservabilityStateClient(cfg),
 		Model:                     NewModelClient(cfg),
@@ -299,6 +304,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ChannelModelPriceVersion:  NewChannelModelPriceVersionClient(cfg),
 		ChannelOverrideTemplate:   NewChannelOverrideTemplateClient(cfg),
 		ChannelProbe:              NewChannelProbeClient(cfg),
+		CompactUsageBatch:         NewCompactUsageBatchClient(cfg),
 		DataStorage:               NewDataStorageClient(cfg),
 		ManagedObservabilityState: NewManagedObservabilityStateClient(cfg),
 		Model:                     NewModelClient(cfg),
@@ -351,11 +357,12 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
-		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
-		c.OIDCIdentity, c.ObservabilityPayload, c.PendingUsage, c.Project, c.Prompt,
-		c.PromptProtectionRule, c.ProviderQuotaStatus, c.RegistrationInvite, c.Request,
-		c.RequestExecution, c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User,
-		c.UserProject, c.UserRole,
+		c.ChannelProbe, c.CompactUsageBatch, c.DataStorage,
+		c.ManagedObservabilityState, c.Model, c.OIDCIdentity, c.ObservabilityPayload,
+		c.PendingUsage, c.Project, c.Prompt, c.PromptProtectionRule,
+		c.ProviderQuotaStatus, c.RegistrationInvite, c.Request, c.RequestExecution,
+		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
+		c.UserRole,
 	} {
 		n.Use(hooks...)
 	}
@@ -367,11 +374,12 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.APIKey, c.APIKeyProfileTemplate, c.Channel, c.ChannelKeyMonitoringEvent,
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
-		c.ChannelProbe, c.DataStorage, c.ManagedObservabilityState, c.Model,
-		c.OIDCIdentity, c.ObservabilityPayload, c.PendingUsage, c.Project, c.Prompt,
-		c.PromptProtectionRule, c.ProviderQuotaStatus, c.RegistrationInvite, c.Request,
-		c.RequestExecution, c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User,
-		c.UserProject, c.UserRole,
+		c.ChannelProbe, c.CompactUsageBatch, c.DataStorage,
+		c.ManagedObservabilityState, c.Model, c.OIDCIdentity, c.ObservabilityPayload,
+		c.PendingUsage, c.Project, c.Prompt, c.PromptProtectionRule,
+		c.ProviderQuotaStatus, c.RegistrationInvite, c.Request, c.RequestExecution,
+		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
+		c.UserRole,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -396,6 +404,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ChannelOverrideTemplate.mutate(ctx, m)
 	case *ChannelProbeMutation:
 		return c.ChannelProbe.mutate(ctx, m)
+	case *CompactUsageBatchMutation:
+		return c.CompactUsageBatch.mutate(ctx, m)
 	case *DataStorageMutation:
 		return c.DataStorage.mutate(ctx, m)
 	case *ManagedObservabilityStateMutation:
@@ -1788,6 +1798,139 @@ func (c *ChannelProbeClient) mutate(ctx context.Context, m *ChannelProbeMutation
 		return (&ChannelProbeDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown ChannelProbe mutation op: %q", m.Op())
+	}
+}
+
+// CompactUsageBatchClient is a client for the CompactUsageBatch schema.
+type CompactUsageBatchClient struct {
+	config
+}
+
+// NewCompactUsageBatchClient returns a client for the CompactUsageBatch from the given config.
+func NewCompactUsageBatchClient(c config) *CompactUsageBatchClient {
+	return &CompactUsageBatchClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `compactusagebatch.Hooks(f(g(h())))`.
+func (c *CompactUsageBatchClient) Use(hooks ...Hook) {
+	c.hooks.CompactUsageBatch = append(c.hooks.CompactUsageBatch, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `compactusagebatch.Intercept(f(g(h())))`.
+func (c *CompactUsageBatchClient) Intercept(interceptors ...Interceptor) {
+	c.inters.CompactUsageBatch = append(c.inters.CompactUsageBatch, interceptors...)
+}
+
+// Create returns a builder for creating a CompactUsageBatch entity.
+func (c *CompactUsageBatchClient) Create() *CompactUsageBatchCreate {
+	mutation := newCompactUsageBatchMutation(c.config, OpCreate)
+	return &CompactUsageBatchCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of CompactUsageBatch entities.
+func (c *CompactUsageBatchClient) CreateBulk(builders ...*CompactUsageBatchCreate) *CompactUsageBatchCreateBulk {
+	return &CompactUsageBatchCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *CompactUsageBatchClient) MapCreateBulk(slice any, setFunc func(*CompactUsageBatchCreate, int)) *CompactUsageBatchCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &CompactUsageBatchCreateBulk{err: fmt.Errorf("calling to CompactUsageBatchClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*CompactUsageBatchCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &CompactUsageBatchCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for CompactUsageBatch.
+func (c *CompactUsageBatchClient) Update() *CompactUsageBatchUpdate {
+	mutation := newCompactUsageBatchMutation(c.config, OpUpdate)
+	return &CompactUsageBatchUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *CompactUsageBatchClient) UpdateOne(_m *CompactUsageBatch) *CompactUsageBatchUpdateOne {
+	mutation := newCompactUsageBatchMutation(c.config, OpUpdateOne, withCompactUsageBatch(_m))
+	return &CompactUsageBatchUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *CompactUsageBatchClient) UpdateOneID(id int) *CompactUsageBatchUpdateOne {
+	mutation := newCompactUsageBatchMutation(c.config, OpUpdateOne, withCompactUsageBatchID(id))
+	return &CompactUsageBatchUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for CompactUsageBatch.
+func (c *CompactUsageBatchClient) Delete() *CompactUsageBatchDelete {
+	mutation := newCompactUsageBatchMutation(c.config, OpDelete)
+	return &CompactUsageBatchDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *CompactUsageBatchClient) DeleteOne(_m *CompactUsageBatch) *CompactUsageBatchDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *CompactUsageBatchClient) DeleteOneID(id int) *CompactUsageBatchDeleteOne {
+	builder := c.Delete().Where(compactusagebatch.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &CompactUsageBatchDeleteOne{builder}
+}
+
+// Query returns a query builder for CompactUsageBatch.
+func (c *CompactUsageBatchClient) Query() *CompactUsageBatchQuery {
+	return &CompactUsageBatchQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeCompactUsageBatch},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a CompactUsageBatch entity by its id.
+func (c *CompactUsageBatchClient) Get(ctx context.Context, id int) (*CompactUsageBatch, error) {
+	return c.Query().Where(compactusagebatch.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *CompactUsageBatchClient) GetX(ctx context.Context, id int) *CompactUsageBatch {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *CompactUsageBatchClient) Hooks() []Hook {
+	return c.hooks.CompactUsageBatch
+}
+
+// Interceptors returns the client interceptors.
+func (c *CompactUsageBatchClient) Interceptors() []Interceptor {
+	return c.inters.CompactUsageBatch
+}
+
+func (c *CompactUsageBatchClient) mutate(ctx context.Context, m *CompactUsageBatchMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&CompactUsageBatchCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&CompactUsageBatchUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&CompactUsageBatchUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&CompactUsageBatchDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown CompactUsageBatch mutation op: %q", m.Op())
 	}
 }
 
@@ -5480,17 +5623,19 @@ type (
 	hooks struct {
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
-		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
-		ObservabilityPayload, PendingUsage, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, RegistrationInvite, Request, RequestExecution, Role,
-		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Hook
+		ChannelProbe, CompactUsageBatch, DataStorage, ManagedObservabilityState, Model,
+		OIDCIdentity, ObservabilityPayload, PendingUsage, Project, Prompt,
+		PromptProtectionRule, ProviderQuotaStatus, RegistrationInvite, Request,
+		RequestExecution, Role, System, Thread, Trace, UsageLog, User, UserProject,
+		UserRole []ent.Hook
 	}
 	inters struct {
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
-		ChannelProbe, DataStorage, ManagedObservabilityState, Model, OIDCIdentity,
-		ObservabilityPayload, PendingUsage, Project, Prompt, PromptProtectionRule,
-		ProviderQuotaStatus, RegistrationInvite, Request, RequestExecution, Role,
-		System, Thread, Trace, UsageLog, User, UserProject, UserRole []ent.Interceptor
+		ChannelProbe, CompactUsageBatch, DataStorage, ManagedObservabilityState, Model,
+		OIDCIdentity, ObservabilityPayload, PendingUsage, Project, Prompt,
+		PromptProtectionRule, ProviderQuotaStatus, RegistrationInvite, Request,
+		RequestExecution, Role, System, Thread, Trace, UsageLog, User, UserProject,
+		UserRole []ent.Interceptor
 	}
 )

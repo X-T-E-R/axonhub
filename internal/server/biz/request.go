@@ -2835,6 +2835,9 @@ func (s *RequestService) GetTraceFirstSegment(ctx context.Context, traceID int) 
 // Returns 0 if no successful channel is found.
 func (s *RequestService) GetLastSuccessfulChannelID(ctx context.Context, traceID int) (int, error) {
 	if scope := observationFromContext(ctx); scope != nil {
+		if scope.isCompactOnly() {
+			return 0, nil
+		}
 		cacheKey := observationStableLastChannelCacheKey(ctx)
 		if cacheKey == "" {
 			cacheKey = buildLastChannelCacheKey(traceID)

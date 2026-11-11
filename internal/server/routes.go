@@ -105,6 +105,9 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		placementNode.POST("/prepare", handlers.Cluster.PrepareChannelPlacement)
 		placementNode.POST("/readback", handlers.Cluster.ReadChannelPlacementOnNode)
 		ownerAdmin.POST("/playground/chat", middleware.WithSource(request.SourcePlayground), handlers.Playground.ChatCompletion)
+		if services.Node.IsControl() && handlers.Cluster != nil {
+			server.POST(biz.ClusterAccountingEndpointPath, middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.IngestCompactAccountingBatch)
+		}
 		server.GET("/v1/axon/route", middleware.WithIPBlocklist(services.SystemService), middleware.WithAPIKeyConfig(services.AuthService, nil), middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.Resolve)
 		server.GET("/v1/axon/task-route", middleware.WithIPBlocklist(services.SystemService), middleware.WithAPIKeyConfig(services.AuthService, nil), middleware.WithTimeout(server.Config.RequestTimeout), handlers.Cluster.TaskRoute)
 	}

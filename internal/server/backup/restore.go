@@ -1239,11 +1239,37 @@ func (svc *BackupService) restoreUsageLogs(
 		}
 
 		for _, usageLog := range logs {
-			existingLogRequestIDs[usageLog.RequestID] = struct{}{}
+			if usageLog.RequestID != 0 {
+				existingLogRequestIDs[usageLog.RequestID] = struct{}{}
+			}
+		}
+	}
+
+	eventIDs := make([]string, 0, len(usageLogs))
+	for _, usageData := range usageLogs {
+		if usageData != nil && usageData.EventID != nil && *usageData.EventID != "" {
+			eventIDs = append(eventIDs, *usageData.EventID)
+		}
+	}
+	existingEventIDs := map[string]struct{}{}
+	for start := 0; start < len(eventIDs); start += backupBatchSize {
+		end := min(start+backupBatchSize, len(eventIDs))
+		logs, err := db.UsageLog.Query().
+			Where(usagelog.EventIDIn(eventIDs[start:end]...)).
+			Select(usagelog.FieldEventID).
+			All(ctx)
+		if err != nil {
+			return err
+		}
+		for _, usageLog := range logs {
+			if usageLog.EventID != nil && *usageLog.EventID != "" {
+				existingEventIDs[*usageLog.EventID] = struct{}{}
+			}
 		}
 	}
 
 	restoredLogRequestIDs := map[int]struct{}{}
+	restoredEventIDs := map[string]struct{}{}
 	builders := make([]*ent.UsageLogCreate, 0, min(len(usageLogs), backupBatchSize))
 	flush := func() error {
 		if len(builders) == 0 {
@@ -1264,29 +1290,40 @@ func (svc *BackupService) restoreUsageLogs(
 			continue
 		}
 
-		requestID, ok := requestIDMap[usageData.RequestID]
-		if !ok {
-			log.Warn(ctx, "request not found for restoring usage log, skipping",
-				log.Int("usage_log_id", usageData.ID),
-				log.Int("request_id", usageData.RequestID),
-			)
-			continue
-		}
+		var requestID int
+		if usageData.RequestID != 0 {
+			var ok bool
+			requestID, ok = requestIDMap[usageData.RequestID]
+			if !ok {
+				log.Warn(ctx, "request not found for restoring usage log, skipping",
+					log.Int("usage_log_id", usageData.ID),
+					log.Int("request_id", usageData.RequestID),
+				)
+				continue
+			}
 
-		if _, existing := existingLogRequestIDs[requestID]; existing {
-			log.Warn(ctx, "usage log already exists for request, skipping",
-				log.Int("usage_log_id", usageData.ID),
-				log.Int("request_id", usageData.RequestID),
-			)
-			continue
-		}
+			if _, existing := existingLogRequestIDs[requestID]; existing {
+				log.Warn(ctx, "usage log already exists for request, skipping",
+					log.Int("usage_log_id", usageData.ID),
+					log.Int("request_id", usageData.RequestID),
+				)
+				continue
+			}
 
-		if _, duplicate := restoredLogRequestIDs[requestID]; duplicate {
-			log.Warn(ctx, "duplicate usage log for request in backup, skipping",
-				log.Int("usage_log_id", usageData.ID),
-				log.Int("request_id", usageData.RequestID),
-			)
-			continue
+			if _, duplicate := restoredLogRequestIDs[requestID]; duplicate {
+				log.Warn(ctx, "duplicate usage log for request in backup, skipping",
+					log.Int("usage_log_id", usageData.ID),
+					log.Int("request_id", usageData.RequestID),
+				)
+				continue
+			}
+		} else if usageData.EventID != nil && *usageData.EventID != "" {
+			if _, existing := existingEventIDs[*usageData.EventID]; existing {
+				continue
+			}
+			if _, duplicate := restoredEventIDs[*usageData.EventID]; duplicate {
+				continue
+			}
 		}
 
 		projectID, ok := resolver.resolveProjectID(usageData.ProjectID, usageData.ProjectName)
@@ -1317,7 +1354,8 @@ func (svc *BackupService) restoreUsageLogs(
 		builders = append(builders, db.UsageLog.Create().
 			SetCreatedAt(usageData.CreatedAt).
 			SetUpdatedAt(usageData.UpdatedAt).
-			SetRequestID(requestID).
+			SetNillableRequestID(nilIfZero(requestID)).
+			SetNillableEventID(usageData.EventID).
 			SetNillableAPIKeyID(nilIfZero(apiKeyID)).
 			SetProjectID(projectID).
 			SetNillableChannelID(nilIfZero(channelID)).
@@ -1339,7 +1377,12 @@ func (svc *BackupService) restoreUsageLogs(
 			SetNillableTotalCost(usageData.TotalCost).
 			SetCostItems(usageData.CostItems).
 			SetNillableCostPriceReferenceID(nilIfEmpty(usageData.CostPriceReferenceID)))
-		restoredLogRequestIDs[requestID] = struct{}{}
+		if requestID != 0 {
+			restoredLogRequestIDs[requestID] = struct{}{}
+		}
+		if usageData.EventID != nil && *usageData.EventID != "" {
+			restoredEventIDs[*usageData.EventID] = struct{}{}
+		}
 
 		if len(builders) >= backupBatchSize {
 			if err := flush(); err != nil {

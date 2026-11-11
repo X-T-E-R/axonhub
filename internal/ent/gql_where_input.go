@@ -10943,10 +10943,12 @@ type UsageLogWhereInput struct {
 	UpdatedAtLTE   *time.Time  `json:"updatedAtLTE,omitempty"`
 
 	// "request_id" field predicates.
-	RequestID      *int  `json:"requestID,omitempty"`
-	RequestIDNEQ   *int  `json:"requestIDNEQ,omitempty"`
-	RequestIDIn    []int `json:"requestIDIn,omitempty"`
-	RequestIDNotIn []int `json:"requestIDNotIn,omitempty"`
+	RequestID       *int  `json:"requestID,omitempty"`
+	RequestIDNEQ    *int  `json:"requestIDNEQ,omitempty"`
+	RequestIDIn     []int `json:"requestIDIn,omitempty"`
+	RequestIDNotIn  []int `json:"requestIDNotIn,omitempty"`
+	RequestIDIsNil  bool  `json:"requestIDIsNil,omitempty"`
+	RequestIDNotNil bool  `json:"requestIDNotNil,omitempty"`
 
 	// "api_key_id" field predicates.
 	APIKeyID       *int  `json:"apiKeyID,omitempty"`
@@ -11344,6 +11346,12 @@ func (i *UsageLogWhereInput) P() (predicate.UsageLog, error) {
 	}
 	if len(i.RequestIDNotIn) > 0 {
 		predicates = append(predicates, usagelog.RequestIDNotIn(i.RequestIDNotIn...))
+	}
+	if i.RequestIDIsNil {
+		predicates = append(predicates, usagelog.RequestIDIsNil())
+	}
+	if i.RequestIDNotNil {
+		predicates = append(predicates, usagelog.RequestIDNotNil())
 	}
 	if i.APIKeyID != nil {
 		predicates = append(predicates, usagelog.APIKeyIDEQ(*i.APIKeyID))

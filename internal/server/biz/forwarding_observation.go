@@ -54,6 +54,44 @@ func (s *RequestService) ForwardingObservationContext(ctx context.Context) conte
 	return s.ObservationWriter.WithScope(ctx)
 }
 
+// CompactAccountingBypassMetadata reports whether thread/trace middlewares may
+// skip remote PG row creation for this request.
+func (s *TraceService) CompactAccountingBypassMetadata(ctx context.Context) bool {
+	if s == nil || s.requestService == nil || s.requestService.ObservationWriter == nil {
+		return false
+	}
+	return s.requestService.ObservationWriter.CompactAccountingActiveForContext(ctx)
+}
+
+func (s *ThreadService) CompactAccountingBypassMetadata(ctx context.Context) bool {
+	if s == nil || s.traceService == nil {
+		return false
+	}
+	return s.traceService.CompactAccountingBypassMetadata(ctx)
+}
+
+// SetCompactAccountingService attaches the local SQLite outbox & syncer service.
+func (w *ForwardingObservationWriter) SetCompactAccountingService(compact *CompactAccountingService) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.compact = compact
+	w.mu.Unlock()
+}
+
+// CompactAccountingActiveForContext reports whether w has an active compact
+// accounting outbox and ctx belongs to an eligible non-quota API request.
+func (w *ForwardingObservationWriter) CompactAccountingActiveForContext(ctx context.Context) bool {
+	if w == nil {
+		return false
+	}
+	w.mu.Lock()
+	compact := w.compact
+	w.mu.Unlock()
+	return compact != nil && compact.Active() && CompactAccountingEligibleContext(ctx)
+}
+
 func (s *TraceService) ForwardingObservationContext(ctx context.Context) context.Context {
 	// Legacy standalone trace readers can be constructed without request services.
 	if s.requestService == nil {
@@ -93,6 +131,7 @@ type ForwardingObservationWriter struct {
 	payloadOnly    bool
 	node           cluster.Config
 	usageService   *UsageLogService
+	compact        *CompactAccountingService
 }
 
 type observationJob struct {
@@ -141,6 +180,9 @@ type observationScope struct {
 	usageSubmitted    bool
 	usageID           string
 	usageCaptureMu    sync.Mutex
+	compactOnly       bool
+	compactRelease    func()
+	lastUsageErr      error
 	retained          int
 	endRequested      bool
 	ended             bool
@@ -225,7 +267,11 @@ func (w *ForwardingObservationWriter) Start(ctx context.Context) error {
 
 func (w *ForwardingObservationWriter) abandonPending() {
 	var abandoned []*observationScope
+	var compactReleases []func()
 	defer func() {
+		for _, release := range compactReleases {
+			release()
+		}
 		for _, scope := range abandoned {
 			scope.closeLive()
 		}
@@ -236,6 +282,10 @@ func (w *ForwardingObservationWriter) abandonPending() {
 	for scope := range w.scopes {
 		scope.ended = true
 		abandoned = append(abandoned, scope)
+		if scope.compactRelease != nil {
+			compactReleases = append(compactReleases, scope.compactRelease)
+			scope.compactRelease = nil
+		}
 		reserved := scope.reservedCore
 		reservedBytes := int64(reserved) * 4096
 		if scope.reservedUsage {
@@ -757,6 +807,8 @@ func (s *observationScope) end() {
 	}
 	s.ended = true
 	delete(w.scopes, s)
+	compactRelease := s.compactRelease
+	s.compactRelease = nil
 	release := s.reservedCore
 	releaseBytes := int64(release) * 4096
 	if s.reservedUsage {
@@ -776,7 +828,81 @@ func (s *observationScope) end() {
 		close(w.idle)
 	}
 	w.mu.Unlock()
+	if compactRelease != nil {
+		compactRelease()
+	}
 	s.closeLive()
+}
+
+func (s *observationScope) isCompactOnly() bool {
+	if s == nil {
+		return false
+	}
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	return s.compactOnly
+}
+
+func (s *observationScope) admitCompactAccounting(ctx context.Context) error {
+	w := s.writer
+	w.mu.Lock()
+	compact := w.compact
+	w.mu.Unlock()
+	if compact == nil || !compact.Active() || !CompactAccountingEligibleContext(ctx) {
+		return nil
+	}
+	outbox := compact.Outbox()
+	if outbox == nil {
+		return ErrCompactOutboxUnavailable
+	}
+	releaseOutbox, err := outbox.Reserve()
+	if err != nil {
+		return err
+	}
+
+	w.mu.Lock()
+	if s.ended || w.stopping {
+		w.mu.Unlock()
+		releaseOutbox()
+		return errObservationQueueUnavailable
+	}
+	// Release the pre-reserved observation queue credits now that this request
+	// is bound to local SQLite compact accounting rather than remote observation.
+	release := s.reservedCore
+	releaseBytes := int64(release) * 4096
+	if s.reservedUsage {
+		release++
+		releaseBytes += observationUsageReservationBytes
+	}
+	terminals := s.reservedTerminal + len(s.terminalCredits)
+	release += terminals
+	releaseBytes += int64(terminals) * observationTerminalReservationBytes
+	s.reservedCore = 0
+	s.reservedTerminal = 0
+	clear(s.terminalCredits)
+	s.reservedUsage = false
+	w.items -= release
+	w.bytes -= releaseBytes
+	if release > 0 && w.items == 0 {
+		close(w.idle)
+	}
+	s.compactOnly = true
+	s.compactRelease = releaseOutbox
+	w.scopes[s] = struct{}{}
+	w.mu.Unlock()
+	return nil
+}
+
+// LastForwardingAccountingError returns an ExecutedAccountingError if the active
+// forwarding scope encountered a post-execution durable accounting failure.
+func LastForwardingAccountingError(ctx context.Context) error {
+	s := observationFromContext(ctx)
+	if s == nil {
+		return nil
+	}
+	s.usageCaptureMu.Lock()
+	defer s.usageCaptureMu.Unlock()
+	return s.lastUsageErr
 }
 
 // Wait is an explicit diagnostic/test drain; forwarding never calls it.

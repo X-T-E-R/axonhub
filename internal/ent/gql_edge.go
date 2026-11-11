@@ -737,7 +737,7 @@ func (_m *UsageLog) Request(ctx context.Context) (*Request, error) {
 	if IsNotLoaded(err) {
 		result, err = _m.QueryRequest().Only(ctx)
 	}
-	return result, err
+	return result, MaskNotFound(err)
 }
 
 func (_m *UsageLog) Project(ctx context.Context) (*Project, error) {

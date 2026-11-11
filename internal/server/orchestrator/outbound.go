@@ -238,6 +238,9 @@ func (ts *OutboundPersistentStream) Close() error {
 		// Stream completed successfully - perform final persistence
 		log.Debug(ctx, "Stream completed successfully (received [DONE]), performing final persistence")
 		ts.persistResponseChunks(ctx)
+		if acctErr := biz.LastForwardingAccountingError(ts.ctx); acctErr != nil && closeErr == nil {
+			return acctErr
+		}
 
 		return closeErr
 	}
@@ -314,6 +317,9 @@ func (ts *OutboundPersistentStream) Close() error {
 		ts.persistAggregatedResponse(context.WithoutCancel(ctx), responseBody, meta)
 	} else {
 		ts.persistResponseChunks(ctx)
+	}
+	if acctErr := biz.LastForwardingAccountingError(ts.ctx); acctErr != nil && closeErr == nil {
+		return acctErr
 	}
 
 	return closeErr

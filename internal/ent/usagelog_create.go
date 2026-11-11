@@ -60,6 +60,28 @@ func (_c *UsageLogCreate) SetRequestID(v int) *UsageLogCreate {
 	return _c
 }
 
+// SetNillableRequestID sets the "request_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableRequestID(v *int) *UsageLogCreate {
+	if v != nil {
+		_c.SetRequestID(*v)
+	}
+	return _c
+}
+
+// SetEventID sets the "event_id" field.
+func (_c *UsageLogCreate) SetEventID(v string) *UsageLogCreate {
+	_c.mutation.SetEventID(v)
+	return _c
+}
+
+// SetNillableEventID sets the "event_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableEventID(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetEventID(*v)
+	}
+	return _c
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (_c *UsageLogCreate) SetAPIKeyID(v int) *UsageLogCreate {
 	_c.mutation.SetAPIKeyID(v)
@@ -473,8 +495,10 @@ func (_c *UsageLogCreate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *UsageLogCreate) check() error {
-	if _, ok := _c.mutation.RequestID(); !ok {
-		return &ValidationError{Name: "request_id", err: errors.New(`ent: missing required field "UsageLog.request_id"`)}
+	if v, ok := _c.mutation.EventID(); ok {
+		if err := usagelog.EventIDValidator(v); err != nil {
+			return &ValidationError{Name: "event_id", err: fmt.Errorf(`ent: validator failed for field "UsageLog.event_id": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.ProjectID(); !ok {
 		return &ValidationError{Name: "project_id", err: errors.New(`ent: missing required field "UsageLog.project_id"`)}
@@ -501,9 +525,6 @@ func (_c *UsageLogCreate) check() error {
 	}
 	if _, ok := _c.mutation.Format(); !ok {
 		return &ValidationError{Name: "format", err: errors.New(`ent: missing required field "UsageLog.format"`)}
-	}
-	if len(_c.mutation.RequestIDs()) == 0 {
-		return &ValidationError{Name: "request", err: errors.New(`ent: missing required edge "UsageLog.request"`)}
 	}
 	if len(_c.mutation.ProjectIDs()) == 0 {
 		return &ValidationError{Name: "project", err: errors.New(`ent: missing required edge "UsageLog.project"`)}
@@ -542,6 +563,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(usagelog.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if value, ok := _c.mutation.EventID(); ok {
+		_spec.SetField(usagelog.FieldEventID, field.TypeString, value)
+		_node.EventID = &value
 	}
 	if value, ok := _c.mutation.APIKeyID(); ok {
 		_spec.SetField(usagelog.FieldAPIKeyID, field.TypeInt, value)
@@ -1080,6 +1105,9 @@ func (u *UsageLogUpsertOne) UpdateNewValues() *UsageLogUpsertOne {
 		}
 		if _, exists := u.create.mutation.RequestID(); exists {
 			s.SetIgnore(usagelog.FieldRequestID)
+		}
+		if _, exists := u.create.mutation.EventID(); exists {
+			s.SetIgnore(usagelog.FieldEventID)
 		}
 		if _, exists := u.create.mutation.APIKeyID(); exists {
 			s.SetIgnore(usagelog.FieldAPIKeyID)
@@ -1710,6 +1738,9 @@ func (u *UsageLogUpsertBulk) UpdateNewValues() *UsageLogUpsertBulk {
 			}
 			if _, exists := b.mutation.RequestID(); exists {
 				s.SetIgnore(usagelog.FieldRequestID)
+			}
+			if _, exists := b.mutation.EventID(); exists {
+				s.SetIgnore(usagelog.FieldEventID)
 			}
 			if _, exists := b.mutation.APIKeyID(); exists {
 				s.SetIgnore(usagelog.FieldAPIKeyID)

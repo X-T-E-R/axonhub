@@ -15,20 +15,28 @@ import (
 )
 
 type DrainResult struct {
-	WritersStopped bool `json:"writersStopped"`
-	NodePending    int  `json:"nodePending"`
-	GlobalPending  int  `json:"globalPending"`
+	WritersStopped      bool `json:"writersStopped"`
+	NodePending         int  `json:"nodePending"`
+	GlobalPending       int  `json:"globalPending"`
+	UnackedCompactUsage int  `json:"unacked_compact_usage"`
 }
 type State struct {
 	Snapshot
-	Phase     string       `json:"phase"`
-	ErrorCode string       `json:"errorCode,omitempty"`
-	Drain     *DrainResult `json:"drain,omitempty"`
+	Phase               string       `json:"phase"`
+	ErrorCode           string       `json:"errorCode,omitempty"`
+	ErrorMessage        string       `json:"errorMessage,omitempty"`
+	UnackedCompactUsage int          `json:"unacked_compact_usage"`
+	NodePending         int          `json:"nodePending,omitempty"`
+	GlobalPending       int          `json:"globalPending,omitempty"`
+	Drain               *DrainResult `json:"drain,omitempty"`
 }
+
+type StatusInspector func(context.Context) (unackedCompact int, nodePending int, globalPending int)
 
 type Local struct {
 	Gate         *Gate
 	Drain        func(context.Context) (DrainResult, error)
+	Inspect      StatusInspector
 	mu           sync.Mutex
 	state        State
 	drainClaimed bool
@@ -36,8 +44,10 @@ type Local struct {
 
 func (l *Local) Status() State {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	s := l.state
+	inspect := l.Inspect
+	l.mu.Unlock()
+
 	s.Snapshot = l.Gate.Snapshot()
 	if s.Phase == "" {
 		if s.Paused {
@@ -45,6 +55,19 @@ func (l *Local) Status() State {
 		} else {
 			s.Phase = "running"
 		}
+	}
+	if s.Drain != nil {
+		s.UnackedCompactUsage = s.Drain.UnackedCompactUsage
+		s.NodePending = s.Drain.NodePending
+		s.GlobalPending = s.Drain.GlobalPending
+	}
+	if inspect != nil {
+		inspectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		unacked, nodePending, globalPending := inspect(inspectCtx)
+		cancel()
+		s.UnackedCompactUsage = unacked
+		s.NodePending = nodePending
+		s.GlobalPending = globalPending
 	}
 	return s
 }
@@ -92,13 +115,13 @@ func (l *Local) work() {
 	defer func() {
 		if recover() != nil {
 			log.Error(context.Background(), "local maintenance operation panicked")
-			l.fail("maintenance_panic_keep_gate")
+			l.fail("maintenance_panic_keep_gate", "")
 		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Second)
 	defer cancel()
 	if err := l.Gate.Wait(ctx); err != nil {
-		l.fail("active_drain_timeout_keep_gate")
+		l.fail("active_drain_timeout_keep_gate", err.Error())
 		return
 	}
 	result, err := l.Drain(ctx)
@@ -106,18 +129,20 @@ func (l *Local) work() {
 	l.state.Drain = &result
 	l.mu.Unlock()
 	if err != nil {
-		l.fail("writer_or_pending_drain_failed_keep_gate")
+		l.fail("writer_or_pending_drain_failed_keep_gate", err.Error())
 		return
 	}
 	l.mu.Lock()
 	l.state.Phase = "drained"
+	l.state.ErrorMessage = ""
 	l.mu.Unlock()
 }
-func (l *Local) fail(code string) {
+func (l *Local) fail(code, msg string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.state.Phase = "failed"
 	l.state.ErrorCode = code
+	l.state.ErrorMessage = msg
 }
 
 func (l *Local) Listen(path string) (func() error, error) {

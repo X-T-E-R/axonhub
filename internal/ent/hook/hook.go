@@ -105,6 +105,18 @@ func (f ChannelProbeFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChannelProbeMutation", m)
 }
 
+// The CompactUsageBatchFunc type is an adapter to allow the use of ordinary
+// function as CompactUsageBatch mutator.
+type CompactUsageBatchFunc func(context.Context, *ent.CompactUsageBatchMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f CompactUsageBatchFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.CompactUsageBatchMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CompactUsageBatchMutation", m)
+}
+
 // The DataStorageFunc type is an adapter to allow the use of ordinary
 // function as DataStorage mutator.
 type DataStorageFunc func(context.Context, *ent.DataStorageMutation) (ent.Value, error)

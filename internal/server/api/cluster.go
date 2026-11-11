@@ -19,6 +19,7 @@ type ClusterHandlers struct {
 	tester   *orchestrator.TestChannelOrchestrator
 	videos   *biz.VideoService
 	quota    *biz.ProviderQuotaService
+	compact  *biz.CompactAccountingService
 }
 
 func NewClusterHandlers(models *biz.ModelService, channels *biz.ChannelService, tester *orchestrator.TestChannelOrchestrator, videos *biz.VideoService, quota *biz.ProviderQuotaService) *ClusterHandlers {

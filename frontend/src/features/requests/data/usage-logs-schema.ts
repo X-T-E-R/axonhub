@@ -17,7 +17,7 @@ export const usageLogSchema = z.object({
   id: z.string(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
-  requestID: z.string(),
+  requestID: z.string().nullable().optional(),
   channel: channelSchema.partial().nullable().optional(),
   modelID: z.string(),
   promptTokens: z.number(),

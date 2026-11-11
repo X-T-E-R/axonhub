@@ -28,6 +28,8 @@ type Tx struct {
 	ChannelOverrideTemplate *ChannelOverrideTemplateClient
 	// ChannelProbe is the client for interacting with the ChannelProbe builders.
 	ChannelProbe *ChannelProbeClient
+	// CompactUsageBatch is the client for interacting with the CompactUsageBatch builders.
+	CompactUsageBatch *CompactUsageBatchClient
 	// DataStorage is the client for interacting with the DataStorage builders.
 	DataStorage *DataStorageClient
 	// ManagedObservabilityState is the client for interacting with the ManagedObservabilityState builders.
@@ -209,6 +211,7 @@ func (tx *Tx) init() {
 	tx.ChannelModelPriceVersion = NewChannelModelPriceVersionClient(tx.config)
 	tx.ChannelOverrideTemplate = NewChannelOverrideTemplateClient(tx.config)
 	tx.ChannelProbe = NewChannelProbeClient(tx.config)
+	tx.CompactUsageBatch = NewCompactUsageBatchClient(tx.config)
 	tx.DataStorage = NewDataStorageClient(tx.config)
 	tx.ManagedObservabilityState = NewManagedObservabilityStateClient(tx.config)
 	tx.Model = NewModelClient(tx.config)

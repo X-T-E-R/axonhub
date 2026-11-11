@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -105,6 +106,9 @@ func (m *persistRequestMiddleware) OnOutboundLlmResponse(ctx context.Context, ll
 	_, err := state.UsageLogService.CreateUsageLogFromRequest(persistCtx, state.Request, state.RequestExec, usageToLog)
 	if err != nil {
 		log.Warn(persistCtx, "Failed to submit forwarding usage", log.Cause(err))
+		if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed {
+			return nil, err
+		}
 	}
 
 	return llmResp, nil

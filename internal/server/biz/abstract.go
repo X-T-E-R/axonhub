@@ -23,6 +23,9 @@ func (a *AbstractService) entFromContext(ctx context.Context) *ent.Client {
 	if db != nil {
 		return db
 	}
+	if a == nil {
+		return nil
+	}
 
 	return a.db
 }

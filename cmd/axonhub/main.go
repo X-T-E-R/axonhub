@@ -39,6 +39,9 @@ func main() {
 		case "maintenance":
 			handleMaintenanceCommand()
 			return
+		case "compact-outbox":
+			handleCompactOutboxCommand()
+			return
 		case "migrate":
 			handleMigrateCommand()
 			return
@@ -106,7 +109,7 @@ func startServer() {
 				},
 			})
 		}),
-		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService, requestBodyWriter *biz.ManagedRequestBodyWriter, observationWriter *biz.ForwardingObservationWriter, gate *maintenance.Gate) {
+		fx.Invoke(func(lc fx.Lifecycle, server *server.Server, provider *sdk.MeterProvider, ent *ent.Client, requestSvc *biz.RequestService, requestBodyWriter *biz.ManagedRequestBodyWriter, observationWriter *biz.ForwardingObservationWriter, compactSvc *biz.CompactAccountingService, gate *maintenance.Gate) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					if provider != nil {
@@ -132,6 +135,11 @@ func startServer() {
 						_ = requestBodyWriter.Stop(ctx)
 						return fmt.Errorf("start forwarding observation writer: %w", err)
 					}
+					if err := compactSvc.Start(ctx); err != nil {
+						_ = observationWriter.Stop(ctx)
+						_ = requestBodyWriter.Stop(ctx)
+						return fmt.Errorf("start compact accounting service: %w", err)
+					}
 					// Run cleanup asynchronously with timeout to avoid blocking startup
 					go func() {
 						cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:gosec // intentional detached context
@@ -155,7 +163,7 @@ func startServer() {
 				},
 				OnStop: func(ctx context.Context) error {
 					gate.Pause()
-					return errors.Join(server.Shutdown(ctx), gate.Wait(ctx), observationWriter.Stop(ctx), requestBodyWriter.Stop(ctx), ent.Close())
+					return errors.Join(server.Shutdown(ctx), gate.Wait(ctx), observationWriter.Stop(ctx), requestBodyWriter.Stop(ctx), compactSvc.Stop(ctx), ent.Close())
 				},
 			})
 		}),
@@ -364,6 +372,7 @@ func showHelp() {
 	fmt.Println("  axonhub config preview     Preview configuration")
 	fmt.Println("  axonhub config validate    Validate configuration")
 	fmt.Println("  axonhub config get <key>   Get a specific config value")
+	fmt.Println("  axonhub compact-outbox     Inspect, export, or import compact accounting SQLite outbox")
 	fmt.Println("  axonhub version            Show version")
 	fmt.Println("  axonhub help               Show this help message")
 	fmt.Println("")

@@ -19,6 +19,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
+	"github.com/looplj/axonhub/internal/ent/compactusagebatch"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/model"
@@ -62,6 +63,7 @@ const (
 	TypeChannelModelPriceVersion  = "ChannelModelPriceVersion"
 	TypeChannelOverrideTemplate   = "ChannelOverrideTemplate"
 	TypeChannelProbe              = "ChannelProbe"
+	TypeCompactUsageBatch         = "CompactUsageBatch"
 	TypeDataStorage               = "DataStorage"
 	TypeManagedObservabilityState = "ManagedObservabilityState"
 	TypeModel                     = "Model"
@@ -10076,6 +10078,845 @@ func (m *ChannelProbeMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelProbe edge %s", name)
+}
+
+// CompactUsageBatchMutation represents an operation that mutates the CompactUsageBatch nodes in the graph.
+type CompactUsageBatchMutation struct {
+	config
+	op                Op
+	typ               string
+	id                *int
+	producer_uuid     *string
+	node_id           *string
+	seq_start         *int64
+	addseq_start      *int64
+	seq_end           *int64
+	addseq_end        *int64
+	event_count       *int
+	addevent_count    *int
+	payload_digest    *string
+	schema_version    *int
+	addschema_version *int
+	created_at        *time.Time
+	clearedFields     map[string]struct{}
+	done              bool
+	oldValue          func(context.Context) (*CompactUsageBatch, error)
+	predicates        []predicate.CompactUsageBatch
+}
+
+var _ ent.Mutation = (*CompactUsageBatchMutation)(nil)
+
+// compactusagebatchOption allows management of the mutation configuration using functional options.
+type compactusagebatchOption func(*CompactUsageBatchMutation)
+
+// newCompactUsageBatchMutation creates new mutation for the CompactUsageBatch entity.
+func newCompactUsageBatchMutation(c config, op Op, opts ...compactusagebatchOption) *CompactUsageBatchMutation {
+	m := &CompactUsageBatchMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeCompactUsageBatch,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withCompactUsageBatchID sets the ID field of the mutation.
+func withCompactUsageBatchID(id int) compactusagebatchOption {
+	return func(m *CompactUsageBatchMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *CompactUsageBatch
+		)
+		m.oldValue = func(ctx context.Context) (*CompactUsageBatch, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().CompactUsageBatch.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withCompactUsageBatch sets the old CompactUsageBatch of the mutation.
+func withCompactUsageBatch(node *CompactUsageBatch) compactusagebatchOption {
+	return func(m *CompactUsageBatchMutation) {
+		m.oldValue = func(context.Context) (*CompactUsageBatch, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m CompactUsageBatchMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m CompactUsageBatchMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *CompactUsageBatchMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *CompactUsageBatchMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().CompactUsageBatch.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetProducerUUID sets the "producer_uuid" field.
+func (m *CompactUsageBatchMutation) SetProducerUUID(s string) {
+	m.producer_uuid = &s
+}
+
+// ProducerUUID returns the value of the "producer_uuid" field in the mutation.
+func (m *CompactUsageBatchMutation) ProducerUUID() (r string, exists bool) {
+	v := m.producer_uuid
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProducerUUID returns the old "producer_uuid" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldProducerUUID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProducerUUID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProducerUUID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProducerUUID: %w", err)
+	}
+	return oldValue.ProducerUUID, nil
+}
+
+// ResetProducerUUID resets all changes to the "producer_uuid" field.
+func (m *CompactUsageBatchMutation) ResetProducerUUID() {
+	m.producer_uuid = nil
+}
+
+// SetNodeID sets the "node_id" field.
+func (m *CompactUsageBatchMutation) SetNodeID(s string) {
+	m.node_id = &s
+}
+
+// NodeID returns the value of the "node_id" field in the mutation.
+func (m *CompactUsageBatchMutation) NodeID() (r string, exists bool) {
+	v := m.node_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNodeID returns the old "node_id" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldNodeID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNodeID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNodeID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNodeID: %w", err)
+	}
+	return oldValue.NodeID, nil
+}
+
+// ResetNodeID resets all changes to the "node_id" field.
+func (m *CompactUsageBatchMutation) ResetNodeID() {
+	m.node_id = nil
+}
+
+// SetSeqStart sets the "seq_start" field.
+func (m *CompactUsageBatchMutation) SetSeqStart(i int64) {
+	m.seq_start = &i
+	m.addseq_start = nil
+}
+
+// SeqStart returns the value of the "seq_start" field in the mutation.
+func (m *CompactUsageBatchMutation) SeqStart() (r int64, exists bool) {
+	v := m.seq_start
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSeqStart returns the old "seq_start" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldSeqStart(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSeqStart is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSeqStart requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSeqStart: %w", err)
+	}
+	return oldValue.SeqStart, nil
+}
+
+// AddSeqStart adds i to the "seq_start" field.
+func (m *CompactUsageBatchMutation) AddSeqStart(i int64) {
+	if m.addseq_start != nil {
+		*m.addseq_start += i
+	} else {
+		m.addseq_start = &i
+	}
+}
+
+// AddedSeqStart returns the value that was added to the "seq_start" field in this mutation.
+func (m *CompactUsageBatchMutation) AddedSeqStart() (r int64, exists bool) {
+	v := m.addseq_start
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSeqStart resets all changes to the "seq_start" field.
+func (m *CompactUsageBatchMutation) ResetSeqStart() {
+	m.seq_start = nil
+	m.addseq_start = nil
+}
+
+// SetSeqEnd sets the "seq_end" field.
+func (m *CompactUsageBatchMutation) SetSeqEnd(i int64) {
+	m.seq_end = &i
+	m.addseq_end = nil
+}
+
+// SeqEnd returns the value of the "seq_end" field in the mutation.
+func (m *CompactUsageBatchMutation) SeqEnd() (r int64, exists bool) {
+	v := m.seq_end
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSeqEnd returns the old "seq_end" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldSeqEnd(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSeqEnd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSeqEnd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSeqEnd: %w", err)
+	}
+	return oldValue.SeqEnd, nil
+}
+
+// AddSeqEnd adds i to the "seq_end" field.
+func (m *CompactUsageBatchMutation) AddSeqEnd(i int64) {
+	if m.addseq_end != nil {
+		*m.addseq_end += i
+	} else {
+		m.addseq_end = &i
+	}
+}
+
+// AddedSeqEnd returns the value that was added to the "seq_end" field in this mutation.
+func (m *CompactUsageBatchMutation) AddedSeqEnd() (r int64, exists bool) {
+	v := m.addseq_end
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSeqEnd resets all changes to the "seq_end" field.
+func (m *CompactUsageBatchMutation) ResetSeqEnd() {
+	m.seq_end = nil
+	m.addseq_end = nil
+}
+
+// SetEventCount sets the "event_count" field.
+func (m *CompactUsageBatchMutation) SetEventCount(i int) {
+	m.event_count = &i
+	m.addevent_count = nil
+}
+
+// EventCount returns the value of the "event_count" field in the mutation.
+func (m *CompactUsageBatchMutation) EventCount() (r int, exists bool) {
+	v := m.event_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEventCount returns the old "event_count" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldEventCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEventCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEventCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEventCount: %w", err)
+	}
+	return oldValue.EventCount, nil
+}
+
+// AddEventCount adds i to the "event_count" field.
+func (m *CompactUsageBatchMutation) AddEventCount(i int) {
+	if m.addevent_count != nil {
+		*m.addevent_count += i
+	} else {
+		m.addevent_count = &i
+	}
+}
+
+// AddedEventCount returns the value that was added to the "event_count" field in this mutation.
+func (m *CompactUsageBatchMutation) AddedEventCount() (r int, exists bool) {
+	v := m.addevent_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEventCount resets all changes to the "event_count" field.
+func (m *CompactUsageBatchMutation) ResetEventCount() {
+	m.event_count = nil
+	m.addevent_count = nil
+}
+
+// SetPayloadDigest sets the "payload_digest" field.
+func (m *CompactUsageBatchMutation) SetPayloadDigest(s string) {
+	m.payload_digest = &s
+}
+
+// PayloadDigest returns the value of the "payload_digest" field in the mutation.
+func (m *CompactUsageBatchMutation) PayloadDigest() (r string, exists bool) {
+	v := m.payload_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPayloadDigest returns the old "payload_digest" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldPayloadDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPayloadDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPayloadDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPayloadDigest: %w", err)
+	}
+	return oldValue.PayloadDigest, nil
+}
+
+// ResetPayloadDigest resets all changes to the "payload_digest" field.
+func (m *CompactUsageBatchMutation) ResetPayloadDigest() {
+	m.payload_digest = nil
+}
+
+// SetSchemaVersion sets the "schema_version" field.
+func (m *CompactUsageBatchMutation) SetSchemaVersion(i int) {
+	m.schema_version = &i
+	m.addschema_version = nil
+}
+
+// SchemaVersion returns the value of the "schema_version" field in the mutation.
+func (m *CompactUsageBatchMutation) SchemaVersion() (r int, exists bool) {
+	v := m.schema_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSchemaVersion returns the old "schema_version" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldSchemaVersion(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSchemaVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSchemaVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSchemaVersion: %w", err)
+	}
+	return oldValue.SchemaVersion, nil
+}
+
+// AddSchemaVersion adds i to the "schema_version" field.
+func (m *CompactUsageBatchMutation) AddSchemaVersion(i int) {
+	if m.addschema_version != nil {
+		*m.addschema_version += i
+	} else {
+		m.addschema_version = &i
+	}
+}
+
+// AddedSchemaVersion returns the value that was added to the "schema_version" field in this mutation.
+func (m *CompactUsageBatchMutation) AddedSchemaVersion() (r int, exists bool) {
+	v := m.addschema_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSchemaVersion resets all changes to the "schema_version" field.
+func (m *CompactUsageBatchMutation) ResetSchemaVersion() {
+	m.schema_version = nil
+	m.addschema_version = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *CompactUsageBatchMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *CompactUsageBatchMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the CompactUsageBatch entity.
+// If the CompactUsageBatch object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompactUsageBatchMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *CompactUsageBatchMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// Where appends a list predicates to the CompactUsageBatchMutation builder.
+func (m *CompactUsageBatchMutation) Where(ps ...predicate.CompactUsageBatch) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the CompactUsageBatchMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *CompactUsageBatchMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.CompactUsageBatch, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *CompactUsageBatchMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *CompactUsageBatchMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (CompactUsageBatch).
+func (m *CompactUsageBatchMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *CompactUsageBatchMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.producer_uuid != nil {
+		fields = append(fields, compactusagebatch.FieldProducerUUID)
+	}
+	if m.node_id != nil {
+		fields = append(fields, compactusagebatch.FieldNodeID)
+	}
+	if m.seq_start != nil {
+		fields = append(fields, compactusagebatch.FieldSeqStart)
+	}
+	if m.seq_end != nil {
+		fields = append(fields, compactusagebatch.FieldSeqEnd)
+	}
+	if m.event_count != nil {
+		fields = append(fields, compactusagebatch.FieldEventCount)
+	}
+	if m.payload_digest != nil {
+		fields = append(fields, compactusagebatch.FieldPayloadDigest)
+	}
+	if m.schema_version != nil {
+		fields = append(fields, compactusagebatch.FieldSchemaVersion)
+	}
+	if m.created_at != nil {
+		fields = append(fields, compactusagebatch.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *CompactUsageBatchMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case compactusagebatch.FieldProducerUUID:
+		return m.ProducerUUID()
+	case compactusagebatch.FieldNodeID:
+		return m.NodeID()
+	case compactusagebatch.FieldSeqStart:
+		return m.SeqStart()
+	case compactusagebatch.FieldSeqEnd:
+		return m.SeqEnd()
+	case compactusagebatch.FieldEventCount:
+		return m.EventCount()
+	case compactusagebatch.FieldPayloadDigest:
+		return m.PayloadDigest()
+	case compactusagebatch.FieldSchemaVersion:
+		return m.SchemaVersion()
+	case compactusagebatch.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *CompactUsageBatchMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case compactusagebatch.FieldProducerUUID:
+		return m.OldProducerUUID(ctx)
+	case compactusagebatch.FieldNodeID:
+		return m.OldNodeID(ctx)
+	case compactusagebatch.FieldSeqStart:
+		return m.OldSeqStart(ctx)
+	case compactusagebatch.FieldSeqEnd:
+		return m.OldSeqEnd(ctx)
+	case compactusagebatch.FieldEventCount:
+		return m.OldEventCount(ctx)
+	case compactusagebatch.FieldPayloadDigest:
+		return m.OldPayloadDigest(ctx)
+	case compactusagebatch.FieldSchemaVersion:
+		return m.OldSchemaVersion(ctx)
+	case compactusagebatch.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown CompactUsageBatch field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CompactUsageBatchMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case compactusagebatch.FieldProducerUUID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProducerUUID(v)
+		return nil
+	case compactusagebatch.FieldNodeID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNodeID(v)
+		return nil
+	case compactusagebatch.FieldSeqStart:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSeqStart(v)
+		return nil
+	case compactusagebatch.FieldSeqEnd:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSeqEnd(v)
+		return nil
+	case compactusagebatch.FieldEventCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEventCount(v)
+		return nil
+	case compactusagebatch.FieldPayloadDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPayloadDigest(v)
+		return nil
+	case compactusagebatch.FieldSchemaVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSchemaVersion(v)
+		return nil
+	case compactusagebatch.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown CompactUsageBatch field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *CompactUsageBatchMutation) AddedFields() []string {
+	var fields []string
+	if m.addseq_start != nil {
+		fields = append(fields, compactusagebatch.FieldSeqStart)
+	}
+	if m.addseq_end != nil {
+		fields = append(fields, compactusagebatch.FieldSeqEnd)
+	}
+	if m.addevent_count != nil {
+		fields = append(fields, compactusagebatch.FieldEventCount)
+	}
+	if m.addschema_version != nil {
+		fields = append(fields, compactusagebatch.FieldSchemaVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *CompactUsageBatchMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case compactusagebatch.FieldSeqStart:
+		return m.AddedSeqStart()
+	case compactusagebatch.FieldSeqEnd:
+		return m.AddedSeqEnd()
+	case compactusagebatch.FieldEventCount:
+		return m.AddedEventCount()
+	case compactusagebatch.FieldSchemaVersion:
+		return m.AddedSchemaVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CompactUsageBatchMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case compactusagebatch.FieldSeqStart:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSeqStart(v)
+		return nil
+	case compactusagebatch.FieldSeqEnd:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSeqEnd(v)
+		return nil
+	case compactusagebatch.FieldEventCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEventCount(v)
+		return nil
+	case compactusagebatch.FieldSchemaVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSchemaVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown CompactUsageBatch numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *CompactUsageBatchMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *CompactUsageBatchMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *CompactUsageBatchMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown CompactUsageBatch nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *CompactUsageBatchMutation) ResetField(name string) error {
+	switch name {
+	case compactusagebatch.FieldProducerUUID:
+		m.ResetProducerUUID()
+		return nil
+	case compactusagebatch.FieldNodeID:
+		m.ResetNodeID()
+		return nil
+	case compactusagebatch.FieldSeqStart:
+		m.ResetSeqStart()
+		return nil
+	case compactusagebatch.FieldSeqEnd:
+		m.ResetSeqEnd()
+		return nil
+	case compactusagebatch.FieldEventCount:
+		m.ResetEventCount()
+		return nil
+	case compactusagebatch.FieldPayloadDigest:
+		m.ResetPayloadDigest()
+		return nil
+	case compactusagebatch.FieldSchemaVersion:
+		m.ResetSchemaVersion()
+		return nil
+	case compactusagebatch.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown CompactUsageBatch field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *CompactUsageBatchMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *CompactUsageBatchMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *CompactUsageBatchMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *CompactUsageBatchMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *CompactUsageBatchMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *CompactUsageBatchMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *CompactUsageBatchMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown CompactUsageBatch unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *CompactUsageBatchMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown CompactUsageBatch edge %s", name)
 }
 
 // DataStorageMutation represents an operation that mutates the DataStorage nodes in the graph.
@@ -29775,6 +30616,7 @@ type UsageLogMutation struct {
 	id                                       *int
 	created_at                               *time.Time
 	updated_at                               *time.Time
+	event_id                                 *string
 	api_key_id                               *int
 	addapi_key_id                            *int
 	model_id                                 *string
@@ -30022,9 +30864,71 @@ func (m *UsageLogMutation) OldRequestID(ctx context.Context) (v int, err error) 
 	return oldValue.RequestID, nil
 }
 
+// ClearRequestID clears the value of the "request_id" field.
+func (m *UsageLogMutation) ClearRequestID() {
+	m.request = nil
+	m.clearedFields[usagelog.FieldRequestID] = struct{}{}
+}
+
+// RequestIDCleared returns if the "request_id" field was cleared in this mutation.
+func (m *UsageLogMutation) RequestIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldRequestID]
+	return ok
+}
+
 // ResetRequestID resets all changes to the "request_id" field.
 func (m *UsageLogMutation) ResetRequestID() {
 	m.request = nil
+	delete(m.clearedFields, usagelog.FieldRequestID)
+}
+
+// SetEventID sets the "event_id" field.
+func (m *UsageLogMutation) SetEventID(s string) {
+	m.event_id = &s
+}
+
+// EventID returns the value of the "event_id" field in the mutation.
+func (m *UsageLogMutation) EventID() (r string, exists bool) {
+	v := m.event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEventID returns the old "event_id" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldEventID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEventID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEventID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEventID: %w", err)
+	}
+	return oldValue.EventID, nil
+}
+
+// ClearEventID clears the value of the "event_id" field.
+func (m *UsageLogMutation) ClearEventID() {
+	m.event_id = nil
+	m.clearedFields[usagelog.FieldEventID] = struct{}{}
+}
+
+// EventIDCleared returns if the "event_id" field was cleared in this mutation.
+func (m *UsageLogMutation) EventIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldEventID]
+	return ok
+}
+
+// ResetEventID resets all changes to the "event_id" field.
+func (m *UsageLogMutation) ResetEventID() {
+	m.event_id = nil
+	delete(m.clearedFields, usagelog.FieldEventID)
 }
 
 // SetAPIKeyID sets the "api_key_id" field.
@@ -31280,7 +32184,7 @@ func (m *UsageLogMutation) ClearRequest() {
 
 // RequestCleared reports if the "request" edge to the Request entity was cleared.
 func (m *UsageLogMutation) RequestCleared() bool {
-	return m.clearedrequest
+	return m.RequestIDCleared() || m.clearedrequest
 }
 
 // RequestIDs returns the "request" edge IDs in the mutation.
@@ -31387,7 +32291,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 25)
 	if m.created_at != nil {
 		fields = append(fields, usagelog.FieldCreatedAt)
 	}
@@ -31396,6 +32300,9 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.request != nil {
 		fields = append(fields, usagelog.FieldRequestID)
+	}
+	if m.event_id != nil {
+		fields = append(fields, usagelog.FieldEventID)
 	}
 	if m.api_key_id != nil {
 		fields = append(fields, usagelog.FieldAPIKeyID)
@@ -31474,6 +32381,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case usagelog.FieldRequestID:
 		return m.RequestID()
+	case usagelog.FieldEventID:
+		return m.EventID()
 	case usagelog.FieldAPIKeyID:
 		return m.APIKeyID()
 	case usagelog.FieldProjectID:
@@ -31531,6 +32440,8 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldUpdatedAt(ctx)
 	case usagelog.FieldRequestID:
 		return m.OldRequestID(ctx)
+	case usagelog.FieldEventID:
+		return m.OldEventID(ctx)
 	case usagelog.FieldAPIKeyID:
 		return m.OldAPIKeyID(ctx)
 	case usagelog.FieldProjectID:
@@ -31602,6 +32513,13 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRequestID(v)
+		return nil
+	case usagelog.FieldEventID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEventID(v)
 		return nil
 	case usagelog.FieldAPIKeyID:
 		v, ok := value.(int)
@@ -31951,6 +32869,12 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *UsageLogMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(usagelog.FieldRequestID) {
+		fields = append(fields, usagelog.FieldRequestID)
+	}
+	if m.FieldCleared(usagelog.FieldEventID) {
+		fields = append(fields, usagelog.FieldEventID)
+	}
 	if m.FieldCleared(usagelog.FieldAPIKeyID) {
 		fields = append(fields, usagelog.FieldAPIKeyID)
 	}
@@ -32007,6 +32931,12 @@ func (m *UsageLogMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *UsageLogMutation) ClearField(name string) error {
 	switch name {
+	case usagelog.FieldRequestID:
+		m.ClearRequestID()
+		return nil
+	case usagelog.FieldEventID:
+		m.ClearEventID()
+		return nil
 	case usagelog.FieldAPIKeyID:
 		m.ClearAPIKeyID()
 		return nil
@@ -32065,6 +32995,9 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldRequestID:
 		m.ResetRequestID()
+		return nil
+	case usagelog.FieldEventID:
+		m.ResetEventID()
 		return nil
 	case usagelog.FieldAPIKeyID:
 		m.ResetAPIKeyID()

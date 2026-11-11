@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/looplj/axonhub/internal/authz"
@@ -9,6 +11,10 @@ import (
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/tracing"
 )
+
+func isAsyncTaskCreatePath(path string) bool {
+	return path == "/v1/videos" || strings.HasPrefix(path, "/doubao/v3/contents/generations/tasks")
+}
 
 // WithThread is a middleware that extracts the X-Thread-ID header and
 // gets or creates the corresponding thread entity in the database.
@@ -31,6 +37,11 @@ func WithThread(config tracing.Config, threadService *biz.ThreadService) gin.Han
 		// Get project ID from context
 		projectID, ok := contexts.GetProjectID(c.Request.Context())
 		if !ok {
+			c.Next()
+			return
+		}
+
+		if !isAsyncTaskCreatePath(c.Request.URL.Path) && threadService.CompactAccountingBypassMetadata(c.Request.Context()) {
 			c.Next()
 			return
 		}

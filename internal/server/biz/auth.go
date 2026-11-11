@@ -216,7 +216,11 @@ func (s *AuthService) AuthenticateJWTToken(ctx context.Context, tokenString stri
 }
 
 func (s *AuthService) AuthenticateAPIKey(ctx context.Context, key string) (*ent.APIKey, error) {
-	apiKey, err := RefreshAPIKeyAuthorization(ctx, s.entFromContext(ctx), key)
+	client := s.entFromContext(ctx)
+	if client == nil && s.APIKeyService != nil {
+		client = s.APIKeyService.entFromContext(ctx)
+	}
+	apiKey, err := RefreshAPIKeyAuthorization(ctx, client, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get api key: %w", err)
 	}

@@ -1416,7 +1416,7 @@ type CreateUsageLogInput struct {
 	TotalCost                          *float64
 	CostItems                          []objects.CostItem
 	CostPriceReferenceID               *string
-	RequestID                          int
+	RequestID                          *int
 	ProjectID                          int
 	ChannelID                          *int
 }
@@ -1478,7 +1478,9 @@ func (i *CreateUsageLogInput) Mutate(m *UsageLogMutation) {
 	if v := i.CostPriceReferenceID; v != nil {
 		m.SetCostPriceReferenceID(*v)
 	}
-	m.SetRequestID(i.RequestID)
+	if v := i.RequestID; v != nil {
+		m.SetRequestID(*v)
+	}
 	m.SetProjectID(i.ProjectID)
 	if v := i.ChannelID; v != nil {
 		m.SetChannelID(*v)

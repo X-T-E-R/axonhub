@@ -16,6 +16,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channelmodelpriceversion"
 	"github.com/looplj/axonhub/internal/ent/channeloverridetemplate"
 	"github.com/looplj/axonhub/internal/ent/channelprobe"
+	"github.com/looplj/axonhub/internal/ent/compactusagebatch"
 	"github.com/looplj/axonhub/internal/ent/datastorage"
 	"github.com/looplj/axonhub/internal/ent/managedobservabilitystate"
 	"github.com/looplj/axonhub/internal/ent/model"
@@ -310,6 +311,33 @@ func (f TraverseChannelProbe) Traverse(ctx context.Context, q ent.Query) error {
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.ChannelProbeQuery", q)
+}
+
+// The CompactUsageBatchFunc type is an adapter to allow the use of ordinary function as a Querier.
+type CompactUsageBatchFunc func(context.Context, *ent.CompactUsageBatchQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f CompactUsageBatchFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.CompactUsageBatchQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.CompactUsageBatchQuery", q)
+}
+
+// The TraverseCompactUsageBatch type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseCompactUsageBatch func(context.Context, *ent.CompactUsageBatchQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseCompactUsageBatch) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseCompactUsageBatch) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.CompactUsageBatchQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.CompactUsageBatchQuery", q)
 }
 
 // The DataStorageFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -898,6 +926,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.ChannelOverrideTemplateQuery, predicate.ChannelOverrideTemplate, channeloverridetemplate.OrderOption]{typ: ent.TypeChannelOverrideTemplate, tq: q}, nil
 	case *ent.ChannelProbeQuery:
 		return &query[*ent.ChannelProbeQuery, predicate.ChannelProbe, channelprobe.OrderOption]{typ: ent.TypeChannelProbe, tq: q}, nil
+	case *ent.CompactUsageBatchQuery:
+		return &query[*ent.CompactUsageBatchQuery, predicate.CompactUsageBatch, compactusagebatch.OrderOption]{typ: ent.TypeCompactUsageBatch, tq: q}, nil
 	case *ent.DataStorageQuery:
 		return &query[*ent.DataStorageQuery, predicate.DataStorage, datastorage.OrderOption]{typ: ent.TypeDataStorage, tq: q}, nil
 	case *ent.ManagedObservabilityStateQuery:
