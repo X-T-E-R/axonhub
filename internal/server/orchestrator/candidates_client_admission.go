@@ -19,14 +19,20 @@ import (
 // req.APIFormat and req.RawRequest.Headers on the hot path with zero body re-parsing,
 // zero regex compilation, and zero DB queries.
 type ChannelAdmissionPolicySelector struct {
-	wrapped               CandidateSelector
-	FormatFilteredCount   int
-	CodexUAFilteredCount  int
-	LastRejectedAPIFormat string
+	wrapped                        CandidateSelector
+	FormatFilteredCount            int
+	FormatFilteredAllowsResponses  int
+	CodexUAFilteredCount           int
+	CodexUAFilteredAllowsResponses int
+	LastRejectedAPIFormat          string
 }
 
 func WithChannelAdmissionPolicySelector(wrapped CandidateSelector) *ChannelAdmissionPolicySelector {
 	return &ChannelAdmissionPolicySelector{wrapped: wrapped}
+}
+
+func channelPolicyAllowsResponses(ch *biz.Channel) bool {
+	return ch != nil && (ch.AllowsRequestFormat(string(llm.APIFormatOpenAIResponse)) || ch.AllowsRequestFormat(string(llm.APIFormatOpenAIResponseCompact)))
 }
 
 func (s *ChannelAdmissionPolicySelector) Select(ctx context.Context, req *llm.Request) ([]*ChannelModelsCandidate, error) {
@@ -60,6 +66,9 @@ func (s *ChannelAdmissionPolicySelector) Select(ctx context.Context, req *llm.Re
 				filtered = append(filtered, candidates[:i]...)
 			}
 			s.FormatFilteredCount++
+			if channelPolicyAllowsResponses(c.Channel) {
+				s.FormatFilteredAllowsResponses++
+			}
 			s.LastRejectedAPIFormat = apiFormat
 			continue
 		}
@@ -77,6 +86,9 @@ func (s *ChannelAdmissionPolicySelector) Select(ctx context.Context, req *llm.Re
 					filtered = append(filtered, candidates[:i]...)
 				}
 				s.CodexUAFilteredCount++
+				if channelPolicyAllowsResponses(c.Channel) {
+					s.CodexUAFilteredAllowsResponses++
+				}
 				continue
 			}
 		}
@@ -101,21 +113,35 @@ func (s *ChannelAdmissionPolicySelector) RejectionError(req *llm.Request) error 
 		}
 	}
 	if s.FormatFilteredCount > 0 && s.CodexUAFilteredCount == 0 {
-		return NewUnsupportedRequestFormatError(model, apiFormat)
+		return newUnsupportedRequestFormatError(model, apiFormat, s.FormatFilteredAllowsResponses > 0)
 	}
 	if s.CodexUAFilteredCount > 0 {
-		return NewCodexClientRequiredError(model)
+		return newCodexClientRequiredError(model, s.CodexUAFilteredAllowsResponses > 0)
 	}
 	if s.FormatFilteredCount > 0 {
-		return NewUnsupportedRequestFormatError(model, apiFormat)
+		return newUnsupportedRequestFormatError(model, apiFormat, s.FormatFilteredAllowsResponses > 0)
 	}
 	return nil
 }
 
+const (
+	responsesFormatRejectionMessage = "Use the Responses API (/v1/responses). We recommend the official Codex client."
+	codexClientResponsesMessage     = "This endpoint requires a Codex-compatible client. Try the official Codex client with the Responses API."
+	codexClientGenericMessage       = "This endpoint requires a Codex-compatible client. Try the official Codex client."
+)
+
 func NewUnsupportedRequestFormatError(model, apiFormat string) *llm.ResponseError {
-	msg := fmt.Sprintf("Request format %q is not allowed for model %q.", apiFormat, model)
-	if apiFormat == "" {
+	return newUnsupportedRequestFormatError(model, apiFormat, false)
+}
+
+func newUnsupportedRequestFormatError(model, apiFormat string, allowsResponses bool) *llm.ResponseError {
+	var msg string
+	if allowsResponses {
+		msg = responsesFormatRejectionMessage
+	} else if apiFormat == "" {
 		msg = fmt.Sprintf("Request format is not allowed for model %q.", model)
+	} else {
+		msg = fmt.Sprintf("Request format %q is not allowed for model %q.", apiFormat, model)
 	}
 	return &llm.ResponseError{
 		StatusCode: http.StatusBadRequest,
@@ -128,12 +154,20 @@ func NewUnsupportedRequestFormatError(model, apiFormat string) *llm.ResponseErro
 }
 
 func NewCodexClientRequiredError(model string) *llm.ResponseError {
+	return newCodexClientRequiredError(model, true)
+}
+
+func newCodexClientRequiredError(_ string, allowsResponses bool) *llm.ResponseError {
+	msg := codexClientGenericMessage
+	if allowsResponses {
+		msg = codexClientResponsesMessage
+	}
 	return &llm.ResponseError{
 		StatusCode: http.StatusForbidden,
 		Detail: llm.ErrorDetail{
 			Type:    "invalid_request_error",
 			Code:    "client_not_allowed",
-			Message: fmt.Sprintf("Model %q requires an official Codex client User-Agent.", model),
+			Message: msg,
 		},
 	}
 }
@@ -148,8 +182,9 @@ func checkChannelClientAdmission(ch *biz.Channel, req *llm.Request) error {
 		apiFormat = string(req.APIFormat)
 		model = req.Model
 	}
+	allowsResponses := channelPolicyAllowsResponses(ch)
 	if !ch.AllowsRequestFormat(apiFormat) {
-		return NewUnsupportedRequestFormatError(model, apiFormat)
+		return newUnsupportedRequestFormatError(model, apiFormat, allowsResponses)
 	}
 	if ch.Policies.RequiresCodexOfficialClient() {
 		var ua string
@@ -157,7 +192,7 @@ func checkChannelClientAdmission(ch *biz.Channel, req *llm.Request) error {
 			ua = req.RawRequest.Headers.Get("User-Agent")
 		}
 		if !objects.IsCodexOfficialClientRequestStrict(ua) {
-			return NewCodexClientRequiredError(model)
+			return newCodexClientRequiredError(model, allowsResponses)
 		}
 	}
 	return nil

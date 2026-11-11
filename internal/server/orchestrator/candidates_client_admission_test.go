@@ -128,7 +128,9 @@ func TestChannelAdmissionPolicySelector_Select(t *testing.T) {
 		var respErr *llm.ResponseError
 		require.ErrorAs(t, rejectErr, &respErr)
 		require.Equal(t, http.StatusBadRequest, respErr.StatusCode)
+		require.Equal(t, "invalid_request_error", respErr.Detail.Type)
 		require.Equal(t, "unsupported_request_format", respErr.Detail.Code)
+		require.Equal(t, "Use the Responses API (/v1/responses). We recommend the official Codex client.", respErr.Detail.Message)
 	})
 
 	t.Run("rejects inbound Anthropic Messages and Gemini Contents even with valid Codex UA", func(t *testing.T) {
@@ -151,8 +153,46 @@ func TestChannelAdmissionPolicySelector_Select(t *testing.T) {
 			var respErr *llm.ResponseError
 			require.ErrorAs(t, rejectErr, &respErr)
 			require.Equal(t, http.StatusBadRequest, respErr.StatusCode)
+			require.Equal(t, "invalid_request_error", respErr.Detail.Type)
 			require.Equal(t, "unsupported_request_format", respErr.Detail.Code)
+			require.Equal(t, "Use the Responses API (/v1/responses). We recommend the official Codex client.", respErr.Detail.Message)
 		}
+	})
+
+	t.Run("generic format policy that does not allow Responses omits Responses API hint", func(t *testing.T) {
+		t.Parallel()
+		messagesOnlyCandidate := &ChannelModelsCandidate{
+			Channel: buildTestChannelWithPolicies(
+				"messages-only",
+				objects.ChannelPolicies{
+					AllowRequestFormats: []string{"anthropic/messages"},
+				},
+				false,
+				nil,
+			),
+			Models: []biz.ChannelModelEntry{{RequestModel: "claude-sonnet", ActualModel: "claude-sonnet"}},
+		}
+		sel := WithChannelAdmissionPolicySelector(&mockSelector{
+			candidates: []*ChannelModelsCandidate{messagesOnlyCandidate},
+		})
+		req := newRequestWithFormatAndUA("claude-sonnet", llm.APIFormatOpenAIChatCompletion, "curl/8.7.1", nil)
+		got, err := sel.Select(context.Background(), req)
+		require.NoError(t, err)
+		require.Empty(t, got)
+
+		rejectErr := sel.RejectionError(req)
+		var respErr *llm.ResponseError
+		require.ErrorAs(t, rejectErr, &respErr)
+		require.Equal(t, http.StatusBadRequest, respErr.StatusCode)
+		require.Equal(t, "invalid_request_error", respErr.Detail.Type)
+		require.Equal(t, "unsupported_request_format", respErr.Detail.Code)
+		require.Equal(t, `Request format "openai/chat_completions" is not allowed for model "claude-sonnet".`, respErr.Detail.Message)
+		require.NotContains(t, respErr.Detail.Message, "/v1/responses")
+
+		directErr := checkChannelClientAdmission(messagesOnlyCandidate.Channel, req)
+		var directRespErr *llm.ResponseError
+		require.ErrorAs(t, directErr, &directRespErr)
+		require.Equal(t, `Request format "openai/chat_completions" is not allowed for model "claude-sonnet".`, directRespErr.Detail.Message)
 	})
 
 	t.Run("rejects missing User-Agent even when Originator header is present", func(t *testing.T) {
@@ -174,7 +214,9 @@ func TestChannelAdmissionPolicySelector_Select(t *testing.T) {
 		var respErr *llm.ResponseError
 		require.ErrorAs(t, rejectErr, &respErr)
 		require.Equal(t, http.StatusForbidden, respErr.StatusCode)
+		require.Equal(t, "invalid_request_error", respErr.Detail.Type)
 		require.Equal(t, "client_not_allowed", respErr.Detail.Code)
+		require.Equal(t, "This endpoint requires a Codex-compatible client. Try the official Codex client with the Responses API.", respErr.Detail.Message)
 	})
 
 	t.Run("rejects non-Codex User-Agent even when Originator header is codex_cli_rs", func(t *testing.T) {
@@ -202,8 +244,41 @@ func TestChannelAdmissionPolicySelector_Select(t *testing.T) {
 			var respErr *llm.ResponseError
 			require.ErrorAs(t, rejectErr, &respErr)
 			require.Equal(t, http.StatusForbidden, respErr.StatusCode)
+			require.Equal(t, "invalid_request_error", respErr.Detail.Type)
 			require.Equal(t, "client_not_allowed", respErr.Detail.Code)
+			require.Equal(t, "This endpoint requires a Codex-compatible client. Try the official Codex client with the Responses API.", respErr.Detail.Message)
 		}
+	})
+
+	t.Run("codexOfficialClient channel that does not allow Responses omits Responses API hint", func(t *testing.T) {
+		t.Parallel()
+		chatCodexCandidate := &ChannelModelsCandidate{
+			Channel: buildTestChannelWithPolicies(
+				"chat-codex-only",
+				objects.ChannelPolicies{
+					AllowRequestFormats: []string{"openai/chat_completions"},
+					CodexOfficialClient: lo.ToPtr(true),
+				},
+				true,
+				nil,
+			),
+			Models: []biz.ChannelModelEntry{{RequestModel: "gpt-chat", ActualModel: "gpt-chat"}},
+		}
+		sel := WithChannelAdmissionPolicySelector(&mockSelector{
+			candidates: []*ChannelModelsCandidate{chatCodexCandidate},
+		})
+		req := newRequestWithFormatAndUA("gpt-chat", llm.APIFormatOpenAIChatCompletion, "curl/8.7.1", nil)
+		got, err := sel.Select(context.Background(), req)
+		require.NoError(t, err)
+		require.Empty(t, got)
+
+		rejectErr := sel.RejectionError(req)
+		var respErr *llm.ResponseError
+		require.ErrorAs(t, rejectErr, &respErr)
+		require.Equal(t, http.StatusForbidden, respErr.StatusCode)
+		require.Equal(t, "client_not_allowed", respErr.Detail.Code)
+		require.Equal(t, "This endpoint requires a Codex-compatible client. Try the official Codex client.", respErr.Detail.Message)
+		require.NotContains(t, respErr.Detail.Message, "Responses API")
 	})
 
 	t.Run("mixed candidates keeps unrestricted channel when CPR channel rejects non-Codex client", func(t *testing.T) {

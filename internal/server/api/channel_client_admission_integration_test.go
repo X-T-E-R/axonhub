@@ -360,9 +360,37 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 	require.NoError(t, badConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-6.1-sol","input":"blocked ws"}`)))
 	wsRejected := wsRead(t, badConn)
 	require.Equal(t, "error", wsEventString(wsRejected, "type"))
+	var wsStatus int
+	require.NoError(t, json.Unmarshal(wsRejected["status"], &wsStatus))
+	require.Equal(t, http.StatusForbidden, wsStatus)
 	require.Equal(t, "client_not_allowed", wsErrorCode(wsRejected))
+	var wsErrDetail llm.ErrorDetail
+	require.NoError(t, json.Unmarshal(wsRejected["error"], &wsErrDetail))
+	require.Equal(t, "invalid_request_error", wsErrDetail.Type)
+	require.Equal(t, "This endpoint requires a Codex-compatible client. Try the official Codex client with the Responses API.", wsErrDetail.Message)
 	require.Equal(t, "not_executed", wsEventString(wsRejected, "execution"))
 	require.Equal(t, int32(1), providerCalls.Load(), "rejected WS frame must not touch upstream provider")
+
+	// 4b. Real HTTP /v1/responses with non-Codex UA returns 403 client_not_allowed + actionable message without touching provider
+	badHTTPReq, err := http.NewRequest(http.MethodPost, server.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-6.1-sol","input":"blocked http"}`))
+	require.NoError(t, err)
+	badHTTPReq.Header.Set("Authorization", "Bearer "+key.Key)
+	badHTTPReq.Header.Set("Content-Type", "application/json")
+	badHTTPReq.Header.Set("User-Agent", "python-httpx/0.27.0")
+	badHTTPResp, err := http.DefaultClient.Do(badHTTPReq)
+	require.NoError(t, err)
+	badHTTPBody, err := io.ReadAll(badHTTPResp.Body)
+	require.NoError(t, err)
+	require.NoError(t, badHTTPResp.Body.Close())
+	require.Equal(t, http.StatusForbidden, badHTTPResp.StatusCode, string(badHTTPBody))
+	var badHTTPErr struct {
+		Error llm.ErrorDetail `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(badHTTPBody, &badHTTPErr))
+	require.Equal(t, "invalid_request_error", badHTTPErr.Error.Type)
+	require.Equal(t, "client_not_allowed", badHTTPErr.Error.Code)
+	require.Equal(t, "This endpoint requires a Codex-compatible client. Try the official Codex client with the Responses API.", badHTTPErr.Error.Message)
+	require.Equal(t, int32(1), providerCalls.Load(), "rejected HTTP non-Codex UA request must not touch upstream provider")
 
 	// 5. Real HTTP /v1/chat/completions with official Codex UA is rejected BEFORE format conversion / upstream send
 	chatReq, err := http.NewRequest(http.MethodPost, server.URL+"/v1/chat/completions", strings.NewReader(`{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"hi"}]}`))
@@ -376,7 +404,13 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, chatResp.Body.Close())
 	require.Equal(t, http.StatusBadRequest, chatResp.StatusCode, string(chatBody))
-	require.Contains(t, string(chatBody), "unsupported_request_format")
+	var chatErr struct {
+		Error llm.ErrorDetail `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(chatBody, &chatErr))
+	require.Equal(t, "invalid_request_error", chatErr.Error.Type)
+	require.Equal(t, "unsupported_request_format", chatErr.Error.Code)
+	require.Equal(t, "Use the Responses API (/v1/responses). We recommend the official Codex client.", chatErr.Error.Message)
 	require.Equal(t, int32(1), providerCalls.Load(), "rejected HTTP chat request must not touch upstream provider")
 
 	// 6. Real HTTP /v1/responses/compact with official Codex UA succeeds and forwards byte-identical UA to provider
