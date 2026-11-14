@@ -410,6 +410,7 @@ const CREATE_CHANNEL_MUTATION = `
         allowRequestFormats
         denyRequestFormats
         codexOfficialClient
+        denyCodexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -500,6 +501,7 @@ const DUPLICATE_CHANNEL_MUTATION = `
         allowRequestFormats
         denyRequestFormats
         codexOfficialClient
+        denyCodexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -590,6 +592,7 @@ const BULK_CREATE_CHANNELS_MUTATION = `
         allowRequestFormats
         denyRequestFormats
         codexOfficialClient
+        denyCodexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -680,6 +683,7 @@ const UPDATE_CHANNEL_MUTATION = `
         allowRequestFormats
         denyRequestFormats
         codexOfficialClient
+        denyCodexOfficialClient
       }
       supportedModels
       autoSyncSupportedModels
@@ -1275,6 +1279,7 @@ const QUERY_CHANNELS_QUERY = `
             allowRequestFormats
             denyRequestFormats
             codexOfficialClient
+            denyCodexOfficialClient
           }
           credentials {
             apiKey

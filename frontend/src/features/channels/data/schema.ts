@@ -144,6 +144,7 @@ export const channelPoliciesSchema = z.object({
   allowRequestFormats: z.array(z.string()).nullable().optional(),
   denyRequestFormats: z.array(z.string()).nullable().optional(),
   codexOfficialClient: z.boolean().nullable().optional(),
+  denyCodexOfficialClient: z.boolean().nullable().optional(),
 });
 export type ChannelPolicies = z.infer<typeof channelPoliciesSchema>;
 

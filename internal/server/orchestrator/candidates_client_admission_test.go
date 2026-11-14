@@ -401,3 +401,61 @@ func BenchmarkChannelClientAdmission(b *testing.B) {
 		}
 	})
 }
+
+func TestChannelAdmissionPolicySelector_Sub2Deny(t *testing.T) {
+	t.Parallel()
+	sub2 := &ChannelModelsCandidate{Channel: buildTestChannelWithPolicies("sub2", objects.ChannelPolicies{
+		DenyRequestFormats:      []string{"openai/responses", "openai/responses_compact"},
+		DenyCodexOfficialClient: lo.ToPtr(true),
+	}, true, nil)}
+	for _, tc := range []struct {
+		name                 string
+		format               llm.APIFormat
+		ua, originator, code string
+	}{
+		{"Responses", llm.APIFormatOpenAIResponse, "kiki-cli/1.0", "", "unsupported_request_format"},
+		{"compact", llm.APIFormatOpenAIResponseCompact, "Codex Desktop/0.142.3", "", "unsupported_request_format"},
+		{"desktop", llm.APIFormatAnthropicMessage, "Codex Desktop/0.142.3", "", "codex_client_forbidden"},
+		{"CLI", llm.APIFormatAnthropicMessage, "codex_cli_rs/0.159.2", "", "codex_client_forbidden"},
+		{"openai-codex", llm.APIFormatAnthropicMessage, "OPENAI-CODEX/1.0", "", "codex_client_forbidden"},
+		{"originator", llm.APIFormatAnthropicMessage, "kiki-cli/1.0", "codex_vscode", "codex_client_forbidden"},
+		{"originator only", llm.APIFormatAnthropicMessage, "", "Codex Desktop", "codex_client_forbidden"},
+		{"Kiki", llm.APIFormatAnthropicMessage, "kiki-cli/1.0", "kiki-cli", ""},
+		{"Kimi", llm.APIFormatAnthropicMessage, "KimiCLI/1.0", "", ""},
+		{"Claude", llm.APIFormatAnthropicMessage, "claude-cli/2.0", "", ""},
+		{"curl", llm.APIFormatAnthropicMessage, "curl/8.7.1", "", ""},
+		{"missing headers", llm.APIFormatAnthropicMessage, "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := newRequestWithFormatAndUA("gemini-4-hydrogen", tc.format, tc.ua, map[string]string{"Originator": tc.originator})
+			sel := WithChannelAdmissionPolicySelector(&mockSelector{candidates: []*ChannelModelsCandidate{sub2}})
+			got, err := sel.Select(t.Context(), req)
+			require.NoError(t, err)
+			if tc.code == "" {
+				require.Len(t, got, 1)
+				require.NoError(t, sel.RejectionError(req))
+				require.NoError(t, checkChannelClientAdmission(sub2.Channel, req))
+				return
+			}
+			require.Empty(t, got)
+			for _, err := range []error{sel.RejectionError(req), checkChannelClientAdmission(sub2.Channel, req)} {
+				var resp *llm.ResponseError
+				require.ErrorAs(t, err, &resp)
+				require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+				require.Equal(t, "invalid_request_error", resp.Detail.Type)
+				require.Equal(t, tc.code, resp.Detail.Code)
+				require.Contains(t, resp.Detail.Message, "gemini-4-hydrogen")
+			}
+			if tc.code == "codex_client_forbidden" {
+				require.Equal(t, 1, sel.CodexUADeniedCount)
+			}
+		})
+	}
+	t.Run("unrestricted candidate survives", func(t *testing.T) {
+		open := &ChannelModelsCandidate{Channel: buildTestChannelWithPolicies("open", objects.ChannelPolicies{}, false, nil)}
+		sel := WithChannelAdmissionPolicySelector(&mockSelector{candidates: []*ChannelModelsCandidate{sub2, open}})
+		got, err := sel.Select(t.Context(), newRequestWithFormatAndUA("gemini-4-hydrogen", llm.APIFormatAnthropicMessage, "Codex Desktop/0.142.3", nil))
+		require.NoError(t, err)
+		require.Equal(t, []*ChannelModelsCandidate{open}, got)
+	})
+}

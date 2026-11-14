@@ -929,13 +929,20 @@ func mergeChannelPoliciesForUpdate(current objects.ChannelPolicies, input *objec
 		val := *current.CodexOfficialClient
 		next.CodexOfficialClient = &val
 	}
+	if next.DenyCodexOfficialClient == nil && current.DenyCodexOfficialClient != nil {
+		val := *current.DenyCodexOfficialClient
+		next.DenyCodexOfficialClient = &val
+	}
 	return &next
 }
 
-// NormalizeChannelPolicies validates and deduplicates AllowRequestFormats and DenyRequestFormats.
+// NormalizeChannelPolicies validates client gates and deduplicates request formats.
 func NormalizeChannelPolicies(policies *objects.ChannelPolicies) error {
 	if policies == nil {
 		return nil
+	}
+	if policies.RequiresCodexOfficialClient() && policies.ForbidsCodexOfficialClient() {
+		return fmt.Errorf("codexOfficialClient and denyCodexOfficialClient cannot both be enabled")
 	}
 	if len(policies.AllowRequestFormats) > 0 {
 		normalized, err := normalizePolicyAPIFormats("allowRequestFormats", policies.AllowRequestFormats)

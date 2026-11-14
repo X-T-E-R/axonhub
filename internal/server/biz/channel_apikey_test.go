@@ -868,3 +868,19 @@ func TestMergeAndNormalizeChannelPolicies(t *testing.T) {
 	}
 	require.Error(t, NormalizeChannelPolicies(invalid))
 }
+
+func TestChannelPoliciesDenyCodexValidationAndMerge(t *testing.T) {
+	t.Parallel()
+	conflict := objects.ChannelPolicies{CodexOfficialClient: lo.ToPtr(true), DenyCodexOfficialClient: lo.ToPtr(true)}
+	require.EqualError(t, NormalizeChannelPolicies(&conflict), "codexOfficialClient and denyCodexOfficialClient cannot both be enabled")
+	current := objects.ChannelPolicies{Stream: objects.CapabilityPolicyUnlimited, DenyCodexOfficialClient: lo.ToPtr(true)}
+	merged := mergeChannelPoliciesForUpdate(current, &objects.ChannelPolicies{Stream: objects.CapabilityPolicyRequire})
+	require.True(t, merged.ForbidsCodexOfficialClient())
+	require.NoError(t, NormalizeChannelPolicies(merged))
+	merged = mergeChannelPoliciesForUpdate(current, &objects.ChannelPolicies{CodexOfficialClient: lo.ToPtr(true)})
+	require.Error(t, NormalizeChannelPolicies(merged), "partial update must not bypass conflict validation")
+	merged = mergeChannelPoliciesForUpdate(current, &objects.ChannelPolicies{DenyCodexOfficialClient: lo.ToPtr(false), CodexOfficialClient: lo.ToPtr(true)})
+	require.NoError(t, NormalizeChannelPolicies(merged))
+	require.False(t, merged.ForbidsCodexOfficialClient())
+	require.True(t, merged.RequiresCodexOfficialClient())
+}

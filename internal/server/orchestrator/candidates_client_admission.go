@@ -12,7 +12,7 @@ import (
 
 // ChannelAdmissionPolicySelector filters candidate channels using each channel's
 // request-format gate (allowRequestFormats / denyRequestFormats) and official
-// Codex User-Agent gate (codexOfficialClient).
+// Codex client gates (codexOfficialClient / denyCodexOfficialClient).
 //
 // In selectCandidates, it wraps inbound.state.CandidateSelector (covering DefaultSelector,
 // SpecifiedChannelSelector, and any custom selector) and evaluates already-parsed
@@ -23,6 +23,7 @@ type ChannelAdmissionPolicySelector struct {
 	FormatFilteredCount            int
 	FormatFilteredAllowsResponses  int
 	CodexUAFilteredCount           int
+	CodexUADeniedCount             int
 	CodexUAFilteredAllowsResponses int
 	LastRejectedAPIFormat          string
 }
@@ -45,8 +46,8 @@ func (s *ChannelAdmissionPolicySelector) Select(ctx context.Context, req *llm.Re
 	}
 
 	apiFormat := ""
-	var userAgent string
-	var uaChecked, uaValid bool
+	userAgent, originator := requestClientHeaders(req)
+	var uaChecked, uaValid, denyChecked, codexClient bool
 	if req != nil {
 		apiFormat = string(req.APIFormat)
 	}
@@ -74,9 +75,6 @@ func (s *ChannelAdmissionPolicySelector) Select(ctx context.Context, req *llm.Re
 		}
 		if c.Channel.Policies.RequiresCodexOfficialClient() {
 			if !uaChecked {
-				if req != nil && req.RawRequest != nil && req.RawRequest.Headers != nil {
-					userAgent = req.RawRequest.Headers.Get("User-Agent")
-				}
 				uaValid = objects.IsCodexOfficialClientRequestStrict(userAgent)
 				uaChecked = true
 			}
@@ -89,6 +87,20 @@ func (s *ChannelAdmissionPolicySelector) Select(ctx context.Context, req *llm.Re
 				if channelPolicyAllowsResponses(c.Channel) {
 					s.CodexUAFilteredAllowsResponses++
 				}
+				continue
+			}
+		}
+		if c.Channel.Policies.ForbidsCodexOfficialClient() {
+			if !denyChecked {
+				codexClient = objects.IsCodexClientRequest(userAgent, originator)
+				denyChecked = true
+			}
+			if codexClient {
+				if filtered == nil {
+					filtered = make([]*ChannelModelsCandidate, 0, len(candidates))
+					filtered = append(filtered, candidates[:i]...)
+				}
+				s.CodexUADeniedCount++
 				continue
 			}
 		}
@@ -111,6 +123,9 @@ func (s *ChannelAdmissionPolicySelector) RejectionError(req *llm.Request) error 
 		if apiFormat == "" {
 			apiFormat = string(req.APIFormat)
 		}
+	}
+	if s.CodexUADeniedCount > 0 {
+		return newCodexClientForbiddenError(model)
 	}
 	if s.FormatFilteredCount > 0 && s.CodexUAFilteredCount == 0 {
 		return newUnsupportedRequestFormatError(model, apiFormat, s.FormatFilteredAllowsResponses > 0)
@@ -186,14 +201,32 @@ func checkChannelClientAdmission(ch *biz.Channel, req *llm.Request) error {
 	if !ch.AllowsRequestFormat(apiFormat) {
 		return newUnsupportedRequestFormatError(model, apiFormat, allowsResponses)
 	}
+	ua, originator := requestClientHeaders(req)
 	if ch.Policies.RequiresCodexOfficialClient() {
-		var ua string
-		if req != nil && req.RawRequest != nil && req.RawRequest.Headers != nil {
-			ua = req.RawRequest.Headers.Get("User-Agent")
-		}
 		if !objects.IsCodexOfficialClientRequestStrict(ua) {
 			return newCodexClientRequiredError(model, allowsResponses)
 		}
 	}
+	if ch.Policies.ForbidsCodexOfficialClient() && objects.IsCodexClientRequest(ua, originator) {
+		return newCodexClientForbiddenError(model)
+	}
 	return nil
+}
+
+func requestClientHeaders(req *llm.Request) (userAgent, originator string) {
+	if req != nil && req.RawRequest != nil {
+		return req.RawRequest.Headers.Get("User-Agent"), req.RawRequest.Headers.Get("Originator")
+	}
+	return "", ""
+}
+
+func newCodexClientForbiddenError(model string) *llm.ResponseError {
+	return &llm.ResponseError{
+		StatusCode: http.StatusBadRequest,
+		Detail: llm.ErrorDetail{
+			Type:    "invalid_request_error",
+			Code:    "codex_client_forbidden",
+			Message: fmt.Sprintf("Codex client User-Agent or Originator is not permitted for model %q on the available channels. Use a non-Codex client or select a model that permits Codex clients.", model),
+		},
+	}
 }

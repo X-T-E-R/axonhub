@@ -38,6 +38,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/orchestrator"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/transformer/anthropic"
 	"github.com/looplj/axonhub/llm/transformer/openai"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
@@ -194,6 +195,13 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 	compactProcessor.PromptProtecter = nil
 	compactProcessor.PromptProvider = wsPromptProvider{}
 
+	messagesProcessor := orchestrator.NewChatCompletionOrchestrator(
+		channelService, defaultSelector, requests, httpClient,
+		anthropic.NewInboundTransformer(), system, usage, nil, nil, nil, nil, limiter, nil,
+	)
+	messagesProcessor.PromptProtecter = nil
+	messagesProcessor.PromptProvider = wsPromptProvider{}
+
 	wsHandler := newResponsesWebSocketHandler(&ChatCompletionHandlers{ChatCompletionOrchestrator: responsesProcessor}, auth)
 
 	gqlHandlers := gql.NewGraphqlHandlers(gql.Dependencies{
@@ -225,6 +233,7 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 	apiGroup.POST("/v1/responses", (&ChatCompletionHandlers{ChatCompletionOrchestrator: responsesProcessor}).ChatCompletion)
 	apiGroup.POST("/v1/responses/compact", (&ChatCompletionHandlers{ChatCompletionOrchestrator: compactProcessor}).ChatCompletion)
 	apiGroup.POST("/v1/chat/completions", (&ChatCompletionHandlers{ChatCompletionOrchestrator: chatProcessor}).ChatCompletion)
+	apiGroup.POST("/v1/messages", (&ChatCompletionHandlers{ChatCompletionOrchestrator: messagesProcessor}).ChatCompletion)
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -257,6 +266,7 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 				allowRequestFormats
 				denyRequestFormats
 				codexOfficialClient
+				denyCodexOfficialClient
 			}
 			settings {
 				passThroughUserAgent
@@ -431,6 +441,61 @@ func TestChannelClientAdmissionActualPipelineAndGraphQL(t *testing.T) {
 	require.Equal(t, "/v1/responses/compact", call2.path)
 	require.Equal(t, codexCLIUA, call2.userAgent)
 	require.Equal(t, "keep-me", call2.customHdr)
+
+	// Flip both flags together and test admission on every relevant inbound format.
+	const sub2Model = "gemini-4-hydrogen"
+	denyData := execGraphQL(updateMutation, map[string]any{
+		"id": channelGlobalID,
+		"input": map[string]any{
+			"supportedModels": []string{sub2Model},
+			"policies": map[string]any{
+				"allowRequestFormats":     []string{},
+				"denyRequestFormats":      []string{"openai/responses", "openai/responses_compact"},
+				"codexOfficialClient":     false,
+				"denyCodexOfficialClient": true,
+			},
+		},
+	})
+	denyPolicies := denyData["updateChannel"].(map[string]any)["policies"].(map[string]any)
+	require.Equal(t, "unlimited", denyPolicies["stream"])
+	require.Equal(t, true, denyPolicies["denyCodexOfficialClient"])
+	require.Equal(t, false, denyPolicies["codexOfficialClient"])
+	require.Equal(t, []any{"openai/responses", "openai/responses_compact"}, denyPolicies["denyRequestFormats"])
+	require.Eventually(t, func() bool {
+		loaded := channelService.GetEnabledChannels()
+		return len(loaded) == 1 && loaded[0].Policies.ForbidsCodexOfficialClient()
+	}, 2*time.Second, 10*time.Millisecond)
+
+	const responsesBody = `{"model":"gemini-4-hydrogen","input":"blocked"}`
+	const messagesBody = `{"model":"gemini-4-hydrogen","max_tokens":1,"messages":[{"role":"user","content":"blocked"}]}`
+	for _, tc := range []struct{ path, body, ua, originator, code string }{
+		{"/v1/responses", responsesBody, "kiki-cli/1.0", "", "unsupported_request_format"},
+		{"/v1/responses/compact", responsesBody, codexCLIUA, "", "unsupported_request_format"},
+		{"/v1/messages", messagesBody, "Codex Desktop/0.142.3", "", "codex_client_forbidden"},
+		{"/v1/messages", messagesBody, "kiki-cli/1.0", "openai-codex", "codex_client_forbidden"},
+	} {
+		req, err := http.NewRequest(http.MethodPost, server.URL+tc.path, strings.NewReader(tc.body))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+key.Key)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", tc.ua)
+		if tc.originator != "" {
+			req.Header.Set("Originator", tc.originator)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
+		var rejected struct {
+			Error llm.ErrorDetail `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal(body, &rejected))
+		require.Equal(t, "invalid_request_error", rejected.Error.Type)
+		require.Equal(t, tc.code, rejected.Error.Code)
+		require.Equal(t, int32(2), providerCalls.Load(), "rejected request must never touch provider")
+	}
 }
 
 func TestCPRAdmissionActivationScriptLiveGraphQLCheckApplyCheck(t *testing.T) {

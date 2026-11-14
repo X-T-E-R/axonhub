@@ -930,14 +930,19 @@ const (
 )
 
 type ChannelPolicies struct {
-	Stream              CapabilityPolicy `json:"stream,omitempty"`
-	AllowRequestFormats []string         `json:"allowRequestFormats,omitempty"`
-	DenyRequestFormats  []string         `json:"denyRequestFormats,omitempty"`
-	CodexOfficialClient *bool            `json:"codexOfficialClient,omitempty"`
+	Stream                  CapabilityPolicy `json:"stream,omitempty"`
+	AllowRequestFormats     []string         `json:"allowRequestFormats,omitempty"`
+	DenyRequestFormats      []string         `json:"denyRequestFormats,omitempty"`
+	CodexOfficialClient     *bool            `json:"codexOfficialClient,omitempty"`
+	DenyCodexOfficialClient *bool            `json:"denyCodexOfficialClient,omitempty"`
 }
 
 func (p ChannelPolicies) RequiresCodexOfficialClient() bool {
 	return p.CodexOfficialClient != nil && *p.CodexOfficialClient
+}
+
+func (p ChannelPolicies) ForbidsCodexOfficialClient() bool {
+	return p.DenyCodexOfficialClient != nil && *p.DenyCodexOfficialClient
 }
 
 // AllowsRequestFormat reports whether the given inbound API format is allowed by

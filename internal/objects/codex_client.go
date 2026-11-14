@@ -102,3 +102,23 @@ func IsCodexOfficialClientRequestStrict(userAgent string) bool {
 	}
 	return false
 }
+
+// IsCodexClientRequest recognizes Codex product tokens in either inbound header.
+// Denial deliberately covers more clients than the strict official-client allow gate,
+// including openai-codex and new codex_* / codex-* products. It is request hygiene,
+// not authentication; unrelated clients and words merely containing codex do not match.
+func IsCodexClientRequest(userAgent, originator string) bool {
+	return hasCodexProductToken(userAgent) || hasCodexProductToken(originator)
+}
+
+func hasCodexProductToken(value string) bool {
+	for token := range strings.FieldsFuncSeq(value, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\r' || r == '\n' || r == '(' || r == ')' || r == ';' || r == ','
+	}) {
+		product, _, _ := strings.Cut(token, "/")
+		if strings.EqualFold(product, "codex") || hasPrefixFold(product, "codex_") || hasPrefixFold(product, "codex-") || strings.EqualFold(product, "openai-codex") {
+			return true
+		}
+	}
+	return false
+}

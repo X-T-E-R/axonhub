@@ -842,6 +842,7 @@ type ChannelPolicies {
   allowRequestFormats: [String!]
   denyRequestFormats: [String!]
   codexOfficialClient: Boolean
+  denyCodexOfficialClient: Boolean
 }
 
 input ChannelPoliciesInput {
@@ -849,6 +850,7 @@ input ChannelPoliciesInput {
   allowRequestFormats: [String!]
   denyRequestFormats: [String!]
   codexOfficialClient: Boolean
+  denyCodexOfficialClient: Boolean
 }
 
 input ModelMappingInput {

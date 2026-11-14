@@ -143,3 +143,50 @@ func TestChannelPoliciesAllowsRequestFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestIsCodexClientRequest(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{
+		"Codex Desktop/0.142.3 (Windows 10.0.22635; x86_64)",
+		"codex_cli_rs/0.159.2", "codex-tui/0.104.0", "codex_vscode/1.2.3",
+		"openai-codex/1.0", "CoDeX CLI/1.0", "codex_unknown/1.0", "codex_next",
+		"wrapper/1.0 (codex_sdk_ts; 0.1.0)", "Mozilla/5.0 (Codex Desktop; 1.0)",
+		"wrapper/1.0 openai-codex/1.0", "  CODEX  ",
+	} {
+		t.Run(value, func(t *testing.T) {
+			if !IsCodexClientRequest(value, "") {
+				t.Fatalf("Codex UA %q must be denied", value)
+			}
+			if !IsCodexClientRequest("kiki-cli/1.0", value) {
+				t.Fatalf("Codex Originator %q must be denied even with unrelated UA", value)
+			}
+		})
+	}
+	for _, value := range []string{
+		"", "  ", "kiki-cli/1.0", "KimiCLI/0.69", "claude-cli/2.0", "curl/8.7.1",
+		"python-httpx/0.27.0", "python-requests/2.32.0", "OpenAI/JS 4.67.1",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/142.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15",
+		"notcodex/1.0", "codexample/1.0", "my-codex-wrapper/1.0", "https://example.com/codex",
+	} {
+		t.Run("unrelated-"+value, func(t *testing.T) {
+			if IsCodexClientRequest(value, value) {
+				t.Fatalf("unrelated client %q must remain allowed", value)
+			}
+		})
+	}
+}
+
+func TestChannelPoliciesCodexGates(t *testing.T) {
+	t.Parallel()
+	for _, value := range []*bool{nil, new(false), new(true)} {
+		policies := ChannelPolicies{CodexOfficialClient: value}
+		if policies.ForbidsCodexOfficialClient() {
+			t.Fatal("require policy must never imply deny, including explicit false")
+		}
+		policies = ChannelPolicies{DenyCodexOfficialClient: value}
+		if policies.ForbidsCodexOfficialClient() != (value != nil && *value) {
+			t.Fatal("only explicit deny=true should forbid Codex")
+		}
+	}
+}

@@ -786,10 +786,11 @@ type ComplexityRoot struct {
 	}
 
 	ChannelPolicies struct {
-		AllowRequestFormats func(childComplexity int) int
-		CodexOfficialClient func(childComplexity int) int
-		DenyRequestFormats  func(childComplexity int) int
-		Stream              func(childComplexity int) int
+		AllowRequestFormats     func(childComplexity int) int
+		CodexOfficialClient     func(childComplexity int) int
+		DenyCodexOfficialClient func(childComplexity int) int
+		DenyRequestFormats      func(childComplexity int) int
+		Stream                  func(childComplexity int) int
 	}
 
 	ChannelProbe struct {
@@ -5798,6 +5799,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelPolicies.CodexOfficialClient(childComplexity), true
+	case "ChannelPolicies.denyCodexOfficialClient":
+		if e.complexity.ChannelPolicies.DenyCodexOfficialClient == nil {
+			break
+		}
+
+		return e.complexity.ChannelPolicies.DenyCodexOfficialClient(childComplexity), true
 	case "ChannelPolicies.denyRequestFormats":
 		if e.complexity.ChannelPolicies.DenyRequestFormats == nil {
 			break
@@ -23055,6 +23062,8 @@ func (ec *executionContext) fieldContext_Channel_policies(_ context.Context, fie
 				return ec.fieldContext_ChannelPolicies_denyRequestFormats(ctx, field)
 			case "codexOfficialClient":
 				return ec.fieldContext_ChannelPolicies_codexOfficialClient(ctx, field)
+			case "denyCodexOfficialClient":
+				return ec.fieldContext_ChannelPolicies_denyCodexOfficialClient(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelPolicies", field.Name)
 		},
@@ -32929,6 +32938,35 @@ func (ec *executionContext) _ChannelPolicies_codexOfficialClient(ctx context.Con
 }
 
 func (ec *executionContext) fieldContext_ChannelPolicies_codexOfficialClient(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelPolicies",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelPolicies_denyCodexOfficialClient(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelPolicies) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelPolicies_denyCodexOfficialClient,
+		func(ctx context.Context) (any, error) {
+			return obj.DenyCodexOfficialClient, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelPolicies_denyCodexOfficialClient(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelPolicies",
 		Field:      field,
@@ -84089,7 +84127,7 @@ func (ec *executionContext) unmarshalInputChannelPoliciesInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"stream", "allowRequestFormats", "denyRequestFormats", "codexOfficialClient"}
+	fieldsInOrder := [...]string{"stream", "allowRequestFormats", "denyRequestFormats", "codexOfficialClient", "denyCodexOfficialClient"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -84124,6 +84162,13 @@ func (ec *executionContext) unmarshalInputChannelPoliciesInput(ctx context.Conte
 				return it, err
 			}
 			it.CodexOfficialClient = data
+		case "denyCodexOfficialClient":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("denyCodexOfficialClient"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DenyCodexOfficialClient = data
 		}
 	}
 
@@ -112682,6 +112727,8 @@ func (ec *executionContext) _ChannelPolicies(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelPolicies_denyRequestFormats(ctx, field, obj)
 		case "codexOfficialClient":
 			out.Values[i] = ec._ChannelPolicies_codexOfficialClient(ctx, field, obj)
+		case "denyCodexOfficialClient":
+			out.Values[i] = ec._ChannelPolicies_denyCodexOfficialClient(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

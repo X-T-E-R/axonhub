@@ -2615,6 +2615,37 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         )}
                       />
 
+                      {(['codexOfficialClient', 'denyCodexOfficialClient'] as const).map((policy) => (
+                        <FormField
+                          key={policy}
+                          control={form.control}
+                          name={`policies.${policy}`}
+                          render={({ field }) => (
+                            <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                              <FormLabel className='font-medium md:col-span-2 md:text-right'>
+                                {t(`channels.dialogs.fields.${policy}.label`)}
+                              </FormLabel>
+                              <div className='flex items-start gap-2 md:col-span-6'>
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value === true}
+                                    onCheckedChange={(checked) => {
+                                      field.onChange(checked === true);
+                                      if (checked === true) {
+                                        const opposite = policy === 'codexOfficialClient' ? 'denyCodexOfficialClient' : 'codexOfficialClient';
+                                        form.setValue(`policies.${opposite}`, false, { shouldDirty: true });
+                                      }
+                                    }}
+                                    data-testid={`channel-${policy}-toggle`}
+                                  />
+                                </FormControl>
+                                <p className='text-muted-foreground text-xs'>{t(`channels.dialogs.fields.${policy}.description`)}</p>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+                      ))}
+
                       <div className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
                         <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
                           {t('channels.dialogs.fields.supportedModels.label')}
