@@ -168,6 +168,7 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 		cachedAllowRequestFormats: buildFormatSet(c.Policies.AllowRequestFormats),
 		cachedDenyRequestFormats:  buildFormatSet(c.Policies.DenyRequestFormats),
 		cachedEnabledAPIKeys:      routableChannelAPIKeys(c.Credentials, c.DisabledAPIKeys, c.Settings, time.Now()),
+		credentialRuntime:         &credentialRuntime{},
 	}
 
 	// Precompute other caches
@@ -195,35 +196,23 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 // buildChannelWithTransformer should validate channel credentials before constructing transformers.
 func getAPIKeyProvider(ch *Channel) auth.APIKeyProvider {
 	if ch.apiKeyOverride != "" {
-		return auth.NewStaticKeyProvider(ch.apiKeyOverride)
+		return &forcedChannelKeyProvider{channel: ch, key: ch.apiKeyOverride}
 	}
 
-	enabled := ch.cachedEnabledAPIKeys
-	if len(enabled) > 1 {
-		strategy := objects.ChannelKeySelectionStrategyTraceSticky
-		if keySelection := channelKeySelectionForProvider(ch); keySelection != nil {
-			strategy = keySelection.StrategyOrDefault()
-		}
-
-		switch strategy {
-		case objects.ChannelKeySelectionStrategyCacheAffinity:
-			return NewCacheAffinityKeyProvider(ch)
-		case objects.ChannelKeySelectionStrategyRandom:
-			return NewRandomChannelKeyProvider(ch)
-		case objects.ChannelKeySelectionStrategyRoundRobin:
-			return NewRoundRobinChannelKeyProvider(ch)
-		case objects.ChannelKeySelectionStrategyTraceSticky:
-			return NewTraceStickyKeyProvider(ch)
-		default:
-			return NewTraceStickyKeyProvider(ch)
-		}
+	strategy := channelKeySelectionForProvider(ch).StrategyOrDefault()
+	switch strategy {
+	case objects.ChannelKeySelectionStrategyCacheAffinity:
+		return NewCacheAffinityKeyProvider(ch)
+	case objects.ChannelKeySelectionStrategyRandom:
+		return NewRandomChannelKeyProvider(ch)
+	case objects.ChannelKeySelectionStrategyRoundRobin:
+		return NewRoundRobinChannelKeyProvider(ch)
+	case objects.ChannelKeySelectionStrategySmart, objects.ChannelKeySelectionStrategyQuotaResetPriority:
+		ch.runtime()
+		return &capacityChannelKeyProvider{channel: ch, strategy: strategy}
+	default:
+		return NewTraceStickyKeyProvider(ch)
 	}
-
-	if len(enabled) == 1 {
-		return NewStaticChannelKeyProvider(enabled[0])
-	}
-
-	panic(fmt.Errorf("no enabled api key configured for channel %s", ch.Name))
 }
 
 // BuildOutboundByAPIFormat returns the outbound transformer for a resolved endpoint API format.
@@ -583,6 +572,9 @@ func (svc *ChannelService) buildChannelOnOwner(c *ent.Channel, apiKeyOverride ..
 
 	httpClient := svc.getHttpClient(c.Settings)
 	ch := buildChannel(c, httpClient)
+	ch.credentialRuntime = &svc.credentialRuntime
+	ch.credentialEgress = svc
+	httpClient = svc.oauthCredentialHTTPClient(c, httpClient)
 	if len(apiKeyOverride) > 0 {
 		ch.apiKeyOverride = apiKeyOverride[0]
 	}

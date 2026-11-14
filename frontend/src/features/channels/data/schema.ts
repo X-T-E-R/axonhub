@@ -237,7 +237,14 @@ export const channelRateLimitSchema = z.object({
 });
 export type ChannelRateLimit = z.infer<typeof channelRateLimitSchema>;
 
-export const channelKeySelectionStrategySchema = z.enum(['trace_sticky', 'cache_affinity', 'random', 'round_robin']);
+export const channelKeySelectionStrategySchema = z.enum([
+  'trace_sticky',
+  'cache_affinity',
+  'round_robin',
+  'random',
+  'quota_reset_priority',
+  'smart',
+]);
 export type ChannelKeySelectionStrategy = z.infer<typeof channelKeySelectionStrategySchema>;
 
 export const channelKeySelectionSchema = z.object({
@@ -273,6 +280,11 @@ export const balanceAmountSchema = z.object({
 export type BalanceAmount = z.infer<typeof balanceAmountSchema>;
 
 export const channelKeyBalanceSnapshotSchema = z.object({
+  used: z.number().optional().nullable(),
+  limit: z.number().optional().nullable(),
+  remaining: z.number().optional().nullable(),
+  usageRatio: z.number().optional().nullable(),
+  resetAt: z.string().optional().nullable(),
   provider: z.string().optional().nullable(),
   checkedAt: z.string(),
   success: z.boolean(),
@@ -390,7 +402,18 @@ export type ChannelKeyHealthCheckHTTPRule = z.infer<typeof channelKeyHealthCheck
 export const channelBalanceProbePrimarySelectionSchema = z.enum(['auto_highest', 'preferred_currency']);
 export type ChannelBalanceProbePrimarySelection = z.infer<typeof channelBalanceProbePrimarySelectionSchema>;
 
+export const channelBalanceProbeScriptModeSchema = z.enum(['none', 'expr', 'command']);
+export type ChannelBalanceProbeScriptMode = z.infer<typeof channelBalanceProbeScriptModeSchema>;
+
+export const channelBalanceProbeScriptSchema = z.object({
+  mode: channelBalanceProbeScriptModeSchema.optional().nullable(),
+  expression: z.string().optional().nullable(),
+  command: z.array(z.string()).optional().nullable(),
+});
+export type ChannelBalanceProbeScript = z.infer<typeof channelBalanceProbeScriptSchema>;
+
 export const channelBalanceProbeSchema = z.object({
+  script: channelBalanceProbeScriptSchema.optional().nullable(),
   enabled: z.preprocess((value) => value ?? false, z.boolean()),
   preset: z.string().optional().nullable(),
   experimental: z.boolean().optional().nullable(),
@@ -534,8 +557,57 @@ export const channelArchivedAPIKeySchema = z.object({
 });
 export type ChannelArchivedAPIKey = z.infer<typeof channelArchivedAPIKeySchema>;
 
+export const credentialEgressModeSchema = z.enum([
+  'inherit_channel',
+  'direct',
+  'pinned_proxy',
+  'proxy_pool',
+  'custom_url',
+]);
+export type CredentialEgressMode = z.infer<typeof credentialEgressModeSchema>;
+
+export const credentialEgressFailPolicySchema = z.enum(['fail_closed', 'backup_proxy', 'pool_fallback']);
+export type CredentialEgressFailPolicy = z.infer<typeof credentialEgressFailPolicySchema>;
+
+export const channelCredentialPolicySchema = z.object({
+  id: z.string(),
+  name: z.string().optional().nullable(),
+  priority: z.number().int().default(0),
+  weight: z.number().int().default(100),
+  maxConcurrent: z.number().int().positive().optional().nullable(),
+  requestIntervalMs: z.number().int().nonnegative().optional().nullable(),
+  manualQuotaLimit: z.number().positive().optional().nullable(),
+  egressMode: credentialEgressModeSchema.optional().nullable(),
+  outboundProxyId: z.number().int().positive().optional().nullable(),
+  proxyPoolName: z.string().optional().nullable(),
+  customProxy: proxyConfigSchema.optional().nullable(),
+  egressFailPolicy: credentialEgressFailPolicySchema.optional().nullable(),
+});
+export type ChannelCredentialPolicy = z.infer<typeof channelCredentialPolicySchema>;
+
+export interface ChannelCredentialPolicyInput {
+  id: string;
+  name?: string | null;
+  priority?: number;
+  weight?: number;
+  maxConcurrent?: number | null;
+  requestIntervalMs?: number | null;
+  manualQuotaLimit?: number | null;
+  egressMode?: CredentialEgressMode;
+  outboundProxyId?: number | null;
+  proxyPoolName?: string | null;
+  customProxy?: ProxyConfig | null;
+  egressFailPolicy?: CredentialEgressFailPolicy;
+}
+
 export const channelAPIKeyInventoryItemSchema = z.object({
   id: z.string(),
+  policy: channelCredentialPolicySchema.optional().nullable(),
+  effectiveProxyName: z.string().optional().nullable(),
+  effectiveExitIP: z.string().optional().nullable(),
+  inFlight: z.number().int().nonnegative().optional().default(0),
+  quotaRemainingRatio: z.number().optional().nullable(),
+  quotaResetAt: z.string().optional().nullable(),
   rawKey: z.string().optional().nullable(),
   maskedKey: z.string(),
   status: channelKeyStatusSchema,
@@ -606,8 +678,15 @@ export const channelRawHTTPSchema = z.object({
   authHeader: z.string().optional().nullable(),
 });
 
+export const channelSSEKeepAliveSchema = z.object({
+  enabled: z.boolean().optional().nullable(),
+  intervalSeconds: z.number().int().positive().optional().nullable(),
+});
+export type ChannelSSEKeepAlive = z.infer<typeof channelSSEKeepAliveSchema>;
+
 export const channelSettingsSchema = z.object({
   rawHTTP: channelRawHTTPSchema.optional().nullable(),
+  credentialPolicies: z.array(channelCredentialPolicySchema).optional().nullable(),
   extraModelPrefix: z.string().optional(),
   modelMappings: z.array(modelMappingSchema).optional().nullable(),
   autoTrimedModelPrefixes: z.array(z.string()).optional().nullable(),
@@ -625,6 +704,7 @@ export const channelSettingsSchema = z.object({
   storeExecutionRequestBody: z.boolean().optional().nullable(),
   storeExecutionResponseBody: z.boolean().optional().nullable(),
   storeExecutionStreamChunks: z.boolean().optional().nullable(),
+  sseKeepAlive: channelSSEKeepAliveSchema.optional().nullable(),
   rateLimit: channelRateLimitSchema.optional().nullable(),
   retryableStatusCodes: z.array(z.number().int().min(400).max(599)).optional().nullable(),
   retryableErrorPatterns: z.array(retryableErrorPatternSchema).optional().nullable(),

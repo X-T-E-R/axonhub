@@ -30,6 +30,7 @@ export function ApiKeysCreateDialog() {
       type: 'user',
       scopes: undefined,
       allowedIps: [],
+      exposeUpstreamKeyQuota: true,
     },
   });
 
@@ -48,9 +49,16 @@ export function ApiKeysCreateDialog() {
         ...data,
         scopes: data.type === 'user' || data.type === 'personal' ? undefined : data.scopes,
         allowedIps,
+        exposeUpstreamKeyQuota: data.exposeUpstreamKeyQuota ?? true,
       };
       const result = await createApiKey.mutateAsync(submitData);
-      form.reset();
+      form.reset({
+        name: '',
+        type: 'user',
+        scopes: undefined,
+        allowedIps: [],
+        exposeUpstreamKeyQuota: true,
+      });
       setIPRestrictionEnabled(false);
       setIpInput('');
       closeDialog('create');
@@ -63,7 +71,13 @@ export function ApiKeysCreateDialog() {
   };
 
   const handleClose = () => {
-    form.reset();
+    form.reset({
+      name: '',
+      type: 'user',
+      scopes: undefined,
+      allowedIps: [],
+      exposeUpstreamKeyQuota: true,
+    });
     setIPRestrictionEnabled(false);
     setIpInput('');
     closeDialog('create');
@@ -170,6 +184,22 @@ export function ApiKeysCreateDialog() {
                 </FormItem>
               )}
             </div>
+
+            <FormField
+              control={form.control}
+              name='exposeUpstreamKeyQuota'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between gap-4 rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel>{t('apikeys.dialogs.fields.exposeUpstreamKeyQuota.label')}</FormLabel>
+                    <FormDescription>{t('apikeys.dialogs.fields.exposeUpstreamKeyQuota.description')}</FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value ?? true} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
 
             <DialogFooter className='flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end'>
               <div className='flex w-full gap-2 sm:w-auto'>

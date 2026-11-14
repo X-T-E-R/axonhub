@@ -55,6 +55,85 @@ func setupTestAPIKeyService(t *testing.T, cacheConfig xcache.Config) (*APIKeySer
 	return apiKeyService, client
 }
 
+func TestAPIKeyService_ExposeUpstreamKeyQuota(t *testing.T) {
+	apiKeyService, client := setupTestAPIKeyService(t, xcache.Config{Mode: xcache.ModeMemory})
+	defer apiKeyService.Stop()
+	defer client.Close()
+
+	ctx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+
+	hashedPassword, err := HashPassword("test-password")
+	require.NoError(t, err)
+
+	testUser, err := client.User.Create().
+		SetEmail(fmt.Sprintf("test-%d@example.com", time.Now().UnixNano())).
+		SetPassword(hashedPassword).
+		SetFirstName("Test").
+		SetLastName("User").
+		SetStatus(user.StatusActivated).
+		Save(ctx)
+	require.NoError(t, err)
+
+	projectName := uuid.NewString()
+	testProject, err := client.Project.Create().
+		SetName(projectName).
+		SetDescription(projectName).
+		SetStatus(project.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = client.UserProject.Create().
+		SetUserID(testUser.ID).
+		SetProjectID(testProject.ID).
+		SetIsOwner(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	ctxWithUser := contexts.WithUser(ctx, testUser)
+
+	defaultKey, err := apiKeyService.CreateAPIKey(ctxWithUser, ent.CreateAPIKeyInput{
+		Name:      "exposure-default",
+		ProjectID: testProject.ID,
+	})
+	require.NoError(t, err)
+	require.True(t, defaultKey.ExposeUpstreamKeyQuota)
+
+	persistedDefault, err := client.APIKey.Get(ctx, defaultKey.ID)
+	require.NoError(t, err)
+	require.True(t, persistedDefault.ExposeUpstreamKeyQuota, "the schema default must persist as true")
+
+	cachedDefault, err := apiKeyService.GetAPIKey(ctx, defaultKey.Key)
+	require.NoError(t, err)
+	require.True(t, cachedDefault.ExposeUpstreamKeyQuota)
+
+	disabled := false
+	explicitFalseKey, err := apiKeyService.CreateAPIKey(ctxWithUser, ent.CreateAPIKeyInput{
+		Name:                   "exposure-explicit-false",
+		ProjectID:              testProject.ID,
+		ExposeUpstreamKeyQuota: &disabled,
+	})
+	require.NoError(t, err)
+	require.False(t, explicitFalseKey.ExposeUpstreamKeyQuota)
+
+	persistedFalse, err := client.APIKey.Get(ctx, explicitFalseKey.ID)
+	require.NoError(t, err)
+	require.False(t, persistedFalse.ExposeUpstreamKeyQuota, "an explicit false must persist")
+
+	updated, err := apiKeyService.UpdateAPIKey(ctx, defaultKey.ID, ent.UpdateAPIKeyInput{
+		ExposeUpstreamKeyQuota: &disabled,
+	})
+	require.NoError(t, err)
+	require.False(t, updated.ExposeUpstreamKeyQuota)
+
+	persistedUpdated, err := client.APIKey.Get(ctx, defaultKey.ID)
+	require.NoError(t, err)
+	require.False(t, persistedUpdated.ExposeUpstreamKeyQuota)
+
+	freshFromCache, err := apiKeyService.GetAPIKey(ctx, defaultKey.Key)
+	require.NoError(t, err)
+	require.False(t, freshFromCache.ExposeUpstreamKeyQuota, "update must invalidate the cached API key")
+}
+
 func TestAPIKeyService_GetAPIKey(t *testing.T) {
 	// Test with memory cache
 	cacheConfig := xcache.Config{Mode: xcache.ModeMemory}

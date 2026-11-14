@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/ent"
@@ -112,6 +113,122 @@ func TestBackupService_Restore_APIKeyFromLegacyBackupWithoutAllowedIPs(t *testin
 	}))
 	restored = client.APIKey.Query().Where(apikey.Key("sk-legacy")).OnlyX(ctx)
 	require.Empty(t, restored.AllowedIps, "a legacy backup explicitly restores the legacy empty allowlist")
+}
+
+func TestBackupService_APIKeyExposeUpstreamKeyQuota_RoundTripCreateAndOverwrite(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+
+	user, err := client.User.Query().First(ctx)
+	require.NoError(t, err)
+	project := createBackupTestProject(t, client, ctx, "Quota Exposure", "")
+	keyTrue := createBackupTestAPIKey(t, client, ctx, user, project, "Expose True", "sk-expose-true")
+	keyFalse := createBackupTestAPIKey(t, client, ctx, user, project, "Expose False", "sk-expose-false")
+	client.APIKey.UpdateOneID(keyFalse.ID).SetExposeUpstreamKeyQuota(false).SaveX(ctx)
+
+	data, err := service.Backup(ctx, BackupOptions{IncludeAPIKeys: true})
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"expose_upstream_key_quota":true`)
+	require.Contains(t, string(data), `"expose_upstream_key_quota":false`)
+
+	var backupData BackupData
+	require.NoError(t, json.Unmarshal(data, &backupData))
+	require.Len(t, backupData.APIKeys, 2)
+	byKey := map[string]*BackupAPIKey{}
+	for _, ak := range backupData.APIKeys {
+		byKey[ak.Key] = ak
+	}
+	require.NotNil(t, byKey["sk-expose-true"].ExposeUpstreamKeyQuota)
+	require.True(t, *byKey["sk-expose-true"].ExposeUpstreamKeyQuota)
+	require.NotNil(t, byKey["sk-expose-false"].ExposeUpstreamKeyQuota)
+	require.False(t, *byKey["sk-expose-false"].ExposeUpstreamKeyQuota)
+
+	// Flip both values in DB, then overwrite from backup.
+	client.APIKey.UpdateOneID(keyTrue.ID).SetExposeUpstreamKeyQuota(false).SaveX(ctx)
+	client.APIKey.UpdateOneID(keyFalse.ID).SetExposeUpstreamKeyQuota(true).SaveX(ctx)
+
+	require.NoError(t, service.Restore(ctx, data, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	require.True(t, client.APIKey.Query().Where(apikey.Key("sk-expose-true")).OnlyX(ctx).ExposeUpstreamKeyQuota)
+	require.False(t, client.APIKey.Query().Where(apikey.Key("sk-expose-false")).OnlyX(ctx).ExposeUpstreamKeyQuota)
+
+	// Repeat overwrite after flipping again to confirm subsequent overwrites keep honoring the toggle.
+	client.APIKey.UpdateOneID(keyFalse.ID).SetExposeUpstreamKeyQuota(true).SaveX(ctx)
+	require.NoError(t, service.Restore(ctx, data, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	require.False(t, client.APIKey.Query().Where(apikey.Key("sk-expose-false")).OnlyX(ctx).ExposeUpstreamKeyQuota)
+
+	// Fresh create path on a clean DB restores explicit false and explicit true.
+	freshClient, freshService, freshCtx := setupBackupTest(t)
+	defer freshClient.Close()
+	createBackupTestProject(t, freshClient, freshCtx, "Quota Exposure", "")
+	require.NoError(t, freshService.Restore(freshCtx, data, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyError,
+	}))
+	require.True(t, freshClient.APIKey.Query().Where(apikey.Key("sk-expose-true")).OnlyX(freshCtx).ExposeUpstreamKeyQuota)
+	require.False(t, freshClient.APIKey.Query().Where(apikey.Key("sk-expose-false")).OnlyX(freshCtx).ExposeUpstreamKeyQuota)
+}
+
+func TestBackupService_Restore_APIKeyFromLegacyBackupWithoutExposeUpstreamKeyQuota(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+	createBackupTestProject(t, client, ctx, "Default", "")
+
+	legacy := []byte(`{
+		"version":"1.2",
+		"api_keys":[{
+			"key":"sk-legacy-expose",
+			"name":"Legacy Expose",
+			"type":"user",
+			"status":"enabled",
+			"scopes":["chat"],
+			"project_name":"Default"
+		}]
+	}`)
+
+	require.NoError(t, service.Restore(ctx, legacy, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	restored := client.APIKey.Query().Where(apikey.Key("sk-legacy-expose")).OnlyX(ctx)
+	require.True(t, restored.ExposeUpstreamKeyQuota, "a legacy backup without expose_upstream_key_quota restores Ent default true")
+
+	client.APIKey.UpdateOneID(restored.ID).SetExposeUpstreamKeyQuota(false).SaveX(ctx)
+	require.NoError(t, service.Restore(ctx, legacy, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	restored = client.APIKey.Query().Where(apikey.Key("sk-legacy-expose")).OnlyX(ctx)
+	require.True(t, restored.ExposeUpstreamKeyQuota, "a legacy backup explicitly restores default true on overwrite")
+
+	// Also verify explicit pointer false in struct marshaling restores false via Restore.
+	explicitBackup, err := json.Marshal(BackupData{
+		Version: BackupVersion,
+		APIKeys: []*BackupAPIKey{
+			{
+				APIKey: ent.APIKey{
+					Key:    "sk-explicit-false-struct",
+					Name:   "Explicit False",
+					Type:   "user",
+					Status: "enabled",
+					Scopes: []string{"chat"},
+				},
+				ProjectName:            "Default",
+				ExposeUpstreamKeyQuota: lo.ToPtr(false),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, service.Restore(ctx, explicitBackup, RestoreOptions{
+		IncludeAPIKeys:         true,
+		APIKeyConflictStrategy: ConflictStrategyOverwrite,
+	}))
+	require.False(t, client.APIKey.Query().Where(apikey.Key("sk-explicit-false-struct")).OnlyX(ctx).ExposeUpstreamKeyQuota)
 }
 
 func TestBackupService_Restore_APIKeys_NewKeys(t *testing.T) {

@@ -191,6 +191,32 @@ models:
   ChannelRateLimitInput:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelRateLimit
+  OutboundProxy:
+    model: github.com/looplj/axonhub/internal/server/biz.OutboundProxyDTO
+  OutboundProxyPool:
+    model: github.com/looplj/axonhub/internal/server/biz.OutboundProxyPoolDTO
+  OutboundProxyKind:
+    model: github.com/looplj/axonhub/internal/server/biz.OutboundProxyKind
+  OutboundProxyStatus:
+    model: github.com/looplj/axonhub/internal/server/biz.OutboundProxyStatus
+  CreateOutboundProxyInput:
+    model: github.com/looplj/axonhub/internal/server/biz.OutboundProxyCreateInput
+  UpdateOutboundProxyInput:
+    model: github.com/looplj/axonhub/internal/server/biz.OutboundProxyUpdateInput
+  ChannelCredentialPolicy:
+    model: github.com/looplj/axonhub/internal/objects.ChannelCredentialPolicy
+  ChannelCredentialPolicyInput:
+    model: github.com/looplj/axonhub/internal/objects.ChannelCredentialPolicy
+  CredentialEgressMode:
+    model: github.com/looplj/axonhub/internal/objects.CredentialEgressMode
+  CredentialEgressFailPolicy:
+    model: github.com/looplj/axonhub/internal/objects.CredentialEgressFailPolicy
+  ChannelBalanceProbeScriptMode:
+    model: github.com/looplj/axonhub/internal/objects.ChannelBalanceProbeScriptMode
+  ChannelBalanceProbeScript:
+    model: github.com/looplj/axonhub/internal/objects.ChannelBalanceProbeScript
+  ChannelBalanceProbeScriptInput:
+    model: github.com/looplj/axonhub/internal/objects.ChannelBalanceProbeScript
   ChannelKeySelectionStrategy:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelKeySelectionStrategy

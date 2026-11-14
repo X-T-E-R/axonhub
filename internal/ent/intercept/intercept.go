@@ -22,6 +22,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/outboundproxy"
 	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
@@ -473,6 +474,33 @@ func (f TraverseObservabilityPayload) Traverse(ctx context.Context, q ent.Query)
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.ObservabilityPayloadQuery", q)
+}
+
+// The OutboundProxyFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OutboundProxyFunc func(context.Context, *ent.OutboundProxyQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OutboundProxyFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OutboundProxyQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OutboundProxyQuery", q)
+}
+
+// The TraverseOutboundProxy type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOutboundProxy func(context.Context, *ent.OutboundProxyQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOutboundProxy) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOutboundProxy) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OutboundProxyQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OutboundProxyQuery", q)
 }
 
 // The PendingUsageFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -938,6 +966,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.OIDCIdentityQuery, predicate.OIDCIdentity, oidcidentity.OrderOption]{typ: ent.TypeOIDCIdentity, tq: q}, nil
 	case *ent.ObservabilityPayloadQuery:
 		return &query[*ent.ObservabilityPayloadQuery, predicate.ObservabilityPayload, observabilitypayload.OrderOption]{typ: ent.TypeObservabilityPayload, tq: q}, nil
+	case *ent.OutboundProxyQuery:
+		return &query[*ent.OutboundProxyQuery, predicate.OutboundProxy, outboundproxy.OrderOption]{typ: ent.TypeOutboundProxy, tq: q}, nil
 	case *ent.PendingUsageQuery:
 		return &query[*ent.PendingUsageQuery, predicate.PendingUsage, pendingusage.OrderOption]{typ: ent.TypePendingUsage, tq: q}, nil
 	case *ent.ProjectQuery:

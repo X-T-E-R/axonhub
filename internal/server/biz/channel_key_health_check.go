@@ -632,9 +632,13 @@ func (svc *ChannelService) runHTTPChannelKeyHealthCheck(ctx context.Context, ch 
 		Headers: headers,
 	}
 
-	hc := svc.httpClient
-	if ch.Settings != nil && ch.Settings.Proxy != nil {
-		hc = svc.httpClient.WithProxy(ch.Settings.Proxy)
+	hc := svc.getHttpClient(ch.Settings)
+	isolated, _, egressErr := svc.resolveCredentialClient(requestCtx, ch, objects.ChannelAPIKeyFingerprint(key), hc)
+	if egressErr != nil {
+		return ChannelKeyHealthCheckResult{Success: false, Reason: "credential egress is blocked"}
+	}
+	if isolated != nil {
+		hc = isolated
 	}
 	hc = channelKeyHealthCheckNoRedirectClient(hc)
 

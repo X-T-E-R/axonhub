@@ -57,7 +57,7 @@ func (_m *APIKey) Node(ctx context.Context) (node *Node, err error) {
 	node = &Node{
 		ID:     _m.ID,
 		Type:   "APIKey",
-		Fields: make([]*Field, 12),
+		Fields: make([]*Field, 13),
 		Edges:  make([]*Edge, 3),
 	}
 	var buf []byte
@@ -155,6 +155,14 @@ func (_m *APIKey) Node(ctx context.Context) (node *Node, err error) {
 	node.Fields[11] = &Field{
 		Type:  "[]string",
 		Name:  "allowed_ips",
+		Value: string(buf),
+	}
+	if buf, err = json.Marshal(_m.ExposeUpstreamKeyQuota); err != nil {
+		return nil, err
+	}
+	node.Fields[12] = &Field{
+		Type:  "bool",
+		Name:  "expose_upstream_key_quota",
 		Value: string(buf),
 	}
 	node.Edges[0] = &Edge{

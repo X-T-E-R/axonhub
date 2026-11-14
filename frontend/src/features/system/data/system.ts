@@ -1087,7 +1087,13 @@ export type ProbeFrequency = 'ONE_MINUTE' | 'FIVE_MINUTES' | 'THIRTY_MINUTES' | 
 export type AutoSyncFrequency = 'ONE_HOUR' | 'SIX_HOURS' | 'ONE_DAY';
 
 export type ChannelAdvancedActionMenuMode = 'GROUPED' | 'EXPANDED';
-export type ChannelKeySelectionStrategy = 'trace_sticky' | 'cache_affinity' | 'random' | 'round_robin';
+export type ChannelKeySelectionStrategy =
+  | 'trace_sticky'
+  | 'cache_affinity'
+  | 'round_robin'
+  | 'random'
+  | 'quota_reset_priority'
+  | 'smart';
 
 export interface ChannelProbeSetting {
   enabled: boolean;

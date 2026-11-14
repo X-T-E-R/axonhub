@@ -6,6 +6,7 @@ import { useForm, type Resolver, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  IconAdjustmentsHorizontal,
   IconArchive,
   IconAlertTriangle,
   IconChartLine,
@@ -70,8 +71,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChannelSetting } from '@/features/system/data/system';
+import { useChannels } from '../context/channels-context';
 import {
   useAddChannelAPIKey,
   useArchiveChannelAPIKey,
@@ -87,6 +90,7 @@ import {
   Channel,
   ChannelAPIKeyInventoryItem,
   ChannelBalanceProbe,
+  ChannelCredentialPolicy,
   ChannelKeyBalanceSnapshot,
   ChannelKeyHealthCheckHTTPRule,
   ChannelKeyHealthCheckHistoryEntry,
@@ -95,6 +99,11 @@ import {
   type ChannelKeySelectionStrategy,
 } from '../data/schema';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
+import {
+  ChannelCredentialPolicySheet,
+  CredentialPolicySummary,
+  CredentialQuotaIndicator,
+} from './channel-credential-policy-sheet';
 import {
   FailurePolicyEditor,
   failurePolicyFormSchema,
@@ -108,12 +117,19 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentRow: Channel;
+  onCredentialPolicySaved?: (updated: ChannelAPIKeyInventoryItem) => void;
 }
 
 type KeyInventoryStatus = 'active' | 'disabled' | 'archived';
 
 interface KeyInventoryRow {
   id: string;
+  policy?: ChannelCredentialPolicy | null;
+  effectiveProxyName?: string | null;
+  effectiveExitIP?: string | null;
+  inFlight: number;
+  quotaRemainingRatio?: number | null;
+  quotaResetAt?: string | null;
   rawKey: string;
   maskedKey: string;
   status: KeyInventoryStatus;
@@ -154,27 +170,68 @@ type BalanceSummary = {
   keyCount: number;
 };
 
-const keysFormSchema = z.object({
-  strategy: z.union([z.literal('inherit'), channelKeySelectionStrategySchema]),
-  likelyAffinityTTLMinutes: z.coerce.number().int().min(1).max(1440),
-  exactAffinityTTLMinutes: z.coerce.number().int().min(1).max(10080),
-  balanceProbe: z.object({
-    enabled: z.boolean(),
-    preset: z.string().min(1),
-    experimental: z.boolean(),
-    preferredCurrency: z.string().optional(),
-    primarySelection: z.enum(['auto_highest', 'preferred_currency']),
-    timeoutMs: z.coerce.number().int().min(100).max(30000),
-    sameAsChannelBaseURL: z.boolean(),
-    baseURL: z.string().optional(),
-    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
-    path: z.string().optional(),
-    expectedStatuses: z.string().optional(),
-    keyInjectionLocation: z.enum(['authorization_bearer', 'header']),
-    keyInjectionHeaderName: z.string().optional(),
-  }),
-  failurePolicy: failurePolicyFormSchema,
-});
+function parseScriptCommandArgs(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [];
+  }
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) {
+        return parsed.map((item) => item.trim()).filter(Boolean);
+      }
+    } catch {
+      // Fall back to line-delimited argv tokens.
+    }
+  }
+  return trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+const keysFormSchema = z
+  .object({
+    strategy: z.union([z.literal('inherit'), channelKeySelectionStrategySchema]),
+    likelyAffinityTTLMinutes: z.coerce.number().int().min(1).max(1440),
+    exactAffinityTTLMinutes: z.coerce.number().int().min(1).max(10080),
+    balanceProbe: z.object({
+      enabled: z.boolean(),
+      preset: z.string().min(1),
+      experimental: z.boolean(),
+      preferredCurrency: z.string().optional(),
+      primarySelection: z.enum(['auto_highest', 'preferred_currency']),
+      timeoutMs: z.coerce.number().int().min(100).max(30000),
+      sameAsChannelBaseURL: z.boolean(),
+      baseURL: z.string().optional(),
+      method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+      path: z.string().optional(),
+      expectedStatuses: z.string().optional(),
+      keyInjectionLocation: z.enum(['authorization_bearer', 'header']),
+      keyInjectionHeaderName: z.string().optional(),
+      scriptMode: z.enum(['none', 'expr', 'command']),
+      scriptExpression: z.string().optional(),
+      scriptCommand: z.string().optional(),
+    }),
+    failurePolicy: failurePolicyFormSchema,
+  })
+  .superRefine((values, ctx) => {
+    if (values.balanceProbe.scriptMode === 'expr' && !values.balanceProbe.scriptExpression?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Expression is required',
+        path: ['balanceProbe', 'scriptExpression'],
+      });
+    }
+    if (values.balanceProbe.scriptMode === 'command' && parseScriptCommandArgs(values.balanceProbe.scriptCommand || '').length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Command executable path is required',
+        path: ['balanceProbe', 'scriptCommand'],
+      });
+    }
+  });
 
 type KeysFormValues = z.output<typeof keysFormSchema>;
 type BalanceProbeFormDefaults = Omit<KeysFormValues['balanceProbe'], 'preset'> & { preset: BalanceProbePresetOption };
@@ -184,8 +241,12 @@ const BALANCE_PROBE_PRESETS = [
   'deepseek_balance',
   'siliconflow_user_info',
   'moonshot_balance',
+  'kimi_code_usages',
   'openrouter_credits',
   'nanogpt_check_balance',
+  'tavily_usage',
+  'exa_team_credits',
+  'firecrawl_credits',
 ] as const;
 const CUSTOM_BALANCE_PROBE_PRESET = 'custom';
 const BALANCE_PROBE_PRESET_OPTIONS = [...BALANCE_PROBE_PRESETS, CUSTOM_BALANCE_PROBE_PRESET] as const;
@@ -196,7 +257,7 @@ const BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE: Partial<Record<Channel['type'], (typ
   siliconflow: 'siliconflow_user_info',
   moonshot: 'moonshot_balance',
   moonshot_anthropic: 'moonshot_balance',
-  moonshot_coding: 'moonshot_balance',
+  moonshot_coding: 'kimi_code_usages',
   openrouter: 'openrouter_credits',
   nanogpt: 'nanogpt_check_balance',
   nanogpt_responses: 'nanogpt_check_balance',
@@ -230,6 +291,14 @@ const BALANCE_PROBE_PRESET_HTTP_DEFAULTS: Record<
     expectedStatuses: [200],
     keyInjection: { location: 'authorization_bearer' },
   },
+  kimi_code_usages: {
+    method: 'GET',
+    urlMode: 'absolute_url',
+    path: '/v1/usages',
+    url: 'https://api.kimi.com/coding/v1/usages',
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
   openrouter_credits: {
     method: 'GET',
     urlMode: 'provider_base_url',
@@ -245,6 +314,30 @@ const BALANCE_PROBE_PRESET_HTTP_DEFAULTS: Record<
     url: 'https://nano-gpt.com/api/check-balance',
     expectedStatuses: [200],
     keyInjection: { location: 'header', headerName: 'x-api-key' },
+  },
+  tavily_usage: {
+    method: 'GET',
+    urlMode: 'absolute_url',
+    path: '/usage',
+    url: 'https://api.tavily.com/usage',
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  exa_team_credits: {
+    method: 'GET',
+    urlMode: 'absolute_url',
+    path: '/team-management/credits',
+    url: 'https://admin-api.exa.ai/team-management/credits',
+    expectedStatuses: [200],
+    keyInjection: { location: 'header', headerName: 'x-api-key' },
+  },
+  firecrawl_credits: {
+    method: 'GET',
+    urlMode: 'absolute_url',
+    path: '/v2/team/credit-usage',
+    url: 'https://api.firecrawl.dev/v2/team/credit-usage',
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
   },
   custom: {
     method: 'GET',
@@ -280,6 +373,9 @@ const DEFAULT_BALANCE_PROBE: KeysFormValues['balanceProbe'] = {
   expectedStatuses: '200',
   keyInjectionLocation: 'authorization_bearer',
   keyInjectionHeaderName: '',
+  scriptMode: 'none',
+  scriptExpression: '',
+  scriptCommand: '',
 };
 
 function positiveOrDefault(value: number | null | undefined, fallback: number): number {
@@ -394,12 +490,22 @@ function balanceProbeHTTPValuesFromStored(
   };
 }
 
-function defaultBalanceProbeForChannel(type: Channel['type']): BalanceProbeFormDefaults {
-  const preset: BalanceProbePresetOption = BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[type] ?? 'deepseek_balance';
+function isTavilyBalanceProbeChannel(channel: Pick<Channel, 'baseURL' | 'settings'>): boolean {
+  if (channel.settings?.rawHTTP?.resource?.trim().toLowerCase() === 'tavily-search') {
+    return true;
+  }
+  const parsed = parseURLOrNull(channel.baseURL);
+  return parsed?.hostname.toLowerCase() === 'api.tavily.com';
+}
+
+function defaultBalanceProbeForChannel(channel: Pick<Channel, 'type' | 'baseURL' | 'settings'>): BalanceProbeFormDefaults {
+  const preset: BalanceProbePresetOption = isTavilyBalanceProbeChannel(channel)
+    ? 'tavily_usage'
+    : (BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[channel.type] ?? 'deepseek_balance');
   return {
     ...DEFAULT_BALANCE_PROBE,
     preset,
-    ...balanceProbeHTTPValuesFromStored(null, preset, ''),
+    ...balanceProbeHTTPValuesFromStored(null, preset, channel.baseURL ?? ''),
   };
 }
 
@@ -417,6 +523,9 @@ function channelSupportsManualBalanceProbe(channel: Channel): boolean {
   if (probe?.http && !probe?.preset) {
     return true;
   }
+  if (isTavilyBalanceProbeChannel(channel)) {
+    return true;
+  }
 
   return BALANCE_PROBE_PRESET_BY_CHANNEL_TYPE[channel.type] != null;
 }
@@ -431,7 +540,7 @@ function parseStatusList(input: string): number[] {
 function valuesFromChannel(currentRow: Channel): KeysFormValues {
   const health = currentRow.settings?.keyHealthCheck;
   const balanceProbe = currentRow.settings?.balanceProbe;
-  const defaultBalanceProbe = defaultBalanceProbeForChannel(currentRow.type);
+  const defaultBalanceProbe = defaultBalanceProbeForChannel(currentRow);
   const balanceProbePreset: BalanceProbePresetOption =
     balanceProbe?.preset === CUSTOM_BALANCE_PROBE_PRESET
       ? CUSTOM_BALANCE_PROBE_PRESET
@@ -440,6 +549,9 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
         : balanceProbe?.http
           ? CUSTOM_BALANCE_PROBE_PRESET
           : defaultBalanceProbe.preset;
+  const storedScriptMode = balanceProbe?.script?.mode;
+  const scriptMode: 'none' | 'expr' | 'command' =
+    storedScriptMode === 'expr' || storedScriptMode === 'command' ? storedScriptMode : 'none';
   return {
     strategy: currentRow.settings?.keySelection?.strategy ?? 'inherit',
     likelyAffinityTTLMinutes: currentRow.settings?.keySelection?.likelyAffinityTTLMinutes ?? DEFAULT_LIKELY_AFFINITY_TTL_MINUTES,
@@ -453,6 +565,9 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
         balanceProbe?.primarySelection === 'preferred_currency' ? 'preferred_currency' : defaultBalanceProbe.primarySelection,
       timeoutMs: positiveOrDefault(balanceProbe?.timeoutMs, defaultBalanceProbe.timeoutMs),
       ...balanceProbeHTTPValuesFromStored(balanceProbe, balanceProbePreset, currentRow.baseURL ?? ''),
+      scriptMode,
+      scriptExpression: balanceProbe?.script?.expression ?? '',
+      scriptCommand: (balanceProbe?.script?.command ?? []).join('\n'),
     },
     failurePolicy: currentRow.settings?.failurePolicy
       ? failurePolicyValuesFromStored(currentRow.settings.failurePolicy)
@@ -496,12 +611,35 @@ function balanceProbeFromValues(values: KeysFormValues, existing?: ChannelBalanc
         passWhen: null,
       };
 
+  const script =
+    values.balanceProbe.scriptMode === 'expr'
+      ? {
+          mode: 'expr' as const,
+          expression: values.balanceProbe.scriptExpression?.trim() || '',
+          command: null,
+        }
+      : values.balanceProbe.scriptMode === 'command'
+        ? {
+            mode: 'command' as const,
+            expression: null,
+            command: parseScriptCommandArgs(values.balanceProbe.scriptCommand || ''),
+          }
+        : existing?.script
+          ? {
+              mode: 'none' as const,
+              expression: null,
+              command: null,
+            }
+          : null;
+
   return {
+    script,
     enabled: values.balanceProbe.enabled,
     preset: values.balanceProbe.preset,
     experimental: values.balanceProbe.experimental,
     preferredCurrency: values.balanceProbe.preferredCurrency?.trim() || null,
     primarySelection: values.balanceProbe.primarySelection,
+    ...(existing?.includeStatuses ? { includeStatuses: existing.includeStatuses } : {}),
     timeoutMs: values.balanceProbe.timeoutMs,
     http: http.urlMode === 'absolute_url' && !http.url ? (existing?.http ?? null) : http,
   };
@@ -568,6 +706,12 @@ async function copyTextToClipboard(text: string): Promise<void> {
 function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInventoryRow[] {
   return items.map((item) => ({
     id: item.id,
+    policy: item.policy ?? null,
+    effectiveProxyName: item.effectiveProxyName ?? null,
+    effectiveExitIP: item.effectiveExitIP ?? null,
+    inFlight: item.inFlight ?? 0,
+    quotaRemainingRatio: item.quotaRemainingRatio ?? null,
+    quotaResetAt: item.quotaResetAt ?? null,
     rawKey: item.rawKey ?? '',
     maskedKey: item.maskedKey,
     status: item.status,
@@ -925,12 +1069,17 @@ function BalanceProbeEditor({
   channelBaseURL: string;
 }) {
   const { t } = useTranslation();
+  const selectedPreset = form.watch('balanceProbe.preset');
+  const selectedScriptMode = form.watch('balanceProbe.scriptMode');
   const selectedPrimarySelection = form.watch('balanceProbe.primarySelection');
   const sameAsChannelBaseURL = form.watch('balanceProbe.sameAsChannelBaseURL');
   const keyInjectionLocation = form.watch('balanceProbe.keyInjectionLocation');
 
   const applyPresetDefaults = (preset: string) => {
     form.setValue('balanceProbe.preset', preset, { shouldDirty: true, shouldValidate: true });
+    if (preset !== CUSTOM_BALANCE_PROBE_PRESET) {
+      form.setValue('balanceProbe.scriptMode', 'none', { shouldDirty: true, shouldValidate: true });
+    }
     const defaults = balanceProbePresetHTTPDefaults(preset);
     const fallbackPath = defaults.path ?? pathFromAbsoluteURL(defaults.url, '');
     const defaultSameAsChannelBaseURL = defaults.urlMode !== 'absolute_url';
@@ -1222,6 +1371,82 @@ function BalanceProbeEditor({
             )}
           />
         </div>
+
+        {(selectedPreset === CUSTOM_BALANCE_PROBE_PRESET || selectedScriptMode !== 'none') && (
+          <div className='space-y-4 rounded-lg border p-4'>
+            <FormField
+              control={form.control}
+              name='balanceProbe.scriptMode'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('channels.dialogs.keys.balanceProbe.script.modeLabel')}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value='none'>{t('channels.dialogs.keys.balanceProbe.script.modes.none')}</SelectItem>
+                      <SelectItem value='expr'>{t('channels.dialogs.keys.balanceProbe.script.modes.expr')}</SelectItem>
+                      <SelectItem value='command'>{t('channels.dialogs.keys.balanceProbe.script.modes.command')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormItem>
+              )}
+            />
+
+            {selectedScriptMode === 'expr' ? (
+              <FormField
+                control={form.control}
+                name='balanceProbe.scriptExpression'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('channels.dialogs.keys.balanceProbe.script.expressionLabel')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        spellCheck={false}
+                        className='font-mono text-xs'
+                        value={field.value ?? ''}
+                        onChange={field.onChange}
+                        placeholder='{ remaining: body.remaining, used: body.used, limit: body.limit, currency: "CREDITS", available: body.remaining > 0 }'
+                        disabled={disabled}
+                      />
+                    </FormControl>
+                    <FormDescription>{t('channels.dialogs.keys.balanceProbe.script.expressionDescription')}</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
+
+            {selectedScriptMode === 'command' ? (
+              <FormField
+                control={form.control}
+                name='balanceProbe.scriptCommand'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('channels.dialogs.keys.balanceProbe.script.commandLabel')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        spellCheck={false}
+                        className='font-mono text-xs'
+                        value={field.value ?? ''}
+                        onChange={field.onChange}
+                        placeholder={'/usr/local/bin/probe-quota\n--format\njson'}
+                        disabled={disabled}
+                      />
+                    </FormControl>
+                    <FormDescription>{t('channels.dialogs.keys.balanceProbe.script.commandDescription')}</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
+          </div>
+        )}
 
         <Alert>
           <IconAlertTriangle className='h-4 w-4' />
@@ -1531,7 +1756,7 @@ function ChannelHistoryDialog({
   );
 }
 
-export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
+export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentialPolicySaved }: Props) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const resetContext = useRef({ open: false, channelID: currentRow.id });
@@ -1541,6 +1766,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<KeyInventoryStatus>>(new Set(DEFAULT_KEY_STATUS_FILTERS));
   const [detailsKeyID, setDetailsKeyID] = useState<string | null>(null);
+  const [policyKeyID, setPolicyKeyID] = useState<string | null>(null);
   const [channelHistoryOpen, setChannelHistoryOpen] = useState(false);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
@@ -1577,6 +1803,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
     setRevealedKeys(new Set());
     setStatusFilter(new Set(DEFAULT_KEY_STATUS_FILTERS));
     setDetailsKeyID(null);
+    setPolicyKeyID(null);
     setChannelHistoryOpen(false);
     setConfirmDeleteKey(null);
     setConfirmBatchDelete(false);
@@ -1597,7 +1824,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         (!query ||
           item.id.toLocaleLowerCase().includes(query) ||
           item.maskedKey.toLocaleLowerCase().includes(query) ||
-          item.rawKey.toLocaleLowerCase().includes(query))
+          item.rawKey.toLocaleLowerCase().includes(query) ||
+          (item.policy?.name || '').toLocaleLowerCase().includes(query) ||
+          (item.effectiveProxyName || '').toLocaleLowerCase().includes(query))
     );
   }, [inventory, searchQuery, statusFilter]);
   const selectedRows = useMemo(() => visibleInventory.filter((item) => selectedKeys.has(item.id)), [visibleInventory, selectedKeys]);
@@ -1629,6 +1858,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
   );
   const selectedRawKeys = useMemo(() => selectedRows.map((item) => item.rawKey).filter(Boolean), [selectedRows]);
   const detailsRow = useMemo(() => inventory.find((item) => item.id === detailsKeyID) ?? null, [detailsKeyID, inventory]);
+  const policyRow = useMemo(() => inventory.find((item) => item.id === policyKeyID) ?? null, [policyKeyID, inventory]);
   const confirmDeleteRow = useMemo(() => inventory.find((item) => item.id === confirmDeleteKey) ?? null, [confirmDeleteKey, inventory]);
   const keyHealthHistory = useMemo<KeyHistoryListEntry[]>(
     () =>
@@ -1748,6 +1978,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
 
   const saveSettings = async (values: KeysFormValues) => {
     const nextSettings = mergeChannelSettingsForUpdate(currentRow.settings, {
+      credentialPolicies: null,
       keySelection:
         values.strategy === 'inherit'
           ? null
@@ -2271,7 +2502,12 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                         </TableCell>
                                         <TableCell>
                                           <div className='flex flex-col gap-1'>
-                                            <div className='flex min-w-0 items-center gap-1'>
+                                            <div className='flex min-w-0 flex-wrap items-center gap-1.5'>
+                                              {item.policy?.name ? (
+                                                <Badge variant='secondary' className='max-w-36 truncate font-medium'>
+                                                  {item.policy.name}
+                                                </Badge>
+                                              ) : null}
                                               <code className='bg-muted max-w-80 overflow-x-auto rounded px-2 py-0.5 font-mono text-sm whitespace-nowrap'>
                                                 {revealedKeys.has(item.id) && item.rawKey ? item.rawKey : item.maskedKey}
                                               </code>
@@ -2340,6 +2576,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                               ) : null}
                                               {item.reason ? <span className='max-w-64 truncate'>{item.reason}</span> : null}
                                             </div>
+                                            <CredentialPolicySummary item={item} />
                                           </div>
                                         </TableCell>
                                         <TableCell>
@@ -2365,6 +2602,11 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                               </Badge>
                                             ) : null}
                                           </div>
+                                          <CredentialQuotaIndicator
+                                            quotaRemainingRatio={item.quotaRemainingRatio}
+                                            quotaResetAt={item.quotaResetAt}
+                                            language={i18n.language}
+                                          />
                                         </TableCell>
                                         <TableCell>
                                           <div className='flex justify-end gap-1'>
@@ -2412,6 +2654,21 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                                   type='button'
                                                   size='icon'
                                                   variant='ghost'
+                                                  onClick={() => setPolicyKeyID(item.id)}
+                                                  disabled={isPending || item.status === 'archived'}
+                                                  aria-label={t('channels.dialogs.keys.actions.configurePolicy')}
+                                                >
+                                                  <IconAdjustmentsHorizontal className='h-4 w-4' aria-hidden='true' />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>{t('channels.dialogs.keys.actions.configurePolicy')}</TooltipContent>
+                                            </Tooltip>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  type='button'
+                                                  size='icon'
+                                                  variant='ghost'
                                                   onClick={() => setDetailsKeyID(item.id)}
                                                   aria-label={t('channels.dialogs.keys.actions.viewDetails')}
                                                 >
@@ -2433,6 +2690,12 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
                                                 </Button>
                                               </DropdownMenuTrigger>
                                               <DropdownMenuContent align='end'>
+                                                {item.status !== 'archived' ? (
+                                                  <DropdownMenuItem onSelect={() => setPolicyKeyID(item.id)}>
+                                                    <IconAdjustmentsHorizontal className='mr-2 h-4 w-4' aria-hidden='true' />
+                                                    {t('channels.dialogs.keys.actions.configurePolicy')}
+                                                  </DropdownMenuItem>
+                                                ) : null}
                                                 {item.status === 'active' ? (
                                                   <DropdownMenuItem onSelect={() => handleDisableKey(item.id)}>
                                                     <IconKeyOff className='mr-2 h-4 w-4' aria-hidden='true' />
@@ -2676,6 +2939,13 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow }: Props) {
         </DialogContent>
       </Dialog>
       <KeyDetailsDialog row={detailsRow} open={!!detailsRow} onOpenChange={(state) => !state && setDetailsKeyID(null)} />
+      <ChannelCredentialPolicySheet
+        channelID={currentRow.id}
+        target={policyRow}
+        open={!!policyRow}
+        onOpenChange={(state) => !state && setPolicyKeyID(null)}
+        onSaved={onCredentialPolicySaved}
+      />
       <ChannelHistoryDialog history={channelHistory} open={channelHistoryOpen} onOpenChange={setChannelHistoryOpen} />
       <AlertDialog open={confirmDeleteKey != null} onOpenChange={(state) => !state && setConfirmDeleteKey(null)}>
         <AlertDialogContent>

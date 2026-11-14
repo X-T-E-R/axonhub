@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
 
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/metrics"
@@ -202,6 +204,30 @@ func (ts *OutboundPersistentStream) Close() error {
 	defer ts.state.clearFailedStreamEvidence(ts)
 	defer ts.observation.Close()
 	defer func() { ts.responseChunks = nil }()
+	// Close is the final lifecycle boundary for a provider stream. The context
+	// callback is once-guarded by contexts, while this defer covers every return
+	// below, including persistence and aggregation failures.
+	defer func() {
+		streamErr := ts.stream.Err()
+		status := 0
+		if ts.state != nil && ts.state.ProviderStreamResponse != nil {
+			status = ts.state.ProviderStreamResponse.StatusCode
+		}
+		completed := ts.streamCompleted || (ts.state != nil && ts.state.isStreamCompletionConfirmed())
+		providerCanceled := ts.providerStatus == streamTerminalCanceled
+		requestCanceled := errors.Is(ts.ctx.Err(), context.Canceled) || errors.Is(ts.ctx.Err(), context.DeadlineExceeded)
+		streamCanceled := errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, context.DeadlineExceeded)
+		canceled := !completed && (providerCanceled || requestCanceled || streamCanceled)
+		failed := !completed && !canceled
+		var httpErr *httpclient.Error
+		if streamErr != nil && !canceled && !errors.As(streamErr, &httpErr) {
+			// Once headers are established, a raw stream read failure is still a
+			// transport failure rather than an upstream status response.
+			status = 0
+		}
+		contexts.FinishChannelCredentialAttempt(ts.ctx, status, failed, canceled)
+	}()
+
 	ctx := ts.observation.Context(ts.ctx)
 	ts.state.recordStreamLifecycle(ctx, "execution_persist_start")
 	defer ts.state.recordStreamLifecycle(ctx, "execution_persist_end")
@@ -694,6 +720,11 @@ var errSkipCandidateByCircuitBreaker = errors.New("skip candidate by circuit bre
 type PersistentOutboundTransformer struct {
 	wrapped transformer.Outbound
 	state   *PersistenceState
+
+	attemptContext           context.Context
+	credentialHTTPClient     *httpclient.HttpClient
+	credentialEgressSelected bool
+	credentialRetryPending   bool
 }
 
 func shouldForceStreamingForCandidate(candidate *ChannelModelsCandidate, req *llm.Request) bool {
@@ -736,6 +767,15 @@ func (p *PersistentOutboundTransformer) TransformError(ctx context.Context, rawE
 }
 
 func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, llmRequest *llm.Request) (*httpclient.Request, error) {
+	// A context container is shared across the request's retries, but credential
+	// selection and its transport belong to exactly one attempt.
+	ctx = contexts.EnsureContainer(ctx)
+	contexts.ResetChannelCredentialAttempt(ctx)
+	p.attemptContext = ctx
+	p.credentialHTTPClient = nil
+	p.credentialEgressSelected = false
+	p.credentialRetryPending = false
+
 	// Candidates should already be selected by inbound transformer
 	if len(p.state.ChannelModelsCandidates) == 0 {
 		return nil, errors.New("no candidates available: candidates should be selected by inbound transformer")
@@ -786,8 +826,37 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 
 	httpRequest, err := p.wrapped.TransformRequest(ctx, llmRequest)
 	restoreBoundedReasoningRequest(p.state, llmRequest)
+	if err != nil {
+		contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
+		return nil, err
+	}
 
-	return httpRequest, err
+	// An all-excluded or otherwise empty API-key selection must fail before the
+	// executor is created, rather than issuing an unauthenticated request.
+	channel := candidate.Channel
+	if !channel.Credentials.IsOAuth() {
+		if apiKey, ok := contexts.GetChannelAPIKey(ctx); ok && apiKey == "" {
+			err := fmt.Errorf("channel %d has no eligible API key credential", channel.ID)
+			contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
+			return nil, err
+		}
+	}
+
+	// OAuth egress is selected after the transformer has resolved/renewed the
+	// OAuth credential, but still before the request reaches the executor.
+	if err := channel.SelectOAuthCredentialEgress(ctx); err != nil {
+		contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
+		return nil, err
+	}
+
+	p.credentialHTTPClient, p.credentialEgressSelected = contexts.GetChannelCredentialEgress(ctx)
+
+	return httpRequest, nil
+}
+
+func requestAttemptCanceled(ctx context.Context, err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		ctx.Err() != nil
 }
 
 func filterResponseCustomToolMessagesForNonResponsesOutbound(
@@ -856,6 +925,9 @@ func (p *PersistentOutboundTransformer) TransformStream(ctx context.Context, req
 
 	streamed, err := p.wrapped.TransformStream(ctx, req, persistentStream)
 	if err != nil {
+		// The pipeline closes the raw stream when outbound transformation fails,
+		// but the persistent wrapper owns credential finalization and evidence.
+		_ = persistentStream.Close()
 		return nil, err
 	}
 	return streams.Map(streamed, func(response *llm.Response) *llm.Response {
@@ -918,6 +990,56 @@ func retriesDisabledForCandidate(candidate *ChannelModelsCandidate) bool {
 		candidate.Channel.Settings.DisableRetries
 }
 
+func isCredentialFailoverStatus(status int) bool {
+	switch status {
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden,
+		http.StatusTooManyRequests, 432:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *PersistentOutboundTransformer) requestContext() context.Context {
+	if p.attemptContext != nil {
+		return p.attemptContext
+	}
+
+	return context.Background()
+}
+
+// excludeFailedCredential records a status-specific failure and reports whether
+// a strict alternate credential remains available for this request. It is
+// intentionally narrower than the general retry policy: only an enabled
+// multi-key channel can take this path, and policy refusals remain terminal.
+func (p *PersistentOutboundTransformer) excludeFailedCredential(err error) bool {
+	if p == nil || p.state == nil || p.state.CurrentCandidate == nil || p.state.CurrentCandidate.Channel == nil {
+		return false
+	}
+	if p.state.cyberPolicyObserved() || retriesDisabledForCandidate(p.state.CurrentCandidate) {
+		return false
+	}
+
+	status := ExtractStatusCodeFromError(err)
+	if !isCredentialFailoverStatus(status) {
+		return false
+	}
+
+	channel := p.state.CurrentCandidate.Channel
+	if channel.RoutableCredentialCount() < 2 {
+		return false
+	}
+
+	ctx := p.requestContext()
+	key, ok := contexts.GetChannelAPIKey(ctx)
+	if !ok || key == "" {
+		return false
+	}
+
+	contexts.ExcludeChannelCredential(ctx, channel.ID, key)
+	return channel.HasEligibleCredential(ctx)
+}
+
 // HasMoreChannels returns true if there are more candidates available for retry.
 // It implements the pipeline.Retryable interface.
 func (p *PersistentOutboundTransformer) HasMoreChannels() bool {
@@ -948,6 +1070,8 @@ func (p *PersistentOutboundTransformer) resetPassThroughStreamState() {
 // NextChannel moves to the next available candidate for retry.
 // It implements the pipeline.Retryable interface.
 func (p *PersistentOutboundTransformer) NextChannel(ctx context.Context) error {
+	contexts.ResetChannelCredentialAttempt(ctx)
+
 	// Cancel any in-flight pass-through stream goroutine from the previous attempt
 	// so it exits promptly and releases its upstream HTTP connection.
 	p.resetPassThroughStreamState()
@@ -997,7 +1121,14 @@ func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 		return false
 	}
 
-	if errors.Is(err, errSkipCandidateByCircuitBreaker) {
+	if errors.Is(err, errSkipCandidateByCircuitBreaker) || p.state.cyberPolicyObserved() {
+		return false
+	}
+
+	statusCode := ExtractStatusCodeFromError(err)
+	if statusCode == http.StatusTooManyRequests && p.state.CurrentCandidate.Channel.RoutableCredentialCount() < 2 {
+		// Preserve the legacy single-key 429 fence even when a separate failure
+		// policy happened to mutate routing for this attempt.
 		return false
 	}
 
@@ -1023,14 +1154,21 @@ func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 		return true
 	}
 
-	// 429 Too Many Requests: always skip same-channel retry.
-	// The upstream is explicitly rate-limiting this channel, so retrying the same
-	// channel would just burn a retry attempt without any chance of success.
-	// Instead, force a channel switch so the next candidate (e.g. a backup channel)
-	// is tried immediately. The load balancer (e.g. ErrorAware strategy) will
-	// deprioritize this channel for subsequent requests and it will naturally
-	// recover as the rate-limit window resets.
-	if httpclient.IsRateLimitErr(err) {
+	// A configured multi-key channel may switch credentials on these upstream
+	// auth/quota responses, but only when a strict healthy alternate is available.
+	// This path runs before the legacy single-key 429 fence below.
+	if isCredentialFailoverStatus(statusCode) && p.state.CurrentCandidate.Channel.RoutableCredentialCount() >= 2 {
+		if p.excludeFailedCredential(err) {
+			p.credentialRetryPending = true
+			return true
+		}
+
+		return false
+	}
+
+	// 429 Too Many Requests: with a single routable key, skip same-channel retry
+	// and let the pipeline switch to another channel.
+	if statusCode == http.StatusTooManyRequests {
 		log.Debug(context.Background(), "429 rate limit, skipping same-channel retry to switch to next channel",
 			log.Int("channel_id", p.state.CurrentCandidate.Channel.ID),
 		)
@@ -1051,6 +1189,7 @@ func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 // This will reset the request execution for the same channel, so that the same request can be retried.
 // It will try the next model in the same channel if available.
 func (p *PersistentOutboundTransformer) PrepareForRetry(ctx context.Context) error {
+	contexts.ResetChannelCredentialAttempt(ctx)
 	candidate := p.state.CurrentCandidate
 	if p.state.FailurePolicyRoutingChanged {
 		refreshed, err := p.refreshCurrentCandidateAfterRoutingChange(ctx)
@@ -1068,6 +1207,12 @@ func (p *PersistentOutboundTransformer) PrepareForRetry(ctx context.Context) err
 	// Reset request execution for the same channel.
 	p.state.RequestExec = nil
 	p.state.PassThroughApplied = false
+
+	// Credential failover repeats the same model with the newly selected key.
+	if p.credentialRetryPending {
+		p.credentialRetryPending = false
+		return nil
+	}
 
 	// If there's another model in the list, advance to it.
 	if p.state.CurrentModelIndex+1 < len(candidate.Models) {
@@ -1149,8 +1294,14 @@ func (p *PersistentOutboundTransformer) CustomizeExecutor(executor pipeline.Exec
 		return customizedExecutor
 	}
 
-	// 1. Apply proxy settings. Test proxy override takes precedence over channel settings.
-	if p.state.Proxy != nil {
+	// A selected credential client is the base executor before protocol-specific
+	// customization. This preserves wrappers such as Codex/Responses WebSocket
+	// executors while preventing them from being built around the channel's
+	// legacy transport.
+	if p.credentialEgressSelected && p.credentialHTTPClient != nil {
+		customizedExecutor = p.credentialHTTPClient
+	} else if p.state.Proxy != nil {
+		// Test proxy override takes precedence over channel settings.
 		if channel.HTTPClient != nil {
 			customizedExecutor = channel.HTTPClient.WithProxy(p.state.Proxy)
 		} else {
@@ -1160,7 +1311,8 @@ func (p *PersistentOutboundTransformer) CustomizeExecutor(executor pipeline.Exec
 		// Use the channel's own HTTP client, which is pre-configured with its proxy settings.
 		customizedExecutor = channel.HTTPClient
 	}
-	// 2. Allow the selected outbound transformer (e.g., for AWS signing or Responses WebSocket) to further customize the client.
+	// Allow the selected outbound transformer (e.g., for AWS signing or
+	// Responses WebSocket) to wrap the already policy-selected executor.
 	outbound := p.wrapped
 	if outbound == nil {
 		outbound = channel.Outbound

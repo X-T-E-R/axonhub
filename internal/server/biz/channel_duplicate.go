@@ -16,7 +16,7 @@ import (
 func (svc *ChannelService) DuplicateChannel(ctx context.Context, sourceID int, input ent.CreateChannelInput) (*ent.Channel, error) {
 	var duplicated *ent.Channel
 
-	err := svc.RunInTransaction(ctx, func(ctx context.Context) error {
+	err := svc.credentialPolicyTransaction(input.Settings)(ctx, func(ctx context.Context) error {
 		db := svc.entFromContext(ctx)
 
 		if _, err := db.Channel.Get(ctx, sourceID); err != nil {

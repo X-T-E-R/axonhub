@@ -240,8 +240,12 @@ func (svc *BackupService) streamAPIKeys(ctx context.Context, o *objWriter, opts 
 			}
 			copy := *ak
 			copy.Edges = ent.APIKeyEdges{}
+			exposeUpstreamKeyQuota := copy.ExposeUpstreamKeyQuota
 			b, err := json.Marshal(&BackupAPIKey{
-				APIKey: copy, ProjectName: projectName, OwnerEmail: ownerEmail,
+				APIKey:                 copy,
+				ProjectName:            projectName,
+				OwnerEmail:             ownerEmail,
+				ExposeUpstreamKeyQuota: &exposeUpstreamKeyQuota,
 			})
 			return b, true, err
 		},

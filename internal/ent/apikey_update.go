@@ -163,6 +163,20 @@ func (_u *APIKeyUpdate) ClearAllowedIps() *APIKeyUpdate {
 	return _u
 }
 
+// SetExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field.
+func (_u *APIKeyUpdate) SetExposeUpstreamKeyQuota(v bool) *APIKeyUpdate {
+	_u.mutation.SetExposeUpstreamKeyQuota(v)
+	return _u
+}
+
+// SetNillableExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableExposeUpstreamKeyQuota(v *bool) *APIKeyUpdate {
+	if v != nil {
+		_u.SetExposeUpstreamKeyQuota(*v)
+	}
+	return _u
+}
+
 // AddRequestIDs adds the "requests" edge to the Request entity by IDs.
 func (_u *APIKeyUpdate) AddRequestIDs(ids ...int) *APIKeyUpdate {
 	_u.mutation.AddRequestIDs(ids...)
@@ -330,6 +344,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.AllowedIpsCleared() {
 		_spec.ClearField(apikey.FieldAllowedIps, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.ExposeUpstreamKeyQuota(); ok {
+		_spec.SetField(apikey.FieldExposeUpstreamKeyQuota, field.TypeBool, value)
 	}
 	if _u.mutation.RequestsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -526,6 +543,20 @@ func (_u *APIKeyUpdateOne) AppendAllowedIps(v []string) *APIKeyUpdateOne {
 // ClearAllowedIps clears the value of the "allowed_ips" field.
 func (_u *APIKeyUpdateOne) ClearAllowedIps() *APIKeyUpdateOne {
 	_u.mutation.ClearAllowedIps()
+	return _u
+}
+
+// SetExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field.
+func (_u *APIKeyUpdateOne) SetExposeUpstreamKeyQuota(v bool) *APIKeyUpdateOne {
+	_u.mutation.SetExposeUpstreamKeyQuota(v)
+	return _u
+}
+
+// SetNillableExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableExposeUpstreamKeyQuota(v *bool) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetExposeUpstreamKeyQuota(*v)
+	}
 	return _u
 }
 
@@ -726,6 +757,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if _u.mutation.AllowedIpsCleared() {
 		_spec.ClearField(apikey.FieldAllowedIps, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.ExposeUpstreamKeyQuota(); ok {
+		_spec.SetField(apikey.FieldExposeUpstreamKeyQuota, field.TypeBool, value)
 	}
 	if _u.mutation.RequestsCleared() {
 		edge := &sqlgraph.EdgeSpec{

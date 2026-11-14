@@ -95,6 +95,8 @@ type Channel struct {
 
 	// globalKeySelection is the system default used when a channel follows global key routing.
 	globalKeySelection *objects.ChannelKeySelection
+	credentialRuntime  *credentialRuntime
+	credentialEgress   *ChannelService
 }
 
 type ChannelServiceParams struct {
@@ -162,6 +164,7 @@ func NewChannelService(params ChannelServiceParams) *ChannelService {
 
 func (svc *ChannelService) Stop() {
 	svc.enabledChannelsCache.Stop()
+	svc.transportPool.CloseIdleConnections()
 }
 
 type ChannelService struct {
@@ -171,7 +174,10 @@ type ChannelService struct {
 	SystemService   *SystemService
 	WebhookNotifier *WebhookNotifier
 
-	httpClient *httpclient.HttpClient
+	httpClient        *httpclient.HttpClient
+	credentialRuntime credentialRuntime
+	transportPool     UpstreamTransportPool
+	outboundProxies   outboundProxySnapshot
 
 	keyHealthCheckTester ChannelKeyHealthCheckTester
 
@@ -625,6 +631,13 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 		}
 	}
 
+	if err := validateCredentialPolicies(settings, input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := svc.validateCredentialBindings(ctx, 0, settings); err != nil {
+		return nil, err
+	}
+
 	createBuilder := svc.entFromContext(ctx).Channel.Create().
 		SetType(input.Type).
 		SetNillableBaseURL(input.BaseURL).
@@ -677,7 +690,7 @@ func (svc *ChannelService) CreateChannel(ctx context.Context, input ent.CreateCh
 	}
 
 	var created *ent.Channel
-	err = svc.RunInTransaction(ctx, func(ctx context.Context) error {
+	err = svc.credentialPolicyTransaction(input.Settings)(ctx, func(ctx context.Context) error {
 		channel, err := svc.createChannel(ctx, input)
 		if err != nil {
 			return err
@@ -773,7 +786,7 @@ func ValidateSSEKeepAliveSettings(settings *objects.ChannelSSEKeepAlive) error {
 
 // UpdateChannel updates an existing channel with the provided input.
 func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent.UpdateChannelInput) (*ent.Channel, error) {
-	log.Debug(ctx, "UpdateChannel", log.Int("id", id), log.Any("input", input))
+	log.Debug(ctx, "UpdateChannel", log.Int("id", id))
 	if authz.HasScope(ctx, scopes.ScopeWriteChannels) {
 		ctx = authz.WithScopeDecision(ctx, scopes.ScopeWriteChannels)
 	}
@@ -859,6 +872,14 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 		}
 	}
 
+	if input.Credentials != nil && current != nil && current.Settings != nil {
+		if settings == nil {
+			settings = cloneChannelSettings(current.Settings)
+		}
+		credentials := mergeArchivedChannelCredentials(current.Credentials, *input.Credentials, channelArchivedAPIKeys(current.Settings))
+		pruneCredentialPolicies(settings, credentials)
+	}
+
 	if input.Endpoints != nil {
 		if err := ValidateEndpoints(input.Endpoints); err != nil {
 			return nil, fmt.Errorf("invalid endpoints: %w", err)
@@ -882,8 +903,20 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 	}
 
 	var updated *ent.Channel
-	err := svc.RunInTransaction(ctx, func(ctx context.Context) error {
+	err := svc.credentialPolicyTransaction(input.Settings)(ctx, func(ctx context.Context) error {
 		db := svc.entFromContext(ctx)
+		if input.Settings != nil && input.Settings.CredentialPolicies != nil {
+			credentials := current.Credentials
+			if input.Credentials != nil {
+				credentials = mergeArchivedChannelCredentials(credentials, *input.Credentials, channelArchivedAPIKeys(current.Settings))
+			}
+			if err := validateCredentialPolicies(settings, credentials); err != nil {
+				return err
+			}
+			if err := svc.validateCredentialBindings(ctx, id, settings); err != nil {
+				return err
+			}
+		}
 		mut := db.Channel.UpdateOneID(id).
 			SetNillableType(input.Type).
 			SetNillableBaseURL(input.BaseURL).

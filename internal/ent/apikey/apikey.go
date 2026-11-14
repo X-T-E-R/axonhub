@@ -45,6 +45,8 @@ const (
 	FieldProfiles = "profiles"
 	// FieldAllowedIps holds the string denoting the allowed_ips field in the database.
 	FieldAllowedIps = "allowed_ips"
+	// FieldExposeUpstreamKeyQuota holds the string denoting the expose_upstream_key_quota field in the database.
+	FieldExposeUpstreamKeyQuota = "expose_upstream_key_quota"
 	// EdgeUser holds the string denoting the user edge name in mutations.
 	EdgeUser = "user"
 	// EdgeProject holds the string denoting the project edge name in mutations.
@@ -92,6 +94,7 @@ var Columns = []string{
 	FieldScopes,
 	FieldProfiles,
 	FieldAllowedIps,
+	FieldExposeUpstreamKeyQuota,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -131,6 +134,8 @@ var (
 	DefaultProfiles *objects.APIKeyProfiles
 	// DefaultAllowedIps holds the default value on creation for the "allowed_ips" field.
 	DefaultAllowedIps []string
+	// DefaultExposeUpstreamKeyQuota holds the default value on creation for the "expose_upstream_key_quota" field.
+	DefaultExposeUpstreamKeyQuota bool
 )
 
 // Type defines the type for the "type" enum field.
@@ -244,6 +249,11 @@ func ByType(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByExposeUpstreamKeyQuota orders the results by the expose_upstream_key_quota field.
+func ByExposeUpstreamKeyQuota(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldExposeUpstreamKeyQuota, opts...).ToFunc()
 }
 
 // ByUserField orders the results by user field.

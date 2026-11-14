@@ -1,11 +1,12 @@
 'use client';
 
-import { Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useProxyPresets, useDeleteProxyPreset } from '../data/system';
+import { OutboundProxiesSettings } from './outbound-proxies-settings';
 import { ProxyPresetEditDialog } from './proxy-preset-edit-dialog';
 
 export function ProxyPresetsSettings() {
@@ -13,24 +14,22 @@ export function ProxyPresetsSettings() {
   const { data: presets, isLoading } = useProxyPresets();
   const deletePreset = useDeleteProxyPreset();
 
-  if (isLoading) {
-    return (
-      <div className='flex h-32 items-center justify-center'>
-        <Loader2 className='h-6 w-6 animate-spin' />
-        <span className='text-muted-foreground ml-2'>{t('common.loading')}</span>
-      </div>
-    );
-  }
-
   return (
     <div className='space-y-6'>
+      <OutboundProxiesSettings />
+
       <Card>
         <CardHeader>
           <CardTitle>{t('system.proxy.title')}</CardTitle>
           <CardDescription>{t('system.proxy.description')}</CardDescription>
         </CardHeader>
         <CardContent>
-          {!presets || presets.length === 0 ? (
+          {isLoading ? (
+            <div className='flex h-24 items-center justify-center'>
+              <Loader2 className='h-5 w-5 animate-spin' />
+              <span className='text-muted-foreground ml-2 text-sm'>{t('common.loading')}</span>
+            </div>
+          ) : !presets || presets.length === 0 ? (
             <p className='text-muted-foreground text-sm'>{t('system.proxy.empty')}</p>
           ) : (
             <>

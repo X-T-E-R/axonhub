@@ -95,6 +95,11 @@ func PortalManaged(v bool) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldPortalManaged, v))
 }
 
+// ExposeUpstreamKeyQuota applies equality check predicate on the "expose_upstream_key_quota" field. It's identical to ExposeUpstreamKeyQuotaEQ.
+func ExposeUpstreamKeyQuota(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldExposeUpstreamKeyQuota, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldCreatedAt, v))
@@ -473,6 +478,16 @@ func AllowedIpsIsNil() predicate.APIKey {
 // AllowedIpsNotNil applies the NotNil predicate on the "allowed_ips" field.
 func AllowedIpsNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldAllowedIps))
+}
+
+// ExposeUpstreamKeyQuotaEQ applies the EQ predicate on the "expose_upstream_key_quota" field.
+func ExposeUpstreamKeyQuotaEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldExposeUpstreamKeyQuota, v))
+}
+
+// ExposeUpstreamKeyQuotaNEQ applies the NEQ predicate on the "expose_upstream_key_quota" field.
+func ExposeUpstreamKeyQuotaNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldExposeUpstreamKeyQuota, v))
 }
 
 // HasUser applies the HasEdge predicate on the "user" edge.

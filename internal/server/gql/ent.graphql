@@ -29,6 +29,10 @@ type APIKey implements Node {
   IP CIDR allowlist for this API key. If non-empty, only requests from matching source IPs are accepted.
   """
   allowedIps: [String!]
+  """
+  Whether downstream callers using this API key can query authorized upstream key counts and per-key quota snapshots (default true).
+  """
+  exposeUpstreamKeyQuota: Boolean!
   user: User @goField(forceResolver: true)
   project: Project!
   requests(
@@ -393,6 +397,11 @@ input APIKeyWhereInput {
   statusNEQ: APIKeyStatus
   statusIn: [APIKeyStatus!]
   statusNotIn: [APIKeyStatus!]
+  """
+  expose_upstream_key_quota field predicates
+  """
+  exposeUpstreamKeyQuota: Boolean
+  exposeUpstreamKeyQuotaNEQ: Boolean
   """
   user edge predicates
   """
@@ -2004,6 +2013,10 @@ input CreateAPIKeyInput {
   IP CIDR allowlist for this API key. If non-empty, only requests from matching source IPs are accepted.
   """
   allowedIps: [String!]
+  """
+  Whether downstream callers using this API key can query authorized upstream key counts and per-key quota snapshots (default true).
+  """
+  exposeUpstreamKeyQuota: Boolean
   projectID: ID!
 }
 """
@@ -6533,6 +6546,10 @@ input UpdateAPIKeyInput {
   allowedIps: [String!]
   appendAllowedIps: [String!]
   clearAllowedIps: Boolean
+  """
+  Whether downstream callers using this API key can query authorized upstream key counts and per-key quota snapshots (default true).
+  """
+  exposeUpstreamKeyQuota: Boolean
 }
 """
 UpdateAPIKeyProfileTemplateInput is used for update APIKeyProfileTemplate object.

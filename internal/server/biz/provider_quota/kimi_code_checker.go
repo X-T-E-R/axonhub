@@ -80,6 +80,12 @@ func (c *KimiCodeQuotaChecker) SupportsChannel(ch *ent.Channel) bool {
 	return ch.Type == channel.TypeMoonshotCoding
 }
 
+// BuildKimiCodeUsageURL returns the provider usage endpoint for a Kimi Code channel.
+// It is shared by the per-channel quota checker and the per-credential balance probe.
+func BuildKimiCodeUsageURL(baseURL string) string {
+	return buildKimiCodeUsageURL(baseURL)
+}
+
 func buildKimiCodeUsageURL(baseURL string) string {
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
@@ -101,10 +107,59 @@ func buildKimiCodeUsageURL(baseURL string) string {
 	return parsed.String()
 }
 
-func parseKimiCodeUsageResponse(body []byte) (QuotaData, error) {
+// KimiCodeUsageWindow is the shared, provider-neutral representation of one
+// Kimi Code usage window. The balance probe uses the exact same rows as the
+// provider quota checker so the two surfaces cannot drift.
+type KimiCodeUsageWindow struct {
+	Label     string
+	Used      float64
+	Limit     float64
+	Remaining float64
+	ResetAt   *time.Time
+	Exhausted bool
+}
+
+// ParseKimiCodeUsageWindows parses all weekly and rolling usage windows from a
+// Kimi Code response. It preserves the response's ordering (the weekly usage
+// row, when present, is first) for callers that need a stable primary window.
+func ParseKimiCodeUsageWindows(body []byte) ([]KimiCodeUsageWindow, error) {
+	rows, err := parseKimiCodeUsageRows(body)
+	if err != nil {
+		return nil, err
+	}
+
+	windows := make([]KimiCodeUsageWindow, 0, len(rows))
+	for _, row := range rows {
+		remaining := float64(row.Limit - row.Used)
+		if remaining < 0 {
+			remaining = 0
+		}
+		var resetAt *time.Time
+		if row.ResetAt != nil {
+			if parsed, parseErr := time.Parse(time.RFC3339Nano, *row.ResetAt); parseErr == nil {
+				resetAt = &parsed
+			}
+		} else if row.ResetAfterSeconds != nil && *row.ResetAfterSeconds > 0 {
+			parsed := time.Now().Add(time.Duration(*row.ResetAfterSeconds) * time.Second)
+			resetAt = &parsed
+		}
+		windows = append(windows, KimiCodeUsageWindow{
+			Label:     row.Label,
+			Used:      float64(row.Used),
+			Limit:     float64(row.Limit),
+			Remaining: remaining,
+			ResetAt:   resetAt,
+			Exhausted: row.Limit > 0 && row.Used >= row.Limit,
+		})
+	}
+
+	return windows, nil
+}
+
+func parseKimiCodeUsageRows(body []byte) ([]kimiCodeUsageRow, error) {
 	var response kimiCodeUsageResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return QuotaData{}, fmt.Errorf("failed to parse kimi code usage response: %w", err)
+		return nil, fmt.Errorf("failed to parse kimi code usage response: %w", err)
 	}
 
 	rows := make([]kimiCodeUsageRow, 0, len(response.Limits)+1)
@@ -122,7 +177,21 @@ func parseKimiCodeUsageResponse(body []byte) (QuotaData, error) {
 		}
 	}
 	if len(rows) == 0 {
-		return QuotaData{}, fmt.Errorf("kimi code usage response contains no quota limits")
+		return nil, fmt.Errorf("kimi code usage response contains no quota limits")
+	}
+
+	return rows, nil
+}
+
+func parseKimiCodeUsageResponse(body []byte) (QuotaData, error) {
+	var response kimiCodeUsageResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return QuotaData{}, fmt.Errorf("failed to parse kimi code usage response: %w", err)
+	}
+
+	rows, err := parseKimiCodeUsageRows(body)
+	if err != nil {
+		return QuotaData{}, err
 	}
 
 	status := "available"

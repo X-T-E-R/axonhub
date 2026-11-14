@@ -26,7 +26,8 @@ func withPerformanceRecording(outbound *PersistentOutboundTransformer) pipeline.
 type performanceRecording struct {
 	pipeline.DummyMiddleware
 
-	outbound *PersistentOutboundTransformer
+	outbound          *PersistentOutboundTransformer
+	attemptStatusCode int
 }
 
 func (m *performanceRecording) Name() string {
@@ -49,6 +50,7 @@ func (m *performanceRecording) OnInboundLlmRequest(ctx context.Context, request 
 
 func (m *performanceRecording) OnOutboundRawRequest(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error) {
 	// Initialize performance metrics at the start of request
+	m.attemptStatusCode = 0
 	channel := m.outbound.GetCurrentChannel()
 	if channel == nil {
 		return request, nil
@@ -85,6 +87,20 @@ func (m *performanceRecording) OnOutboundRawRequest(ctx context.Context, request
 }
 
 func (m *performanceRecording) OnOutboundRawResponse(ctx context.Context, response *httpclient.Response) (*httpclient.Response, error) {
+	if response != nil {
+		m.attemptStatusCode = response.StatusCode
+	}
+
+	return response, nil
+}
+
+func (m *performanceRecording) OnInboundRawResponse(ctx context.Context, response *httpclient.Response) (*httpclient.Response, error) {
+	status := m.attemptStatusCode
+	if status == 0 && response != nil {
+		status = response.StatusCode
+	}
+	contexts.FinishChannelCredentialAttempt(ctx, status, status >= 400, false)
+
 	return response, nil
 }
 
@@ -118,6 +134,17 @@ func (m *performanceRecording) OnOutboundLlmStream(ctx context.Context, stream s
 }
 
 func (m *performanceRecording) OnOutboundRawError(ctx context.Context, err error) {
+	// A transport/decoder failure has no upstream HTTP status. Keep status=0 so
+	// managed egress can apply its network-failure block; performance metrics
+	// still use ExtractErrorCode's 500 fallback below.
+	status := ExtractStatusCodeFromError(err)
+	canceled := requestAttemptCanceled(ctx, err)
+	failed := !canceled && (m.outbound.state == nil || !m.outbound.state.cyberPolicyObserved())
+	if !canceled && failed && m.outbound.excludeFailedCredential(err) {
+		m.outbound.credentialRetryPending = true
+	}
+	contexts.FinishChannelCredentialAttempt(ctx, status, failed, canceled)
+
 	// Accounting publication is a gateway failure after execution, not a
 	// provider result. Preserve its measured outcome and shared channel health.
 	if _, executed := errors.AsType[*biz.ExecutedAccountingError](err); executed {

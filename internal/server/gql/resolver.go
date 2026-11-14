@@ -30,6 +30,7 @@ type Resolver struct {
 	userService                    *biz.UserService
 	systemService                  *biz.SystemService
 	channelService                 *biz.ChannelService
+	outboundProxyService           *biz.OutboundProxyService
 	requestService                 *biz.RequestService
 	quotaService                   *biz.QuotaService
 	projectService                 *biz.ProjectService
@@ -63,6 +64,7 @@ func NewSchema(
 	userService *biz.UserService,
 	systemService *biz.SystemService,
 	channelService *biz.ChannelService,
+	outboundProxyService *biz.OutboundProxyService,
 	requestService *biz.RequestService,
 	quotaService *biz.QuotaService,
 	projectService *biz.ProjectService,
@@ -97,6 +99,7 @@ func NewSchema(
 			userService:                    userService,
 			systemService:                  systemService,
 			channelService:                 channelService,
+			outboundProxyService:           outboundProxyService,
 			requestService:                 requestService,
 			quotaService:                   quotaService,
 			projectService:                 projectService,

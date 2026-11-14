@@ -539,19 +539,20 @@ type Pricing struct {
 }
 
 type OpenAIModel struct {
-	ID              string        `json:"id"`
-	Object          string        `json:"object"`
-	Created         int64         `json:"created"`
-	OwnedBy         string        `json:"owned_by"`
-	Name            string        `json:"name,omitempty"`
-	Description     string        `json:"description,omitempty"`
-	ContextLength   int           `json:"context_length,omitempty"`
-	MaxOutputTokens int           `json:"max_output_tokens,omitempty"`
-	Modalities      *Modalities   `json:"modalities,omitempty"`
-	Capabilities    *Capabilities `json:"capabilities,omitempty"`
-	Pricing         *Pricing      `json:"pricing,omitempty"`
-	Icon            string        `json:"icon,omitempty"`
-	Type            string        `json:"type,omitempty"`
+	ID              string            `json:"id"`
+	Object          string            `json:"object"`
+	Created         int64             `json:"created"`
+	OwnedBy         string            `json:"owned_by"`
+	Name            string            `json:"name,omitempty"`
+	Description     string            `json:"description,omitempty"`
+	ContextLength   int               `json:"context_length,omitempty"`
+	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
+	Modalities      *Modalities       `json:"modalities,omitempty"`
+	Capabilities    *Capabilities     `json:"capabilities,omitempty"`
+	Pricing         *Pricing          `json:"pricing,omitempty"`
+	Icon            string            `json:"icon,omitempty"`
+	Type            string            `json:"type,omitempty"`
+	UpstreamQuota   *OpenAIModelQuota `json:"upstream_quota,omitempty"`
 }
 
 const (
@@ -768,7 +769,14 @@ func (handlers *OpenAIHandlers) RetrieveModel(c *gin.Context) {
 	}
 
 	if !needFullData {
-		c.JSON(http.StatusOK, convertModelFacadeToOpenAIModel(visibleModel))
+		response := convertModelFacadeToOpenAIModel(visibleModel)
+		if openAIModelQuotasRequested(c.Query("include")) && openAIQuotaExposureEnabled(ctx) {
+			if err := handlers.attachOpenAIModelQuota(ctx, &response, modelID); err != nil {
+				handlers.writeQuotaModelInternalError(c, requestID, err)
+				return
+			}
+		}
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
@@ -780,7 +788,14 @@ func (handlers *OpenAIHandlers) RetrieveModel(c *gin.Context) {
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			c.JSON(http.StatusOK, convertModelFacadeToOpenAIModel(visibleModel))
+			response := convertModelFacadeToOpenAIModel(visibleModel)
+			if openAIModelQuotasRequested(c.Query("include")) && openAIQuotaExposureEnabled(ctx) {
+				if err := handlers.attachOpenAIModelQuota(ctx, &response, modelID); err != nil {
+					handlers.writeQuotaModelInternalError(c, requestID, err)
+					return
+				}
+			}
+			c.JSON(http.StatusOK, response)
 			return
 		}
 
@@ -788,7 +803,14 @@ func (handlers *OpenAIHandlers) RetrieveModel(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, convertModelToOpenAIExtended(configuredModel, include))
+	response := convertModelToOpenAIExtended(configuredModel, include)
+	if openAIModelQuotasRequested(c.Query("include")) && openAIQuotaExposureEnabled(ctx) {
+		if err := handlers.attachOpenAIModelQuota(ctx, &response, modelID); err != nil {
+			handlers.writeQuotaModelInternalError(c, requestID, err)
+			return
+		}
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // ListModels returns all available models.
@@ -854,6 +876,15 @@ func (handlers *OpenAIHandlers) ListModels(c *gin.Context) {
 
 			return convertModelFacadeToOpenAIModel(m)
 		})
+	}
+
+	if openAIModelQuotasRequested(c.Query("include")) && openAIQuotaExposureEnabled(ctx) {
+		for i := range openaiModels {
+			if err := handlers.attachOpenAIModelQuota(ctx, &openaiModels[i], openaiModels[i].ID); err != nil {
+				handlers.writeQuotaModelInternalError(c, requestID, err)
+				return
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

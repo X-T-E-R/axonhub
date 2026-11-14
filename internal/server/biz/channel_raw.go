@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/looplj/axonhub/llm/auth"
 	"golang.org/x/net/http/httpguts"
@@ -76,10 +77,11 @@ type rawHTTPKeyProviderConfig struct {
 }
 
 type rawHTTPKeyProvider struct {
-	mu       sync.Mutex
-	keys     []string
-	config   rawHTTPKeyProviderConfig
-	provider auth.APIKeyProvider
+	mu        sync.Mutex
+	keys      []string
+	config    rawHTTPKeyProviderConfig
+	provider  auth.APIKeyProvider
+	updatedAt time.Time
 }
 
 // RawHTTPAPIKey retains the existing providers' counters and affinity caches
@@ -97,8 +99,9 @@ func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) strin
 		likelyTTLMinutes: selection.LikelyAffinityTTLMinutesOrDefault(),
 		exactTTLMinutes:  selection.ExactAffinityTTLMinutesOrDefault(),
 	}
-	if state.provider == nil || !slices.Equal(state.keys, ch.cachedEnabledAPIKeys) || state.config != config {
+	if state.provider == nil || !slices.Equal(state.keys, ch.cachedEnabledAPIKeys) || state.config != config || !state.updatedAt.Equal(ch.UpdatedAt) {
 		state.keys = slices.Clone(ch.cachedEnabledAPIKeys)
+		state.updatedAt = ch.UpdatedAt
 		state.config = config
 		state.provider = getAPIKeyProvider(ch)
 	}

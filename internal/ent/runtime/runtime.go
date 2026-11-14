@@ -19,6 +19,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/outboundproxy"
 	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
@@ -101,6 +102,10 @@ func init() {
 	apikeyDescAllowedIps := apikeyFields[9].Descriptor()
 	// apikey.DefaultAllowedIps holds the default value on creation for the allowed_ips field.
 	apikey.DefaultAllowedIps = apikeyDescAllowedIps.Default.([]string)
+	// apikeyDescExposeUpstreamKeyQuota is the schema descriptor for expose_upstream_key_quota field.
+	apikeyDescExposeUpstreamKeyQuota := apikeyFields[10].Descriptor()
+	// apikey.DefaultExposeUpstreamKeyQuota holds the default value on creation for the expose_upstream_key_quota field.
+	apikey.DefaultExposeUpstreamKeyQuota = apikeyDescExposeUpstreamKeyQuota.Default.(bool)
 	apikeyprofiletemplateMixin := schema.APIKeyProfileTemplate{}.Mixin()
 	apikeyprofiletemplate.Policy = privacy.NewPolicies(schema.APIKeyProfileTemplate{})
 	apikeyprofiletemplate.Hooks[0] = func(next ent.Mutator) ent.Mutator {
@@ -557,6 +562,76 @@ func init() {
 	observabilitypayloadDescChargedBytes := observabilitypayloadFields[4].Descriptor()
 	// observabilitypayload.ChargedBytesValidator is a validator for the "charged_bytes" field. It is called by the builders before save.
 	observabilitypayload.ChargedBytesValidator = observabilitypayloadDescChargedBytes.Validators[0].(func(int64) error)
+	outboundproxyMixin := schema.OutboundProxy{}.Mixin()
+	outboundproxy.Policy = privacy.NewPolicies(schema.OutboundProxy{})
+	outboundproxy.Hooks[0] = func(next ent.Mutator) ent.Mutator {
+		return ent.MutateFunc(func(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+			if err := outboundproxy.Policy.EvalMutation(ctx, m); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	}
+	outboundproxyMixinFields0 := outboundproxyMixin[0].Fields()
+	_ = outboundproxyMixinFields0
+	outboundproxyFields := schema.OutboundProxy{}.Fields()
+	_ = outboundproxyFields
+	// outboundproxyDescCreatedAt is the schema descriptor for created_at field.
+	outboundproxyDescCreatedAt := outboundproxyMixinFields0[0].Descriptor()
+	// outboundproxy.DefaultCreatedAt holds the default value on creation for the created_at field.
+	outboundproxy.DefaultCreatedAt = outboundproxyDescCreatedAt.Default.(func() time.Time)
+	// outboundproxyDescUpdatedAt is the schema descriptor for updated_at field.
+	outboundproxyDescUpdatedAt := outboundproxyMixinFields0[1].Descriptor()
+	// outboundproxy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	outboundproxy.DefaultUpdatedAt = outboundproxyDescUpdatedAt.Default.(func() time.Time)
+	// outboundproxy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	outboundproxy.UpdateDefaultUpdatedAt = outboundproxyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// outboundproxyDescName is the schema descriptor for name field.
+	outboundproxyDescName := outboundproxyFields[0].Descriptor()
+	// outboundproxy.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	outboundproxy.NameValidator = func() func(string) error {
+		validators := outboundproxyDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// outboundproxyDescProxyURL is the schema descriptor for proxy_url field.
+	outboundproxyDescProxyURL := outboundproxyFields[2].Descriptor()
+	// outboundproxy.ProxyURLValidator is a validator for the "proxy_url" field. It is called by the builders before save.
+	outboundproxy.ProxyURLValidator = outboundproxyDescProxyURL.Validators[0].(func(string) error)
+	// outboundproxyDescPoolName is the schema descriptor for pool_name field.
+	outboundproxyDescPoolName := outboundproxyFields[3].Descriptor()
+	// outboundproxy.DefaultPoolName holds the default value on creation for the pool_name field.
+	outboundproxy.DefaultPoolName = outboundproxyDescPoolName.Default.(string)
+	// outboundproxyDescWeight is the schema descriptor for weight field.
+	outboundproxyDescWeight := outboundproxyFields[5].Descriptor()
+	// outboundproxy.DefaultWeight holds the default value on creation for the weight field.
+	outboundproxy.DefaultWeight = outboundproxyDescWeight.Default.(int)
+	// outboundproxyDescRemark is the schema descriptor for remark field.
+	outboundproxyDescRemark := outboundproxyFields[10].Descriptor()
+	// outboundproxy.DefaultRemark holds the default value on creation for the remark field.
+	outboundproxy.DefaultRemark = outboundproxyDescRemark.Default.(string)
+	// outboundproxyDescLastExitIP is the schema descriptor for last_exit_ip field.
+	outboundproxyDescLastExitIP := outboundproxyFields[13].Descriptor()
+	// outboundproxy.DefaultLastExitIP holds the default value on creation for the last_exit_ip field.
+	outboundproxy.DefaultLastExitIP = outboundproxyDescLastExitIP.Default.(string)
+	// outboundproxyDescLastCountry is the schema descriptor for last_country field.
+	outboundproxyDescLastCountry := outboundproxyFields[14].Descriptor()
+	// outboundproxy.DefaultLastCountry holds the default value on creation for the last_country field.
+	outboundproxy.DefaultLastCountry = outboundproxyDescLastCountry.Default.(string)
+	// outboundproxyDescLastTestError is the schema descriptor for last_test_error field.
+	outboundproxyDescLastTestError := outboundproxyFields[16].Descriptor()
+	// outboundproxy.DefaultLastTestError holds the default value on creation for the last_test_error field.
+	outboundproxy.DefaultLastTestError = outboundproxyDescLastTestError.Default.(string)
 	pendingusageFields := schema.PendingUsage{}.Fields()
 	_ = pendingusageFields
 	// pendingusageDescRequestID is the schema descriptor for request_id field.

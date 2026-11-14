@@ -47,6 +47,7 @@ function buildApiKeysQuery(permissions: { canViewUsers: boolean }) {
             status
             scopes
             allowedIps
+            exposeUpstreamKeyQuota
           }
           cursor
         }
@@ -85,6 +86,7 @@ function buildApiKeyQuery(permissions: { canViewUsers: boolean }) {
         status
         scopes
         allowedIps
+        exposeUpstreamKeyQuota
         profiles {
           activeProfile
           profiles {
@@ -135,6 +137,7 @@ function buildCreateApiKeyMutation(permissions: { canViewUsers: boolean }) {
         status
         scopes
         allowedIps
+        exposeUpstreamKeyQuota
       }
     }
   `;
@@ -162,6 +165,7 @@ function buildUpdateApiKeyMutation(permissions: { canViewUsers: boolean }) {
         status
         scopes
         allowedIps
+        exposeUpstreamKeyQuota
       }
     }
   `;
@@ -238,6 +242,8 @@ const ROTATE_APIKEY_MUTATION = `
       type
       status
       scopes
+      allowedIps
+      exposeUpstreamKeyQuota
       createdAt
       updatedAt
     }

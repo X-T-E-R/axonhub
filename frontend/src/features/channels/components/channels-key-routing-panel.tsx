@@ -21,7 +21,15 @@ export type KeyRoutingFormValues = {
   exactAffinityTTLMinutes: number;
 };
 
-const STRATEGIES: ChannelKeyRoutingStrategyValue[] = ['inherit', 'trace_sticky', 'cache_affinity', 'random', 'round_robin'];
+const STRATEGIES: ChannelKeyRoutingStrategyValue[] = [
+  'inherit',
+  'trace_sticky',
+  'cache_affinity',
+  'round_robin',
+  'random',
+  'quota_reset_priority',
+  'smart',
+];
 
 interface KeyRoutingPanelProps<TFormValues extends KeyRoutingFormValues> {
   form: UseFormReturn<TFormValues, unknown, TFormValues>;

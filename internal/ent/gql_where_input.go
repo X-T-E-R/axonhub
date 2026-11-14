@@ -132,6 +132,10 @@ type APIKeyWhereInput struct {
 	StatusIn    []apikey.Status `json:"statusIn,omitempty"`
 	StatusNotIn []apikey.Status `json:"statusNotIn,omitempty"`
 
+	// "expose_upstream_key_quota" field predicates.
+	ExposeUpstreamKeyQuota    *bool `json:"exposeUpstreamKeyQuota,omitempty"`
+	ExposeUpstreamKeyQuotaNEQ *bool `json:"exposeUpstreamKeyQuotaNEQ,omitempty"`
+
 	// "user" edge predicates.
 	HasUser     *bool             `json:"hasUser,omitempty"`
 	HasUserWith []*UserWhereInput `json:"hasUserWith,omitempty"`
@@ -425,6 +429,12 @@ func (i *APIKeyWhereInput) P() (predicate.APIKey, error) {
 	}
 	if len(i.StatusNotIn) > 0 {
 		predicates = append(predicates, apikey.StatusNotIn(i.StatusNotIn...))
+	}
+	if i.ExposeUpstreamKeyQuota != nil {
+		predicates = append(predicates, apikey.ExposeUpstreamKeyQuotaEQ(*i.ExposeUpstreamKeyQuota))
+	}
+	if i.ExposeUpstreamKeyQuotaNEQ != nil {
+		predicates = append(predicates, apikey.ExposeUpstreamKeyQuotaNEQ(*i.ExposeUpstreamKeyQuotaNEQ))
 	}
 
 	if i.HasUser != nil {

@@ -25,6 +25,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/outboundproxy"
 	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/predicate"
 	"github.com/looplj/axonhub/internal/ent/project"
@@ -69,6 +70,7 @@ const (
 	TypeModel                     = "Model"
 	TypeOIDCIdentity              = "OIDCIdentity"
 	TypeObservabilityPayload      = "ObservabilityPayload"
+	TypeOutboundProxy             = "OutboundProxy"
 	TypePendingUsage              = "PendingUsage"
 	TypeProject                   = "Project"
 	TypePrompt                    = "Prompt"
@@ -90,34 +92,35 @@ const (
 // APIKeyMutation represents an operation that mutates the APIKey nodes in the graph.
 type APIKeyMutation struct {
 	config
-	op                Op
-	typ               string
-	id                *int
-	created_at        *time.Time
-	updated_at        *time.Time
-	deleted_at        *int
-	adddeleted_at     *int
-	key               *string
-	name              *string
-	portal_managed    *bool
-	_type             *apikey.Type
-	status            *apikey.Status
-	scopes            *[]string
-	appendscopes      []string
-	profiles          **objects.APIKeyProfiles
-	allowed_ips       *[]string
-	appendallowed_ips []string
-	clearedFields     map[string]struct{}
-	user              *int
-	cleareduser       bool
-	project           *int
-	clearedproject    bool
-	requests          map[int]struct{}
-	removedrequests   map[int]struct{}
-	clearedrequests   bool
-	done              bool
-	oldValue          func(context.Context) (*APIKey, error)
-	predicates        []predicate.APIKey
+	op                        Op
+	typ                       string
+	id                        *int
+	created_at                *time.Time
+	updated_at                *time.Time
+	deleted_at                *int
+	adddeleted_at             *int
+	key                       *string
+	name                      *string
+	portal_managed            *bool
+	_type                     *apikey.Type
+	status                    *apikey.Status
+	scopes                    *[]string
+	appendscopes              []string
+	profiles                  **objects.APIKeyProfiles
+	allowed_ips               *[]string
+	appendallowed_ips         []string
+	expose_upstream_key_quota *bool
+	clearedFields             map[string]struct{}
+	user                      *int
+	cleareduser               bool
+	project                   *int
+	clearedproject            bool
+	requests                  map[int]struct{}
+	removedrequests           map[int]struct{}
+	clearedrequests           bool
+	done                      bool
+	oldValue                  func(context.Context) (*APIKey, error)
+	predicates                []predicate.APIKey
 }
 
 var _ ent.Mutation = (*APIKeyMutation)(nil)
@@ -790,6 +793,42 @@ func (m *APIKeyMutation) ResetAllowedIps() {
 	delete(m.clearedFields, apikey.FieldAllowedIps)
 }
 
+// SetExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field.
+func (m *APIKeyMutation) SetExposeUpstreamKeyQuota(b bool) {
+	m.expose_upstream_key_quota = &b
+}
+
+// ExposeUpstreamKeyQuota returns the value of the "expose_upstream_key_quota" field in the mutation.
+func (m *APIKeyMutation) ExposeUpstreamKeyQuota() (r bool, exists bool) {
+	v := m.expose_upstream_key_quota
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExposeUpstreamKeyQuota returns the old "expose_upstream_key_quota" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldExposeUpstreamKeyQuota(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExposeUpstreamKeyQuota is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExposeUpstreamKeyQuota requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExposeUpstreamKeyQuota: %w", err)
+	}
+	return oldValue.ExposeUpstreamKeyQuota, nil
+}
+
+// ResetExposeUpstreamKeyQuota resets all changes to the "expose_upstream_key_quota" field.
+func (m *APIKeyMutation) ResetExposeUpstreamKeyQuota() {
+	m.expose_upstream_key_quota = nil
+}
+
 // ClearUser clears the "user" edge to the User entity.
 func (m *APIKeyMutation) ClearUser() {
 	m.cleareduser = true
@@ -932,7 +971,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 14)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -972,6 +1011,9 @@ func (m *APIKeyMutation) Fields() []string {
 	if m.allowed_ips != nil {
 		fields = append(fields, apikey.FieldAllowedIps)
 	}
+	if m.expose_upstream_key_quota != nil {
+		fields = append(fields, apikey.FieldExposeUpstreamKeyQuota)
+	}
 	return fields
 }
 
@@ -1006,6 +1048,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Profiles()
 	case apikey.FieldAllowedIps:
 		return m.AllowedIps()
+	case apikey.FieldExposeUpstreamKeyQuota:
+		return m.ExposeUpstreamKeyQuota()
 	}
 	return nil, false
 }
@@ -1041,6 +1085,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldProfiles(ctx)
 	case apikey.FieldAllowedIps:
 		return m.OldAllowedIps(ctx)
+	case apikey.FieldExposeUpstreamKeyQuota:
+		return m.OldExposeUpstreamKeyQuota(ctx)
 	}
 	return nil, fmt.Errorf("unknown APIKey field %s", name)
 }
@@ -1140,6 +1186,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAllowedIps(v)
+		return nil
+	case apikey.FieldExposeUpstreamKeyQuota:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExposeUpstreamKeyQuota(v)
 		return nil
 	}
 	return fmt.Errorf("unknown APIKey field %s", name)
@@ -1270,6 +1323,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldAllowedIps:
 		m.ResetAllowedIps()
+		return nil
+	case apikey.FieldExposeUpstreamKeyQuota:
+		m.ResetExposeUpstreamKeyQuota()
 		return nil
 	}
 	return fmt.Errorf("unknown APIKey field %s", name)
@@ -15461,6 +15517,1812 @@ func (m *ObservabilityPayloadMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown ObservabilityPayload edge %s", name)
+}
+
+// OutboundProxyMutation represents an operation that mutates the OutboundProxy nodes in the graph.
+type OutboundProxyMutation struct {
+	config
+	op                  Op
+	typ                 string
+	id                  *int
+	created_at          *time.Time
+	updated_at          *time.Time
+	name                *string
+	kind                *outboundproxy.Kind
+	proxy_url           *string
+	pool_name           *string
+	status              *outboundproxy.Status
+	weight              *int
+	addweight           *int
+	max_concurrent      *int
+	addmax_concurrent   *int
+	max_credentials     *int
+	addmax_credentials  *int
+	expires_at          *time.Time
+	remark              *string
+	last_tested_at      *time.Time
+	last_test_success   *bool
+	last_exit_ip        *string
+	last_country        *string
+	last_latency_ms     *int
+	addlast_latency_ms  *int
+	last_test_error     *string
+	clearedFields       map[string]struct{}
+	backup_proxy        *int
+	clearedbackup_proxy bool
+	backup_for          map[int]struct{}
+	removedbackup_for   map[int]struct{}
+	clearedbackup_for   bool
+	done                bool
+	oldValue            func(context.Context) (*OutboundProxy, error)
+	predicates          []predicate.OutboundProxy
+}
+
+var _ ent.Mutation = (*OutboundProxyMutation)(nil)
+
+// outboundproxyOption allows management of the mutation configuration using functional options.
+type outboundproxyOption func(*OutboundProxyMutation)
+
+// newOutboundProxyMutation creates new mutation for the OutboundProxy entity.
+func newOutboundProxyMutation(c config, op Op, opts ...outboundproxyOption) *OutboundProxyMutation {
+	m := &OutboundProxyMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeOutboundProxy,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withOutboundProxyID sets the ID field of the mutation.
+func withOutboundProxyID(id int) outboundproxyOption {
+	return func(m *OutboundProxyMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *OutboundProxy
+		)
+		m.oldValue = func(ctx context.Context) (*OutboundProxy, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().OutboundProxy.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withOutboundProxy sets the old OutboundProxy of the mutation.
+func withOutboundProxy(node *OutboundProxy) outboundproxyOption {
+	return func(m *OutboundProxyMutation) {
+		m.oldValue = func(context.Context) (*OutboundProxy, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m OutboundProxyMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m OutboundProxyMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *OutboundProxyMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *OutboundProxyMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().OutboundProxy.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *OutboundProxyMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *OutboundProxyMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *OutboundProxyMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *OutboundProxyMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *OutboundProxyMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *OutboundProxyMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetName sets the "name" field.
+func (m *OutboundProxyMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *OutboundProxyMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *OutboundProxyMutation) ResetName() {
+	m.name = nil
+}
+
+// SetKind sets the "kind" field.
+func (m *OutboundProxyMutation) SetKind(o outboundproxy.Kind) {
+	m.kind = &o
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *OutboundProxyMutation) Kind() (r outboundproxy.Kind, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldKind(ctx context.Context) (v outboundproxy.Kind, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *OutboundProxyMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetProxyURL sets the "proxy_url" field.
+func (m *OutboundProxyMutation) SetProxyURL(s string) {
+	m.proxy_url = &s
+}
+
+// ProxyURL returns the value of the "proxy_url" field in the mutation.
+func (m *OutboundProxyMutation) ProxyURL() (r string, exists bool) {
+	v := m.proxy_url
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProxyURL returns the old "proxy_url" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldProxyURL(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProxyURL is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProxyURL requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProxyURL: %w", err)
+	}
+	return oldValue.ProxyURL, nil
+}
+
+// ResetProxyURL resets all changes to the "proxy_url" field.
+func (m *OutboundProxyMutation) ResetProxyURL() {
+	m.proxy_url = nil
+}
+
+// SetPoolName sets the "pool_name" field.
+func (m *OutboundProxyMutation) SetPoolName(s string) {
+	m.pool_name = &s
+}
+
+// PoolName returns the value of the "pool_name" field in the mutation.
+func (m *OutboundProxyMutation) PoolName() (r string, exists bool) {
+	v := m.pool_name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPoolName returns the old "pool_name" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldPoolName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPoolName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPoolName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPoolName: %w", err)
+	}
+	return oldValue.PoolName, nil
+}
+
+// ClearPoolName clears the value of the "pool_name" field.
+func (m *OutboundProxyMutation) ClearPoolName() {
+	m.pool_name = nil
+	m.clearedFields[outboundproxy.FieldPoolName] = struct{}{}
+}
+
+// PoolNameCleared returns if the "pool_name" field was cleared in this mutation.
+func (m *OutboundProxyMutation) PoolNameCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldPoolName]
+	return ok
+}
+
+// ResetPoolName resets all changes to the "pool_name" field.
+func (m *OutboundProxyMutation) ResetPoolName() {
+	m.pool_name = nil
+	delete(m.clearedFields, outboundproxy.FieldPoolName)
+}
+
+// SetStatus sets the "status" field.
+func (m *OutboundProxyMutation) SetStatus(o outboundproxy.Status) {
+	m.status = &o
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *OutboundProxyMutation) Status() (r outboundproxy.Status, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldStatus(ctx context.Context) (v outboundproxy.Status, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *OutboundProxyMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetWeight sets the "weight" field.
+func (m *OutboundProxyMutation) SetWeight(i int) {
+	m.weight = &i
+	m.addweight = nil
+}
+
+// Weight returns the value of the "weight" field in the mutation.
+func (m *OutboundProxyMutation) Weight() (r int, exists bool) {
+	v := m.weight
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWeight returns the old "weight" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldWeight(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWeight is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWeight requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWeight: %w", err)
+	}
+	return oldValue.Weight, nil
+}
+
+// AddWeight adds i to the "weight" field.
+func (m *OutboundProxyMutation) AddWeight(i int) {
+	if m.addweight != nil {
+		*m.addweight += i
+	} else {
+		m.addweight = &i
+	}
+}
+
+// AddedWeight returns the value that was added to the "weight" field in this mutation.
+func (m *OutboundProxyMutation) AddedWeight() (r int, exists bool) {
+	v := m.addweight
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWeight resets all changes to the "weight" field.
+func (m *OutboundProxyMutation) ResetWeight() {
+	m.weight = nil
+	m.addweight = nil
+}
+
+// SetMaxConcurrent sets the "max_concurrent" field.
+func (m *OutboundProxyMutation) SetMaxConcurrent(i int) {
+	m.max_concurrent = &i
+	m.addmax_concurrent = nil
+}
+
+// MaxConcurrent returns the value of the "max_concurrent" field in the mutation.
+func (m *OutboundProxyMutation) MaxConcurrent() (r int, exists bool) {
+	v := m.max_concurrent
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxConcurrent returns the old "max_concurrent" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldMaxConcurrent(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxConcurrent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxConcurrent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxConcurrent: %w", err)
+	}
+	return oldValue.MaxConcurrent, nil
+}
+
+// AddMaxConcurrent adds i to the "max_concurrent" field.
+func (m *OutboundProxyMutation) AddMaxConcurrent(i int) {
+	if m.addmax_concurrent != nil {
+		*m.addmax_concurrent += i
+	} else {
+		m.addmax_concurrent = &i
+	}
+}
+
+// AddedMaxConcurrent returns the value that was added to the "max_concurrent" field in this mutation.
+func (m *OutboundProxyMutation) AddedMaxConcurrent() (r int, exists bool) {
+	v := m.addmax_concurrent
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearMaxConcurrent clears the value of the "max_concurrent" field.
+func (m *OutboundProxyMutation) ClearMaxConcurrent() {
+	m.max_concurrent = nil
+	m.addmax_concurrent = nil
+	m.clearedFields[outboundproxy.FieldMaxConcurrent] = struct{}{}
+}
+
+// MaxConcurrentCleared returns if the "max_concurrent" field was cleared in this mutation.
+func (m *OutboundProxyMutation) MaxConcurrentCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldMaxConcurrent]
+	return ok
+}
+
+// ResetMaxConcurrent resets all changes to the "max_concurrent" field.
+func (m *OutboundProxyMutation) ResetMaxConcurrent() {
+	m.max_concurrent = nil
+	m.addmax_concurrent = nil
+	delete(m.clearedFields, outboundproxy.FieldMaxConcurrent)
+}
+
+// SetMaxCredentials sets the "max_credentials" field.
+func (m *OutboundProxyMutation) SetMaxCredentials(i int) {
+	m.max_credentials = &i
+	m.addmax_credentials = nil
+}
+
+// MaxCredentials returns the value of the "max_credentials" field in the mutation.
+func (m *OutboundProxyMutation) MaxCredentials() (r int, exists bool) {
+	v := m.max_credentials
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxCredentials returns the old "max_credentials" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldMaxCredentials(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxCredentials is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxCredentials requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxCredentials: %w", err)
+	}
+	return oldValue.MaxCredentials, nil
+}
+
+// AddMaxCredentials adds i to the "max_credentials" field.
+func (m *OutboundProxyMutation) AddMaxCredentials(i int) {
+	if m.addmax_credentials != nil {
+		*m.addmax_credentials += i
+	} else {
+		m.addmax_credentials = &i
+	}
+}
+
+// AddedMaxCredentials returns the value that was added to the "max_credentials" field in this mutation.
+func (m *OutboundProxyMutation) AddedMaxCredentials() (r int, exists bool) {
+	v := m.addmax_credentials
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearMaxCredentials clears the value of the "max_credentials" field.
+func (m *OutboundProxyMutation) ClearMaxCredentials() {
+	m.max_credentials = nil
+	m.addmax_credentials = nil
+	m.clearedFields[outboundproxy.FieldMaxCredentials] = struct{}{}
+}
+
+// MaxCredentialsCleared returns if the "max_credentials" field was cleared in this mutation.
+func (m *OutboundProxyMutation) MaxCredentialsCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldMaxCredentials]
+	return ok
+}
+
+// ResetMaxCredentials resets all changes to the "max_credentials" field.
+func (m *OutboundProxyMutation) ResetMaxCredentials() {
+	m.max_credentials = nil
+	m.addmax_credentials = nil
+	delete(m.clearedFields, outboundproxy.FieldMaxCredentials)
+}
+
+// SetBackupProxyID sets the "backup_proxy_id" field.
+func (m *OutboundProxyMutation) SetBackupProxyID(i int) {
+	m.backup_proxy = &i
+}
+
+// BackupProxyID returns the value of the "backup_proxy_id" field in the mutation.
+func (m *OutboundProxyMutation) BackupProxyID() (r int, exists bool) {
+	v := m.backup_proxy
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBackupProxyID returns the old "backup_proxy_id" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldBackupProxyID(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBackupProxyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBackupProxyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBackupProxyID: %w", err)
+	}
+	return oldValue.BackupProxyID, nil
+}
+
+// ClearBackupProxyID clears the value of the "backup_proxy_id" field.
+func (m *OutboundProxyMutation) ClearBackupProxyID() {
+	m.backup_proxy = nil
+	m.clearedFields[outboundproxy.FieldBackupProxyID] = struct{}{}
+}
+
+// BackupProxyIDCleared returns if the "backup_proxy_id" field was cleared in this mutation.
+func (m *OutboundProxyMutation) BackupProxyIDCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldBackupProxyID]
+	return ok
+}
+
+// ResetBackupProxyID resets all changes to the "backup_proxy_id" field.
+func (m *OutboundProxyMutation) ResetBackupProxyID() {
+	m.backup_proxy = nil
+	delete(m.clearedFields, outboundproxy.FieldBackupProxyID)
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *OutboundProxyMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *OutboundProxyMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ClearExpiresAt clears the value of the "expires_at" field.
+func (m *OutboundProxyMutation) ClearExpiresAt() {
+	m.expires_at = nil
+	m.clearedFields[outboundproxy.FieldExpiresAt] = struct{}{}
+}
+
+// ExpiresAtCleared returns if the "expires_at" field was cleared in this mutation.
+func (m *OutboundProxyMutation) ExpiresAtCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldExpiresAt]
+	return ok
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *OutboundProxyMutation) ResetExpiresAt() {
+	m.expires_at = nil
+	delete(m.clearedFields, outboundproxy.FieldExpiresAt)
+}
+
+// SetRemark sets the "remark" field.
+func (m *OutboundProxyMutation) SetRemark(s string) {
+	m.remark = &s
+}
+
+// Remark returns the value of the "remark" field in the mutation.
+func (m *OutboundProxyMutation) Remark() (r string, exists bool) {
+	v := m.remark
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRemark returns the old "remark" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldRemark(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRemark is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRemark requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRemark: %w", err)
+	}
+	return oldValue.Remark, nil
+}
+
+// ClearRemark clears the value of the "remark" field.
+func (m *OutboundProxyMutation) ClearRemark() {
+	m.remark = nil
+	m.clearedFields[outboundproxy.FieldRemark] = struct{}{}
+}
+
+// RemarkCleared returns if the "remark" field was cleared in this mutation.
+func (m *OutboundProxyMutation) RemarkCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldRemark]
+	return ok
+}
+
+// ResetRemark resets all changes to the "remark" field.
+func (m *OutboundProxyMutation) ResetRemark() {
+	m.remark = nil
+	delete(m.clearedFields, outboundproxy.FieldRemark)
+}
+
+// SetLastTestedAt sets the "last_tested_at" field.
+func (m *OutboundProxyMutation) SetLastTestedAt(t time.Time) {
+	m.last_tested_at = &t
+}
+
+// LastTestedAt returns the value of the "last_tested_at" field in the mutation.
+func (m *OutboundProxyMutation) LastTestedAt() (r time.Time, exists bool) {
+	v := m.last_tested_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastTestedAt returns the old "last_tested_at" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldLastTestedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastTestedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastTestedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastTestedAt: %w", err)
+	}
+	return oldValue.LastTestedAt, nil
+}
+
+// ClearLastTestedAt clears the value of the "last_tested_at" field.
+func (m *OutboundProxyMutation) ClearLastTestedAt() {
+	m.last_tested_at = nil
+	m.clearedFields[outboundproxy.FieldLastTestedAt] = struct{}{}
+}
+
+// LastTestedAtCleared returns if the "last_tested_at" field was cleared in this mutation.
+func (m *OutboundProxyMutation) LastTestedAtCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldLastTestedAt]
+	return ok
+}
+
+// ResetLastTestedAt resets all changes to the "last_tested_at" field.
+func (m *OutboundProxyMutation) ResetLastTestedAt() {
+	m.last_tested_at = nil
+	delete(m.clearedFields, outboundproxy.FieldLastTestedAt)
+}
+
+// SetLastTestSuccess sets the "last_test_success" field.
+func (m *OutboundProxyMutation) SetLastTestSuccess(b bool) {
+	m.last_test_success = &b
+}
+
+// LastTestSuccess returns the value of the "last_test_success" field in the mutation.
+func (m *OutboundProxyMutation) LastTestSuccess() (r bool, exists bool) {
+	v := m.last_test_success
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastTestSuccess returns the old "last_test_success" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldLastTestSuccess(ctx context.Context) (v *bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastTestSuccess is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastTestSuccess requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastTestSuccess: %w", err)
+	}
+	return oldValue.LastTestSuccess, nil
+}
+
+// ClearLastTestSuccess clears the value of the "last_test_success" field.
+func (m *OutboundProxyMutation) ClearLastTestSuccess() {
+	m.last_test_success = nil
+	m.clearedFields[outboundproxy.FieldLastTestSuccess] = struct{}{}
+}
+
+// LastTestSuccessCleared returns if the "last_test_success" field was cleared in this mutation.
+func (m *OutboundProxyMutation) LastTestSuccessCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldLastTestSuccess]
+	return ok
+}
+
+// ResetLastTestSuccess resets all changes to the "last_test_success" field.
+func (m *OutboundProxyMutation) ResetLastTestSuccess() {
+	m.last_test_success = nil
+	delete(m.clearedFields, outboundproxy.FieldLastTestSuccess)
+}
+
+// SetLastExitIP sets the "last_exit_ip" field.
+func (m *OutboundProxyMutation) SetLastExitIP(s string) {
+	m.last_exit_ip = &s
+}
+
+// LastExitIP returns the value of the "last_exit_ip" field in the mutation.
+func (m *OutboundProxyMutation) LastExitIP() (r string, exists bool) {
+	v := m.last_exit_ip
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastExitIP returns the old "last_exit_ip" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldLastExitIP(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastExitIP is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastExitIP requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastExitIP: %w", err)
+	}
+	return oldValue.LastExitIP, nil
+}
+
+// ClearLastExitIP clears the value of the "last_exit_ip" field.
+func (m *OutboundProxyMutation) ClearLastExitIP() {
+	m.last_exit_ip = nil
+	m.clearedFields[outboundproxy.FieldLastExitIP] = struct{}{}
+}
+
+// LastExitIPCleared returns if the "last_exit_ip" field was cleared in this mutation.
+func (m *OutboundProxyMutation) LastExitIPCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldLastExitIP]
+	return ok
+}
+
+// ResetLastExitIP resets all changes to the "last_exit_ip" field.
+func (m *OutboundProxyMutation) ResetLastExitIP() {
+	m.last_exit_ip = nil
+	delete(m.clearedFields, outboundproxy.FieldLastExitIP)
+}
+
+// SetLastCountry sets the "last_country" field.
+func (m *OutboundProxyMutation) SetLastCountry(s string) {
+	m.last_country = &s
+}
+
+// LastCountry returns the value of the "last_country" field in the mutation.
+func (m *OutboundProxyMutation) LastCountry() (r string, exists bool) {
+	v := m.last_country
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastCountry returns the old "last_country" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldLastCountry(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastCountry is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastCountry requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastCountry: %w", err)
+	}
+	return oldValue.LastCountry, nil
+}
+
+// ClearLastCountry clears the value of the "last_country" field.
+func (m *OutboundProxyMutation) ClearLastCountry() {
+	m.last_country = nil
+	m.clearedFields[outboundproxy.FieldLastCountry] = struct{}{}
+}
+
+// LastCountryCleared returns if the "last_country" field was cleared in this mutation.
+func (m *OutboundProxyMutation) LastCountryCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldLastCountry]
+	return ok
+}
+
+// ResetLastCountry resets all changes to the "last_country" field.
+func (m *OutboundProxyMutation) ResetLastCountry() {
+	m.last_country = nil
+	delete(m.clearedFields, outboundproxy.FieldLastCountry)
+}
+
+// SetLastLatencyMs sets the "last_latency_ms" field.
+func (m *OutboundProxyMutation) SetLastLatencyMs(i int) {
+	m.last_latency_ms = &i
+	m.addlast_latency_ms = nil
+}
+
+// LastLatencyMs returns the value of the "last_latency_ms" field in the mutation.
+func (m *OutboundProxyMutation) LastLatencyMs() (r int, exists bool) {
+	v := m.last_latency_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastLatencyMs returns the old "last_latency_ms" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldLastLatencyMs(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastLatencyMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastLatencyMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastLatencyMs: %w", err)
+	}
+	return oldValue.LastLatencyMs, nil
+}
+
+// AddLastLatencyMs adds i to the "last_latency_ms" field.
+func (m *OutboundProxyMutation) AddLastLatencyMs(i int) {
+	if m.addlast_latency_ms != nil {
+		*m.addlast_latency_ms += i
+	} else {
+		m.addlast_latency_ms = &i
+	}
+}
+
+// AddedLastLatencyMs returns the value that was added to the "last_latency_ms" field in this mutation.
+func (m *OutboundProxyMutation) AddedLastLatencyMs() (r int, exists bool) {
+	v := m.addlast_latency_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearLastLatencyMs clears the value of the "last_latency_ms" field.
+func (m *OutboundProxyMutation) ClearLastLatencyMs() {
+	m.last_latency_ms = nil
+	m.addlast_latency_ms = nil
+	m.clearedFields[outboundproxy.FieldLastLatencyMs] = struct{}{}
+}
+
+// LastLatencyMsCleared returns if the "last_latency_ms" field was cleared in this mutation.
+func (m *OutboundProxyMutation) LastLatencyMsCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldLastLatencyMs]
+	return ok
+}
+
+// ResetLastLatencyMs resets all changes to the "last_latency_ms" field.
+func (m *OutboundProxyMutation) ResetLastLatencyMs() {
+	m.last_latency_ms = nil
+	m.addlast_latency_ms = nil
+	delete(m.clearedFields, outboundproxy.FieldLastLatencyMs)
+}
+
+// SetLastTestError sets the "last_test_error" field.
+func (m *OutboundProxyMutation) SetLastTestError(s string) {
+	m.last_test_error = &s
+}
+
+// LastTestError returns the value of the "last_test_error" field in the mutation.
+func (m *OutboundProxyMutation) LastTestError() (r string, exists bool) {
+	v := m.last_test_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastTestError returns the old "last_test_error" field's value of the OutboundProxy entity.
+// If the OutboundProxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OutboundProxyMutation) OldLastTestError(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastTestError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastTestError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastTestError: %w", err)
+	}
+	return oldValue.LastTestError, nil
+}
+
+// ClearLastTestError clears the value of the "last_test_error" field.
+func (m *OutboundProxyMutation) ClearLastTestError() {
+	m.last_test_error = nil
+	m.clearedFields[outboundproxy.FieldLastTestError] = struct{}{}
+}
+
+// LastTestErrorCleared returns if the "last_test_error" field was cleared in this mutation.
+func (m *OutboundProxyMutation) LastTestErrorCleared() bool {
+	_, ok := m.clearedFields[outboundproxy.FieldLastTestError]
+	return ok
+}
+
+// ResetLastTestError resets all changes to the "last_test_error" field.
+func (m *OutboundProxyMutation) ResetLastTestError() {
+	m.last_test_error = nil
+	delete(m.clearedFields, outboundproxy.FieldLastTestError)
+}
+
+// ClearBackupProxy clears the "backup_proxy" edge to the OutboundProxy entity.
+func (m *OutboundProxyMutation) ClearBackupProxy() {
+	m.clearedbackup_proxy = true
+	m.clearedFields[outboundproxy.FieldBackupProxyID] = struct{}{}
+}
+
+// BackupProxyCleared reports if the "backup_proxy" edge to the OutboundProxy entity was cleared.
+func (m *OutboundProxyMutation) BackupProxyCleared() bool {
+	return m.BackupProxyIDCleared() || m.clearedbackup_proxy
+}
+
+// BackupProxyIDs returns the "backup_proxy" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// BackupProxyID instead. It exists only for internal usage by the builders.
+func (m *OutboundProxyMutation) BackupProxyIDs() (ids []int) {
+	if id := m.backup_proxy; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetBackupProxy resets all changes to the "backup_proxy" edge.
+func (m *OutboundProxyMutation) ResetBackupProxy() {
+	m.backup_proxy = nil
+	m.clearedbackup_proxy = false
+}
+
+// AddBackupForIDs adds the "backup_for" edge to the OutboundProxy entity by ids.
+func (m *OutboundProxyMutation) AddBackupForIDs(ids ...int) {
+	if m.backup_for == nil {
+		m.backup_for = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.backup_for[ids[i]] = struct{}{}
+	}
+}
+
+// ClearBackupFor clears the "backup_for" edge to the OutboundProxy entity.
+func (m *OutboundProxyMutation) ClearBackupFor() {
+	m.clearedbackup_for = true
+}
+
+// BackupForCleared reports if the "backup_for" edge to the OutboundProxy entity was cleared.
+func (m *OutboundProxyMutation) BackupForCleared() bool {
+	return m.clearedbackup_for
+}
+
+// RemoveBackupForIDs removes the "backup_for" edge to the OutboundProxy entity by IDs.
+func (m *OutboundProxyMutation) RemoveBackupForIDs(ids ...int) {
+	if m.removedbackup_for == nil {
+		m.removedbackup_for = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.backup_for, ids[i])
+		m.removedbackup_for[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedBackupFor returns the removed IDs of the "backup_for" edge to the OutboundProxy entity.
+func (m *OutboundProxyMutation) RemovedBackupForIDs() (ids []int) {
+	for id := range m.removedbackup_for {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// BackupForIDs returns the "backup_for" edge IDs in the mutation.
+func (m *OutboundProxyMutation) BackupForIDs() (ids []int) {
+	for id := range m.backup_for {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetBackupFor resets all changes to the "backup_for" edge.
+func (m *OutboundProxyMutation) ResetBackupFor() {
+	m.backup_for = nil
+	m.clearedbackup_for = false
+	m.removedbackup_for = nil
+}
+
+// Where appends a list predicates to the OutboundProxyMutation builder.
+func (m *OutboundProxyMutation) Where(ps ...predicate.OutboundProxy) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the OutboundProxyMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *OutboundProxyMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.OutboundProxy, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *OutboundProxyMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *OutboundProxyMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (OutboundProxy).
+func (m *OutboundProxyMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *OutboundProxyMutation) Fields() []string {
+	fields := make([]string, 0, 19)
+	if m.created_at != nil {
+		fields = append(fields, outboundproxy.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, outboundproxy.FieldUpdatedAt)
+	}
+	if m.name != nil {
+		fields = append(fields, outboundproxy.FieldName)
+	}
+	if m.kind != nil {
+		fields = append(fields, outboundproxy.FieldKind)
+	}
+	if m.proxy_url != nil {
+		fields = append(fields, outboundproxy.FieldProxyURL)
+	}
+	if m.pool_name != nil {
+		fields = append(fields, outboundproxy.FieldPoolName)
+	}
+	if m.status != nil {
+		fields = append(fields, outboundproxy.FieldStatus)
+	}
+	if m.weight != nil {
+		fields = append(fields, outboundproxy.FieldWeight)
+	}
+	if m.max_concurrent != nil {
+		fields = append(fields, outboundproxy.FieldMaxConcurrent)
+	}
+	if m.max_credentials != nil {
+		fields = append(fields, outboundproxy.FieldMaxCredentials)
+	}
+	if m.backup_proxy != nil {
+		fields = append(fields, outboundproxy.FieldBackupProxyID)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, outboundproxy.FieldExpiresAt)
+	}
+	if m.remark != nil {
+		fields = append(fields, outboundproxy.FieldRemark)
+	}
+	if m.last_tested_at != nil {
+		fields = append(fields, outboundproxy.FieldLastTestedAt)
+	}
+	if m.last_test_success != nil {
+		fields = append(fields, outboundproxy.FieldLastTestSuccess)
+	}
+	if m.last_exit_ip != nil {
+		fields = append(fields, outboundproxy.FieldLastExitIP)
+	}
+	if m.last_country != nil {
+		fields = append(fields, outboundproxy.FieldLastCountry)
+	}
+	if m.last_latency_ms != nil {
+		fields = append(fields, outboundproxy.FieldLastLatencyMs)
+	}
+	if m.last_test_error != nil {
+		fields = append(fields, outboundproxy.FieldLastTestError)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *OutboundProxyMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case outboundproxy.FieldCreatedAt:
+		return m.CreatedAt()
+	case outboundproxy.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case outboundproxy.FieldName:
+		return m.Name()
+	case outboundproxy.FieldKind:
+		return m.Kind()
+	case outboundproxy.FieldProxyURL:
+		return m.ProxyURL()
+	case outboundproxy.FieldPoolName:
+		return m.PoolName()
+	case outboundproxy.FieldStatus:
+		return m.Status()
+	case outboundproxy.FieldWeight:
+		return m.Weight()
+	case outboundproxy.FieldMaxConcurrent:
+		return m.MaxConcurrent()
+	case outboundproxy.FieldMaxCredentials:
+		return m.MaxCredentials()
+	case outboundproxy.FieldBackupProxyID:
+		return m.BackupProxyID()
+	case outboundproxy.FieldExpiresAt:
+		return m.ExpiresAt()
+	case outboundproxy.FieldRemark:
+		return m.Remark()
+	case outboundproxy.FieldLastTestedAt:
+		return m.LastTestedAt()
+	case outboundproxy.FieldLastTestSuccess:
+		return m.LastTestSuccess()
+	case outboundproxy.FieldLastExitIP:
+		return m.LastExitIP()
+	case outboundproxy.FieldLastCountry:
+		return m.LastCountry()
+	case outboundproxy.FieldLastLatencyMs:
+		return m.LastLatencyMs()
+	case outboundproxy.FieldLastTestError:
+		return m.LastTestError()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *OutboundProxyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case outboundproxy.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case outboundproxy.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case outboundproxy.FieldName:
+		return m.OldName(ctx)
+	case outboundproxy.FieldKind:
+		return m.OldKind(ctx)
+	case outboundproxy.FieldProxyURL:
+		return m.OldProxyURL(ctx)
+	case outboundproxy.FieldPoolName:
+		return m.OldPoolName(ctx)
+	case outboundproxy.FieldStatus:
+		return m.OldStatus(ctx)
+	case outboundproxy.FieldWeight:
+		return m.OldWeight(ctx)
+	case outboundproxy.FieldMaxConcurrent:
+		return m.OldMaxConcurrent(ctx)
+	case outboundproxy.FieldMaxCredentials:
+		return m.OldMaxCredentials(ctx)
+	case outboundproxy.FieldBackupProxyID:
+		return m.OldBackupProxyID(ctx)
+	case outboundproxy.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	case outboundproxy.FieldRemark:
+		return m.OldRemark(ctx)
+	case outboundproxy.FieldLastTestedAt:
+		return m.OldLastTestedAt(ctx)
+	case outboundproxy.FieldLastTestSuccess:
+		return m.OldLastTestSuccess(ctx)
+	case outboundproxy.FieldLastExitIP:
+		return m.OldLastExitIP(ctx)
+	case outboundproxy.FieldLastCountry:
+		return m.OldLastCountry(ctx)
+	case outboundproxy.FieldLastLatencyMs:
+		return m.OldLastLatencyMs(ctx)
+	case outboundproxy.FieldLastTestError:
+		return m.OldLastTestError(ctx)
+	}
+	return nil, fmt.Errorf("unknown OutboundProxy field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OutboundProxyMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case outboundproxy.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case outboundproxy.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case outboundproxy.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case outboundproxy.FieldKind:
+		v, ok := value.(outboundproxy.Kind)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case outboundproxy.FieldProxyURL:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProxyURL(v)
+		return nil
+	case outboundproxy.FieldPoolName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPoolName(v)
+		return nil
+	case outboundproxy.FieldStatus:
+		v, ok := value.(outboundproxy.Status)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case outboundproxy.FieldWeight:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWeight(v)
+		return nil
+	case outboundproxy.FieldMaxConcurrent:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxConcurrent(v)
+		return nil
+	case outboundproxy.FieldMaxCredentials:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxCredentials(v)
+		return nil
+	case outboundproxy.FieldBackupProxyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBackupProxyID(v)
+		return nil
+	case outboundproxy.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	case outboundproxy.FieldRemark:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRemark(v)
+		return nil
+	case outboundproxy.FieldLastTestedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastTestedAt(v)
+		return nil
+	case outboundproxy.FieldLastTestSuccess:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastTestSuccess(v)
+		return nil
+	case outboundproxy.FieldLastExitIP:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastExitIP(v)
+		return nil
+	case outboundproxy.FieldLastCountry:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastCountry(v)
+		return nil
+	case outboundproxy.FieldLastLatencyMs:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastLatencyMs(v)
+		return nil
+	case outboundproxy.FieldLastTestError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastTestError(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OutboundProxy field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *OutboundProxyMutation) AddedFields() []string {
+	var fields []string
+	if m.addweight != nil {
+		fields = append(fields, outboundproxy.FieldWeight)
+	}
+	if m.addmax_concurrent != nil {
+		fields = append(fields, outboundproxy.FieldMaxConcurrent)
+	}
+	if m.addmax_credentials != nil {
+		fields = append(fields, outboundproxy.FieldMaxCredentials)
+	}
+	if m.addlast_latency_ms != nil {
+		fields = append(fields, outboundproxy.FieldLastLatencyMs)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *OutboundProxyMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case outboundproxy.FieldWeight:
+		return m.AddedWeight()
+	case outboundproxy.FieldMaxConcurrent:
+		return m.AddedMaxConcurrent()
+	case outboundproxy.FieldMaxCredentials:
+		return m.AddedMaxCredentials()
+	case outboundproxy.FieldLastLatencyMs:
+		return m.AddedLastLatencyMs()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OutboundProxyMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case outboundproxy.FieldWeight:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWeight(v)
+		return nil
+	case outboundproxy.FieldMaxConcurrent:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxConcurrent(v)
+		return nil
+	case outboundproxy.FieldMaxCredentials:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxCredentials(v)
+		return nil
+	case outboundproxy.FieldLastLatencyMs:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLastLatencyMs(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OutboundProxy numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *OutboundProxyMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(outboundproxy.FieldPoolName) {
+		fields = append(fields, outboundproxy.FieldPoolName)
+	}
+	if m.FieldCleared(outboundproxy.FieldMaxConcurrent) {
+		fields = append(fields, outboundproxy.FieldMaxConcurrent)
+	}
+	if m.FieldCleared(outboundproxy.FieldMaxCredentials) {
+		fields = append(fields, outboundproxy.FieldMaxCredentials)
+	}
+	if m.FieldCleared(outboundproxy.FieldBackupProxyID) {
+		fields = append(fields, outboundproxy.FieldBackupProxyID)
+	}
+	if m.FieldCleared(outboundproxy.FieldExpiresAt) {
+		fields = append(fields, outboundproxy.FieldExpiresAt)
+	}
+	if m.FieldCleared(outboundproxy.FieldRemark) {
+		fields = append(fields, outboundproxy.FieldRemark)
+	}
+	if m.FieldCleared(outboundproxy.FieldLastTestedAt) {
+		fields = append(fields, outboundproxy.FieldLastTestedAt)
+	}
+	if m.FieldCleared(outboundproxy.FieldLastTestSuccess) {
+		fields = append(fields, outboundproxy.FieldLastTestSuccess)
+	}
+	if m.FieldCleared(outboundproxy.FieldLastExitIP) {
+		fields = append(fields, outboundproxy.FieldLastExitIP)
+	}
+	if m.FieldCleared(outboundproxy.FieldLastCountry) {
+		fields = append(fields, outboundproxy.FieldLastCountry)
+	}
+	if m.FieldCleared(outboundproxy.FieldLastLatencyMs) {
+		fields = append(fields, outboundproxy.FieldLastLatencyMs)
+	}
+	if m.FieldCleared(outboundproxy.FieldLastTestError) {
+		fields = append(fields, outboundproxy.FieldLastTestError)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *OutboundProxyMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *OutboundProxyMutation) ClearField(name string) error {
+	switch name {
+	case outboundproxy.FieldPoolName:
+		m.ClearPoolName()
+		return nil
+	case outboundproxy.FieldMaxConcurrent:
+		m.ClearMaxConcurrent()
+		return nil
+	case outboundproxy.FieldMaxCredentials:
+		m.ClearMaxCredentials()
+		return nil
+	case outboundproxy.FieldBackupProxyID:
+		m.ClearBackupProxyID()
+		return nil
+	case outboundproxy.FieldExpiresAt:
+		m.ClearExpiresAt()
+		return nil
+	case outboundproxy.FieldRemark:
+		m.ClearRemark()
+		return nil
+	case outboundproxy.FieldLastTestedAt:
+		m.ClearLastTestedAt()
+		return nil
+	case outboundproxy.FieldLastTestSuccess:
+		m.ClearLastTestSuccess()
+		return nil
+	case outboundproxy.FieldLastExitIP:
+		m.ClearLastExitIP()
+		return nil
+	case outboundproxy.FieldLastCountry:
+		m.ClearLastCountry()
+		return nil
+	case outboundproxy.FieldLastLatencyMs:
+		m.ClearLastLatencyMs()
+		return nil
+	case outboundproxy.FieldLastTestError:
+		m.ClearLastTestError()
+		return nil
+	}
+	return fmt.Errorf("unknown OutboundProxy nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *OutboundProxyMutation) ResetField(name string) error {
+	switch name {
+	case outboundproxy.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case outboundproxy.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case outboundproxy.FieldName:
+		m.ResetName()
+		return nil
+	case outboundproxy.FieldKind:
+		m.ResetKind()
+		return nil
+	case outboundproxy.FieldProxyURL:
+		m.ResetProxyURL()
+		return nil
+	case outboundproxy.FieldPoolName:
+		m.ResetPoolName()
+		return nil
+	case outboundproxy.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case outboundproxy.FieldWeight:
+		m.ResetWeight()
+		return nil
+	case outboundproxy.FieldMaxConcurrent:
+		m.ResetMaxConcurrent()
+		return nil
+	case outboundproxy.FieldMaxCredentials:
+		m.ResetMaxCredentials()
+		return nil
+	case outboundproxy.FieldBackupProxyID:
+		m.ResetBackupProxyID()
+		return nil
+	case outboundproxy.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	case outboundproxy.FieldRemark:
+		m.ResetRemark()
+		return nil
+	case outboundproxy.FieldLastTestedAt:
+		m.ResetLastTestedAt()
+		return nil
+	case outboundproxy.FieldLastTestSuccess:
+		m.ResetLastTestSuccess()
+		return nil
+	case outboundproxy.FieldLastExitIP:
+		m.ResetLastExitIP()
+		return nil
+	case outboundproxy.FieldLastCountry:
+		m.ResetLastCountry()
+		return nil
+	case outboundproxy.FieldLastLatencyMs:
+		m.ResetLastLatencyMs()
+		return nil
+	case outboundproxy.FieldLastTestError:
+		m.ResetLastTestError()
+		return nil
+	}
+	return fmt.Errorf("unknown OutboundProxy field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *OutboundProxyMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.backup_proxy != nil {
+		edges = append(edges, outboundproxy.EdgeBackupProxy)
+	}
+	if m.backup_for != nil {
+		edges = append(edges, outboundproxy.EdgeBackupFor)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *OutboundProxyMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case outboundproxy.EdgeBackupProxy:
+		if id := m.backup_proxy; id != nil {
+			return []ent.Value{*id}
+		}
+	case outboundproxy.EdgeBackupFor:
+		ids := make([]ent.Value, 0, len(m.backup_for))
+		for id := range m.backup_for {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *OutboundProxyMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.removedbackup_for != nil {
+		edges = append(edges, outboundproxy.EdgeBackupFor)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *OutboundProxyMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case outboundproxy.EdgeBackupFor:
+		ids := make([]ent.Value, 0, len(m.removedbackup_for))
+		for id := range m.removedbackup_for {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *OutboundProxyMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedbackup_proxy {
+		edges = append(edges, outboundproxy.EdgeBackupProxy)
+	}
+	if m.clearedbackup_for {
+		edges = append(edges, outboundproxy.EdgeBackupFor)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *OutboundProxyMutation) EdgeCleared(name string) bool {
+	switch name {
+	case outboundproxy.EdgeBackupProxy:
+		return m.clearedbackup_proxy
+	case outboundproxy.EdgeBackupFor:
+		return m.clearedbackup_for
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *OutboundProxyMutation) ClearEdge(name string) error {
+	switch name {
+	case outboundproxy.EdgeBackupProxy:
+		m.ClearBackupProxy()
+		return nil
+	}
+	return fmt.Errorf("unknown OutboundProxy unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *OutboundProxyMutation) ResetEdge(name string) error {
+	switch name {
+	case outboundproxy.EdgeBackupProxy:
+		m.ResetBackupProxy()
+		return nil
+	case outboundproxy.EdgeBackupFor:
+		m.ResetBackupFor()
+		return nil
+	}
+	return fmt.Errorf("unknown OutboundProxy edge %s", name)
 }
 
 // PendingUsageMutation represents an operation that mutates the PendingUsage nodes in the graph.

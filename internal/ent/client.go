@@ -29,6 +29,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/model"
 	"github.com/looplj/axonhub/internal/ent/observabilitypayload"
 	"github.com/looplj/axonhub/internal/ent/oidcidentity"
+	"github.com/looplj/axonhub/internal/ent/outboundproxy"
 	"github.com/looplj/axonhub/internal/ent/pendingusage"
 	"github.com/looplj/axonhub/internal/ent/project"
 	"github.com/looplj/axonhub/internal/ent/prompt"
@@ -80,6 +81,8 @@ type Client struct {
 	OIDCIdentity *OIDCIdentityClient
 	// ObservabilityPayload is the client for interacting with the ObservabilityPayload builders.
 	ObservabilityPayload *ObservabilityPayloadClient
+	// OutboundProxy is the client for interacting with the OutboundProxy builders.
+	OutboundProxy *OutboundProxyClient
 	// PendingUsage is the client for interacting with the PendingUsage builders.
 	PendingUsage *PendingUsageClient
 	// Project is the client for interacting with the Project builders.
@@ -139,6 +142,7 @@ func (c *Client) init() {
 	c.Model = NewModelClient(c.config)
 	c.OIDCIdentity = NewOIDCIdentityClient(c.config)
 	c.ObservabilityPayload = NewObservabilityPayloadClient(c.config)
+	c.OutboundProxy = NewOutboundProxyClient(c.config)
 	c.PendingUsage = NewPendingUsageClient(c.config)
 	c.Project = NewProjectClient(c.config)
 	c.Prompt = NewPromptClient(c.config)
@@ -261,6 +265,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Model:                     NewModelClient(cfg),
 		OIDCIdentity:              NewOIDCIdentityClient(cfg),
 		ObservabilityPayload:      NewObservabilityPayloadClient(cfg),
+		OutboundProxy:             NewOutboundProxyClient(cfg),
 		PendingUsage:              NewPendingUsageClient(cfg),
 		Project:                   NewProjectClient(cfg),
 		Prompt:                    NewPromptClient(cfg),
@@ -310,6 +315,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Model:                     NewModelClient(cfg),
 		OIDCIdentity:              NewOIDCIdentityClient(cfg),
 		ObservabilityPayload:      NewObservabilityPayloadClient(cfg),
+		OutboundProxy:             NewOutboundProxyClient(cfg),
 		PendingUsage:              NewPendingUsageClient(cfg),
 		Project:                   NewProjectClient(cfg),
 		Prompt:                    NewPromptClient(cfg),
@@ -359,7 +365,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
 		c.ChannelProbe, c.CompactUsageBatch, c.DataStorage,
 		c.ManagedObservabilityState, c.Model, c.OIDCIdentity, c.ObservabilityPayload,
-		c.PendingUsage, c.Project, c.Prompt, c.PromptProtectionRule,
+		c.OutboundProxy, c.PendingUsage, c.Project, c.Prompt, c.PromptProtectionRule,
 		c.ProviderQuotaStatus, c.RegistrationInvite, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -376,7 +382,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.ChannelModelPrice, c.ChannelModelPriceVersion, c.ChannelOverrideTemplate,
 		c.ChannelProbe, c.CompactUsageBatch, c.DataStorage,
 		c.ManagedObservabilityState, c.Model, c.OIDCIdentity, c.ObservabilityPayload,
-		c.PendingUsage, c.Project, c.Prompt, c.PromptProtectionRule,
+		c.OutboundProxy, c.PendingUsage, c.Project, c.Prompt, c.PromptProtectionRule,
 		c.ProviderQuotaStatus, c.RegistrationInvite, c.Request, c.RequestExecution,
 		c.Role, c.System, c.Thread, c.Trace, c.UsageLog, c.User, c.UserProject,
 		c.UserRole,
@@ -416,6 +422,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.OIDCIdentity.mutate(ctx, m)
 	case *ObservabilityPayloadMutation:
 		return c.ObservabilityPayload.mutate(ctx, m)
+	case *OutboundProxyMutation:
+		return c.OutboundProxy.mutate(ctx, m)
 	case *PendingUsageMutation:
 		return c.PendingUsage.mutate(ctx, m)
 	case *ProjectMutation:
@@ -2699,6 +2707,172 @@ func (c *ObservabilityPayloadClient) mutate(ctx context.Context, m *Observabilit
 		return (&ObservabilityPayloadDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown ObservabilityPayload mutation op: %q", m.Op())
+	}
+}
+
+// OutboundProxyClient is a client for the OutboundProxy schema.
+type OutboundProxyClient struct {
+	config
+}
+
+// NewOutboundProxyClient returns a client for the OutboundProxy from the given config.
+func NewOutboundProxyClient(c config) *OutboundProxyClient {
+	return &OutboundProxyClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `outboundproxy.Hooks(f(g(h())))`.
+func (c *OutboundProxyClient) Use(hooks ...Hook) {
+	c.hooks.OutboundProxy = append(c.hooks.OutboundProxy, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `outboundproxy.Intercept(f(g(h())))`.
+func (c *OutboundProxyClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OutboundProxy = append(c.inters.OutboundProxy, interceptors...)
+}
+
+// Create returns a builder for creating a OutboundProxy entity.
+func (c *OutboundProxyClient) Create() *OutboundProxyCreate {
+	mutation := newOutboundProxyMutation(c.config, OpCreate)
+	return &OutboundProxyCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OutboundProxy entities.
+func (c *OutboundProxyClient) CreateBulk(builders ...*OutboundProxyCreate) *OutboundProxyCreateBulk {
+	return &OutboundProxyCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OutboundProxyClient) MapCreateBulk(slice any, setFunc func(*OutboundProxyCreate, int)) *OutboundProxyCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OutboundProxyCreateBulk{err: fmt.Errorf("calling to OutboundProxyClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OutboundProxyCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OutboundProxyCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OutboundProxy.
+func (c *OutboundProxyClient) Update() *OutboundProxyUpdate {
+	mutation := newOutboundProxyMutation(c.config, OpUpdate)
+	return &OutboundProxyUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OutboundProxyClient) UpdateOne(_m *OutboundProxy) *OutboundProxyUpdateOne {
+	mutation := newOutboundProxyMutation(c.config, OpUpdateOne, withOutboundProxy(_m))
+	return &OutboundProxyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OutboundProxyClient) UpdateOneID(id int) *OutboundProxyUpdateOne {
+	mutation := newOutboundProxyMutation(c.config, OpUpdateOne, withOutboundProxyID(id))
+	return &OutboundProxyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OutboundProxy.
+func (c *OutboundProxyClient) Delete() *OutboundProxyDelete {
+	mutation := newOutboundProxyMutation(c.config, OpDelete)
+	return &OutboundProxyDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OutboundProxyClient) DeleteOne(_m *OutboundProxy) *OutboundProxyDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OutboundProxyClient) DeleteOneID(id int) *OutboundProxyDeleteOne {
+	builder := c.Delete().Where(outboundproxy.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OutboundProxyDeleteOne{builder}
+}
+
+// Query returns a query builder for OutboundProxy.
+func (c *OutboundProxyClient) Query() *OutboundProxyQuery {
+	return &OutboundProxyQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOutboundProxy},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OutboundProxy entity by its id.
+func (c *OutboundProxyClient) Get(ctx context.Context, id int) (*OutboundProxy, error) {
+	return c.Query().Where(outboundproxy.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OutboundProxyClient) GetX(ctx context.Context, id int) *OutboundProxy {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryBackupProxy queries the backup_proxy edge of a OutboundProxy.
+func (c *OutboundProxyClient) QueryBackupProxy(_m *OutboundProxy) *OutboundProxyQuery {
+	query := (&OutboundProxyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(outboundproxy.Table, outboundproxy.FieldID, id),
+			sqlgraph.To(outboundproxy.Table, outboundproxy.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, outboundproxy.BackupProxyTable, outboundproxy.BackupProxyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryBackupFor queries the backup_for edge of a OutboundProxy.
+func (c *OutboundProxyClient) QueryBackupFor(_m *OutboundProxy) *OutboundProxyQuery {
+	query := (&OutboundProxyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(outboundproxy.Table, outboundproxy.FieldID, id),
+			sqlgraph.To(outboundproxy.Table, outboundproxy.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, outboundproxy.BackupForTable, outboundproxy.BackupForColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OutboundProxyClient) Hooks() []Hook {
+	hooks := c.hooks.OutboundProxy
+	return append(hooks[:len(hooks):len(hooks)], outboundproxy.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *OutboundProxyClient) Interceptors() []Interceptor {
+	return c.inters.OutboundProxy
+}
+
+func (c *OutboundProxyClient) mutate(ctx context.Context, m *OutboundProxyMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OutboundProxyCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OutboundProxyUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OutboundProxyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OutboundProxyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OutboundProxy mutation op: %q", m.Op())
 	}
 }
 
@@ -5624,8 +5798,8 @@ type (
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
 		ChannelProbe, CompactUsageBatch, DataStorage, ManagedObservabilityState, Model,
-		OIDCIdentity, ObservabilityPayload, PendingUsage, Project, Prompt,
-		PromptProtectionRule, ProviderQuotaStatus, RegistrationInvite, Request,
+		OIDCIdentity, ObservabilityPayload, OutboundProxy, PendingUsage, Project,
+		Prompt, PromptProtectionRule, ProviderQuotaStatus, RegistrationInvite, Request,
 		RequestExecution, Role, System, Thread, Trace, UsageLog, User, UserProject,
 		UserRole []ent.Hook
 	}
@@ -5633,8 +5807,8 @@ type (
 		APIKey, APIKeyProfileTemplate, Channel, ChannelKeyMonitoringEvent,
 		ChannelModelPrice, ChannelModelPriceVersion, ChannelOverrideTemplate,
 		ChannelProbe, CompactUsageBatch, DataStorage, ManagedObservabilityState, Model,
-		OIDCIdentity, ObservabilityPayload, PendingUsage, Project, Prompt,
-		PromptProtectionRule, ProviderQuotaStatus, RegistrationInvite, Request,
+		OIDCIdentity, ObservabilityPayload, OutboundProxy, PendingUsage, Project,
+		Prompt, PromptProtectionRule, ProviderQuotaStatus, RegistrationInvite, Request,
 		RequestExecution, Role, System, Thread, Trace, UsageLog, User, UserProject,
 		UserRole []ent.Interceptor
 	}

@@ -385,6 +385,10 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, input ent.CreateAPIKey
 			create.SetAllowedIps(allowedIPs)
 		}
 
+		if input.ExposeUpstreamKeyQuota != nil {
+			create.SetExposeUpstreamKeyQuota(*input.ExposeUpstreamKeyQuota)
+		}
+
 		created, err := create.Save(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create API key: %w", err)
@@ -492,6 +496,10 @@ func (s *APIKeyService) UpdateAPIKey(ctx context.Context, id int, input ent.Upda
 				return err
 			}
 			update.AppendAllowedIps(appendAllowedIPs)
+		}
+
+		if input.ExposeUpstreamKeyQuota != nil {
+			update.SetExposeUpstreamKeyQuota(*input.ExposeUpstreamKeyQuota)
 		}
 
 		updated, err := update.Save(ctx)

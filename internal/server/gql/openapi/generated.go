@@ -50,12 +50,13 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	APIKey struct {
-		AllowedIps func(childComplexity int) int
-		ID         func(childComplexity int) int
-		Key        func(childComplexity int) int
-		Name       func(childComplexity int) int
-		Profiles   func(childComplexity int) int
-		Scopes     func(childComplexity int) int
+		AllowedIps             func(childComplexity int) int
+		ExposeUpstreamKeyQuota func(childComplexity int) int
+		ID                     func(childComplexity int) int
+		Key                    func(childComplexity int) int
+		Name                   func(childComplexity int) int
+		Profiles               func(childComplexity int) int
+		Scopes                 func(childComplexity int) int
 	}
 
 	APIKeyProfile struct {
@@ -166,6 +167,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.APIKey.AllowedIps(childComplexity), true
+	case "APIKey.exposeUpstreamKeyQuota":
+		if e.complexity.APIKey.ExposeUpstreamKeyQuota == nil {
+			break
+		}
+
+		return e.complexity.APIKey.ExposeUpstreamKeyQuota(childComplexity), true
 	case "APIKey.id":
 		if e.complexity.APIKey.ID == nil {
 			break
@@ -870,6 +877,35 @@ func (ec *executionContext) fieldContext_APIKey_allowedIps(_ context.Context, fi
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _APIKey_exposeUpstreamKeyQuota(ctx context.Context, field graphql.CollectedField, obj *APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_exposeUpstreamKeyQuota,
+		func(ctx context.Context) (any, error) {
+			return obj.ExposeUpstreamKeyQuota, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_exposeUpstreamKeyQuota(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -1920,6 +1956,8 @@ func (ec *executionContext) fieldContext_Mutation_createLLMAPIKey(ctx context.Co
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -1975,6 +2013,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyProfiles(ctx conte
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -2030,6 +2070,8 @@ func (ec *executionContext) fieldContext_Mutation_loadApiKeyProfileTemplate(ctx 
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -2085,6 +2127,8 @@ func (ec *executionContext) fieldContext_Query_apiKey(ctx context.Context, field
 				return ec.fieldContext_APIKey_scopes(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "profiles":
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			}
@@ -4090,6 +4134,11 @@ func (ec *executionContext) _APIKey(ctx context.Context, sel ast.SelectionSet, o
 			out.Values[i] = ec._APIKey_scopes(ctx, field, obj)
 		case "allowedIps":
 			out.Values[i] = ec._APIKey_allowedIps(ctx, field, obj)
+		case "exposeUpstreamKeyQuota":
+			out.Values[i] = ec._APIKey_exposeUpstreamKeyQuota(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "profiles":
 			out.Values[i] = ec._APIKey_profiles(ctx, field, obj)
 		default:

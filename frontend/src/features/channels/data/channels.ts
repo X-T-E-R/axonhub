@@ -34,9 +34,36 @@ import {
   ChannelAPIKeyInventoryItem,
   channelAPIKeyInventoryItemSchema,
   ChannelAPIKeyHealthCheckMode,
+  ChannelCredentialPolicyInput,
 } from './schema';
 
+const CHANNEL_CREDENTIAL_POLICY_FIELDS = `
+  id
+  name
+  priority
+  weight
+  maxConcurrent
+  requestIntervalMs
+  manualQuotaLimit
+  egressMode
+  outboundProxyId
+  proxyPoolName
+  customProxy {
+    type
+    url
+    username
+    password
+    disableConnectionReuse
+  }
+  egressFailPolicy
+`;
+
 const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
+  used
+  limit
+  remaining
+  usageRatio
+  resetAt
   provider
   checkedAt
   success
@@ -62,6 +89,13 @@ const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
 `;
 
 const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
+  credentialPolicies {
+    ${CHANNEL_CREDENTIAL_POLICY_FIELDS}
+  }
+  sseKeepAlive {
+    enabled
+    intervalSeconds
+  }
   keyHealthCheck {
     enabled
     intervalMinutes
@@ -193,11 +227,17 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
     }
   }
   balanceProbe {
+    script {
+      mode
+      expression
+      command
+    }
     enabled
     preset
     experimental
     preferredCurrency
     primarySelection
+    includeStatuses
     timeoutMs
     http {
       method
@@ -276,6 +316,14 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
 
 const CHANNEL_API_KEY_INVENTORY_FIELDS = `
   id
+  policy {
+    ${CHANNEL_CREDENTIAL_POLICY_FIELDS}
+  }
+  effectiveProxyName
+  effectiveExitIP
+  inFlight
+  quotaRemainingRatio
+  quotaResetAt
   rawKey
   maskedKey
   status
@@ -969,6 +1017,14 @@ const RESTORE_CHANNEL_API_KEY_MUTATION = `
 const RUN_CHANNEL_API_KEY_HEALTH_CHECK_MUTATION = `
   mutation RunChannelAPIKeyHealthCheck($channelID: ID!, $keyIDs: [String!], $mode: ChannelAPIKeyHealthCheckMode) {
     runChannelAPIKeyHealthCheck(channelID: $channelID, keyIDs: $keyIDs, mode: $mode) {
+      ${CHANNEL_API_KEY_INVENTORY_FIELDS}
+    }
+  }
+`;
+
+const UPSERT_CHANNEL_CREDENTIAL_POLICY_MUTATION = `
+  mutation UpsertChannelCredentialPolicy($channelID: ID!, $input: ChannelCredentialPolicyInput!) {
+    upsertChannelCredentialPolicy(channelID: $channelID, input: $input) {
       ${CHANNEL_API_KEY_INVENTORY_FIELDS}
     }
   }
@@ -2591,6 +2647,37 @@ export function useRunChannelAPIKeyHealthCheck() {
           total: summaryRows.length,
         })
       );
+    },
+  });
+}
+
+export function useUpsertChannelCredentialPolicy() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const { handleError } = useErrorHandler();
+
+  return useMutation({
+    mutationFn: async ({ channelID, input }: { channelID: string; input: ChannelCredentialPolicyInput }) => {
+      try {
+        const data = await graphqlRequest<{ upsertChannelCredentialPolicy: ChannelAPIKeyInventoryItem }>(
+          UPSERT_CHANNEL_CREDENTIAL_POLICY_MUTATION,
+          { channelID, input }
+        );
+        return channelAPIKeyInventoryItemSchema.parse(data.upsertChannelCredentialPolicy);
+      } catch (error) {
+        handleError(error, { context: t('channels.dialogs.keys.policy.title') });
+        throw error;
+      }
+    },
+    onSuccess: (updatedItem, variables) => {
+      queryClient.setQueryData<ChannelAPIKeyInventoryItem[] | undefined>(
+        ['channelAPIKeyInventory', variables.channelID],
+        (current) => (current ? current.map((item) => (item.id === updatedItem.id ? updatedItem : item)) : current)
+      );
+      invalidateChannelKeyQueries(queryClient, variables.channelID);
+      queryClient.invalidateQueries({ queryKey: ['outboundProxies'] });
+      queryClient.invalidateQueries({ queryKey: ['outboundProxyPools'] });
+      toast.success(t('channels.dialogs.keys.policy.saveSuccess'));
     },
   });
 }

@@ -62,7 +62,16 @@ func (svc *BackupService) Restore(ctx context.Context, data []byte, opts Restore
 
 	txClient := tx.Client()
 
-	if err := svc.restore(ctx, txClient, backupData, opts); err != nil {
+	restore := func(ctx context.Context) error { return svc.restore(ctx, txClient, backupData, opts) }
+	managedPolicies := opts.IncludeChannels && lo.SomeBy(backupData.Channels, func(ch *BackupChannel) bool {
+		return ch != nil && ch.Settings != nil && len(ch.Settings.CredentialPolicies) > 0
+	})
+	if managedPolicies {
+		err = biz.WithOutboundProxyPolicyMutation(ent.NewTxContext(ctx, tx), txClient, restore)
+	} else {
+		err = restore(ctx)
+	}
+	if err != nil {
 		return err
 	}
 
@@ -634,6 +643,9 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 
 				return fmt.Errorf("channel %s already exists", chData.Name)
 			case ConflictStrategyOverwrite:
+				if err := biz.ValidateChannelCredentialBindings(ctx, db, existing.ID, chData.Settings); err != nil {
+					return fmt.Errorf("restore channel %s: %w", chData.Name, err)
+				}
 				update := db.Channel.UpdateOneID(existing.ID).
 					SetNillableBaseURL(baseURL).
 					SetStatus(chData.Status).
@@ -662,6 +674,9 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 				}
 			}
 		} else {
+			if err := biz.ValidateChannelCredentialBindings(ctx, db, 0, chData.Settings); err != nil {
+				return fmt.Errorf("restore channel %s: %w", chData.Name, err)
+			}
 			create := db.Channel.Create().
 				SetName(chData.Name).
 				SetType(chData.Type).
@@ -805,6 +820,11 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 		}
 		remapAPIKeyProfilesChannelIDs(akData.Profiles, channelIDMap)
 
+		exposeUpstreamKeyQuota := true
+		if akData.ExposeUpstreamKeyQuota != nil {
+			exposeUpstreamKeyQuota = *akData.ExposeUpstreamKeyQuota
+		}
+
 		existing, err := db.APIKey.Query().
 			Where(apikey.Key(akData.Key)).
 			First(ctx)
@@ -838,6 +858,7 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 					SetStatus(akData.Status).
 					SetScopes(akData.Scopes).
 					SetAllowedIps(akData.AllowedIps).
+					SetExposeUpstreamKeyQuota(exposeUpstreamKeyQuota).
 					SetProfiles(akData.Profiles)
 
 				if _, err := update.Save(ctx); err != nil {
@@ -879,6 +900,7 @@ func (svc *BackupService) restoreAPIKeys(ctx context.Context, db *ent.Client, ap
 				SetStatus(akData.Status).
 				SetScopes(akData.Scopes).
 				SetAllowedIps(akData.AllowedIps).
+				SetExposeUpstreamKeyQuota(exposeUpstreamKeyQuota).
 				SetProfiles(akData.Profiles).
 				SetUserID(ownerID).
 				SetPortalManaged(akData.PortalManaged).

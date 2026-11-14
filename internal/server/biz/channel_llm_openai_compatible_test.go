@@ -336,7 +336,21 @@ func TestAxonHubChannel_BuildChannelWithOutbounds_UsesEndpointSpecificTransforme
 	require.NoError(t, err)
 	require.NotNil(t, built)
 	require.NotNil(t, built.Outbound)
-	require.Len(t, built.Outbounds, 15)
+	formats := make([]string, 0, len(built.Outbounds))
+	for format := range built.Outbounds {
+		formats = append(formats, format)
+	}
+	require.ElementsMatch(t, []string{
+		llm.APIFormatOpenAIChatCompletion.String(), llm.APIFormatOpenAICompletion.String(),
+		llm.APIFormatOpenAIResponse.String(), llm.APIFormatOpenAIResponseCompact.String(),
+		llm.APIFormatOpenAIEmbedding.String(), llm.APIFormatOpenAIImageGeneration.String(),
+		llm.APIFormatOpenAIImageEdit.String(), llm.APIFormatOpenAIVideo.String(),
+		llm.APIFormatOpenAIModeration.String(), llm.APIFormatTypeSafeSystemOne.String(),
+		llm.APIFormatOpenAIDecisions.String(), llm.APIFormatAnthropicMessage.String(),
+		llm.APIFormatJinaRerank.String(), llm.APIFormatJinaEmbedding.String(),
+		llm.APIFormatGeminiContents.String(), llm.APIFormatGeminiEmbedding.String(),
+		llm.APIFormatSeedanceVideo.String(),
+	}, formats)
 
 	require.Equal(t, llm.APIFormatOpenAIChatCompletion, built.Outbound.APIFormat())
 

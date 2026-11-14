@@ -69,8 +69,34 @@ func TestKimiCode_CheckQuota(t *testing.T) {
 	require.Equal(t, int64(1250), wallet.TotalCents)
 }
 
+func TestParseKimiCodeUsageWindowsSharesQuotaWindowParsing(t *testing.T) {
+	windows, err := ParseKimiCodeUsageWindows([]byte(`{
+		"usage":{"name":"Weekly limit","used":80,"limit":100,"resetAt":"2026-07-20T00:00:00.123456Z"},
+		"limits":[
+			{"detail":{"remaining":"0","limit":"20"},"window":{"duration":300,"timeUnit":"MINUTE"}},
+			{"detail":{"used":1,"limit":10,"title":"Daily limit"}}
+		]
+	}`))
+	require.NoError(t, err)
+	require.Len(t, windows, 3)
+	require.Equal(t, "Weekly limit", windows[0].Label)
+	require.Equal(t, 80.0, windows[0].Used)
+	require.Equal(t, 100.0, windows[0].Limit)
+	require.Equal(t, 20.0, windows[0].Remaining)
+	require.False(t, windows[0].Exhausted)
+	require.Equal(t, time.Date(2026, 7, 20, 0, 0, 0, 123456000, time.UTC), *windows[0].ResetAt)
+	require.Equal(t, "5h limit", windows[1].Label)
+	require.Equal(t, 20.0, windows[1].Used)
+	require.Equal(t, 0.0, windows[1].Remaining)
+	require.True(t, windows[1].Exhausted)
+
+	_, err = ParseKimiCodeUsageWindows([]byte(`{}`))
+	require.ErrorContains(t, err, "contains no quota limits")
+}
+
 func TestBuildKimiCodeUsageURL(t *testing.T) {
 	require.Equal(t, "https://api.kimi.com/coding/v1/usages", buildKimiCodeUsageURL(""))
+	require.Equal(t, "https://api.kimi.com/coding/v1/usages", BuildKimiCodeUsageURL(""))
 	require.Equal(t, "https://example.com/kimi/v1/usages", buildKimiCodeUsageURL("https://example.com/kimi"))
 	require.Equal(t, "https://example.com/kimi/v1/usages", buildKimiCodeUsageURL("https://example.com/kimi/v1/"))
 	require.Equal(t, "https://api.kimi.com/coding/v1/usages", buildKimiCodeUsageURL("not a URL"))

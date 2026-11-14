@@ -22,6 +22,7 @@ var (
 		{Name: "scopes", Type: field.TypeJSON, Nullable: true},
 		{Name: "profiles", Type: field.TypeJSON, Nullable: true},
 		{Name: "allowed_ips", Type: field.TypeJSON, Nullable: true},
+		{Name: "expose_upstream_key_quota", Type: field.TypeBool, Default: true},
 		{Name: "project_id", Type: field.TypeInt, Default: 1},
 		{Name: "user_id", Type: field.TypeInt, Nullable: true},
 	}
@@ -33,13 +34,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "api_keys_projects_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[12]},
+				Columns:    []*schema.Column{APIKeysColumns[13]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "api_keys_users_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[13]},
+				Columns:    []*schema.Column{APIKeysColumns[14]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -48,12 +49,12 @@ var (
 			{
 				Name:    "api_keys_by_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[13]},
+				Columns: []*schema.Column{APIKeysColumns[14]},
 			},
 			{
 				Name:    "api_keys_by_project_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[12]},
+				Columns: []*schema.Column{APIKeysColumns[13]},
 			},
 			{
 				Name:    "api_keys_by_key",
@@ -511,6 +512,50 @@ var (
 				Name:    "observability_payloads_by_created_at_id",
 				Unique:  false,
 				Columns: []*schema.Column{ObservabilityPayloadsColumns[1], ObservabilityPayloadsColumns[0]},
+			},
+		},
+	}
+	// OutboundProxiesColumns holds the columns for the "outbound_proxies" table.
+	OutboundProxiesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("CURRENT_TIMESTAMP")},
+		{Name: "name", Type: field.TypeString, Size: 200},
+		{Name: "kind", Type: field.TypeEnum, Enums: []string{"static", "dynamic_template"}, Default: "static"},
+		{Name: "proxy_url", Type: field.TypeString},
+		{Name: "pool_name", Type: field.TypeString, Nullable: true, Default: ""},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"enabled", "disabled"}, Default: "enabled"},
+		{Name: "weight", Type: field.TypeInt, Default: 100},
+		{Name: "max_concurrent", Type: field.TypeInt, Nullable: true},
+		{Name: "max_credentials", Type: field.TypeInt, Nullable: true},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "remark", Type: field.TypeString, Nullable: true, Default: ""},
+		{Name: "last_tested_at", Type: field.TypeTime, Nullable: true},
+		{Name: "last_test_success", Type: field.TypeBool, Nullable: true},
+		{Name: "last_exit_ip", Type: field.TypeString, Nullable: true, Default: ""},
+		{Name: "last_country", Type: field.TypeString, Nullable: true, Default: ""},
+		{Name: "last_latency_ms", Type: field.TypeInt, Nullable: true},
+		{Name: "last_test_error", Type: field.TypeString, Nullable: true, Default: ""},
+		{Name: "backup_proxy_id", Type: field.TypeInt, Nullable: true},
+	}
+	// OutboundProxiesTable holds the schema information for the "outbound_proxies" table.
+	OutboundProxiesTable = &schema.Table{
+		Name:       "outbound_proxies",
+		Columns:    OutboundProxiesColumns,
+		PrimaryKey: []*schema.Column{OutboundProxiesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "outbound_proxies_outbound_proxies_backup_proxy",
+				Columns:    []*schema.Column{OutboundProxiesColumns[19]},
+				RefColumns: []*schema.Column{OutboundProxiesColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "outboundproxy_pool_name_status",
+				Unique:  false,
+				Columns: []*schema.Column{OutboundProxiesColumns[6], OutboundProxiesColumns[7]},
 			},
 		},
 	}
@@ -1281,6 +1326,7 @@ var (
 		ModelsTable,
 		OidcIdentitiesTable,
 		ObservabilityPayloadsTable,
+		OutboundProxiesTable,
 		PendingUsagesTable,
 		ProjectsTable,
 		PromptsTable,
@@ -1312,6 +1358,7 @@ func init() {
 	ChannelProbesTable.ForeignKeys[0].RefTable = ChannelsTable
 	OidcIdentitiesTable.ForeignKeys[0].RefTable = UsersTable
 	ObservabilityPayloadsTable.ForeignKeys[0].RefTable = RequestsTable
+	OutboundProxiesTable.ForeignKeys[0].RefTable = OutboundProxiesTable
 	ProviderQuotaStatusTable.ForeignKeys[0].RefTable = ChannelsTable
 	RegistrationInvitesTable.ForeignKeys[0].RefTable = ProjectsTable
 	RequestsTable.ForeignKeys[0].RefTable = APIKeysTable

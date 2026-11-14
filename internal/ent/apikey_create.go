@@ -168,6 +168,20 @@ func (_c *APIKeyCreate) SetAllowedIps(v []string) *APIKeyCreate {
 	return _c
 }
 
+// SetExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field.
+func (_c *APIKeyCreate) SetExposeUpstreamKeyQuota(v bool) *APIKeyCreate {
+	_c.mutation.SetExposeUpstreamKeyQuota(v)
+	return _c
+}
+
+// SetNillableExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableExposeUpstreamKeyQuota(v *bool) *APIKeyCreate {
+	if v != nil {
+		_c.SetExposeUpstreamKeyQuota(*v)
+	}
+	return _c
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_c *APIKeyCreate) SetUser(v *User) *APIKeyCreate {
 	return _c.SetUserID(v.ID)
@@ -276,6 +290,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultAllowedIps
 		_c.mutation.SetAllowedIps(v)
 	}
+	if _, ok := _c.mutation.ExposeUpstreamKeyQuota(); !ok {
+		v := apikey.DefaultExposeUpstreamKeyQuota
+		_c.mutation.SetExposeUpstreamKeyQuota(v)
+	}
 	return nil
 }
 
@@ -311,6 +329,9 @@ func (_c *APIKeyCreate) check() error {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.ExposeUpstreamKeyQuota(); !ok {
+		return &ValidationError{Name: "expose_upstream_key_quota", err: errors.New(`ent: missing required field "APIKey.expose_upstream_key_quota"`)}
 	}
 	if len(_c.mutation.ProjectIDs()) == 0 {
 		return &ValidationError{Name: "project", err: errors.New(`ent: missing required edge "APIKey.project"`)}
@@ -385,6 +406,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.AllowedIps(); ok {
 		_spec.SetField(apikey.FieldAllowedIps, field.TypeJSON, value)
 		_node.AllowedIps = value
+	}
+	if value, ok := _c.mutation.ExposeUpstreamKeyQuota(); ok {
+		_spec.SetField(apikey.FieldExposeUpstreamKeyQuota, field.TypeBool, value)
+		_node.ExposeUpstreamKeyQuota = value
 	}
 	if nodes := _c.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -620,6 +645,18 @@ func (u *APIKeyUpsert) ClearAllowedIps() *APIKeyUpsert {
 	return u
 }
 
+// SetExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field.
+func (u *APIKeyUpsert) SetExposeUpstreamKeyQuota(v bool) *APIKeyUpsert {
+	u.Set(apikey.FieldExposeUpstreamKeyQuota, v)
+	return u
+}
+
+// UpdateExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateExposeUpstreamKeyQuota() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldExposeUpstreamKeyQuota)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -825,6 +862,20 @@ func (u *APIKeyUpsertOne) UpdateAllowedIps() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearAllowedIps() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearAllowedIps()
+	})
+}
+
+// SetExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field.
+func (u *APIKeyUpsertOne) SetExposeUpstreamKeyQuota(v bool) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetExposeUpstreamKeyQuota(v)
+	})
+}
+
+// UpdateExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateExposeUpstreamKeyQuota() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateExposeUpstreamKeyQuota()
 	})
 }
 
@@ -1199,6 +1250,20 @@ func (u *APIKeyUpsertBulk) UpdateAllowedIps() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearAllowedIps() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearAllowedIps()
+	})
+}
+
+// SetExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field.
+func (u *APIKeyUpsertBulk) SetExposeUpstreamKeyQuota(v bool) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetExposeUpstreamKeyQuota(v)
+	})
+}
+
+// UpdateExposeUpstreamKeyQuota sets the "expose_upstream_key_quota" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateExposeUpstreamKeyQuota() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateExposeUpstreamKeyQuota()
 	})
 }
 

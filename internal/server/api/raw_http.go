@@ -39,7 +39,8 @@ func NewRawHTTPHandlers(p RawHTTPHandlersParams) *RawHTTPHandlers {
 }
 
 func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
-	ctx := c.Request.Context()
+	ctx := contexts.EnsureContainer(c.Request.Context())
+	c.Request = c.Request.WithContext(ctx)
 	key, ok := contexts.GetAPIKey(ctx)
 	if !ok || !authz.HasScope(ctx, scopes.ScopeWriteRequests) {
 		JSONError(c, http.StatusForbidden, errors.New("request access required"))
@@ -85,29 +86,43 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 	base.RawPath = escapedPrefix + suffix
 	base.RawQuery = c.Request.URL.RawQuery
 	base.ForceQuery = c.Request.URL.ForceQuery
-	upstreamKey := h.channels.RawHTTPAPIKey(ctx, ch)
-	native := ch.HTTPClient.GetNativeClient()
-	transport := native.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	// Preserve the channel proxy/TLS policy but own framing and compression. A
-	// fresh, non-reused connection also prevents Transport's implicit replay on
-	// stale pooled connections, even for opaque idempotent provider operations.
-	tr := transport.(*http.Transport).Clone()
-	tr.DisableCompression = true
-	defer tr.CloseIdleConnections()
+
 	started := time.Now()
 	status := request.StatusFailed
 	stream := false
 	defer func() {
-		if ctx.Err() != nil {
+		canceled := ctx.Err() != nil
+		contexts.FinishChannelCredentialAttempt(ctx, 0, false, true)
+		if canceled {
 			status = request.StatusCanceled
 		}
 		h.observe(context.WithoutCancel(ctx), key, id, raw.Resource, c.ClientIP(), status, stream, time.Since(started))
 	}()
+
+	upstreamKey := h.channels.RawHTTPAPIKey(ctx, ch)
+	if upstreamKey == "" {
+		JSONError(c, http.StatusServiceUnavailable, errors.New("raw HTTP channel has no eligible credentials"))
+		return
+	}
+
+	maxAttempts := min(ch.RoutableCredentialCount(), rawHTTPMaxAttempts)
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	retryTransport := &rawHTTPRetryTransport{
+		channels:       h.channels,
+		channel:        ch,
+		defaultClient:  ch.HTTPClient,
+		authType:       raw.AuthType,
+		authHeader:     raw.AuthHeader,
+		initialKey:     upstreamKey,
+		maxAttempts:    maxAttempts,
+		disableRetries: ch.Settings != nil && ch.Settings.DisableRetries,
+	}
+	defer retryTransport.CloseIdleConnections()
+
 	proxy := &httputil.ReverseProxy{
-		Transport:     tr,
+		Transport:     retryTransport,
 		FlushInterval: -1,
 		Rewrite: func(p *httputil.ProxyRequest) {
 			p.Out.URL = base
@@ -120,12 +135,7 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 			for _, name := range []string{"Connection", "Upgrade", "Te", "Cookie", "X-Project-ID", "X-Channel-ID", "X-Forwarded-Host", "X-Forwarded-For", "X-Forwarded-Proto", "Forwarded"} {
 				p.Out.Header.Del(name)
 			}
-			p.Out.Header.Del(raw.AuthHeader)
-			if raw.AuthType == "bearer" {
-				p.Out.Header.Set("Authorization", "Bearer "+upstreamKey)
-			} else {
-				p.Out.Header.Set(raw.AuthHeader, upstreamKey)
-			}
+			setRawHTTPAuth(p.Out.Header, raw.AuthType, raw.AuthHeader, upstreamKey)
 		},
 		ModifyResponse: func(r *http.Response) error {
 			stream = strings.HasPrefix(r.Header.Get("Content-Type"), "text/event-stream")

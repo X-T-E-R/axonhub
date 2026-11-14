@@ -29,6 +29,7 @@ export function ApiKeysEditDialog() {
       name: '',
       scopes: [],
       allowedIps: [],
+      exposeUpstreamKeyQuota: true,
     },
   });
 
@@ -41,6 +42,7 @@ export function ApiKeysEditDialog() {
         name: selectedApiKey.name,
         scopes: selectedApiKey.scopes || [],
         allowedIps,
+        exposeUpstreamKeyQuota: selectedApiKey.exposeUpstreamKeyQuota ?? true,
       });
     }
   }, [selectedApiKey, isDialogOpen.edit, form]);
@@ -62,6 +64,7 @@ export function ApiKeysEditDialog() {
       // rules cannot survive a save that only turned the toggle off.
       const input: UpdateApiKeyInput = {
         name: data.name,
+        exposeUpstreamKeyQuota: data.exposeUpstreamKeyQuota ?? true,
         ...(allowedIps.length > 0
           ? { allowedIps }
           : { clearAllowedIps: true }),
@@ -149,6 +152,21 @@ export function ApiKeysEditDialog() {
                 </FormItem>
               )}
             </div>
+            <FormField
+              control={form.control}
+              name='exposeUpstreamKeyQuota'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between gap-4 rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel>{t('apikeys.dialogs.fields.exposeUpstreamKeyQuota.label')}</FormLabel>
+                    <FormDescription>{t('apikeys.dialogs.fields.exposeUpstreamKeyQuota.description')}</FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value ?? true} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
             <div className='space-y-4'>
               <div>
                 <div className='flex items-center justify-between'>

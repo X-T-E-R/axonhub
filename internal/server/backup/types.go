@@ -41,8 +41,9 @@ type BackupModel struct {
 type BackupAPIKey struct {
 	ent.APIKey
 
-	ProjectName string `json:"project_name"`
-	OwnerEmail  string `json:"owner_email,omitempty"`
+	ProjectName            string `json:"project_name"`
+	OwnerEmail             string `json:"owner_email,omitempty"`
+	ExposeUpstreamKeyQuota *bool  `json:"expose_upstream_key_quota,omitempty"`
 }
 
 // Accounts/passwords are not restored implicitly. Provision the same stable

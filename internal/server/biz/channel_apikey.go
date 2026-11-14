@@ -24,24 +24,31 @@ func channelAPIKeyStateUpdate(client *ent.Client, ch *ent.Channel) *ent.ChannelU
 }
 
 type ChannelAPIKeyInventoryItem struct {
-	ID              string
-	RawKey          string
-	MaskedKey       string
-	Status          objects.ChannelKeyStatus
-	LastCheckedAt   *time.Time
-	Success         *bool
-	FailureCount    int
-	Reason          string
-	Balance         any
-	Currency        string
-	BalanceSnapshot *objects.ChannelKeyBalanceSnapshot
-	Available       *bool
-	StatusCode      int
-	MatchedPolicy   string
-	Action          string
-	NextCheckAt     *time.Time
-	BackoffAttempt  int
-	History         []objects.ChannelKeyHealthCheckHistoryEntry
+	ID                  string
+	RawKey              string
+	MaskedKey           string
+	Status              objects.ChannelKeyStatus
+	LastCheckedAt       *time.Time
+	Success             *bool
+	FailureCount        int
+	Reason              string
+	Balance             any
+	Currency            string
+	BalanceSnapshot     *objects.ChannelKeyBalanceSnapshot
+	Policy              *objects.ChannelCredentialPolicy
+	EffectiveProxyName  string
+	EffectiveExitIP     string
+	InFlight            int
+	QuotaRemainingRatio *float64
+	QuotaResetAt        *time.Time
+	CooldownUntil       *time.Time
+	Available           *bool
+	StatusCode          int
+	MatchedPolicy       string
+	Action              string
+	NextCheckAt         *time.Time
+	BackoffAttempt      int
+	History             []objects.ChannelKeyHealthCheckHistoryEntry
 }
 
 func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID int) ([]*ChannelAPIKeyInventoryItem, error) {
@@ -123,6 +130,12 @@ func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID
 		items = append(items, item)
 	}
 
+	if ch.Credentials.IsOAuth() {
+		items = append(items, &ChannelAPIKeyInventoryItem{ID: objects.OAuthDefaultCredentialID, MaskedKey: "****", Status: objects.ChannelKeyStatusActive})
+	}
+	for _, item := range items {
+		svc.populateCredentialInventory(ctx, ch, item)
+	}
 	return items, nil
 }
 
@@ -567,9 +580,12 @@ func (svc *ChannelService) DeleteDisabledAPIKeys(ctx context.Context, channelID 
 		newCredentials.APIKeys = []string{restoredKey}
 	}
 
+	settings := cloneChannelSettings(ch.Settings)
+	pruneCredentialPolicies(settings, newCredentials)
 	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
 		SetDisabledAPIKeys(newDisabledKeys).
-		SetCredentials(newCredentials)
+		SetCredentials(newCredentials).
+		SetSettings(settings)
 
 	if _, err := update.Save(ctx); err != nil {
 		return nil, fmt.Errorf("failed to delete disabled api keys: %w", err)
@@ -717,11 +733,14 @@ func removeDisabledAPIKey(disabled []objects.DisabledAPIKey, key string) []objec
 }
 
 func removeChannelKeySettingsMetadata(settings *objects.ChannelSettings, id string) *objects.ChannelSettings {
-	if settings == nil || settings.KeyHealthCheck == nil {
-		return settings
+	if settings == nil {
+		return nil
 	}
-
 	next := cloneChannelSettings(settings)
+	next.CredentialPolicies = slices.DeleteFunc(next.CredentialPolicies, func(item objects.ChannelCredentialPolicy) bool { return item.ID == id })
+	if next.KeyHealthCheck == nil {
+		return next
+	}
 	next.KeyHealthCheck.KeyMetadata = slices.DeleteFunc(next.KeyHealthCheck.KeyMetadata, func(item objects.ChannelKeyMetadata) bool {
 		return item.ID == id
 	})
@@ -733,10 +752,17 @@ func removeChannelKeySettingsMetadata(settings *objects.ChannelSettings, id stri
 }
 
 func channelKeySettingsHasKeyID(settings *objects.ChannelSettings, id string) bool {
-	if settings == nil || settings.KeyHealthCheck == nil || id == "" {
+	if settings == nil || id == "" {
 		return false
 	}
-
+	for _, policy := range settings.CredentialPolicies {
+		if policy.ID == id {
+			return true
+		}
+	}
+	if settings.KeyHealthCheck == nil {
+		return false
+	}
 	for _, item := range settings.KeyHealthCheck.KeyMetadata {
 		if item.ID == id {
 			return true
@@ -769,6 +795,7 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 	}
 
 	next := *settings
+	next.CredentialPolicies = slices.Clone(settings.CredentialPolicies)
 	if settings.RawHTTP != nil {
 		raw := *settings.RawHTTP
 		next.RawHTTP = &raw
@@ -783,6 +810,11 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 	}
 	if settings.BalanceProbe != nil {
 		balanceProbe := *settings.BalanceProbe
+		if script := settings.BalanceProbe.Script; script != nil {
+			copied := *script
+			copied.Command = slices.Clone(script.Command)
+			balanceProbe.Script = &copied
+		}
 		balanceProbe.IncludeStatuses = slices.Clone(settings.BalanceProbe.IncludeStatuses)
 		if settings.BalanceProbe.HTTP != nil {
 			httpRule := *settings.BalanceProbe.HTTP
@@ -847,8 +879,13 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	currentRuntime := cloneChannelSettings(current)
 	// Existing settings editors may omit the newly introduced raw mode. Require
 	// an explicit enabled:false to change that channel's protocol boundary.
-	if next.RawHTTP == nil && currentRuntime != nil {
-		next.RawHTTP = currentRuntime.RawHTTP
+	if currentRuntime != nil {
+		if next.RawHTTP == nil {
+			next.RawHTTP = currentRuntime.RawHTTP
+		}
+		if next.CredentialPolicies == nil {
+			next.CredentialPolicies = currentRuntime.CredentialPolicies
+		}
 	}
 	var keyMetadata []objects.ChannelKeyMetadata
 	var archivedKeys []objects.ChannelArchivedAPIKey

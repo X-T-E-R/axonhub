@@ -48,6 +48,9 @@ type OIDCIdentity func(*sql.Selector)
 // ObservabilityPayload is the predicate function for observabilitypayload builders.
 type ObservabilityPayload func(*sql.Selector)
 
+// OutboundProxy is the predicate function for outboundproxy builders.
+type OutboundProxy func(*sql.Selector)
+
 // PendingUsage is the predicate function for pendingusage builders.
 type PendingUsage func(*sql.Selector)
 

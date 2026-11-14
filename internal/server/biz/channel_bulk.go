@@ -91,7 +91,7 @@ func (svc *ChannelService) BulkCreateChannels(ctx context.Context, input BulkCre
 		tagsToUse = []string{input.Name} // Use base name as tag (backward compatible)
 	}
 
-	err = svc.RunInTransaction(ctx, func(ctx context.Context) error {
+	err = svc.credentialPolicyTransaction(input.Settings)(ctx, func(ctx context.Context) error {
 		priceTemplates, err := svc.resolveChannelModelPriceTemplates(ctx, input.SupportedModels)
 		if err != nil {
 			return err

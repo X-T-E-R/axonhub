@@ -300,6 +300,8 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		openaiGroup.POST("/responses", handlers.OpenAI.CreateResponse)
 		openaiGroup.GET("/models", handlers.OpenAI.ListModels)
 		openaiGroup.GET("/models/*model", handlers.OpenAI.RetrieveModel)
+		openaiGroup.GET("/quotas", handlers.OpenAI.ListQuotas)
+		openaiGroup.GET("/key-quotas", handlers.OpenAI.KeyQuotas)
 		openaiGroup.POST("/embeddings", handlers.OpenAI.CreateEmbedding)
 		openaiGroup.POST("/moderations", handlers.OpenAI.CreateModeration)
 		openaiGroup.POST("/systemone", handlers.OpenAI.CreateSystemOne)

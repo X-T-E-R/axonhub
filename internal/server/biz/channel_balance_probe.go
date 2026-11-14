@@ -15,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
+	providerquota "github.com/looplj/axonhub/internal/server/biz/provider_quota"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -92,6 +93,55 @@ var channelBalanceProbePresets = []balanceProbePresetSpec{
 		},
 		Parse: parseNanoGPTBalanceSnapshot,
 	},
+	{
+		ID:   objects.ChannelBalanceProbePresetTavily,
+		Name: "Tavily usage",
+		HTTP: objects.ChannelKeyHealthCheckHTTPRule{
+			Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+			URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+			URL:              "https://api.tavily.com/usage",
+			ExpectedStatuses: []int{http.StatusOK},
+		},
+		Parse: parseTavilyUsageBalanceSnapshot,
+	},
+	{
+		ID:       objects.ChannelBalanceProbePresetKimiCode,
+		Provider: channel.TypeMoonshotCoding,
+		Name:     "Kimi Code usages",
+		HTTP: objects.ChannelKeyHealthCheckHTTPRule{
+			Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+			URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+			URL:              providerquota.BuildKimiCodeUsageURL(""),
+			ExpectedStatuses: []int{http.StatusOK},
+		},
+		Parse: parseKimiCodeUsageBalanceSnapshot,
+	},
+	{
+		ID:   objects.ChannelBalanceProbePresetExa,
+		Name: "Exa team credits",
+		HTTP: objects.ChannelKeyHealthCheckHTTPRule{
+			Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+			URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+			URL:              "https://admin-api.exa.ai/team-management/credits",
+			ExpectedStatuses: []int{http.StatusOK},
+			KeyInjection: &objects.ChannelKeyHealthCheckKeyInjection{
+				Location:   objects.ChannelKeyHealthCheckKeyInjectionHeader,
+				HeaderName: "x-api-key",
+			},
+		},
+		Parse: parseExaTeamCreditsBalanceSnapshot,
+	},
+	{
+		ID:   objects.ChannelBalanceProbePresetFirecrawl,
+		Name: "Firecrawl credits",
+		HTTP: objects.ChannelKeyHealthCheckHTTPRule{
+			Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
+			URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
+			URL:              "https://api.firecrawl.dev/v2/team/credit-usage",
+			ExpectedStatuses: []int{http.StatusOK},
+		},
+		Parse: parseFirecrawlCreditsBalanceSnapshot,
+	},
 }
 
 func channelBalanceProbePresetByID(id objects.ChannelBalanceProbePreset) (balanceProbePresetSpec, bool) {
@@ -110,8 +160,10 @@ func channelBalanceProbePresetForChannelType(channelType channel.Type) (balanceP
 		return channelBalanceProbePresetByID(objects.ChannelBalanceProbePresetDeepSeek)
 	case channel.TypeSiliconflow:
 		return channelBalanceProbePresetByID(objects.ChannelBalanceProbePresetSiliconFlow)
-	case channel.TypeMoonshot, channel.TypeMoonshotAnthropic, channel.TypeMoonshotCoding:
+	case channel.TypeMoonshot, channel.TypeMoonshotAnthropic:
 		return channelBalanceProbePresetByID(objects.ChannelBalanceProbePresetMoonshot)
+	case channel.TypeMoonshotCoding:
+		return channelBalanceProbePresetByID(objects.ChannelBalanceProbePresetKimiCode)
 	case channel.TypeOpenrouter:
 		return channelBalanceProbePresetByID(objects.ChannelBalanceProbePresetOpenRouter)
 	case channel.TypeNanogpt, channel.TypeNanogptResponses:
@@ -151,12 +203,23 @@ func channelBalanceProbeSpecForChannel(ch *ent.Channel) (balanceProbePresetSpec,
 		if !ok || (spec.Experimental && !probe.Experimental) {
 			return balanceProbePresetSpec{}, probe, false
 		}
+		if spec.ID == objects.ChannelBalanceProbePresetKimiCode {
+			spec.HTTP.URL = providerquota.BuildKimiCodeUsageURL(ch.BaseURL)
+		}
 
 		return spec, probe, true
 	}
 
+	if isTavilyBalanceProbeChannel(ch) {
+		spec, ok := channelBalanceProbePresetByID(objects.ChannelBalanceProbePresetTavily)
+		return spec, probe, ok
+	}
+
 	spec, ok := channelBalanceProbePresetForChannelType(ch.Type)
 	if ok {
+		if spec.ID == objects.ChannelBalanceProbePresetKimiCode {
+			spec.HTTP.URL = providerquota.BuildKimiCodeUsageURL(ch.BaseURL)
+		}
 		return spec, probe, true
 	}
 
@@ -186,11 +249,32 @@ func (svc *ChannelService) runChannelKeyBalanceProbe(ctx context.Context, ch *en
 		return result
 	}
 
-	snapshot := spec.Parse(resp.Body, resp.StatusCode)
+	var snapshot objects.ChannelKeyBalanceSnapshot
+	if probe != nil && probe.Script != nil && (probe.Script.Mode == objects.ChannelBalanceProbeScriptModeExpr || probe.Script.Mode == objects.ChannelBalanceProbeScriptModeCommand) {
+		parsed, err := runChannelBalanceProbeScript(ctx, probe, resp, ch.ID, key)
+		if err != nil {
+			result.Success = false
+			result.StatusCode = resp.StatusCode
+			result.Reason = "balance probe script failed"
+			result.Source = balanceProbeEventSource(trigger, false)
+			return result
+		}
+		snapshot = parsed
+	} else {
+		snapshot = spec.Parse(resp.Body, resp.StatusCode)
+	}
 	snapshot.Provider = string(spec.ID)
 	snapshot.CheckedAt = time.Now()
 	snapshot.StatusCode = resp.StatusCode
-	selectChannelBalancePrimary(&snapshot, preferredChannelBalanceCurrency(probe))
+	preferredCurrency := preferredChannelBalanceCurrency(probe)
+	if snapshot.PrimaryBalance == nil || preferredCurrency != "" {
+		selectChannelBalancePrimary(&snapshot, preferredCurrency)
+	}
+	var manualLimit *float64
+	if ch.Settings != nil {
+		manualLimit = ch.Settings.CredentialPolicy(objects.ChannelAPIKeyFingerprint(key)).ManualQuotaLimit
+	}
+	normalizeChannelBalanceCapacity(&snapshot, manualLimit)
 
 	result.StatusCode = resp.StatusCode
 	result.BalanceSnapshot = &snapshot
@@ -271,9 +355,17 @@ func (svc *ChannelService) executeChannelKeyProbeHTTP(ctx context.Context, ch *e
 		Headers: headers,
 	}
 
-	hc := svc.httpClient
-	if ch.Settings != nil && ch.Settings.Proxy != nil {
-		hc = svc.httpClient.WithProxy(ch.Settings.Proxy)
+	hc := svc.getHttpClient(ch.Settings)
+	credentialID := objects.ChannelAPIKeyFingerprint(key)
+	if ch.Credentials.IsOAuth() {
+		credentialID = objects.OAuthDefaultCredentialID
+	}
+	isolated, _, egressErr := svc.resolveCredentialClient(requestCtx, ch, credentialID, hc)
+	if egressErr != nil {
+		return nil, ChannelKeyHealthCheckResult{Success: false, Reason: "credential egress is blocked"}
+	}
+	if isolated != nil {
+		hc = isolated
 	}
 	hc = channelKeyHealthCheckNoRedirectClient(hc)
 

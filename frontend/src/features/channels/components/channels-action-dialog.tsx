@@ -1438,6 +1438,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         };
 
         const nextSettings = mergeChannelSettingsForUpdate(settingsForSubmit, {
+          credentialPolicies: null,
           proxy: proxyConfig,
           passThroughUserAgent: genericSettingsForSubmit.passThroughUserAgent,
           passThroughBody: genericSettingsForSubmit.passThroughBody,

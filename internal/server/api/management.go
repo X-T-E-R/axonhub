@@ -136,22 +136,24 @@ type managementChannelResponse struct {
 }
 
 type managementChannelKeyInventoryItem struct {
-	ID             string                                      `json:"id"`
-	MaskedKey      string                                      `json:"maskedKey"`
-	Status         objects.ChannelKeyStatus                    `json:"status"`
-	LastCheckedAt  *time.Time                                  `json:"lastCheckedAt,omitempty"`
-	Success        *bool                                       `json:"success,omitempty"`
-	FailureCount   int                                         `json:"failureCount"`
-	Reason         string                                      `json:"reason,omitempty"`
-	Balance        any                                         `json:"balance,omitempty"`
-	Currency       string                                      `json:"currency,omitempty"`
-	Available      *bool                                       `json:"available,omitempty"`
-	StatusCode     int                                         `json:"statusCode,omitempty"`
-	MatchedPolicy  string                                      `json:"matchedPolicy,omitempty"`
-	Action         string                                      `json:"action,omitempty"`
-	NextCheckAt    *time.Time                                  `json:"nextCheckAt,omitempty"`
-	BackoffAttempt int                                         `json:"backoffAttempt,omitempty"`
-	History        []objects.ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
+	ID              string                                      `json:"id"`
+	MaskedKey       string                                      `json:"maskedKey"`
+	Status          objects.ChannelKeyStatus                    `json:"status"`
+	LastCheckedAt   *time.Time                                  `json:"lastCheckedAt,omitempty"`
+	Success         *bool                                       `json:"success,omitempty"`
+	FailureCount    int                                         `json:"failureCount"`
+	Reason          string                                      `json:"reason,omitempty"`
+	Balance         any                                         `json:"balance,omitempty"`
+	BalanceSnapshot *objects.ChannelKeyBalanceSnapshot          `json:"balanceSnapshot,omitempty"`
+	Policy          *objects.ChannelCredentialPolicy            `json:"policy,omitempty"`
+	Currency        string                                      `json:"currency,omitempty"`
+	Available       *bool                                       `json:"available,omitempty"`
+	StatusCode      int                                         `json:"statusCode,omitempty"`
+	MatchedPolicy   string                                      `json:"matchedPolicy,omitempty"`
+	Action          string                                      `json:"action,omitempty"`
+	NextCheckAt     *time.Time                                  `json:"nextCheckAt,omitempty"`
+	BackoffAttempt  int                                         `json:"backoffAttempt,omitempty"`
+	History         []objects.ChannelKeyHealthCheckHistoryEntry `json:"history,omitempty"`
 }
 
 type managementChannelKeyInventoryResponse struct {
@@ -592,7 +594,7 @@ func (h *ManagementHandlers) AddManagementChannelKeys(c *gin.Context) {
 			h.writeServiceError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: inventoryItemsResponse(items)})
+		c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: managementInventoryItemsResponse(items)})
 		return
 	}
 
@@ -624,7 +626,7 @@ func (h *ManagementHandlers) DeleteManagementChannelKey(c *gin.Context) {
 	c.JSON(http.StatusOK, deleteKeyResponse{
 		Success: result == nil || result.Success,
 		Message: resultMessage(result),
-		Items:   inventoryItemsResponse(items),
+		Items:   managementInventoryItemsResponse(items),
 	})
 }
 
@@ -740,7 +742,7 @@ func (h *ManagementHandlers) RunManagementChannelKeyHealthCheck(c *gin.Context) 
 		return
 	}
 
-	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: inventoryItemsResponse(items)})
+	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: managementInventoryItemsResponse(items)})
 }
 
 func (h *ManagementHandlers) RunManagementChannelSingleKeyHealthCheck(c *gin.Context) {
@@ -769,7 +771,7 @@ func (h *ManagementHandlers) RunManagementChannelSingleKeyHealthCheck(c *gin.Con
 		return
 	}
 
-	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: inventoryItemsResponse(items)})
+	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: managementInventoryItemsResponse(items)})
 }
 
 func (h *ManagementHandlers) requireScope(c *gin.Context, requiredScope scopes.ScopeSlug, projectID int) (context.Context, bool) {
@@ -857,7 +859,7 @@ func (h *ManagementHandlers) writeInventory(c *gin.Context, ctx context.Context,
 		return
 	}
 
-	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: inventoryItemsResponse(items)})
+	c.JSON(http.StatusOK, managementChannelKeyInventoryResponse{Items: managementInventoryItemsResponse(items)})
 }
 
 func (h *ManagementHandlers) managementChannelKeyExists(ctx context.Context, channelID int, keyID string) (bool, error) {
@@ -997,30 +999,95 @@ func keyCounts(items []*biz.ChannelAPIKeyInventoryItem) managementChannelKeyCoun
 	return counts
 }
 
-func inventoryItemsResponse(items []*biz.ChannelAPIKeyInventoryItem) []*managementChannelKeyInventoryItem {
+func managementInventoryItemsResponse(items []*biz.ChannelAPIKeyInventoryItem) []*managementChannelKeyInventoryItem {
 	out := make([]*managementChannelKeyInventoryItem, 0, len(items))
 	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		policy := safeManagementCredentialPolicy(item.Policy, item.RawKey)
 		out = append(out, &managementChannelKeyInventoryItem{
-			ID:             item.ID,
-			MaskedKey:      item.MaskedKey,
-			Status:         item.Status,
-			LastCheckedAt:  item.LastCheckedAt,
-			Success:        item.Success,
-			FailureCount:   item.FailureCount,
-			Reason:         item.Reason,
-			Balance:        item.Balance,
-			Currency:       item.Currency,
-			Available:      item.Available,
-			StatusCode:     item.StatusCode,
-			MatchedPolicy:  item.MatchedPolicy,
-			Action:         item.Action,
-			NextCheckAt:    item.NextCheckAt,
-			BackoffAttempt: item.BackoffAttempt,
-			History:        slices.Clone(item.History),
+			ID:              item.ID,
+			MaskedKey:       item.MaskedKey,
+			Status:          item.Status,
+			LastCheckedAt:   item.LastCheckedAt,
+			Success:         item.Success,
+			FailureCount:    item.FailureCount,
+			Reason:          item.Reason,
+			Balance:         item.Balance,
+			BalanceSnapshot: safeManagementBalanceSnapshot(item.BalanceSnapshot),
+			Policy:          policy,
+			Currency:        item.Currency,
+			Available:       item.Available,
+			StatusCode:      item.StatusCode,
+			MatchedPolicy:   item.MatchedPolicy,
+			Action:          item.Action,
+			NextCheckAt:     item.NextCheckAt,
+			BackoffAttempt:  item.BackoffAttempt,
+			History:         slices.Clone(item.History),
 		})
 	}
 
 	return out
+}
+
+func safeManagementCredentialPolicy(policy *objects.ChannelCredentialPolicy, rawKey string) *objects.ChannelCredentialPolicy {
+	if policy == nil || policy.ID == "" {
+		return nil
+	}
+	safe := *policy
+	safe.Name = sanitizeQuotaLabelWithoutSecret(safe.Name, rawKey)
+	// These fields can contain proxy endpoint names, hosts, usernames, or
+	// passwords; management key inventory returns policy behavior, not egress
+	// credentials or infrastructure locations.
+	safe.OutboundProxyID = nil
+	safe.ProxyPoolName = ""
+	safe.CustomProxy = nil
+	return &safe
+}
+
+func safeManagementBalanceSnapshot(snapshot *objects.ChannelKeyBalanceSnapshot) *objects.ChannelKeyBalanceSnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	next := &objects.ChannelKeyBalanceSnapshot{
+		CheckedAt:  snapshot.CheckedAt,
+		Success:    snapshot.Success,
+		StatusCode: snapshot.StatusCode,
+		Available:  cloneQuotaBool(snapshot.Available),
+		Used:       finitePtr(snapshot.Used),
+		Limit:      finitePtr(snapshot.Limit),
+		Remaining:  finitePtr(snapshot.Remaining),
+		UsageRatio: finitePtr(snapshot.UsageRatio),
+		ResetAt:    snapshot.ResetAt,
+		Components: make([]objects.BalanceAmount, 0, len(snapshot.Components)),
+	}
+	if snapshot.PrimaryBalance != nil && finiteFloat(snapshot.PrimaryBalance.Amount) {
+		primary := *snapshot.PrimaryBalance
+		primary.Currency = sanitizeQuotaCurrency(primary.Currency)
+		primary.Kind = objects.BalanceAmountKind(sanitizeQuotaBalanceKind(primary.Kind))
+		primary.Label = sanitizeQuotaComponentLabel(primary.Label, string(primary.Kind))
+		next.PrimaryBalance = &primary
+	}
+	for _, component := range quotaComponents(snapshot) {
+		next.Components = append(next.Components, objects.BalanceAmount{
+			Amount:    component.Amount,
+			Currency:  component.Currency,
+			Kind:      objects.BalanceAmountKind(component.Kind),
+			Label:     component.Label,
+			ExpiresAt: component.ExpiresAt,
+		})
+	}
+	// Provider, account identity/status, and RawSummary are intentionally not
+	// copied: they are provider-shaped identifiers rather than quota data.
+	return next
+}
+
+func cloneQuotaBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	return boolPtr(*value)
 }
 
 func parsePositiveParam(c *gin.Context, name string) (int, bool) {

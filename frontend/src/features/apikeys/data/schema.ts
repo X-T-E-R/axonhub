@@ -33,6 +33,7 @@ export const apiKeySchema = z.object({
   status: apiKeyStatusSchema,
   scopes: z.array(z.string()).optional().nullable(),
   allowedIps: z.array(z.string()).optional().nullable(),
+  exposeUpstreamKeyQuota: z.boolean().optional().default(true),
   // Optional profiles for detailed view (may be omitted in list queries)
   profiles: z
     .object({
@@ -105,6 +106,7 @@ export const createApiKeyInputSchemaFactory = (t: (key: string) => string) =>
     type: apiKeyTypeSchema.optional(),
     scopes: z.array(z.string()).optional(),
     allowedIps: z.array(z.string()).optional(),
+    exposeUpstreamKeyQuota: z.boolean().optional(),
     projectID: z.number().optional(),
   });
 
@@ -114,6 +116,7 @@ export const createApiKeyInputSchema = z.object({
   type: apiKeyTypeSchema.optional(),
   scopes: z.array(z.string()).optional(),
   allowedIps: z.array(z.string()).optional(),
+  exposeUpstreamKeyQuota: z.boolean().optional(),
   projectID: z.number().optional(),
 });
 export type CreateApiKeyInput = z.infer<typeof createApiKeyInputSchema>;
@@ -125,6 +128,7 @@ export const updateApiKeyInputSchemaFactory = (t: (key: string) => string) =>
     scopes: z.array(z.string()).optional(),
     allowedIps: z.array(z.string()).optional(),
     clearAllowedIps: z.boolean().optional(),
+    exposeUpstreamKeyQuota: z.boolean().optional(),
   });
 
 // Default schema for backward compatibility
@@ -133,6 +137,7 @@ export const updateApiKeyInputSchema = z.object({
   scopes: z.array(z.string()).optional(),
   allowedIps: z.array(z.string()).optional(),
   clearAllowedIps: z.boolean().optional(),
+  exposeUpstreamKeyQuota: z.boolean().optional(),
 });
 export type UpdateApiKeyInput = z.infer<typeof updateApiKeyInputSchema>;
 

@@ -237,6 +237,11 @@ func (_q *APIKeyQuery) collectField(ctx context.Context, oneNode bool, opCtx *gr
 				selectedFields = append(selectedFields, apikey.FieldAllowedIps)
 				fieldSeen[apikey.FieldAllowedIps] = struct{}{}
 			}
+		case "exposeUpstreamKeyQuota":
+			if _, ok := fieldSeen[apikey.FieldExposeUpstreamKeyQuota]; !ok {
+				selectedFields = append(selectedFields, apikey.FieldExposeUpstreamKeyQuota)
+				fieldSeen[apikey.FieldExposeUpstreamKeyQuota] = struct{}{}
+			}
 		case "id":
 		case "__typename":
 		default:

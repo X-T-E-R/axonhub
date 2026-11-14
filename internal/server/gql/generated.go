@@ -85,6 +85,7 @@ type ResolverRoot interface {
 	Model() ModelResolver
 	Mutation() MutationResolver
 	OIDCIdentity() OIDCIdentityResolver
+	OutboundProxy() OutboundProxyResolver
 	Project() ProjectResolver
 	ProjectProfile() ProjectProfileResolver
 	Prompt() PromptResolver
@@ -114,22 +115,23 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	APIKey struct {
-		AllowedIps    func(childComplexity int) int
-		CreatedAt     func(childComplexity int) int
-		ID            func(childComplexity int) int
-		Key           func(childComplexity int) int
-		Name          func(childComplexity int) int
-		PortalManaged func(childComplexity int) int
-		Profiles      func(childComplexity int) int
-		Project       func(childComplexity int) int
-		ProjectID     func(childComplexity int) int
-		Requests      func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
-		Scopes        func(childComplexity int) int
-		Status        func(childComplexity int) int
-		Type          func(childComplexity int) int
-		UpdatedAt     func(childComplexity int) int
-		User          func(childComplexity int) int
-		UserID        func(childComplexity int) int
+		AllowedIps             func(childComplexity int) int
+		CreatedAt              func(childComplexity int) int
+		ExposeUpstreamKeyQuota func(childComplexity int) int
+		ID                     func(childComplexity int) int
+		Key                    func(childComplexity int) int
+		Name                   func(childComplexity int) int
+		PortalManaged          func(childComplexity int) int
+		Profiles               func(childComplexity int) int
+		Project                func(childComplexity int) int
+		ProjectID              func(childComplexity int) int
+		Requests               func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
+		Scopes                 func(childComplexity int) int
+		Status                 func(childComplexity int) int
+		Type                   func(childComplexity int) int
+		UpdatedAt              func(childComplexity int) int
+		User                   func(childComplexity int) int
+		UserID                 func(childComplexity int) int
 	}
 
 	APIKeyConnection struct {
@@ -382,24 +384,30 @@ type ComplexityRoot struct {
 	}
 
 	ChannelAPIKeyInventoryItem struct {
-		Action          func(childComplexity int) int
-		Available       func(childComplexity int) int
-		BackoffAttempt  func(childComplexity int) int
-		Balance         func(childComplexity int) int
-		BalanceSnapshot func(childComplexity int) int
-		Currency        func(childComplexity int) int
-		FailureCount    func(childComplexity int) int
-		History         func(childComplexity int) int
-		ID              func(childComplexity int) int
-		LastCheckedAt   func(childComplexity int) int
-		MaskedKey       func(childComplexity int) int
-		MatchedPolicy   func(childComplexity int) int
-		NextCheckAt     func(childComplexity int) int
-		RawKey          func(childComplexity int) int
-		Reason          func(childComplexity int) int
-		Status          func(childComplexity int) int
-		StatusCode      func(childComplexity int) int
-		Success         func(childComplexity int) int
+		Action              func(childComplexity int) int
+		Available           func(childComplexity int) int
+		BackoffAttempt      func(childComplexity int) int
+		Balance             func(childComplexity int) int
+		BalanceSnapshot     func(childComplexity int) int
+		Currency            func(childComplexity int) int
+		EffectiveExitIP     func(childComplexity int) int
+		EffectiveProxyName  func(childComplexity int) int
+		FailureCount        func(childComplexity int) int
+		History             func(childComplexity int) int
+		ID                  func(childComplexity int) int
+		InFlight            func(childComplexity int) int
+		LastCheckedAt       func(childComplexity int) int
+		MaskedKey           func(childComplexity int) int
+		MatchedPolicy       func(childComplexity int) int
+		NextCheckAt         func(childComplexity int) int
+		Policy              func(childComplexity int) int
+		QuotaRemainingRatio func(childComplexity int) int
+		QuotaResetAt        func(childComplexity int) int
+		RawKey              func(childComplexity int) int
+		Reason              func(childComplexity int) int
+		Status              func(childComplexity int) int
+		StatusCode          func(childComplexity int) int
+		Success             func(childComplexity int) int
 	}
 
 	ChannelActionMenuSetting struct {
@@ -427,13 +435,35 @@ type ComplexityRoot struct {
 		PreferredCurrency func(childComplexity int) int
 		Preset            func(childComplexity int) int
 		PrimarySelection  func(childComplexity int) int
+		Script            func(childComplexity int) int
 		TimeoutMs         func(childComplexity int) int
+	}
+
+	ChannelBalanceProbeScript struct {
+		Command    func(childComplexity int) int
+		Expression func(childComplexity int) int
+		Mode       func(childComplexity int) int
 	}
 
 	ChannelConnection struct {
 		Edges      func(childComplexity int) int
 		PageInfo   func(childComplexity int) int
 		TotalCount func(childComplexity int) int
+	}
+
+	ChannelCredentialPolicy struct {
+		CustomProxy       func(childComplexity int) int
+		EgressFailPolicy  func(childComplexity int) int
+		EgressMode        func(childComplexity int) int
+		ID                func(childComplexity int) int
+		ManualQuotaLimit  func(childComplexity int) int
+		MaxConcurrent     func(childComplexity int) int
+		Name              func(childComplexity int) int
+		OutboundProxyID   func(childComplexity int) int
+		Priority          func(childComplexity int) int
+		ProxyPoolName     func(childComplexity int) int
+		RequestIntervalMs func(childComplexity int) int
+		Weight            func(childComplexity int) int
 	}
 
 	ChannelCredentials struct {
@@ -472,11 +502,16 @@ type ComplexityRoot struct {
 		Available      func(childComplexity int) int
 		CheckedAt      func(childComplexity int) int
 		Components     func(childComplexity int) int
+		Limit          func(childComplexity int) int
 		PrimaryBalance func(childComplexity int) int
 		Provider       func(childComplexity int) int
 		RawSummary     func(childComplexity int) int
+		Remaining      func(childComplexity int) int
+		ResetAt        func(childComplexity int) int
 		StatusCode     func(childComplexity int) int
 		Success        func(childComplexity int) int
+		UsageRatio     func(childComplexity int) int
+		Used           func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheck struct {
@@ -819,6 +854,7 @@ type ComplexityRoot struct {
 		AutoTrimedModelPrefixes    func(childComplexity int) int
 		BalanceProbe               func(childComplexity int) int
 		BodyOverrideOperations     func(childComplexity int) int
+		CredentialPolicies         func(childComplexity int) int
 		DisableRetries             func(childComplexity int) int
 		ExtraModelPrefix           func(childComplexity int) int
 		FailurePolicy              func(childComplexity int) int
@@ -1299,6 +1335,7 @@ type ComplexityRoot struct {
 		CreateChannelOverrideTemplate        func(childComplexity int, input ent.CreateChannelOverrideTemplateInput) int
 		CreateDataStorage                    func(childComplexity int, input ent.CreateDataStorageInput) int
 		CreateModel                          func(childComplexity int, input ent.CreateModelInput) int
+		CreateOutboundProxy                  func(childComplexity int, input biz.OutboundProxyCreateInput) int
 		CreateProject                        func(childComplexity int, input ent.CreateProjectInput) int
 		CreatePrompt                         func(childComplexity int, input ent.CreatePromptInput) int
 		CreatePromptProtectionRule           func(childComplexity int, input ent.CreatePromptProtectionRuleInput) int
@@ -1311,6 +1348,7 @@ type ComplexityRoot struct {
 		DeleteChannelOverrideTemplate        func(childComplexity int, id objects.GUID) int
 		DeleteDisabledChannelAPIKeys         func(childComplexity int, channelID objects.GUID, keys []string) int
 		DeleteModel                          func(childComplexity int, id objects.GUID) int
+		DeleteOutboundProxy                  func(childComplexity int, id objects.GUID) int
 		DeleteProject                        func(childComplexity int, id objects.GUID) int
 		DeletePrompt                         func(childComplexity int, id objects.GUID) int
 		DeletePromptProtectionRule           func(childComplexity int, id objects.GUID) int
@@ -1324,6 +1362,7 @@ type ComplexityRoot struct {
 		EnableSelectedChannelAPIKeys         func(childComplexity int, channelID objects.GUID, keys []string) int
 		LoadAPIKeyProfileTemplate            func(childComplexity int, input LoadAPIKeyProfileTemplateInput) int
 		PreviewPromptProtectionRule          func(childComplexity int, input PromptProtectionRulePreviewInput) int
+		ProbeOutboundProxy                   func(childComplexity int, id objects.GUID) int
 		RemoveUserFromProject                func(childComplexity int, input RemoveUserFromProjectInput) int
 		ResetChannelQuotaNow                 func(childComplexity int, channelID objects.GUID) int
 		Restore                              func(childComplexity int, file graphql.Upload, input backup.RestoreOptions) int
@@ -1365,6 +1404,7 @@ type ComplexityRoot struct {
 		UpdateModelStatus                    func(childComplexity int, id objects.GUID, status model.Status) int
 		UpdateMonitoringSettings             func(childComplexity int, input biz.MonitoringSettings) int
 		UpdateMyPassword                     func(childComplexity int, input UpdateMyPasswordInput) int
+		UpdateOutboundProxy                  func(childComplexity int, id objects.GUID, input biz.OutboundProxyUpdateInput) int
 		UpdatePassThroughSettings            func(childComplexity int, input UpdatePassThroughSettingsInput) int
 		UpdatePortalSettings                 func(childComplexity int, input objects.PortalSettings) int
 		UpdateProject                        func(childComplexity int, id objects.GUID, input ent.UpdateProjectInput) int
@@ -1389,6 +1429,7 @@ type ComplexityRoot struct {
 		UpdateUserStatus                     func(childComplexity int, id objects.GUID, status user.Status) int
 		UpdateVideoStorageSettings           func(childComplexity int, input biz.VideoStorageSettings) int
 		UpdateWebhookNotifierConfig          func(childComplexity int, input biz.WebhookNotifierConfig) int
+		UpsertChannelCredentialPolicy        func(childComplexity int, channelID objects.GUID, input objects.ChannelCredentialPolicy) int
 	}
 
 	OAuthCredentials struct {
@@ -1442,6 +1483,41 @@ type ComplexityRoot struct {
 	OpenCodeGoQuotaSettings struct {
 		AuthCookie  func(childComplexity int) int
 		WorkspaceID func(childComplexity int) int
+	}
+
+	OutboundProxy struct {
+		BackupCredentialCount    func(childComplexity int) int
+		BackupProxyCount         func(childComplexity int) int
+		BackupProxyID            func(childComplexity int) int
+		ChannelReferenceCount    func(childComplexity int) int
+		CreatedAt                func(childComplexity int) int
+		CredentialReferenceCount func(childComplexity int) int
+		ExpiresAt                func(childComplexity int) int
+		ID                       func(childComplexity int) int
+		Kind                     func(childComplexity int) int
+		LastCountry              func(childComplexity int) int
+		LastExitIP               func(childComplexity int) int
+		LastLatencyMs            func(childComplexity int) int
+		LastTestError            func(childComplexity int) int
+		LastTestSuccess          func(childComplexity int) int
+		LastTestedAt             func(childComplexity int) int
+		MaskedURL                func(childComplexity int) int
+		MaxConcurrent            func(childComplexity int) int
+		MaxCredentials           func(childComplexity int) int
+		Name                     func(childComplexity int) int
+		PoolName                 func(childComplexity int) int
+		PrimaryCredentialCount   func(childComplexity int) int
+		Remark                   func(childComplexity int) int
+		Status                   func(childComplexity int) int
+		UpdatedAt                func(childComplexity int) int
+		Weight                   func(childComplexity int) int
+	}
+
+	OutboundProxyPool struct {
+		CredentialReferenceCount func(childComplexity int) int
+		EnabledProxyCount        func(childComplexity int) int
+		Name                     func(childComplexity int) int
+		ProxyCount               func(childComplexity int) int
 	}
 
 	OverrideMatch struct {
@@ -1699,6 +1775,8 @@ type ComplexityRoot struct {
 		Nodes                        func(childComplexity int, ids []*objects.GUID) int
 		OidcIdentities               func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.OIDCIdentityOrder, where *ent.OIDCIdentityWhereInput) int
 		OnboardingInfo               func(childComplexity int) int
+		OutboundProxies              func(childComplexity int) int
+		OutboundProxyPools           func(childComplexity int) int
 		PassThroughSettings          func(childComplexity int) int
 		PortalSettings               func(childComplexity int) int
 		PreviewGcCleanup             func(childComplexity int, input gc.TriggerGcCleanupInput) int
@@ -2557,6 +2635,11 @@ type ModelResolver interface {
 	AssociatedChannelCount(ctx context.Context, obj *ent.Model) (int, error)
 }
 type MutationResolver interface {
+	CreateOutboundProxy(ctx context.Context, input biz.OutboundProxyCreateInput) (*biz.OutboundProxyDTO, error)
+	UpdateOutboundProxy(ctx context.Context, id objects.GUID, input biz.OutboundProxyUpdateInput) (*biz.OutboundProxyDTO, error)
+	DeleteOutboundProxy(ctx context.Context, id objects.GUID) (bool, error)
+	ProbeOutboundProxy(ctx context.Context, id objects.GUID) (*biz.OutboundProxyDTO, error)
+	UpsertChannelCredentialPolicy(ctx context.Context, channelID objects.GUID, input objects.ChannelCredentialPolicy) (*biz.ChannelAPIKeyInventoryItem, error)
 	CreateChannel(ctx context.Context, input ent.CreateChannelInput) (*ent.Channel, error)
 	DuplicateChannel(ctx context.Context, sourceID objects.GUID, input ent.CreateChannelInput) (*ent.Channel, error)
 	BulkCreateChannels(ctx context.Context, input biz.BulkCreateChannelsInput) ([]*ent.Channel, error)
@@ -2695,6 +2778,9 @@ type OIDCIdentityResolver interface {
 
 	UserID(ctx context.Context, obj *ent.OIDCIdentity) (*objects.GUID, error)
 }
+type OutboundProxyResolver interface {
+	ID(ctx context.Context, obj *biz.OutboundProxyDTO) (*objects.GUID, error)
+}
 type ProjectResolver interface {
 	ID(ctx context.Context, obj *ent.Project) (*objects.GUID, error)
 
@@ -2735,6 +2821,8 @@ type QueryResolver interface {
 	Traces(ctx context.Context, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.TraceOrder, where *ent.TraceWhereInput) (*ent.TraceConnection, error)
 	UsageLogs(ctx context.Context, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.UsageLogOrder, where *ent.UsageLogWhereInput) (*ent.UsageLogConnection, error)
 	Users(ctx context.Context, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.UserOrder, where *ent.UserWhereInput) (*ent.UserConnection, error)
+	OutboundProxies(ctx context.Context) ([]*biz.OutboundProxyDTO, error)
+	OutboundProxyPools(ctx context.Context) ([]*biz.OutboundProxyPoolDTO, error)
 	ChannelExecutionInventory(ctx context.Context) (*biz.ChannelExecutionInventory, error)
 	ChannelAPIKeyInventory(ctx context.Context, channelID objects.GUID) ([]*biz.ChannelAPIKeyInventoryItem, error)
 	AllChannelSummarys(ctx context.Context, includeArchived *bool) ([]*ent.Channel, error)
@@ -2951,6 +3039,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.APIKey.CreatedAt(childComplexity), true
+	case "APIKey.exposeUpstreamKeyQuota":
+		if e.complexity.APIKey.ExposeUpstreamKeyQuota == nil {
+			break
+		}
+
+		return e.complexity.APIKey.ExposeUpstreamKeyQuota(childComplexity), true
 	case "APIKey.id":
 		if e.complexity.APIKey.ID == nil {
 			break
@@ -4047,6 +4141,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.Currency(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.effectiveExitIP":
+		if e.complexity.ChannelAPIKeyInventoryItem.EffectiveExitIP == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.EffectiveExitIP(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.effectiveProxyName":
+		if e.complexity.ChannelAPIKeyInventoryItem.EffectiveProxyName == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.EffectiveProxyName(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.failureCount":
 		if e.complexity.ChannelAPIKeyInventoryItem.FailureCount == nil {
 			break
@@ -4065,6 +4171,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.ID(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.inFlight":
+		if e.complexity.ChannelAPIKeyInventoryItem.InFlight == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.InFlight(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.lastCheckedAt":
 		if e.complexity.ChannelAPIKeyInventoryItem.LastCheckedAt == nil {
 			break
@@ -4089,6 +4201,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.NextCheckAt(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.policy":
+		if e.complexity.ChannelAPIKeyInventoryItem.Policy == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.Policy(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.quotaRemainingRatio":
+		if e.complexity.ChannelAPIKeyInventoryItem.QuotaRemainingRatio == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.QuotaRemainingRatio(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.quotaResetAt":
+		if e.complexity.ChannelAPIKeyInventoryItem.QuotaResetAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.QuotaResetAt(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.rawKey":
 		if e.complexity.ChannelAPIKeyInventoryItem.RawKey == nil {
 			break
@@ -4230,12 +4360,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelBalanceProbe.PrimarySelection(childComplexity), true
+	case "ChannelBalanceProbe.script":
+		if e.complexity.ChannelBalanceProbe.Script == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.Script(childComplexity), true
 	case "ChannelBalanceProbe.timeoutMs":
 		if e.complexity.ChannelBalanceProbe.TimeoutMs == nil {
 			break
 		}
 
 		return e.complexity.ChannelBalanceProbe.TimeoutMs(childComplexity), true
+
+	case "ChannelBalanceProbeScript.command":
+		if e.complexity.ChannelBalanceProbeScript.Command == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbeScript.Command(childComplexity), true
+	case "ChannelBalanceProbeScript.expression":
+		if e.complexity.ChannelBalanceProbeScript.Expression == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbeScript.Expression(childComplexity), true
+	case "ChannelBalanceProbeScript.mode":
+		if e.complexity.ChannelBalanceProbeScript.Mode == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbeScript.Mode(childComplexity), true
 
 	case "ChannelConnection.edges":
 		if e.complexity.ChannelConnection.Edges == nil {
@@ -4255,6 +4410,79 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelConnection.TotalCount(childComplexity), true
+
+	case "ChannelCredentialPolicy.customProxy":
+		if e.complexity.ChannelCredentialPolicy.CustomProxy == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.CustomProxy(childComplexity), true
+	case "ChannelCredentialPolicy.egressFailPolicy":
+		if e.complexity.ChannelCredentialPolicy.EgressFailPolicy == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.EgressFailPolicy(childComplexity), true
+	case "ChannelCredentialPolicy.egressMode":
+		if e.complexity.ChannelCredentialPolicy.EgressMode == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.EgressMode(childComplexity), true
+	case "ChannelCredentialPolicy.id":
+		if e.complexity.ChannelCredentialPolicy.ID == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.ID(childComplexity), true
+	case "ChannelCredentialPolicy.manualQuotaLimit":
+		if e.complexity.ChannelCredentialPolicy.ManualQuotaLimit == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.ManualQuotaLimit(childComplexity), true
+	case "ChannelCredentialPolicy.maxConcurrent":
+		if e.complexity.ChannelCredentialPolicy.MaxConcurrent == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.MaxConcurrent(childComplexity), true
+	case "ChannelCredentialPolicy.name":
+		if e.complexity.ChannelCredentialPolicy.Name == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.Name(childComplexity), true
+	case "ChannelCredentialPolicy.outboundProxyId":
+		if e.complexity.ChannelCredentialPolicy.OutboundProxyID == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.OutboundProxyID(childComplexity), true
+	case "ChannelCredentialPolicy.priority":
+		if e.complexity.ChannelCredentialPolicy.Priority == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.Priority(childComplexity), true
+	case "ChannelCredentialPolicy.proxyPoolName":
+		if e.complexity.ChannelCredentialPolicy.ProxyPoolName == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.ProxyPoolName(childComplexity), true
+	case "ChannelCredentialPolicy.requestIntervalMs":
+		if e.complexity.ChannelCredentialPolicy.RequestIntervalMs == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.RequestIntervalMs(childComplexity), true
+	case "ChannelCredentialPolicy.weight":
+		if e.complexity.ChannelCredentialPolicy.Weight == nil {
+			break
+		}
+
+		return e.complexity.ChannelCredentialPolicy.Weight(childComplexity), true
 
 	case "ChannelCredentials.apiKey":
 		if e.complexity.ChannelCredentials.APIKey == nil {
@@ -4381,6 +4609,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.Components(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.limit":
+		if e.complexity.ChannelKeyBalanceSnapshot.Limit == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Limit(childComplexity), true
 	case "ChannelKeyBalanceSnapshot.primaryBalance":
 		if e.complexity.ChannelKeyBalanceSnapshot.PrimaryBalance == nil {
 			break
@@ -4399,6 +4633,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.RawSummary(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.remaining":
+		if e.complexity.ChannelKeyBalanceSnapshot.Remaining == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Remaining(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.resetAt":
+		if e.complexity.ChannelKeyBalanceSnapshot.ResetAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.ResetAt(childComplexity), true
 	case "ChannelKeyBalanceSnapshot.statusCode":
 		if e.complexity.ChannelKeyBalanceSnapshot.StatusCode == nil {
 			break
@@ -4411,6 +4657,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.Success(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.usageRatio":
+		if e.complexity.ChannelKeyBalanceSnapshot.UsageRatio == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.UsageRatio(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.used":
+		if e.complexity.ChannelKeyBalanceSnapshot.Used == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Used(childComplexity), true
 
 	case "ChannelKeyHealthCheck.archivedKeys":
 		if e.complexity.ChannelKeyHealthCheck.ArchivedKeys == nil {
@@ -5766,6 +6024,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.BodyOverrideOperations(childComplexity), true
+	case "ChannelSettings.credentialPolicies":
+		if e.complexity.ChannelSettings.CredentialPolicies == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.CredentialPolicies(childComplexity), true
 	case "ChannelSettings.disableRetries":
 		if e.complexity.ChannelSettings.DisableRetries == nil {
 			break
@@ -7824,6 +8088,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.CreateModel(childComplexity, args["input"].(ent.CreateModelInput)), true
+	case "Mutation.createOutboundProxy":
+		if e.complexity.Mutation.CreateOutboundProxy == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createOutboundProxy_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.CreateOutboundProxy(childComplexity, args["input"].(biz.OutboundProxyCreateInput)), true
 	case "Mutation.createProject":
 		if e.complexity.Mutation.CreateProject == nil {
 			break
@@ -7956,6 +8231,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.DeleteModel(childComplexity, args["id"].(objects.GUID)), true
+	case "Mutation.deleteOutboundProxy":
+		if e.complexity.Mutation.DeleteOutboundProxy == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteOutboundProxy_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.DeleteOutboundProxy(childComplexity, args["id"].(objects.GUID)), true
 	case "Mutation.deleteProject":
 		if e.complexity.Mutation.DeleteProject == nil {
 			break
@@ -8099,6 +8385,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.PreviewPromptProtectionRule(childComplexity, args["input"].(PromptProtectionRulePreviewInput)), true
+	case "Mutation.probeOutboundProxy":
+		if e.complexity.Mutation.ProbeOutboundProxy == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_probeOutboundProxy_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.ProbeOutboundProxy(childComplexity, args["id"].(objects.GUID)), true
 	case "Mutation.removeUserFromProject":
 		if e.complexity.Mutation.RemoveUserFromProject == nil {
 			break
@@ -8545,6 +8842,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdateMyPassword(childComplexity, args["input"].(UpdateMyPasswordInput)), true
+	case "Mutation.updateOutboundProxy":
+		if e.complexity.Mutation.UpdateOutboundProxy == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateOutboundProxy_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpdateOutboundProxy(childComplexity, args["id"].(objects.GUID), args["input"].(biz.OutboundProxyUpdateInput)), true
 	case "Mutation.updatePassThroughSettings":
 		if e.complexity.Mutation.UpdatePassThroughSettings == nil {
 			break
@@ -8809,6 +9117,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdateWebhookNotifierConfig(childComplexity, args["input"].(biz.WebhookNotifierConfig)), true
+	case "Mutation.upsertChannelCredentialPolicy":
+		if e.complexity.Mutation.UpsertChannelCredentialPolicy == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_upsertChannelCredentialPolicy_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpsertChannelCredentialPolicy(childComplexity, args["channelID"].(objects.GUID), args["input"].(objects.ChannelCredentialPolicy)), true
 
 	case "OAuthCredentials.accessToken":
 		if e.complexity.OAuthCredentials.AccessToken == nil {
@@ -9008,6 +9327,182 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.OpenCodeGoQuotaSettings.WorkspaceID(childComplexity), true
+
+	case "OutboundProxy.backupCredentialCount":
+		if e.complexity.OutboundProxy.BackupCredentialCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.BackupCredentialCount(childComplexity), true
+	case "OutboundProxy.backupProxyCount":
+		if e.complexity.OutboundProxy.BackupProxyCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.BackupProxyCount(childComplexity), true
+	case "OutboundProxy.backupProxyId":
+		if e.complexity.OutboundProxy.BackupProxyID == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.BackupProxyID(childComplexity), true
+	case "OutboundProxy.channelReferenceCount":
+		if e.complexity.OutboundProxy.ChannelReferenceCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.ChannelReferenceCount(childComplexity), true
+	case "OutboundProxy.createdAt":
+		if e.complexity.OutboundProxy.CreatedAt == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.CreatedAt(childComplexity), true
+	case "OutboundProxy.credentialReferenceCount":
+		if e.complexity.OutboundProxy.CredentialReferenceCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.CredentialReferenceCount(childComplexity), true
+	case "OutboundProxy.expiresAt":
+		if e.complexity.OutboundProxy.ExpiresAt == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.ExpiresAt(childComplexity), true
+	case "OutboundProxy.id":
+		if e.complexity.OutboundProxy.ID == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.ID(childComplexity), true
+	case "OutboundProxy.kind":
+		if e.complexity.OutboundProxy.Kind == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.Kind(childComplexity), true
+	case "OutboundProxy.lastCountry":
+		if e.complexity.OutboundProxy.LastCountry == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.LastCountry(childComplexity), true
+	case "OutboundProxy.lastExitIp":
+		if e.complexity.OutboundProxy.LastExitIP == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.LastExitIP(childComplexity), true
+	case "OutboundProxy.lastLatencyMs":
+		if e.complexity.OutboundProxy.LastLatencyMs == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.LastLatencyMs(childComplexity), true
+	case "OutboundProxy.lastTestError":
+		if e.complexity.OutboundProxy.LastTestError == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.LastTestError(childComplexity), true
+	case "OutboundProxy.lastTestSuccess":
+		if e.complexity.OutboundProxy.LastTestSuccess == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.LastTestSuccess(childComplexity), true
+	case "OutboundProxy.lastTestedAt":
+		if e.complexity.OutboundProxy.LastTestedAt == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.LastTestedAt(childComplexity), true
+	case "OutboundProxy.maskedUrl":
+		if e.complexity.OutboundProxy.MaskedURL == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.MaskedURL(childComplexity), true
+	case "OutboundProxy.maxConcurrent":
+		if e.complexity.OutboundProxy.MaxConcurrent == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.MaxConcurrent(childComplexity), true
+	case "OutboundProxy.maxCredentials":
+		if e.complexity.OutboundProxy.MaxCredentials == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.MaxCredentials(childComplexity), true
+	case "OutboundProxy.name":
+		if e.complexity.OutboundProxy.Name == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.Name(childComplexity), true
+	case "OutboundProxy.poolName":
+		if e.complexity.OutboundProxy.PoolName == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.PoolName(childComplexity), true
+	case "OutboundProxy.primaryCredentialCount":
+		if e.complexity.OutboundProxy.PrimaryCredentialCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.PrimaryCredentialCount(childComplexity), true
+	case "OutboundProxy.remark":
+		if e.complexity.OutboundProxy.Remark == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.Remark(childComplexity), true
+	case "OutboundProxy.status":
+		if e.complexity.OutboundProxy.Status == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.Status(childComplexity), true
+	case "OutboundProxy.updatedAt":
+		if e.complexity.OutboundProxy.UpdatedAt == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.UpdatedAt(childComplexity), true
+	case "OutboundProxy.weight":
+		if e.complexity.OutboundProxy.Weight == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxy.Weight(childComplexity), true
+
+	case "OutboundProxyPool.credentialReferenceCount":
+		if e.complexity.OutboundProxyPool.CredentialReferenceCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxyPool.CredentialReferenceCount(childComplexity), true
+	case "OutboundProxyPool.enabledProxyCount":
+		if e.complexity.OutboundProxyPool.EnabledProxyCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxyPool.EnabledProxyCount(childComplexity), true
+	case "OutboundProxyPool.name":
+		if e.complexity.OutboundProxyPool.Name == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxyPool.Name(childComplexity), true
+	case "OutboundProxyPool.proxyCount":
+		if e.complexity.OutboundProxyPool.ProxyCount == nil {
+			break
+		}
+
+		return e.complexity.OutboundProxyPool.ProxyCount(childComplexity), true
 
 	case "OverrideMatch.eq":
 		if e.complexity.OverrideMatch.Eq == nil {
@@ -10230,6 +10725,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.OnboardingInfo(childComplexity), true
+	case "Query.outboundProxies":
+		if e.complexity.Query.OutboundProxies == nil {
+			break
+		}
+
+		return e.complexity.Query.OutboundProxies(childComplexity), true
+	case "Query.outboundProxyPools":
+		if e.complexity.Query.OutboundProxyPools == nil {
+			break
+		}
+
+		return e.complexity.Query.OutboundProxyPools(childComplexity), true
 	case "Query.passThroughSettings":
 		if e.complexity.Query.PassThroughSettings == nil {
 			break
@@ -13512,6 +14019,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputBulkUpdateChannelOrderingInput,
 		ec.unmarshalInputChannelArchivedAPIKeyInput,
 		ec.unmarshalInputChannelBalanceProbeInput,
+		ec.unmarshalInputChannelBalanceProbeScriptInput,
+		ec.unmarshalInputChannelCredentialPolicyInput,
 		ec.unmarshalInputChannelCredentialsInput,
 		ec.unmarshalInputChannelEndpointInput,
 		ec.unmarshalInputChannelFailurePolicyInput,
@@ -13565,6 +14074,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputCreateDataStorageInput,
 		ec.unmarshalInputCreateModelInput,
 		ec.unmarshalInputCreateOIDCIdentityInput,
+		ec.unmarshalInputCreateOutboundProxyInput,
 		ec.unmarshalInputCreateProjectInput,
 		ec.unmarshalInputCreatePromptInput,
 		ec.unmarshalInputCreatePromptProtectionRuleInput,
@@ -13686,6 +14196,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputUpdateMonitoringSettingsInput,
 		ec.unmarshalInputUpdateMyPasswordInput,
 		ec.unmarshalInputUpdateOIDCIdentityInput,
+		ec.unmarshalInputUpdateOutboundProxyInput,
 		ec.unmarshalInputUpdatePassThroughSettingsInput,
 		ec.unmarshalInputUpdateProjectInput,
 		ec.unmarshalInputUpdateProjectProfilesInput,
@@ -14577,6 +15088,17 @@ func (ec *executionContext) field_Mutation_createModel_args(ctx context.Context,
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_createOutboundProxy_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNCreateOutboundProxyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyCreateInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -14709,6 +15231,17 @@ func (ec *executionContext) field_Mutation_deleteDisabledChannelAPIKeys_args(ctx
 }
 
 func (ec *executionContext) field_Mutation_deleteModel_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_deleteOutboundProxy_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID)
@@ -14879,6 +15412,17 @@ func (ec *executionContext) field_Mutation_previewPromptProtectionRule_args(ctx 
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_probeOutboundProxy_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -15432,6 +15976,22 @@ func (ec *executionContext) field_Mutation_updateMyPassword_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_updateOutboundProxy_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalNID2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNUpdateOutboundProxyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyUpdateInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_updatePassThroughSettings_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -15743,6 +16303,22 @@ func (ec *executionContext) field_Mutation_updateWebhookNotifierConfig_args(ctx 
 		return nil, err
 	}
 	args["input"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_upsertChannelCredentialPolicy_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "channelID", ec.unmarshalNID2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID)
+	if err != nil {
+		return nil, err
+	}
+	args["channelID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNChannelCredentialPolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicy)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg1
 	return args, nil
 }
 
@@ -17911,6 +18487,35 @@ func (ec *executionContext) fieldContext_APIKey_allowedIps(_ context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _APIKey_exposeUpstreamKeyQuota(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_APIKey_exposeUpstreamKeyQuota,
+		func(ctx context.Context) (any, error) {
+			return obj.ExposeUpstreamKeyQuota, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_APIKey_exposeUpstreamKeyQuota(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "APIKey",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _APIKey_user(ctx context.Context, field graphql.CollectedField, obj *ent.APIKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18247,6 +18852,8 @@ func (ec *executionContext) fieldContext_APIKeyEdge_node(_ context.Context, fiel
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -22481,6 +23088,8 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 			switch field.Name {
 			case "rawHTTP":
 				return ec.fieldContext_ChannelSettings_rawHTTP(ctx, field)
+			case "credentialPolicies":
+				return ec.fieldContext_ChannelSettings_credentialPolicies(ctx, field)
 			case "extraModelPrefix":
 				return ec.fieldContext_ChannelSettings_extraModelPrefix(ctx, field)
 			case "modelMappings":
@@ -23262,6 +23871,206 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_id(_ context
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_policy(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_policy,
+		func(ctx context.Context) (any, error) {
+			return obj.Policy, nil
+		},
+		nil,
+		ec.marshalOChannelCredentialPolicy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicy,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_policy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ChannelCredentialPolicy_id(ctx, field)
+			case "name":
+				return ec.fieldContext_ChannelCredentialPolicy_name(ctx, field)
+			case "priority":
+				return ec.fieldContext_ChannelCredentialPolicy_priority(ctx, field)
+			case "weight":
+				return ec.fieldContext_ChannelCredentialPolicy_weight(ctx, field)
+			case "maxConcurrent":
+				return ec.fieldContext_ChannelCredentialPolicy_maxConcurrent(ctx, field)
+			case "requestIntervalMs":
+				return ec.fieldContext_ChannelCredentialPolicy_requestIntervalMs(ctx, field)
+			case "manualQuotaLimit":
+				return ec.fieldContext_ChannelCredentialPolicy_manualQuotaLimit(ctx, field)
+			case "egressMode":
+				return ec.fieldContext_ChannelCredentialPolicy_egressMode(ctx, field)
+			case "outboundProxyId":
+				return ec.fieldContext_ChannelCredentialPolicy_outboundProxyId(ctx, field)
+			case "proxyPoolName":
+				return ec.fieldContext_ChannelCredentialPolicy_proxyPoolName(ctx, field)
+			case "customProxy":
+				return ec.fieldContext_ChannelCredentialPolicy_customProxy(ctx, field)
+			case "egressFailPolicy":
+				return ec.fieldContext_ChannelCredentialPolicy_egressFailPolicy(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelCredentialPolicy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_effectiveProxyName(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveProxyName,
+		func(ctx context.Context) (any, error) {
+			return obj.EffectiveProxyName, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_effectiveProxyName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_effectiveExitIP(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveExitIP,
+		func(ctx context.Context) (any, error) {
+			return obj.EffectiveExitIP, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_effectiveExitIP(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_inFlight(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_inFlight,
+		func(ctx context.Context) (any, error) {
+			return obj.InFlight, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_inFlight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_quotaRemainingRatio(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_quotaRemainingRatio,
+		func(ctx context.Context) (any, error) {
+			return obj.QuotaRemainingRatio, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_quotaRemainingRatio(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_quotaResetAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_quotaResetAt,
+		func(ctx context.Context) (any, error) {
+			return obj.QuotaResetAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_quotaResetAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelAPIKeyInventoryItem_rawKey(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -23547,6 +24356,16 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_balanceSnaps
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "used":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_used(ctx, field)
+			case "limit":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_limit(ctx, field)
+			case "remaining":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_remaining(ctx, field)
+			case "usageRatio":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_usageRatio(ctx, field)
+			case "resetAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
 			case "checkedAt":
@@ -24094,6 +24913,16 @@ func (ec *executionContext) fieldContext_ChannelArchivedAPIKey_balanceSnapshot(_
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "used":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_used(ctx, field)
+			case "limit":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_limit(ctx, field)
+			case "remaining":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_remaining(ctx, field)
+			case "usageRatio":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_usageRatio(ctx, field)
+			case "resetAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
 			case "checkedAt":
@@ -24145,6 +24974,43 @@ func (ec *executionContext) fieldContext_ChannelArchivedAPIKey_available(_ conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_script(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_script,
+		func(ctx context.Context) (any, error) {
+			return obj.Script, nil
+		},
+		nil,
+		ec.marshalOChannelBalanceProbeScript2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScript,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_script(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "mode":
+				return ec.fieldContext_ChannelBalanceProbeScript_mode(ctx, field)
+			case "expression":
+				return ec.fieldContext_ChannelBalanceProbeScript_expression(ctx, field)
+			case "command":
+				return ec.fieldContext_ChannelBalanceProbeScript_command(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelBalanceProbeScript", field.Name)
 		},
 	}
 	return fc, nil
@@ -24402,6 +25268,93 @@ func (ec *executionContext) fieldContext_ChannelBalanceProbe_http(_ context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelBalanceProbeScript_mode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbeScript) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbeScript_mode,
+		func(ctx context.Context) (any, error) {
+			return obj.Mode, nil
+		},
+		nil,
+		ec.marshalOChannelBalanceProbeScriptMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScriptMode,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbeScript_mode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbeScript",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelBalanceProbeScriptMode does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbeScript_expression(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbeScript) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbeScript_expression,
+		func(ctx context.Context) (any, error) {
+			return obj.Expression, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbeScript_expression(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbeScript",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbeScript_command(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbeScript) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbeScript_command,
+		func(ctx context.Context) (any, error) {
+			return obj.Command, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbeScript_command(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbeScript",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelConnection_edges(ctx context.Context, field graphql.CollectedField, obj *ent.ChannelConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24500,6 +25453,366 @@ func (ec *executionContext) fieldContext_ChannelConnection_totalCount(_ context.
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_id(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_name(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_priority(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_priority,
+		func(ctx context.Context) (any, error) {
+			return obj.Priority, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_priority(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_weight(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_weight,
+		func(ctx context.Context) (any, error) {
+			return obj.Weight, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_maxConcurrent(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_maxConcurrent,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxConcurrent, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_maxConcurrent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_requestIntervalMs(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_requestIntervalMs,
+		func(ctx context.Context) (any, error) {
+			return obj.RequestIntervalMs, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_requestIntervalMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_manualQuotaLimit(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_manualQuotaLimit,
+		func(ctx context.Context) (any, error) {
+			return obj.ManualQuotaLimit, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_manualQuotaLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_egressMode(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_egressMode,
+		func(ctx context.Context) (any, error) {
+			return obj.EgressMode, nil
+		},
+		nil,
+		ec.marshalOCredentialEgressMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressMode,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_egressMode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type CredentialEgressMode does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_outboundProxyId(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_outboundProxyId,
+		func(ctx context.Context) (any, error) {
+			return obj.OutboundProxyID, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_outboundProxyId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_proxyPoolName(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_proxyPoolName,
+		func(ctx context.Context) (any, error) {
+			return obj.ProxyPoolName, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_proxyPoolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_customProxy(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_customProxy,
+		func(ctx context.Context) (any, error) {
+			return obj.CustomProxy, nil
+		},
+		nil,
+		ec.marshalOProxyConfig2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋllmᚋhttpclientᚐProxyConfig,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_customProxy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "type":
+				return ec.fieldContext_ProxyConfig_type(ctx, field)
+			case "url":
+				return ec.fieldContext_ProxyConfig_url(ctx, field)
+			case "username":
+				return ec.fieldContext_ProxyConfig_username(ctx, field)
+			case "password":
+				return ec.fieldContext_ProxyConfig_password(ctx, field)
+			case "disableConnectionReuse":
+				return ec.fieldContext_ProxyConfig_disableConnectionReuse(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ProxyConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelCredentialPolicy_egressFailPolicy(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelCredentialPolicy) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelCredentialPolicy_egressFailPolicy,
+		func(ctx context.Context) (any, error) {
+			return obj.EgressFailPolicy, nil
+		},
+		nil,
+		ec.marshalOCredentialEgressFailPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressFailPolicy,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelCredentialPolicy_egressFailPolicy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelCredentialPolicy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type CredentialEgressFailPolicy does not have child fields")
 		},
 	}
 	return fc, nil
@@ -25055,6 +26368,151 @@ func (ec *executionContext) fieldContext_ChannelFailurePolicy_channelProfiles(_ 
 				return ec.fieldContext_FailurePolicyProfile_actions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type FailurePolicyProfile", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_used(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_used,
+		func(ctx context.Context) (any, error) {
+			return obj.Used, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_used(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_limit(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_limit,
+		func(ctx context.Context) (any, error) {
+			return obj.Limit, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_remaining(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_remaining,
+		func(ctx context.Context) (any, error) {
+			return obj.Remaining, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_remaining(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_usageRatio(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_usageRatio,
+		func(ctx context.Context) (any, error) {
+			return obj.UsageRatio, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_usageRatio(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_resetAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ResetAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_resetAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
 		},
 	}
 	return fc, nil
@@ -26425,6 +27883,16 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_balan
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "used":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_used(ctx, field)
+			case "limit":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_limit(ctx, field)
+			case "remaining":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_remaining(ctx, field)
+			case "usageRatio":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_usageRatio(ctx, field)
+			case "resetAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
 			case "checkedAt":
@@ -27756,6 +29224,16 @@ func (ec *executionContext) fieldContext_ChannelKeyMetadata_balanceSnapshot(_ co
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "used":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_used(ctx, field)
+			case "limit":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_limit(ctx, field)
+			case "remaining":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_remaining(ctx, field)
+			case "usageRatio":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_usageRatio(ctx, field)
+			case "resetAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
 			case "checkedAt":
@@ -32485,6 +33963,61 @@ func (ec *executionContext) fieldContext_ChannelSettings_rawHTTP(_ context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelSettings_credentialPolicies(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_credentialPolicies,
+		func(ctx context.Context) (any, error) {
+			return obj.CredentialPolicies, nil
+		},
+		nil,
+		ec.marshalOChannelCredentialPolicy2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicyᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_credentialPolicies(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ChannelCredentialPolicy_id(ctx, field)
+			case "name":
+				return ec.fieldContext_ChannelCredentialPolicy_name(ctx, field)
+			case "priority":
+				return ec.fieldContext_ChannelCredentialPolicy_priority(ctx, field)
+			case "weight":
+				return ec.fieldContext_ChannelCredentialPolicy_weight(ctx, field)
+			case "maxConcurrent":
+				return ec.fieldContext_ChannelCredentialPolicy_maxConcurrent(ctx, field)
+			case "requestIntervalMs":
+				return ec.fieldContext_ChannelCredentialPolicy_requestIntervalMs(ctx, field)
+			case "manualQuotaLimit":
+				return ec.fieldContext_ChannelCredentialPolicy_manualQuotaLimit(ctx, field)
+			case "egressMode":
+				return ec.fieldContext_ChannelCredentialPolicy_egressMode(ctx, field)
+			case "outboundProxyId":
+				return ec.fieldContext_ChannelCredentialPolicy_outboundProxyId(ctx, field)
+			case "proxyPoolName":
+				return ec.fieldContext_ChannelCredentialPolicy_proxyPoolName(ctx, field)
+			case "customProxy":
+				return ec.fieldContext_ChannelCredentialPolicy_customProxy(ctx, field)
+			case "egressFailPolicy":
+				return ec.fieldContext_ChannelCredentialPolicy_egressFailPolicy(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelCredentialPolicy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelSettings_extraModelPrefix(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -33335,6 +34868,8 @@ func (ec *executionContext) fieldContext_ChannelSettings_balanceProbe(_ context.
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "script":
+				return ec.fieldContext_ChannelBalanceProbe_script(ctx, field)
 			case "enabled":
 				return ec.fieldContext_ChannelBalanceProbe_enabled(ctx, field)
 			case "preset":
@@ -40846,6 +42381,417 @@ func (ec *executionContext) fieldContext_MonitoringSettings_rules(_ context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_createOutboundProxy(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_createOutboundProxy,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().CreateOutboundProxy(ctx, fc.Args["input"].(biz.OutboundProxyCreateInput))
+		},
+		nil,
+		ec.marshalNOutboundProxy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTO,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createOutboundProxy(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_OutboundProxy_id(ctx, field)
+			case "name":
+				return ec.fieldContext_OutboundProxy_name(ctx, field)
+			case "kind":
+				return ec.fieldContext_OutboundProxy_kind(ctx, field)
+			case "maskedUrl":
+				return ec.fieldContext_OutboundProxy_maskedUrl(ctx, field)
+			case "poolName":
+				return ec.fieldContext_OutboundProxy_poolName(ctx, field)
+			case "status":
+				return ec.fieldContext_OutboundProxy_status(ctx, field)
+			case "weight":
+				return ec.fieldContext_OutboundProxy_weight(ctx, field)
+			case "maxConcurrent":
+				return ec.fieldContext_OutboundProxy_maxConcurrent(ctx, field)
+			case "maxCredentials":
+				return ec.fieldContext_OutboundProxy_maxCredentials(ctx, field)
+			case "backupProxyId":
+				return ec.fieldContext_OutboundProxy_backupProxyId(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_OutboundProxy_expiresAt(ctx, field)
+			case "remark":
+				return ec.fieldContext_OutboundProxy_remark(ctx, field)
+			case "lastTestedAt":
+				return ec.fieldContext_OutboundProxy_lastTestedAt(ctx, field)
+			case "lastTestSuccess":
+				return ec.fieldContext_OutboundProxy_lastTestSuccess(ctx, field)
+			case "lastExitIp":
+				return ec.fieldContext_OutboundProxy_lastExitIp(ctx, field)
+			case "lastCountry":
+				return ec.fieldContext_OutboundProxy_lastCountry(ctx, field)
+			case "lastLatencyMs":
+				return ec.fieldContext_OutboundProxy_lastLatencyMs(ctx, field)
+			case "lastTestError":
+				return ec.fieldContext_OutboundProxy_lastTestError(ctx, field)
+			case "credentialReferenceCount":
+				return ec.fieldContext_OutboundProxy_credentialReferenceCount(ctx, field)
+			case "primaryCredentialCount":
+				return ec.fieldContext_OutboundProxy_primaryCredentialCount(ctx, field)
+			case "backupCredentialCount":
+				return ec.fieldContext_OutboundProxy_backupCredentialCount(ctx, field)
+			case "backupProxyCount":
+				return ec.fieldContext_OutboundProxy_backupProxyCount(ctx, field)
+			case "channelReferenceCount":
+				return ec.fieldContext_OutboundProxy_channelReferenceCount(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_OutboundProxy_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_OutboundProxy_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type OutboundProxy", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createOutboundProxy_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateOutboundProxy(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_updateOutboundProxy,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().UpdateOutboundProxy(ctx, fc.Args["id"].(objects.GUID), fc.Args["input"].(biz.OutboundProxyUpdateInput))
+		},
+		nil,
+		ec.marshalNOutboundProxy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTO,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateOutboundProxy(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_OutboundProxy_id(ctx, field)
+			case "name":
+				return ec.fieldContext_OutboundProxy_name(ctx, field)
+			case "kind":
+				return ec.fieldContext_OutboundProxy_kind(ctx, field)
+			case "maskedUrl":
+				return ec.fieldContext_OutboundProxy_maskedUrl(ctx, field)
+			case "poolName":
+				return ec.fieldContext_OutboundProxy_poolName(ctx, field)
+			case "status":
+				return ec.fieldContext_OutboundProxy_status(ctx, field)
+			case "weight":
+				return ec.fieldContext_OutboundProxy_weight(ctx, field)
+			case "maxConcurrent":
+				return ec.fieldContext_OutboundProxy_maxConcurrent(ctx, field)
+			case "maxCredentials":
+				return ec.fieldContext_OutboundProxy_maxCredentials(ctx, field)
+			case "backupProxyId":
+				return ec.fieldContext_OutboundProxy_backupProxyId(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_OutboundProxy_expiresAt(ctx, field)
+			case "remark":
+				return ec.fieldContext_OutboundProxy_remark(ctx, field)
+			case "lastTestedAt":
+				return ec.fieldContext_OutboundProxy_lastTestedAt(ctx, field)
+			case "lastTestSuccess":
+				return ec.fieldContext_OutboundProxy_lastTestSuccess(ctx, field)
+			case "lastExitIp":
+				return ec.fieldContext_OutboundProxy_lastExitIp(ctx, field)
+			case "lastCountry":
+				return ec.fieldContext_OutboundProxy_lastCountry(ctx, field)
+			case "lastLatencyMs":
+				return ec.fieldContext_OutboundProxy_lastLatencyMs(ctx, field)
+			case "lastTestError":
+				return ec.fieldContext_OutboundProxy_lastTestError(ctx, field)
+			case "credentialReferenceCount":
+				return ec.fieldContext_OutboundProxy_credentialReferenceCount(ctx, field)
+			case "primaryCredentialCount":
+				return ec.fieldContext_OutboundProxy_primaryCredentialCount(ctx, field)
+			case "backupCredentialCount":
+				return ec.fieldContext_OutboundProxy_backupCredentialCount(ctx, field)
+			case "backupProxyCount":
+				return ec.fieldContext_OutboundProxy_backupProxyCount(ctx, field)
+			case "channelReferenceCount":
+				return ec.fieldContext_OutboundProxy_channelReferenceCount(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_OutboundProxy_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_OutboundProxy_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type OutboundProxy", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateOutboundProxy_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteOutboundProxy(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_deleteOutboundProxy,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().DeleteOutboundProxy(ctx, fc.Args["id"].(objects.GUID))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_deleteOutboundProxy(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteOutboundProxy_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_probeOutboundProxy(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_probeOutboundProxy,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().ProbeOutboundProxy(ctx, fc.Args["id"].(objects.GUID))
+		},
+		nil,
+		ec.marshalNOutboundProxy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTO,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_probeOutboundProxy(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_OutboundProxy_id(ctx, field)
+			case "name":
+				return ec.fieldContext_OutboundProxy_name(ctx, field)
+			case "kind":
+				return ec.fieldContext_OutboundProxy_kind(ctx, field)
+			case "maskedUrl":
+				return ec.fieldContext_OutboundProxy_maskedUrl(ctx, field)
+			case "poolName":
+				return ec.fieldContext_OutboundProxy_poolName(ctx, field)
+			case "status":
+				return ec.fieldContext_OutboundProxy_status(ctx, field)
+			case "weight":
+				return ec.fieldContext_OutboundProxy_weight(ctx, field)
+			case "maxConcurrent":
+				return ec.fieldContext_OutboundProxy_maxConcurrent(ctx, field)
+			case "maxCredentials":
+				return ec.fieldContext_OutboundProxy_maxCredentials(ctx, field)
+			case "backupProxyId":
+				return ec.fieldContext_OutboundProxy_backupProxyId(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_OutboundProxy_expiresAt(ctx, field)
+			case "remark":
+				return ec.fieldContext_OutboundProxy_remark(ctx, field)
+			case "lastTestedAt":
+				return ec.fieldContext_OutboundProxy_lastTestedAt(ctx, field)
+			case "lastTestSuccess":
+				return ec.fieldContext_OutboundProxy_lastTestSuccess(ctx, field)
+			case "lastExitIp":
+				return ec.fieldContext_OutboundProxy_lastExitIp(ctx, field)
+			case "lastCountry":
+				return ec.fieldContext_OutboundProxy_lastCountry(ctx, field)
+			case "lastLatencyMs":
+				return ec.fieldContext_OutboundProxy_lastLatencyMs(ctx, field)
+			case "lastTestError":
+				return ec.fieldContext_OutboundProxy_lastTestError(ctx, field)
+			case "credentialReferenceCount":
+				return ec.fieldContext_OutboundProxy_credentialReferenceCount(ctx, field)
+			case "primaryCredentialCount":
+				return ec.fieldContext_OutboundProxy_primaryCredentialCount(ctx, field)
+			case "backupCredentialCount":
+				return ec.fieldContext_OutboundProxy_backupCredentialCount(ctx, field)
+			case "backupProxyCount":
+				return ec.fieldContext_OutboundProxy_backupProxyCount(ctx, field)
+			case "channelReferenceCount":
+				return ec.fieldContext_OutboundProxy_channelReferenceCount(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_OutboundProxy_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_OutboundProxy_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type OutboundProxy", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_probeOutboundProxy_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_upsertChannelCredentialPolicy(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_upsertChannelCredentialPolicy,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().UpsertChannelCredentialPolicy(ctx, fc.Args["channelID"].(objects.GUID), fc.Args["input"].(objects.ChannelCredentialPolicy))
+		},
+		nil,
+		ec.marshalNChannelAPIKeyInventoryItem2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAPIKeyInventoryItem,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_upsertChannelCredentialPolicy(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_id(ctx, field)
+			case "policy":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_policy(ctx, field)
+			case "effectiveProxyName":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveProxyName(ctx, field)
+			case "effectiveExitIP":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveExitIP(ctx, field)
+			case "inFlight":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_inFlight(ctx, field)
+			case "quotaRemainingRatio":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_quotaRemainingRatio(ctx, field)
+			case "quotaResetAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_quotaResetAt(ctx, field)
+			case "rawKey":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_rawKey(ctx, field)
+			case "maskedKey":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_maskedKey(ctx, field)
+			case "status":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_status(ctx, field)
+			case "lastCheckedAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastCheckedAt(ctx, field)
+			case "success":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_success(ctx, field)
+			case "failureCount":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_failureCount(ctx, field)
+			case "reason":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_reason(ctx, field)
+			case "balance":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_balance(ctx, field)
+			case "currency":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
+			case "balanceSnapshot":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_statusCode(ctx, field)
+			case "matchedPolicy":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_matchedPolicy(ctx, field)
+			case "action":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_action(ctx, field)
+			case "nextCheckAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_nextCheckAt(ctx, field)
+			case "backoffAttempt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_backoffAttempt(ctx, field)
+			case "history":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_history(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelAPIKeyInventoryItem", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_upsertChannelCredentialPolicy_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_createChannel(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -42401,6 +44347,18 @@ func (ec *executionContext) fieldContext_Mutation_runChannelAPIKeyHealthCheck(ct
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_id(ctx, field)
+			case "policy":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_policy(ctx, field)
+			case "effectiveProxyName":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveProxyName(ctx, field)
+			case "effectiveExitIP":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveExitIP(ctx, field)
+			case "inFlight":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_inFlight(ctx, field)
+			case "quotaRemainingRatio":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_quotaRemainingRatio(ctx, field)
+			case "quotaResetAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_quotaResetAt(ctx, field)
 			case "rawKey":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_rawKey(ctx, field)
 			case "maskedKey":
@@ -42504,6 +44462,8 @@ func (ec *executionContext) fieldContext_Mutation_createAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -42579,6 +44539,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -42654,6 +44616,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyStatus(ctx context
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -42729,6 +44693,8 @@ func (ec *executionContext) fieldContext_Mutation_updateAPIKeyProfiles(ctx conte
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -42804,6 +44770,8 @@ func (ec *executionContext) fieldContext_Mutation_rotateAPIKey(ctx context.Conte
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -44710,6 +46678,8 @@ func (ec *executionContext) fieldContext_Mutation_loadApiKeyProfileTemplate(ctx 
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -48813,6 +50783,847 @@ func (ec *executionContext) fieldContext_OpenCodeGoQuotaSettings_authCookie(_ co
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_id(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_id,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.OutboundProxy().ID(ctx, obj)
+		},
+		nil,
+		ec.marshalNID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_name(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_kind(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_kind,
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		ec.marshalNOutboundProxyKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type OutboundProxyKind does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_maskedUrl(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_maskedUrl,
+		func(ctx context.Context) (any, error) {
+			return obj.MaskedURL, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_maskedUrl(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_poolName(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_status(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalNOutboundProxyStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type OutboundProxyStatus does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_weight(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_weight,
+		func(ctx context.Context) (any, error) {
+			return obj.Weight, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_weight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_maxConcurrent(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_maxConcurrent,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxConcurrent, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_maxConcurrent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_maxCredentials(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_maxCredentials,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxCredentials, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_maxCredentials(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_backupProxyId(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_backupProxyId,
+		func(ctx context.Context) (any, error) {
+			return obj.BackupProxyID, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_backupProxyId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_expiresAt(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_expiresAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ExpiresAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_expiresAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_remark(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_remark,
+		func(ctx context.Context) (any, error) {
+			return obj.Remark, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_remark(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_lastTestedAt(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_lastTestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LastTestedAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_lastTestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_lastTestSuccess(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_lastTestSuccess,
+		func(ctx context.Context) (any, error) {
+			return obj.LastTestSuccess, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_lastTestSuccess(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_lastExitIp(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_lastExitIp,
+		func(ctx context.Context) (any, error) {
+			return obj.LastExitIP, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_lastExitIp(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_lastCountry(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_lastCountry,
+		func(ctx context.Context) (any, error) {
+			return obj.LastCountry, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_lastCountry(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_lastLatencyMs(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_lastLatencyMs,
+		func(ctx context.Context) (any, error) {
+			return obj.LastLatencyMs, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_lastLatencyMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_lastTestError(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_lastTestError,
+		func(ctx context.Context) (any, error) {
+			return obj.LastTestError, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_lastTestError(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_credentialReferenceCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_credentialReferenceCount,
+		func(ctx context.Context) (any, error) {
+			return obj.CredentialReferenceCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_credentialReferenceCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_primaryCredentialCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_primaryCredentialCount,
+		func(ctx context.Context) (any, error) {
+			return obj.PrimaryCredentialCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_primaryCredentialCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_backupCredentialCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_backupCredentialCount,
+		func(ctx context.Context) (any, error) {
+			return obj.BackupCredentialCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_backupCredentialCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_backupProxyCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_backupProxyCount,
+		func(ctx context.Context) (any, error) {
+			return obj.BackupProxyCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_backupProxyCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_channelReferenceCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_channelReferenceCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ChannelReferenceCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_channelReferenceCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_createdAt(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxy_updatedAt(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxy_updatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxy_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxy",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxyPool_name(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyPoolDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxyPool_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxyPool_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxyPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxyPool_proxyCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyPoolDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxyPool_proxyCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ProxyCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxyPool_proxyCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxyPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxyPool_enabledProxyCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyPoolDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxyPool_enabledProxyCount,
+		func(ctx context.Context) (any, error) {
+			return obj.EnabledProxyCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxyPool_enabledProxyCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxyPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _OutboundProxyPool_credentialReferenceCount(ctx context.Context, field graphql.CollectedField, obj *biz.OutboundProxyPoolDTO) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_OutboundProxyPool_credentialReferenceCount,
+		func(ctx context.Context) (any, error) {
+			return obj.CredentialReferenceCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_OutboundProxyPool_credentialReferenceCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "OutboundProxyPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -53890,6 +56701,126 @@ func (ec *executionContext) fieldContext_Query_users(ctx context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_outboundProxies(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_outboundProxies,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().OutboundProxies(ctx)
+		},
+		nil,
+		ec.marshalNOutboundProxy2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTOᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_outboundProxies(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_OutboundProxy_id(ctx, field)
+			case "name":
+				return ec.fieldContext_OutboundProxy_name(ctx, field)
+			case "kind":
+				return ec.fieldContext_OutboundProxy_kind(ctx, field)
+			case "maskedUrl":
+				return ec.fieldContext_OutboundProxy_maskedUrl(ctx, field)
+			case "poolName":
+				return ec.fieldContext_OutboundProxy_poolName(ctx, field)
+			case "status":
+				return ec.fieldContext_OutboundProxy_status(ctx, field)
+			case "weight":
+				return ec.fieldContext_OutboundProxy_weight(ctx, field)
+			case "maxConcurrent":
+				return ec.fieldContext_OutboundProxy_maxConcurrent(ctx, field)
+			case "maxCredentials":
+				return ec.fieldContext_OutboundProxy_maxCredentials(ctx, field)
+			case "backupProxyId":
+				return ec.fieldContext_OutboundProxy_backupProxyId(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_OutboundProxy_expiresAt(ctx, field)
+			case "remark":
+				return ec.fieldContext_OutboundProxy_remark(ctx, field)
+			case "lastTestedAt":
+				return ec.fieldContext_OutboundProxy_lastTestedAt(ctx, field)
+			case "lastTestSuccess":
+				return ec.fieldContext_OutboundProxy_lastTestSuccess(ctx, field)
+			case "lastExitIp":
+				return ec.fieldContext_OutboundProxy_lastExitIp(ctx, field)
+			case "lastCountry":
+				return ec.fieldContext_OutboundProxy_lastCountry(ctx, field)
+			case "lastLatencyMs":
+				return ec.fieldContext_OutboundProxy_lastLatencyMs(ctx, field)
+			case "lastTestError":
+				return ec.fieldContext_OutboundProxy_lastTestError(ctx, field)
+			case "credentialReferenceCount":
+				return ec.fieldContext_OutboundProxy_credentialReferenceCount(ctx, field)
+			case "primaryCredentialCount":
+				return ec.fieldContext_OutboundProxy_primaryCredentialCount(ctx, field)
+			case "backupCredentialCount":
+				return ec.fieldContext_OutboundProxy_backupCredentialCount(ctx, field)
+			case "backupProxyCount":
+				return ec.fieldContext_OutboundProxy_backupProxyCount(ctx, field)
+			case "channelReferenceCount":
+				return ec.fieldContext_OutboundProxy_channelReferenceCount(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_OutboundProxy_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_OutboundProxy_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type OutboundProxy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_outboundProxyPools(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_outboundProxyPools,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Query().OutboundProxyPools(ctx)
+		},
+		nil,
+		ec.marshalNOutboundProxyPool2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyPoolDTOᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_outboundProxyPools(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_OutboundProxyPool_name(ctx, field)
+			case "proxyCount":
+				return ec.fieldContext_OutboundProxyPool_proxyCount(ctx, field)
+			case "enabledProxyCount":
+				return ec.fieldContext_OutboundProxyPool_enabledProxyCount(ctx, field)
+			case "credentialReferenceCount":
+				return ec.fieldContext_OutboundProxyPool_credentialReferenceCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type OutboundProxyPool", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_channelExecutionInventory(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -53952,6 +56883,18 @@ func (ec *executionContext) fieldContext_Query_channelAPIKeyInventory(ctx contex
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_id(ctx, field)
+			case "policy":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_policy(ctx, field)
+			case "effectiveProxyName":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveProxyName(ctx, field)
+			case "effectiveExitIP":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_effectiveExitIP(ctx, field)
+			case "inFlight":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_inFlight(ctx, field)
+			case "quotaRemainingRatio":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_quotaRemainingRatio(ctx, field)
+			case "quotaResetAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_quotaResetAt(ctx, field)
 			case "rawKey":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_rawKey(ctx, field)
 			case "maskedKey":
@@ -58402,6 +61345,8 @@ func (ec *executionContext) fieldContext_Request_apiKey(_ context.Context, field
 				return ec.fieldContext_APIKey_profiles(ctx, field)
 			case "allowedIps":
 				return ec.fieldContext_APIKey_allowedIps(ctx, field)
+			case "exposeUpstreamKeyQuota":
+				return ec.fieldContext_APIKey_exposeUpstreamKeyQuota(ctx, field)
 			case "user":
 				return ec.fieldContext_APIKey_user(ctx, field)
 			case "project":
@@ -74575,7 +77520,7 @@ func (ec *executionContext) unmarshalInputAPIKeyWhereInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "userID", "userIDNEQ", "userIDIn", "userIDNotIn", "userIDIsNil", "userIDNotNil", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "key", "keyNEQ", "keyIn", "keyNotIn", "keyGT", "keyGTE", "keyLT", "keyLTE", "keyContains", "keyHasPrefix", "keyHasSuffix", "keyEqualFold", "keyContainsFold", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "portalManaged", "portalManagedNEQ", "type", "typeNEQ", "typeIn", "typeNotIn", "status", "statusNEQ", "statusIn", "statusNotIn", "hasUser", "hasUserWith", "hasProject", "hasProjectWith", "hasRequests", "hasRequestsWith"}
+	fieldsInOrder := [...]string{"not", "and", "or", "id", "idNEQ", "idIn", "idNotIn", "idGT", "idGTE", "idLT", "idLTE", "createdAt", "createdAtNEQ", "createdAtIn", "createdAtNotIn", "createdAtGT", "createdAtGTE", "createdAtLT", "createdAtLTE", "updatedAt", "updatedAtNEQ", "updatedAtIn", "updatedAtNotIn", "updatedAtGT", "updatedAtGTE", "updatedAtLT", "updatedAtLTE", "userID", "userIDNEQ", "userIDIn", "userIDNotIn", "userIDIsNil", "userIDNotNil", "projectID", "projectIDNEQ", "projectIDIn", "projectIDNotIn", "key", "keyNEQ", "keyIn", "keyNotIn", "keyGT", "keyGTE", "keyLT", "keyLTE", "keyContains", "keyHasPrefix", "keyHasSuffix", "keyEqualFold", "keyContainsFold", "name", "nameNEQ", "nameIn", "nameNotIn", "nameGT", "nameGTE", "nameLT", "nameLTE", "nameContains", "nameHasPrefix", "nameHasSuffix", "nameEqualFold", "nameContainsFold", "portalManaged", "portalManagedNEQ", "type", "typeNEQ", "typeIn", "typeNotIn", "status", "statusNEQ", "statusIn", "statusNotIn", "exposeUpstreamKeyQuota", "exposeUpstreamKeyQuotaNEQ", "hasUser", "hasUserWith", "hasProject", "hasProjectWith", "hasRequests", "hasRequestsWith"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -75157,6 +78102,20 @@ func (ec *executionContext) unmarshalInputAPIKeyWhereInput(ctx context.Context, 
 				return it, err
 			}
 			it.StatusNotIn = data
+		case "exposeUpstreamKeyQuota":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exposeUpstreamKeyQuota"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExposeUpstreamKeyQuota = data
+		case "exposeUpstreamKeyQuotaNEQ":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exposeUpstreamKeyQuotaNEQ"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExposeUpstreamKeyQuotaNEQ = data
 		case "hasUser":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hasUser"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -75884,13 +78843,20 @@ func (ec *executionContext) unmarshalInputChannelBalanceProbeInput(ctx context.C
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"enabled", "preset", "experimental", "preferredCurrency", "primarySelection", "includeStatuses", "timeoutMs", "http"}
+	fieldsInOrder := [...]string{"script", "enabled", "preset", "experimental", "preferredCurrency", "primarySelection", "includeStatuses", "timeoutMs", "http"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
+		case "script":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("script"))
+			data, err := ec.unmarshalOChannelBalanceProbeScriptInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScript(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Script = data
 		case "enabled":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
 			data, err := ec.unmarshalOBoolean2bool(ctx, v)
@@ -75947,6 +78913,151 @@ func (ec *executionContext) unmarshalInputChannelBalanceProbeInput(ctx context.C
 				return it, err
 			}
 			it.HTTP = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputChannelBalanceProbeScriptInput(ctx context.Context, obj any) (objects.ChannelBalanceProbeScript, error) {
+	var it objects.ChannelBalanceProbeScript
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"mode", "expression", "command"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "mode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("mode"))
+			data, err := ec.unmarshalOChannelBalanceProbeScriptMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScriptMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Mode = data
+		case "expression":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expression"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Expression = data
+		case "command":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("command"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Command = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputChannelCredentialPolicyInput(ctx context.Context, obj any) (objects.ChannelCredentialPolicy, error) {
+	var it objects.ChannelCredentialPolicy
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "name", "priority", "weight", "maxConcurrent", "requestIntervalMs", "manualQuotaLimit", "egressMode", "outboundProxyId", "proxyPoolName", "customProxy", "egressFailPolicy"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "priority":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("priority"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Priority = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
+		case "maxConcurrent":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxConcurrent"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxConcurrent = data
+		case "requestIntervalMs":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("requestIntervalMs"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RequestIntervalMs = data
+		case "manualQuotaLimit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("manualQuotaLimit"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ManualQuotaLimit = data
+		case "egressMode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("egressMode"))
+			data, err := ec.unmarshalOCredentialEgressMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EgressMode = data
+		case "outboundProxyId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("outboundProxyId"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.OutboundProxyID = data
+		case "proxyPoolName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("proxyPoolName"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProxyPoolName = data
+		case "customProxy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("customProxy"))
+			data, err := ec.unmarshalOProxyConfigInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋllmᚋhttpclientᚐProxyConfig(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CustomProxy = data
+		case "egressFailPolicy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("egressFailPolicy"))
+			data, err := ec.unmarshalOCredentialEgressFailPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressFailPolicy(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EgressFailPolicy = data
 		}
 	}
 
@@ -76097,13 +79208,48 @@ func (ec *executionContext) unmarshalInputChannelKeyBalanceSnapshotInput(ctx con
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"provider", "checkedAt", "success", "available", "statusCode", "accountStatus", "accountId", "primaryBalance", "components", "rawSummary"}
+	fieldsInOrder := [...]string{"used", "limit", "remaining", "usageRatio", "resetAt", "provider", "checkedAt", "success", "available", "statusCode", "accountStatus", "accountId", "primaryBalance", "components", "rawSummary"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
+		case "used":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("used"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Used = data
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
+		case "remaining":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("remaining"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Remaining = data
+		case "usageRatio":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("usageRatio"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UsageRatio = data
+		case "resetAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("resetAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ResetAt = data
 		case "provider":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("provider"))
 			data, err := ec.unmarshalOString2string(ctx, v)
@@ -81684,7 +84830,7 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"rawHTTP", "extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
+	fieldsInOrder := [...]string{"rawHTTP", "credentialPolicies", "extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -81698,6 +84844,13 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 				return it, err
 			}
 			it.RawHTTP = data
+		case "credentialPolicies":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("credentialPolicies"))
+			data, err := ec.unmarshalOChannelCredentialPolicyInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicyᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CredentialPolicies = data
 		case "extraModelPrefix":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("extraModelPrefix"))
 			data, err := ec.unmarshalOString2string(ctx, v)
@@ -83279,7 +86432,7 @@ func (ec *executionContext) unmarshalInputCreateAPIKeyInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "type", "scopes", "allowedIps", "projectID"}
+	fieldsInOrder := [...]string{"name", "type", "scopes", "allowedIps", "exposeUpstreamKeyQuota", "projectID"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -83314,6 +86467,13 @@ func (ec *executionContext) unmarshalInputCreateAPIKeyInput(ctx context.Context,
 				return it, err
 			}
 			it.AllowedIps = data
+		case "exposeUpstreamKeyQuota":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exposeUpstreamKeyQuota"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExposeUpstreamKeyQuota = data
 		case "projectID":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("projectID"))
 			data, err := ec.unmarshalNID2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID(ctx, v)
@@ -83736,6 +86896,103 @@ func (ec *executionContext) unmarshalInputCreateOIDCIdentityInput(ctx context.Co
 				return it, err
 			}
 			it.LastLoginAt = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputCreateOutboundProxyInput(ctx context.Context, obj any) (biz.OutboundProxyCreateInput, error) {
+	var it biz.OutboundProxyCreateInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "kind", "proxyUrl", "poolName", "status", "weight", "maxConcurrent", "maxCredentials", "backupProxyId", "expiresAt", "remark"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalOOutboundProxyKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "proxyUrl":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("proxyUrl"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProxyURL = data
+		case "poolName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("poolName"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PoolName = data
+		case "status":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("status"))
+			data, err := ec.unmarshalOOutboundProxyStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Status = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
+		case "maxConcurrent":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxConcurrent"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxConcurrent = data
+		case "maxCredentials":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxCredentials"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxCredentials = data
+		case "backupProxyId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("backupProxyId"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BackupProxyID = data
+		case "expiresAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expiresAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExpiresAt = data
+		case "remark":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("remark"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Remark = data
 		}
 	}
 
@@ -97439,7 +100696,7 @@ func (ec *executionContext) unmarshalInputUpdateAPIKeyInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "scopes", "appendScopes", "clearScopes", "allowedIps", "appendAllowedIps", "clearAllowedIps"}
+	fieldsInOrder := [...]string{"name", "scopes", "appendScopes", "clearScopes", "allowedIps", "appendAllowedIps", "clearAllowedIps", "exposeUpstreamKeyQuota"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -97495,6 +100752,13 @@ func (ec *executionContext) unmarshalInputUpdateAPIKeyInput(ctx context.Context,
 				return it, err
 			}
 			it.ClearAllowedIps = data
+		case "exposeUpstreamKeyQuota":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("exposeUpstreamKeyQuota"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExposeUpstreamKeyQuota = data
 		}
 	}
 
@@ -98534,6 +101798,131 @@ func (ec *executionContext) unmarshalInputUpdateOIDCIdentityInput(ctx context.Co
 				return it, err
 			}
 			it.ClearLastLoginAt = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputUpdateOutboundProxyInput(ctx context.Context, obj any) (biz.OutboundProxyUpdateInput, error) {
+	var it biz.OutboundProxyUpdateInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "kind", "proxyUrl", "poolName", "status", "weight", "maxConcurrent", "clearMaxConcurrent", "maxCredentials", "clearMaxCredentials", "backupProxyId", "clearBackupProxyId", "expiresAt", "clearExpiresAt", "remark"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalOOutboundProxyKind2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "proxyUrl":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("proxyUrl"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProxyURL = data
+		case "poolName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("poolName"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PoolName = data
+		case "status":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("status"))
+			data, err := ec.unmarshalOOutboundProxyStatus2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Status = data
+		case "weight":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("weight"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Weight = data
+		case "maxConcurrent":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxConcurrent"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxConcurrent = data
+		case "clearMaxConcurrent":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("clearMaxConcurrent"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClearMaxConcurrent = data
+		case "maxCredentials":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxCredentials"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxCredentials = data
+		case "clearMaxCredentials":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("clearMaxCredentials"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClearMaxCredentials = data
+		case "backupProxyId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("backupProxyId"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BackupProxyID = data
+		case "clearBackupProxyId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("clearBackupProxyId"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClearBackupProxyID = data
+		case "expiresAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("expiresAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExpiresAt = data
+		case "clearExpiresAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("clearExpiresAt"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClearExpiresAt = data
+		case "remark":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("remark"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Remark = data
 		}
 	}
 
@@ -103957,6 +107346,11 @@ func (ec *executionContext) _APIKey(ctx context.Context, sel ast.SelectionSet, o
 			out.Values[i] = ec._APIKey_profiles(ctx, field, obj)
 		case "allowedIps":
 			out.Values[i] = ec._APIKey_allowedIps(ctx, field, obj)
+		case "exposeUpstreamKeyQuota":
+			out.Values[i] = ec._APIKey_exposeUpstreamKeyQuota(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "user":
 			field := field
 
@@ -106368,6 +109762,21 @@ func (ec *executionContext) _ChannelAPIKeyInventoryItem(ctx context.Context, sel
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "policy":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_policy(ctx, field, obj)
+		case "effectiveProxyName":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_effectiveProxyName(ctx, field, obj)
+		case "effectiveExitIP":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_effectiveExitIP(ctx, field, obj)
+		case "inFlight":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_inFlight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "quotaRemainingRatio":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_quotaRemainingRatio(ctx, field, obj)
+		case "quotaResetAt":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_quotaResetAt(ctx, field, obj)
 		case "rawKey":
 			field := field
 
@@ -106628,6 +110037,8 @@ func (ec *executionContext) _ChannelBalanceProbe(ctx context.Context, sel ast.Se
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("ChannelBalanceProbe")
+		case "script":
+			out.Values[i] = ec._ChannelBalanceProbe_script(ctx, field, obj)
 		case "enabled":
 			out.Values[i] = ec._ChannelBalanceProbe_enabled(ctx, field, obj)
 		case "preset":
@@ -106644,6 +110055,46 @@ func (ec *executionContext) _ChannelBalanceProbe(ctx context.Context, sel ast.Se
 			out.Values[i] = ec._ChannelBalanceProbe_timeoutMs(ctx, field, obj)
 		case "http":
 			out.Values[i] = ec._ChannelBalanceProbe_http(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelBalanceProbeScriptImplementors = []string{"ChannelBalanceProbeScript"}
+
+func (ec *executionContext) _ChannelBalanceProbeScript(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelBalanceProbeScript) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelBalanceProbeScriptImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelBalanceProbeScript")
+		case "mode":
+			out.Values[i] = ec._ChannelBalanceProbeScript_mode(ctx, field, obj)
+		case "expression":
+			out.Values[i] = ec._ChannelBalanceProbeScript_expression(ctx, field, obj)
+		case "command":
+			out.Values[i] = ec._ChannelBalanceProbeScript_command(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -106690,6 +110141,73 @@ func (ec *executionContext) _ChannelConnection(ctx context.Context, sel ast.Sele
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelCredentialPolicyImplementors = []string{"ChannelCredentialPolicy"}
+
+func (ec *executionContext) _ChannelCredentialPolicy(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelCredentialPolicy) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelCredentialPolicyImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelCredentialPolicy")
+		case "id":
+			out.Values[i] = ec._ChannelCredentialPolicy_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._ChannelCredentialPolicy_name(ctx, field, obj)
+		case "priority":
+			out.Values[i] = ec._ChannelCredentialPolicy_priority(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "weight":
+			out.Values[i] = ec._ChannelCredentialPolicy_weight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxConcurrent":
+			out.Values[i] = ec._ChannelCredentialPolicy_maxConcurrent(ctx, field, obj)
+		case "requestIntervalMs":
+			out.Values[i] = ec._ChannelCredentialPolicy_requestIntervalMs(ctx, field, obj)
+		case "manualQuotaLimit":
+			out.Values[i] = ec._ChannelCredentialPolicy_manualQuotaLimit(ctx, field, obj)
+		case "egressMode":
+			out.Values[i] = ec._ChannelCredentialPolicy_egressMode(ctx, field, obj)
+		case "outboundProxyId":
+			out.Values[i] = ec._ChannelCredentialPolicy_outboundProxyId(ctx, field, obj)
+		case "proxyPoolName":
+			out.Values[i] = ec._ChannelCredentialPolicy_proxyPoolName(ctx, field, obj)
+		case "customProxy":
+			out.Values[i] = ec._ChannelCredentialPolicy_customProxy(ctx, field, obj)
+		case "egressFailPolicy":
+			out.Values[i] = ec._ChannelCredentialPolicy_egressFailPolicy(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -106936,6 +110454,16 @@ func (ec *executionContext) _ChannelKeyBalanceSnapshot(ctx context.Context, sel 
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("ChannelKeyBalanceSnapshot")
+		case "used":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_used(ctx, field, obj)
+		case "limit":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_limit(ctx, field, obj)
+		case "remaining":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_remaining(ctx, field, obj)
+		case "usageRatio":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_usageRatio(ctx, field, obj)
+		case "resetAt":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_resetAt(ctx, field, obj)
 		case "provider":
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_provider(ctx, field, obj)
 		case "checkedAt":
@@ -109736,6 +113264,8 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 			out.Values[i] = graphql.MarshalString("ChannelSettings")
 		case "rawHTTP":
 			out.Values[i] = ec._ChannelSettings_rawHTTP(ctx, field, obj)
+		case "credentialPolicies":
+			out.Values[i] = ec._ChannelSettings_credentialPolicies(ctx, field, obj)
 		case "extraModelPrefix":
 			out.Values[i] = ec._ChannelSettings_extraModelPrefix(ctx, field, obj)
 		case "modelMappings":
@@ -113092,6 +116622,41 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Mutation")
+		case "createOutboundProxy":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createOutboundProxy(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateOutboundProxy":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateOutboundProxy(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteOutboundProxy":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteOutboundProxy(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "probeOutboundProxy":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_probeOutboundProxy(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "upsertChannelCredentialPolicy":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_upsertChannelCredentialPolicy(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "createChannel":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_createChannel(ctx, field)
@@ -114459,6 +118024,220 @@ func (ec *executionContext) _OpenCodeGoQuotaSettings(ctx context.Context, sel as
 			out.Values[i] = ec._OpenCodeGoQuotaSettings_workspaceId(ctx, field, obj)
 		case "authCookie":
 			out.Values[i] = ec._OpenCodeGoQuotaSettings_authCookie(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var outboundProxyImplementors = []string{"OutboundProxy"}
+
+func (ec *executionContext) _OutboundProxy(ctx context.Context, sel ast.SelectionSet, obj *biz.OutboundProxyDTO) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, outboundProxyImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("OutboundProxy")
+		case "id":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._OutboundProxy_id(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "name":
+			out.Values[i] = ec._OutboundProxy_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "kind":
+			out.Values[i] = ec._OutboundProxy_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "maskedUrl":
+			out.Values[i] = ec._OutboundProxy_maskedUrl(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "poolName":
+			out.Values[i] = ec._OutboundProxy_poolName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "status":
+			out.Values[i] = ec._OutboundProxy_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "weight":
+			out.Values[i] = ec._OutboundProxy_weight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "maxConcurrent":
+			out.Values[i] = ec._OutboundProxy_maxConcurrent(ctx, field, obj)
+		case "maxCredentials":
+			out.Values[i] = ec._OutboundProxy_maxCredentials(ctx, field, obj)
+		case "backupProxyId":
+			out.Values[i] = ec._OutboundProxy_backupProxyId(ctx, field, obj)
+		case "expiresAt":
+			out.Values[i] = ec._OutboundProxy_expiresAt(ctx, field, obj)
+		case "remark":
+			out.Values[i] = ec._OutboundProxy_remark(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "lastTestedAt":
+			out.Values[i] = ec._OutboundProxy_lastTestedAt(ctx, field, obj)
+		case "lastTestSuccess":
+			out.Values[i] = ec._OutboundProxy_lastTestSuccess(ctx, field, obj)
+		case "lastExitIp":
+			out.Values[i] = ec._OutboundProxy_lastExitIp(ctx, field, obj)
+		case "lastCountry":
+			out.Values[i] = ec._OutboundProxy_lastCountry(ctx, field, obj)
+		case "lastLatencyMs":
+			out.Values[i] = ec._OutboundProxy_lastLatencyMs(ctx, field, obj)
+		case "lastTestError":
+			out.Values[i] = ec._OutboundProxy_lastTestError(ctx, field, obj)
+		case "credentialReferenceCount":
+			out.Values[i] = ec._OutboundProxy_credentialReferenceCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "primaryCredentialCount":
+			out.Values[i] = ec._OutboundProxy_primaryCredentialCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "backupCredentialCount":
+			out.Values[i] = ec._OutboundProxy_backupCredentialCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "backupProxyCount":
+			out.Values[i] = ec._OutboundProxy_backupProxyCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "channelReferenceCount":
+			out.Values[i] = ec._OutboundProxy_channelReferenceCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "createdAt":
+			out.Values[i] = ec._OutboundProxy_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "updatedAt":
+			out.Values[i] = ec._OutboundProxy_updatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var outboundProxyPoolImplementors = []string{"OutboundProxyPool"}
+
+func (ec *executionContext) _OutboundProxyPool(ctx context.Context, sel ast.SelectionSet, obj *biz.OutboundProxyPoolDTO) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, outboundProxyPoolImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("OutboundProxyPool")
+		case "name":
+			out.Values[i] = ec._OutboundProxyPool_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "proxyCount":
+			out.Values[i] = ec._OutboundProxyPool_proxyCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enabledProxyCount":
+			out.Values[i] = ec._OutboundProxyPool_enabledProxyCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "credentialReferenceCount":
+			out.Values[i] = ec._OutboundProxyPool_credentialReferenceCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -116967,6 +120746,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_users(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "outboundProxies":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_outboundProxies(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "outboundProxyPools":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_outboundProxyPools(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -127141,6 +130964,10 @@ func (ec *executionContext) marshalNChannel2ᚖgithubᚗcomᚋloopljᚋaxonhub�
 	return ec._Channel(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNChannelAPIKeyInventoryItem2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAPIKeyInventoryItem(ctx context.Context, sel ast.SelectionSet, v biz.ChannelAPIKeyInventoryItem) graphql.Marshaler {
+	return ec._ChannelAPIKeyInventoryItem(ctx, sel, &v)
+}
+
 func (ec *executionContext) marshalNChannelAPIKeyInventoryItem2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelAPIKeyInventoryItemᚄ(ctx context.Context, sel ast.SelectionSet, v []*biz.ChannelAPIKeyInventoryItem) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -127230,6 +131057,15 @@ func (ec *executionContext) marshalNChannelConnection2ᚖgithubᚗcomᚋlooplj�
 		return graphql.Null
 	}
 	return ec._ChannelConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNChannelCredentialPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicy(ctx context.Context, sel ast.SelectionSet, v objects.ChannelCredentialPolicy) graphql.Marshaler {
+	return ec._ChannelCredentialPolicy(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNChannelCredentialPolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicy(ctx context.Context, v any) (objects.ChannelCredentialPolicy, error) {
+	res, err := ec.unmarshalInputChannelCredentialPolicyInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNChannelCredentialsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentials(ctx context.Context, v any) (objects.ChannelCredentials, error) {
@@ -128535,6 +132371,11 @@ func (ec *executionContext) unmarshalNCreateModelInput2ᚕᚖgithubᚗcomᚋloop
 func (ec *executionContext) unmarshalNCreateModelInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐCreateModelInput(ctx context.Context, v any) (*ent.CreateModelInput, error) {
 	res, err := ec.unmarshalInputCreateModelInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNCreateOutboundProxyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyCreateInput(ctx context.Context, v any) (biz.OutboundProxyCreateInput, error) {
+	res, err := ec.unmarshalInputCreateOutboundProxyInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNCreateProjectInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐCreateProjectInput(ctx context.Context, v any) (ent.CreateProjectInput, error) {
@@ -130303,6 +134144,152 @@ func (ec *executionContext) unmarshalNOrderDirection2entgoᚗioᚋcontribᚋentg
 
 func (ec *executionContext) marshalNOrderDirection2entgoᚗioᚋcontribᚋentgqlᚐOrderDirection(ctx context.Context, sel ast.SelectionSet, v entgql.OrderDirection) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNOutboundProxy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTO(ctx context.Context, sel ast.SelectionSet, v biz.OutboundProxyDTO) graphql.Marshaler {
+	return ec._OutboundProxy(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNOutboundProxy2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTOᚄ(ctx context.Context, sel ast.SelectionSet, v []*biz.OutboundProxyDTO) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNOutboundProxy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTO(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNOutboundProxy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyDTO(ctx context.Context, sel ast.SelectionSet, v *biz.OutboundProxyDTO) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._OutboundProxy(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNOutboundProxyKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx context.Context, v any) (biz.OutboundProxyKind, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.OutboundProxyKind(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNOutboundProxyKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx context.Context, sel ast.SelectionSet, v biz.OutboundProxyKind) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNOutboundProxyPool2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyPoolDTOᚄ(ctx context.Context, sel ast.SelectionSet, v []*biz.OutboundProxyPoolDTO) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNOutboundProxyPool2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyPoolDTO(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNOutboundProxyPool2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyPoolDTO(ctx context.Context, sel ast.SelectionSet, v *biz.OutboundProxyPoolDTO) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._OutboundProxyPool(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNOutboundProxyStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx context.Context, v any) (biz.OutboundProxyStatus, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.OutboundProxyStatus(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNOutboundProxyStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx context.Context, sel ast.SelectionSet, v biz.OutboundProxyStatus) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
 }
 
 func (ec *executionContext) marshalNOverrideOperation2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐOverrideOperationᚄ(ctx context.Context, sel ast.SelectionSet, v []*objects.OverrideOperation) graphql.Marshaler {
@@ -132636,6 +136623,11 @@ func (ec *executionContext) unmarshalNUpdateMyPasswordInput2githubᚗcomᚋloopl
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNUpdateOutboundProxyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyUpdateInput(ctx context.Context, v any) (biz.OutboundProxyUpdateInput, error) {
+	res, err := ec.unmarshalInputUpdateOutboundProxyInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNUpdatePassThroughSettingsInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐUpdatePassThroughSettingsInput(ctx context.Context, v any) (UpdatePassThroughSettingsInput, error) {
 	res, err := ec.unmarshalInputUpdatePassThroughSettingsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -134270,6 +138262,106 @@ func (ec *executionContext) marshalOChannelBalanceProbePreset2githubᚗcomᚋloo
 	_ = ctx
 	res := graphql.MarshalString(string(v))
 	return res
+}
+
+func (ec *executionContext) marshalOChannelBalanceProbeScript2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScript(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelBalanceProbeScript) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelBalanceProbeScript(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelBalanceProbeScriptInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScript(ctx context.Context, v any) (*objects.ChannelBalanceProbeScript, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelBalanceProbeScriptInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOChannelBalanceProbeScriptMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScriptMode(ctx context.Context, v any) (objects.ChannelBalanceProbeScriptMode, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelBalanceProbeScriptMode(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelBalanceProbeScriptMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelBalanceProbeScriptMode(ctx context.Context, sel ast.SelectionSet, v objects.ChannelBalanceProbeScriptMode) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) marshalOChannelCredentialPolicy2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicyᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelCredentialPolicy) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNChannelCredentialPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicy(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalOChannelCredentialPolicy2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicy(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelCredentialPolicy) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelCredentialPolicy(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelCredentialPolicyInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicyᚄ(ctx context.Context, v any) ([]objects.ChannelCredentialPolicy, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.ChannelCredentialPolicy, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNChannelCredentialPolicyInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicy(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 func (ec *executionContext) marshalOChannelCredentials2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentials(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelCredentials) graphql.Marshaler {
@@ -136073,6 +140165,32 @@ func (ec *executionContext) unmarshalOCostItemInput2ᚕgithubᚗcomᚋloopljᚋa
 	return res, nil
 }
 
+func (ec *executionContext) unmarshalOCredentialEgressFailPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressFailPolicy(ctx context.Context, v any) (objects.CredentialEgressFailPolicy, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.CredentialEgressFailPolicy(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOCredentialEgressFailPolicy2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressFailPolicy(ctx context.Context, sel ast.SelectionSet, v objects.CredentialEgressFailPolicy) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) unmarshalOCredentialEgressMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressMode(ctx context.Context, v any) (objects.CredentialEgressMode, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.CredentialEgressMode(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOCredentialEgressMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐCredentialEgressMode(ctx context.Context, sel ast.SelectionSet, v objects.CredentialEgressMode) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
 func (ec *executionContext) unmarshalOCursor2ᚖentgoᚗioᚋcontribᚋentgqlᚐCursor(ctx context.Context, v any) (*entgql.Cursor[int], error) {
 	if v == nil {
 		return nil, nil
@@ -137870,6 +141988,70 @@ func (ec *executionContext) unmarshalOOpenCodeGoQuotaSettingsInput2ᚖgithubᚗc
 	}
 	res, err := ec.unmarshalInputOpenCodeGoQuotaSettingsInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOOutboundProxyKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx context.Context, v any) (biz.OutboundProxyKind, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.OutboundProxyKind(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOOutboundProxyKind2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx context.Context, sel ast.SelectionSet, v biz.OutboundProxyKind) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) unmarshalOOutboundProxyKind2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx context.Context, v any) (*biz.OutboundProxyKind, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.OutboundProxyKind(tmp)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOOutboundProxyKind2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyKind(ctx context.Context, sel ast.SelectionSet, v *biz.OutboundProxyKind) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(*v))
+	return res
+}
+
+func (ec *executionContext) unmarshalOOutboundProxyStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx context.Context, v any) (biz.OutboundProxyStatus, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.OutboundProxyStatus(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOOutboundProxyStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx context.Context, sel ast.SelectionSet, v biz.OutboundProxyStatus) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) unmarshalOOutboundProxyStatus2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx context.Context, v any) (*biz.OutboundProxyStatus, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.OutboundProxyStatus(tmp)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOOutboundProxyStatus2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐOutboundProxyStatus(ctx context.Context, sel ast.SelectionSet, v *biz.OutboundProxyStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(*v))
+	return res
 }
 
 func (ec *executionContext) unmarshalOOverrideApplyMode2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋgqlᚐOverrideApplyMode(ctx context.Context, v any) (*OverrideApplyMode, error) {

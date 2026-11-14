@@ -57,6 +57,7 @@ type Dependencies struct {
 	UserService                    *biz.UserService
 	SystemService                  *biz.SystemService
 	ChannelService                 *biz.ChannelService
+	OutboundProxyService           *biz.OutboundProxyService
 	RequestService                 *biz.RequestService
 	QuotaService                   *biz.QuotaService
 	ProjectService                 *biz.ProjectService
@@ -96,6 +97,7 @@ func NewGraphqlHandlers(deps Dependencies) *GraphqlHandler {
 			deps.UserService,
 			deps.SystemService,
 			deps.ChannelService,
+			deps.OutboundProxyService,
 			deps.RequestService,
 			deps.QuotaService,
 			deps.ProjectService,

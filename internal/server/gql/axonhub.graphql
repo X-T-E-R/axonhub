@@ -166,8 +166,53 @@ input ChannelRawHTTPInput {
   authHeader: String
 }
 
+enum CredentialEgressMode {
+  inherit_channel
+  direct
+  pinned_proxy
+  proxy_pool
+  custom_url
+}
+
+enum CredentialEgressFailPolicy {
+  fail_closed
+  backup_proxy
+  pool_fallback
+}
+
+type ChannelCredentialPolicy {
+  id: String!
+  name: String
+  priority: Int!
+  weight: Int!
+  maxConcurrent: Int
+  requestIntervalMs: Int
+  manualQuotaLimit: Float
+  egressMode: CredentialEgressMode
+  outboundProxyId: Int
+  proxyPoolName: String
+  customProxy: ProxyConfig
+  egressFailPolicy: CredentialEgressFailPolicy
+}
+
+input ChannelCredentialPolicyInput {
+  id: String!
+  name: String
+  priority: Int
+  weight: Int
+  maxConcurrent: Int
+  requestIntervalMs: Int
+  manualQuotaLimit: Float
+  egressMode: CredentialEgressMode
+  outboundProxyId: Int
+  proxyPoolName: String
+  customProxy: ProxyConfigInput
+  egressFailPolicy: CredentialEgressFailPolicy
+}
+
 type ChannelSettings {
   rawHTTP: ChannelRawHTTP
+  credentialPolicies: [ChannelCredentialPolicy!]
   extraModelPrefix: String
   modelMappings: [ModelMapping!]
   autoTrimedModelPrefixes: [String!]
@@ -211,6 +256,8 @@ enum ChannelKeySelectionStrategy {
   cache_affinity
   random
   round_robin
+  smart
+  quota_reset_priority
 }
 
 type ChannelKeySelection {
@@ -331,6 +378,10 @@ enum ChannelBalanceProbePreset {
   moonshot_balance
   openrouter_credits
   nanogpt_check_balance
+  tavily_usage
+  kimi_code_usages
+  exa_team_credits
+  firecrawl_credits
   custom
 }
 
@@ -431,7 +482,26 @@ input ChannelKeyHealthCheckInput {
   history: [ChannelKeyHealthCheckHistoryEntryInput!]
 }
 
+enum ChannelBalanceProbeScriptMode {
+  none
+  expr
+  command
+}
+
+type ChannelBalanceProbeScript {
+  mode: ChannelBalanceProbeScriptMode
+  expression: String
+  command: [String!]
+}
+
+input ChannelBalanceProbeScriptInput {
+  mode: ChannelBalanceProbeScriptMode
+  expression: String
+  command: [String!]
+}
+
 type ChannelBalanceProbe {
+  script: ChannelBalanceProbeScript
   enabled: Boolean
   preset: ChannelBalanceProbePreset
   experimental: Boolean
@@ -443,6 +513,7 @@ type ChannelBalanceProbe {
 }
 
 input ChannelBalanceProbeInput {
+  script: ChannelBalanceProbeScriptInput
   enabled: Boolean
   preset: ChannelBalanceProbePreset
   experimental: Boolean
@@ -682,6 +753,11 @@ input ChannelArchivedAPIKeyInput {
 }
 
 type ChannelKeyBalanceSnapshot {
+  used: Float
+  limit: Float
+  remaining: Float
+  usageRatio: Float
+  resetAt: Time
   provider: String
   checkedAt: Time!
   success: Boolean!
@@ -695,6 +771,11 @@ type ChannelKeyBalanceSnapshot {
 }
 
 input ChannelKeyBalanceSnapshotInput {
+  used: Float
+  limit: Float
+  remaining: Float
+  usageRatio: Float
+  resetAt: Time
   provider: String
   checkedAt: Time!
   success: Boolean!
@@ -725,6 +806,12 @@ input BalanceAmountInput {
 
 type ChannelAPIKeyInventoryItem {
   id: String!
+  policy: ChannelCredentialPolicy
+  effectiveProxyName: String
+  effectiveExitIP: String
+  inFlight: Int!
+  quotaRemainingRatio: Float
+  quotaResetAt: Time
   rawKey: String @goField(forceResolver: true)
   maskedKey: String!
   status: ChannelKeyStatus!
@@ -771,6 +858,7 @@ input ModelMappingInput {
 
 input ChannelSettingsInput {
   rawHTTP: ChannelRawHTTPInput
+  credentialPolicies: [ChannelCredentialPolicyInput!]
   extraModelPrefix: String
   modelMappings: [ModelMappingInput!]
   autoTrimedModelPrefixes: [String!]
@@ -1424,7 +1512,82 @@ type DeleteDisabledAPIKeysPayload {
   message: String
 }
 
+enum OutboundProxyKind { static dynamic_template }
+enum OutboundProxyStatus { enabled disabled }
+
+type OutboundProxy {
+  id: ID! @goField(forceResolver: true)
+  name: String!
+  kind: OutboundProxyKind!
+  maskedUrl: String!
+  poolName: String!
+  status: OutboundProxyStatus!
+  weight: Int!
+  maxConcurrent: Int
+  maxCredentials: Int
+  backupProxyId: Int
+  expiresAt: Time
+  remark: String!
+  lastTestedAt: Time
+  lastTestSuccess: Boolean
+  lastExitIp: String
+  lastCountry: String
+  lastLatencyMs: Int
+  lastTestError: String
+  credentialReferenceCount: Int!
+  primaryCredentialCount: Int!
+  backupCredentialCount: Int!
+  backupProxyCount: Int!
+  channelReferenceCount: Int!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type OutboundProxyPool {
+  name: String!
+  proxyCount: Int!
+  enabledProxyCount: Int!
+  credentialReferenceCount: Int!
+}
+
+input CreateOutboundProxyInput {
+  name: String!
+  kind: OutboundProxyKind
+  proxyUrl: String!
+  poolName: String
+  status: OutboundProxyStatus
+  weight: Int
+  maxConcurrent: Int
+  maxCredentials: Int
+  backupProxyId: Int
+  expiresAt: Time
+  remark: String
+}
+
+input UpdateOutboundProxyInput {
+  name: String
+  kind: OutboundProxyKind
+  proxyUrl: String
+  poolName: String
+  status: OutboundProxyStatus
+  weight: Int
+  maxConcurrent: Int
+  clearMaxConcurrent: Boolean
+  maxCredentials: Int
+  clearMaxCredentials: Boolean
+  backupProxyId: Int
+  clearBackupProxyId: Boolean
+  expiresAt: Time
+  clearExpiresAt: Boolean
+  remark: String
+}
+
 type Mutation {
+  createOutboundProxy(input: CreateOutboundProxyInput!): OutboundProxy!
+  updateOutboundProxy(id: ID!, input: UpdateOutboundProxyInput!): OutboundProxy!
+  deleteOutboundProxy(id: ID!): Boolean!
+  probeOutboundProxy(id: ID!): OutboundProxy!
+  upsertChannelCredentialPolicy(channelID: ID!, input: ChannelCredentialPolicyInput!): ChannelAPIKeyInventoryItem!
   createChannel(input: CreateChannelInput!): Channel!
   duplicateChannel(sourceID: ID!, input: CreateChannelInput!): Channel!
   bulkCreateChannels(input: BulkCreateChannelsInput!): [Channel!]!
@@ -1605,6 +1768,8 @@ input CountChannelsByTypeInput {
 }
 
 extend type Query {
+  outboundProxies: [OutboundProxy!]!
+  outboundProxyPools: [OutboundProxyPool!]!
   channelExecutionInventory: ChannelExecutionInventory!
   channelAPIKeyInventory(channelID: ID!): [ChannelAPIKeyInventoryItem!]!
   allChannelSummarys(includeArchived: Boolean): [Channel!]!

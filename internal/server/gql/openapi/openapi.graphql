@@ -8,6 +8,11 @@ type APIKey {
   name: String!
   scopes: [String!]
   allowedIps: [String!]
+  """
+  Whether downstream callers using this API key can query authorized upstream
+  key counts and per-key quota snapshots.
+  """
+  exposeUpstreamKeyQuota: Boolean!
   profiles: APIKeyProfiles
 }
 

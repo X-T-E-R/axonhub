@@ -183,6 +183,9 @@ func (d *DebugListener) stop(ctx context.Context) error {
 	if d.server == nil {
 		return nil
 	}
+	// Shutdown can run before the Serve goroutine registers this listener with
+	// http.Server. Close the owned socket even in that startup/shutdown race.
+	defer d.listener.Close()
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

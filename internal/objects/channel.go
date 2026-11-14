@@ -138,7 +138,8 @@ type ChannelRawHTTP struct {
 }
 
 type ChannelSettings struct {
-	RawHTTP *ChannelRawHTTP `json:"rawHTTP,omitempty"`
+	RawHTTP            *ChannelRawHTTP           `json:"rawHTTP,omitempty"`
+	CredentialPolicies []ChannelCredentialPolicy `json:"credentialPolicies,omitempty"`
 
 	// ExtraModelPrefix sets the channel accept the model with the extra prefix.
 	// e.g. a channel
@@ -297,10 +298,12 @@ type OpenCodeGoQuotaSettings struct {
 type ChannelKeySelectionStrategy string
 
 const (
-	ChannelKeySelectionStrategyTraceSticky   ChannelKeySelectionStrategy = "trace_sticky"
-	ChannelKeySelectionStrategyCacheAffinity ChannelKeySelectionStrategy = "cache_affinity"
-	ChannelKeySelectionStrategyRandom        ChannelKeySelectionStrategy = "random"
-	ChannelKeySelectionStrategyRoundRobin    ChannelKeySelectionStrategy = "round_robin"
+	ChannelKeySelectionStrategyTraceSticky        ChannelKeySelectionStrategy = "trace_sticky"
+	ChannelKeySelectionStrategyCacheAffinity      ChannelKeySelectionStrategy = "cache_affinity"
+	ChannelKeySelectionStrategyRandom             ChannelKeySelectionStrategy = "random"
+	ChannelKeySelectionStrategyRoundRobin         ChannelKeySelectionStrategy = "round_robin"
+	ChannelKeySelectionStrategySmart              ChannelKeySelectionStrategy = "smart"
+	ChannelKeySelectionStrategyQuotaResetPriority ChannelKeySelectionStrategy = "quota_reset_priority"
 )
 
 type ChannelKeySelection struct {
@@ -426,6 +429,10 @@ const (
 	ChannelBalanceProbePresetMoonshot    ChannelBalanceProbePreset = "moonshot_balance"
 	ChannelBalanceProbePresetOpenRouter  ChannelBalanceProbePreset = "openrouter_credits"
 	ChannelBalanceProbePresetNanoGPT     ChannelBalanceProbePreset = "nanogpt_check_balance"
+	ChannelBalanceProbePresetTavily      ChannelBalanceProbePreset = "tavily_usage"
+	ChannelBalanceProbePresetKimiCode    ChannelBalanceProbePreset = "kimi_code_usages"
+	ChannelBalanceProbePresetExa         ChannelBalanceProbePreset = "exa_team_credits"
+	ChannelBalanceProbePresetFirecrawl   ChannelBalanceProbePreset = "firecrawl_credits"
 	ChannelBalanceProbePresetCustom      ChannelBalanceProbePreset = "custom"
 )
 
@@ -459,6 +466,7 @@ type ChannelBalanceProbe struct {
 	IncludeStatuses   []ChannelKeyStatus             `json:"includeStatuses,omitempty"`
 	TimeoutMs         int                            `json:"timeoutMs,omitempty"`
 	HTTP              *ChannelKeyHealthCheckHTTPRule `json:"http,omitempty"`
+	Script            *ChannelBalanceProbeScript     `json:"script,omitempty"`
 }
 
 type ChannelKeyBalanceSnapshot struct {
@@ -472,6 +480,11 @@ type ChannelKeyBalanceSnapshot struct {
 	PrimaryBalance *BalanceAmount  `json:"primaryBalance,omitempty"`
 	Components     []BalanceAmount `json:"components,omitempty"`
 	RawSummary     map[string]any  `json:"rawSummary,omitempty"`
+	Used           *float64        `json:"used,omitempty"`
+	Limit          *float64        `json:"limit,omitempty"`
+	Remaining      *float64        `json:"remaining,omitempty"`
+	UsageRatio     *float64        `json:"usageRatio,omitempty"`
+	ResetAt        *time.Time      `json:"resetAt,omitempty"`
 }
 
 type BalanceAmount struct {

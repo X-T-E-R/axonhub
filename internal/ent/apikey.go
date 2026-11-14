@@ -47,6 +47,8 @@ type APIKey struct {
 	Profiles *objects.APIKeyProfiles `json:"profiles,omitempty"`
 	// IP CIDR allowlist for this API key. If non-empty, only requests from matching source IPs are accepted.
 	AllowedIps []string `json:"allowed_ips,omitempty"`
+	// Whether downstream callers using this API key can query authorized upstream key counts and per-key quota snapshots (default true).
+	ExposeUpstreamKeyQuota bool `json:"expose_upstream_key_quota,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the APIKeyQuery when eager-loading is set.
 	Edges        APIKeyEdges `json:"edges"`
@@ -108,7 +110,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case apikey.FieldScopes, apikey.FieldProfiles, apikey.FieldAllowedIps:
 			values[i] = new([]byte)
-		case apikey.FieldPortalManaged:
+		case apikey.FieldPortalManaged, apikey.FieldExposeUpstreamKeyQuota:
 			values[i] = new(sql.NullBool)
 		case apikey.FieldID, apikey.FieldDeletedAt, apikey.FieldUserID, apikey.FieldProjectID:
 			values[i] = new(sql.NullInt64)
@@ -221,6 +223,12 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field allowed_ips: %w", err)
 				}
 			}
+		case apikey.FieldExposeUpstreamKeyQuota:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field expose_upstream_key_quota", values[i])
+			} else if value.Valid {
+				_m.ExposeUpstreamKeyQuota = value.Bool
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -310,6 +318,9 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("allowed_ips=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AllowedIps))
+	builder.WriteString(", ")
+	builder.WriteString("expose_upstream_key_quota=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ExposeUpstreamKeyQuota))
 	builder.WriteByte(')')
 	return builder.String()
 }

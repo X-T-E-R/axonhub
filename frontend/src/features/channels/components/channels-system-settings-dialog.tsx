@@ -33,7 +33,14 @@ const AUTO_SYNC_FREQUENCY_OPTIONS: { value: AutoSyncFrequency; label: string }[]
 ];
 
 const ACTION_MENU_MODE_OPTIONS: ChannelAdvancedActionMenuMode[] = ['GROUPED', 'EXPANDED'];
-const ROUTING_STRATEGY_OPTIONS: ChannelKeySelectionStrategy[] = ['trace_sticky', 'cache_affinity', 'random', 'round_robin'];
+const ROUTING_STRATEGY_OPTIONS: ChannelKeySelectionStrategy[] = [
+  'trace_sticky',
+  'cache_affinity',
+  'round_robin',
+  'random',
+  'quota_reset_priority',
+  'smart',
+];
 const DEFAULT_LIKELY_AFFINITY_TTL_MINUTES = 30;
 const DEFAULT_EXACT_AFFINITY_TTL_MINUTES = 1440;
 

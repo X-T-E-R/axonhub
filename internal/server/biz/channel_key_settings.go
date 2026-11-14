@@ -48,7 +48,7 @@ func ValidateChannelKeySelection(selection *objects.ChannelKeySelection) error {
 	case objects.ChannelKeySelectionStrategyTraceSticky,
 		objects.ChannelKeySelectionStrategyCacheAffinity,
 		objects.ChannelKeySelectionStrategyRandom,
-		objects.ChannelKeySelectionStrategyRoundRobin:
+		objects.ChannelKeySelectionStrategyRoundRobin, objects.ChannelKeySelectionStrategySmart, objects.ChannelKeySelectionStrategyQuotaResetPriority:
 	default:
 		return fmt.Errorf("unsupported key selection strategy %q", selection.Strategy)
 	}
@@ -220,7 +220,7 @@ func ValidateChannelBalanceProbe(probe *objects.ChannelBalanceProbe) error {
 		}
 	}
 
-	return nil
+	return validateChannelBalanceProbeScript(probe.Script)
 }
 
 func isValidBalanceCurrencyCode(code string) bool {

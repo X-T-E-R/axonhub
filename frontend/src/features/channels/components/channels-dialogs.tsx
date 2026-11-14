@@ -348,6 +348,24 @@ export function ChannelsDialogs() {
               }
             }}
             currentRow={currentRow}
+            onCredentialPolicySaved={(updated) => {
+              if (!updated.policy) return;
+              const nextPolicy = updated.policy;
+              setCurrentRow((prev) => {
+                if (!prev || prev.id !== currentRow.id) return prev;
+                const existingPolicies = prev.settings?.credentialPolicies ?? [];
+                const replaced = existingPolicies.some((item) => item.id === nextPolicy.id)
+                  ? existingPolicies.map((item) => (item.id === nextPolicy.id ? nextPolicy : item))
+                  : [...existingPolicies, nextPolicy];
+                return {
+                  ...prev,
+                  settings: {
+                    ...(prev.settings ?? {}),
+                    credentialPolicies: replaced,
+                  },
+                };
+              });
+            }}
           />
 
           <ChannelsDisabledAPIKeysDialog

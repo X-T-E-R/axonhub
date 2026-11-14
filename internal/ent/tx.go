@@ -40,6 +40,8 @@ type Tx struct {
 	OIDCIdentity *OIDCIdentityClient
 	// ObservabilityPayload is the client for interacting with the ObservabilityPayload builders.
 	ObservabilityPayload *ObservabilityPayloadClient
+	// OutboundProxy is the client for interacting with the OutboundProxy builders.
+	OutboundProxy *OutboundProxyClient
 	// PendingUsage is the client for interacting with the PendingUsage builders.
 	PendingUsage *PendingUsageClient
 	// Project is the client for interacting with the Project builders.
@@ -217,6 +219,7 @@ func (tx *Tx) init() {
 	tx.Model = NewModelClient(tx.config)
 	tx.OIDCIdentity = NewOIDCIdentityClient(tx.config)
 	tx.ObservabilityPayload = NewObservabilityPayloadClient(tx.config)
+	tx.OutboundProxy = NewOutboundProxyClient(tx.config)
 	tx.PendingUsage = NewPendingUsageClient(tx.config)
 	tx.Project = NewProjectClient(tx.config)
 	tx.Prompt = NewPromptClient(tx.config)

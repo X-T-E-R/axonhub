@@ -10,12 +10,15 @@ import (
 )
 
 type APIKey struct {
-	ID         objects.GUID            `json:"id"`
-	Key        string                  `json:"key"`
-	Name       string                  `json:"name"`
-	Scopes     []string                `json:"scopes,omitempty"`
-	AllowedIps []string                `json:"allowedIps,omitempty"`
-	Profiles   *objects.APIKeyProfiles `json:"profiles,omitempty"`
+	ID         objects.GUID `json:"id"`
+	Key        string       `json:"key"`
+	Name       string       `json:"name"`
+	Scopes     []string     `json:"scopes,omitempty"`
+	AllowedIps []string     `json:"allowedIps,omitempty"`
+	// Whether downstream callers using this API key can query authorized upstream
+	// key counts and per-key quota snapshots.
+	ExposeUpstreamKeyQuota bool                    `json:"exposeUpstreamKeyQuota"`
+	Profiles               *objects.APIKeyProfiles `json:"profiles,omitempty"`
 }
 
 type APIKeyProfileQuotaUsage struct {

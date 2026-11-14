@@ -79,6 +79,9 @@ func (APIKey) Fields() []ent.Field {
 			Comment("IP CIDR allowlist for this API key. If non-empty, only requests from matching source IPs are accepted.").
 			Default([]string{}).
 			Optional(),
+		field.Bool("expose_upstream_key_quota").
+			Default(true).
+			Comment("Whether downstream callers using this API key can query authorized upstream key counts and per-key quota snapshots (default true)."),
 	}
 }
 

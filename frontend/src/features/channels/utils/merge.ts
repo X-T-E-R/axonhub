@@ -112,6 +112,7 @@ export function mergeChannelSettingsForUpdate(
 
   return {
     rawHTTP: pick('rawHTTP', existing?.rawHTTP ?? null),
+    credentialPolicies: pick('credentialPolicies', existing?.credentialPolicies ?? null),
     extraModelPrefix: pick('extraModelPrefix', existing?.extraModelPrefix ?? ''),
     modelMappings: pick('modelMappings', existing?.modelMappings ?? []),
     autoTrimedModelPrefixes: pick('autoTrimedModelPrefixes', existing?.autoTrimedModelPrefixes ?? []),
@@ -129,6 +130,7 @@ export function mergeChannelSettingsForUpdate(
     storeExecutionRequestBody: pick('storeExecutionRequestBody', existing?.storeExecutionRequestBody ?? null),
     storeExecutionResponseBody: pick('storeExecutionResponseBody', existing?.storeExecutionResponseBody ?? null),
     storeExecutionStreamChunks: pick('storeExecutionStreamChunks', existing?.storeExecutionStreamChunks ?? null),
+    sseKeepAlive: pick('sseKeepAlive', existing?.sseKeepAlive ?? null),
     rateLimit: pick('rateLimit', existing?.rateLimit ?? null),
     retryableStatusCodes: pick('retryableStatusCodes', existing?.retryableStatusCodes ?? []),
     retryableErrorPatterns: pick('retryableErrorPatterns', existing?.retryableErrorPatterns ?? []),

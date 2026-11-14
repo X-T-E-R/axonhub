@@ -52,8 +52,8 @@ const quotaQuery = `query($id: ID, $key: String) {
   }
 }`
 
-// apiKeyQuery fetches a key's core surface over the wire, including
-// allowedIps — the field whose schema exposure this suite regresses.
+// apiKeyQuery fetches a key's core surface over the wire, including its
+// allowlist and per-client upstream-quota exposure setting.
 const apiKeyQuery = `query($id: ID, $name: String) {
   apiKey(id: $id, name: $name) {
     id
@@ -61,6 +61,7 @@ const apiKeyQuery = `query($id: ID, $name: String) {
     name
     scopes
     allowedIps
+    exposeUpstreamKeyQuota
     profiles { activeProfile }
   }
 }`
@@ -90,11 +91,12 @@ type gqlResponse struct {
 type apiKeyResponse struct {
 	Data struct {
 		APIKey struct {
-			ID         string   `json:"id"`
-			Key        string   `json:"key"`
-			Name       string   `json:"name"`
-			Scopes     []string `json:"scopes"`
-			AllowedIps []string `json:"allowedIps"`
+			ID                     string   `json:"id"`
+			Key                    string   `json:"key"`
+			Name                   string   `json:"name"`
+			Scopes                 []string `json:"scopes"`
+			AllowedIps             []string `json:"allowedIps"`
+			ExposeUpstreamKeyQuota bool     `json:"exposeUpstreamKeyQuota"`
 		} `json:"apiKey"`
 	} `json:"data"`
 	Errors []struct {
@@ -331,8 +333,8 @@ func TestE2E_APIKeyQuotaUsages_FullStack(t *testing.T) {
 	})
 }
 
-// Regression: allowedIps is exposed by the real /openapi/v1/graphql schema and
-// projected from the ent AllowedIps column, queryable through the production
+// Regression: allowedIps and exposeUpstreamKeyQuota are exposed by the real
+// /openapi/v1/graphql schema and projected from Ent through the production
 // transport (permission check + privacy gate included).
 func TestE2E_APIKey_AllowedIps(t *testing.T) {
 	env := setupE2E(t)
@@ -348,6 +350,7 @@ func TestE2E_APIKey_AllowedIps(t *testing.T) {
 		require.Empty(t, r.Errors)
 		require.Equal(t, "target", r.Data.APIKey.Name)
 		require.Equal(t, []string{"203.0.113.0/24", "198.51.100.7"}, r.Data.APIKey.AllowedIps)
+		require.True(t, r.Data.APIKey.ExposeUpstreamKeyQuota)
 	})
 
 	t.Run("resolved by name with allowlist intact", func(t *testing.T) {
@@ -358,6 +361,7 @@ func TestE2E_APIKey_AllowedIps(t *testing.T) {
 		require.NoError(t, json.Unmarshal(body, &r))
 		require.Empty(t, r.Errors)
 		require.Equal(t, []string{"203.0.113.0/24", "198.51.100.7"}, r.Data.APIKey.AllowedIps)
+		require.True(t, r.Data.APIKey.ExposeUpstreamKeyQuota)
 	})
 }
 

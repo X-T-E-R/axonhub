@@ -200,6 +200,46 @@ func (r *channelSettingsResolver) BodyOverrideOperations(ctx context.Context, ob
 	return lo.ToSlicePtr(ops), nil
 }
 
+// CreateOutboundProxy is the resolver for the createOutboundProxy field.
+func (r *mutationResolver) CreateOutboundProxy(ctx context.Context, input biz.OutboundProxyCreateInput) (*biz.OutboundProxyDTO, error) {
+	return r.outboundProxyService.Create(ctx, input)
+}
+
+// UpdateOutboundProxy is the resolver for the updateOutboundProxy field.
+func (r *mutationResolver) UpdateOutboundProxy(ctx context.Context, id objects.GUID, input biz.OutboundProxyUpdateInput) (*biz.OutboundProxyDTO, error) {
+	if id.Type != "OutboundProxy" {
+		return nil, fmt.Errorf("expected OutboundProxy ID")
+	}
+	return r.outboundProxyService.Update(ctx, id.ID, input)
+}
+
+// DeleteOutboundProxy is the resolver for the deleteOutboundProxy field.
+func (r *mutationResolver) DeleteOutboundProxy(ctx context.Context, id objects.GUID) (bool, error) {
+	if id.Type != "OutboundProxy" {
+		return false, fmt.Errorf("expected OutboundProxy ID")
+	}
+	if err := r.outboundProxyService.Delete(ctx, id.ID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ProbeOutboundProxy is the resolver for the probeOutboundProxy field.
+func (r *mutationResolver) ProbeOutboundProxy(ctx context.Context, id objects.GUID) (*biz.OutboundProxyDTO, error) {
+	if id.Type != "OutboundProxy" {
+		return nil, fmt.Errorf("expected OutboundProxy ID")
+	}
+	return r.outboundProxyService.ProbeOutboundProxy(ctx, id.ID)
+}
+
+// UpsertChannelCredentialPolicy is the resolver for the upsertChannelCredentialPolicy field.
+func (r *mutationResolver) UpsertChannelCredentialPolicy(ctx context.Context, channelID objects.GUID, input objects.ChannelCredentialPolicy) (*biz.ChannelAPIKeyInventoryItem, error) {
+	if channelID.Type != "Channel" {
+		return nil, fmt.Errorf("expected Channel ID")
+	}
+	return r.channelService.UpsertChannelCredentialPolicy(ctx, channelID.ID, input)
+}
+
 // CreateChannel is the resolver for the createChannel field.
 func (r *mutationResolver) CreateChannel(ctx context.Context, input ent.CreateChannelInput) (*ent.Channel, error) {
 	return r.channelService.CreateChannel(ctx, input)
@@ -841,12 +881,35 @@ func (r *mutationResolver) UnretainThread(ctx context.Context, id objects.GUID) 
 	return true, nil
 }
 
+// ID is the resolver for the id field.
+func (r *outboundProxyResolver) ID(ctx context.Context, obj *biz.OutboundProxyDTO) (*objects.GUID, error) {
+	return &objects.GUID{Type: "OutboundProxy", ID: obj.ID}, nil
+}
+
 // ModelIDs is the resolver for the modelIDs field.
 func (r *projectProfileResolver) ModelIDs(ctx context.Context, obj *objects.ProjectProfile) ([]string, error) {
 	if obj.ModelIDs == nil {
 		return nil, nil
 	}
 	return *obj.ModelIDs, nil
+}
+
+// OutboundProxies is the resolver for the outboundProxies field.
+func (r *queryResolver) OutboundProxies(ctx context.Context) ([]*biz.OutboundProxyDTO, error) {
+	return r.outboundProxyService.List(ctx)
+}
+
+// OutboundProxyPools is the resolver for the outboundProxyPools field.
+func (r *queryResolver) OutboundProxyPools(ctx context.Context) ([]*biz.OutboundProxyPoolDTO, error) {
+	pools, err := r.outboundProxyService.Pools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*biz.OutboundProxyPoolDTO, len(pools))
+	for i := range pools {
+		items[i] = &pools[i]
+	}
+	return items, nil
 }
 
 // ChannelExecutionInventory is the resolver for the channelExecutionInventory field.
@@ -1173,6 +1236,9 @@ func (r *Resolver) ChannelSettings() ChannelSettingsResolver { return &channelSe
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
+// OutboundProxy returns OutboundProxyResolver implementation.
+func (r *Resolver) OutboundProxy() OutboundProxyResolver { return &outboundProxyResolver{r} }
+
 // ProjectProfile returns ProjectProfileResolver implementation.
 func (r *Resolver) ProjectProfile() ProjectProfileResolver { return &projectProfileResolver{r} }
 
@@ -1206,6 +1272,7 @@ type channelKeyHealthCheckHistoryEntryResolver struct{ *Resolver }
 type channelKeyMetadataResolver struct{ *Resolver }
 type channelSettingsResolver struct{ *Resolver }
 type mutationResolver struct{ *Resolver }
+type outboundProxyResolver struct{ *Resolver }
 type projectProfileResolver struct{ *Resolver }
 type segmentResolver struct{ *Resolver }
 type channelArchivedAPIKeyInputResolver struct{ *Resolver }

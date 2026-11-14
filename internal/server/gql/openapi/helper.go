@@ -49,8 +49,8 @@ func guidID(g *objects.GUID, expectedType string) (*int, error) {
 	return &g.ID, nil
 }
 
-// toOpenAPIAPIKey projects the rich ent.APIKey down to the minimal OpenAPI
-// surface — only what programmatic callers need (id/key/name/scopes/profiles).
+// toOpenAPIAPIKey projects the rich ent.APIKey down to the OpenAPI APIKey
+// surface, including the per-client upstream-quota exposure setting.
 //
 // Lives in its own file (not openapi.resolvers.go) so gqlgen's regeneration
 // pass doesn't sweep it into a warning block as "unknown code".
@@ -60,11 +60,12 @@ func toOpenAPIAPIKey(k *ent.APIKey) *APIKey {
 	}
 
 	return &APIKey{
-		ID:         objects.GUID{Type: "APIKey", ID: k.ID},
-		Key:        k.Key,
-		Name:       k.Name,
-		Scopes:     k.Scopes,
-		AllowedIps: k.AllowedIps,
-		Profiles:   k.Profiles,
+		ID:                     objects.GUID{Type: "APIKey", ID: k.ID},
+		Key:                    k.Key,
+		Name:                   k.Name,
+		Scopes:                 k.Scopes,
+		AllowedIps:             k.AllowedIps,
+		ExposeUpstreamKeyQuota: k.ExposeUpstreamKeyQuota,
+		Profiles:               k.Profiles,
 	}
 }

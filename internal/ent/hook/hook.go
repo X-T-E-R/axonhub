@@ -177,6 +177,18 @@ func (f ObservabilityPayloadFunc) Mutate(ctx context.Context, m ent.Mutation) (e
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ObservabilityPayloadMutation", m)
 }
 
+// The OutboundProxyFunc type is an adapter to allow the use of ordinary
+// function as OutboundProxy mutator.
+type OutboundProxyFunc func(context.Context, *ent.OutboundProxyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f OutboundProxyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.OutboundProxyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OutboundProxyMutation", m)
+}
+
 // The PendingUsageFunc type is an adapter to allow the use of ordinary
 // function as PendingUsage mutator.
 type PendingUsageFunc func(context.Context, *ent.PendingUsageMutation) (ent.Value, error)

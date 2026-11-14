@@ -36,6 +36,7 @@ export function ChannelsRawHTTPDialog({ open, onOpenChange, currentRow, duplicat
     e.preventDefault();
     const alias = resource.trim();
     const settings = mergeChannelSettingsForUpdate(currentRow?.settings, {
+      ...(editing ? {} : { credentialPolicies: null }),
       rawHTTP: { enabled: true, resource: alias, authType, authHeader: authType === 'header' ? authHeader.trim() : '' },
     });
     const input: CreateChannelInput = {

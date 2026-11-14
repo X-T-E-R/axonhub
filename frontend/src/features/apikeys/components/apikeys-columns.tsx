@@ -3,6 +3,7 @@ import { ColumnDef, Table, Row } from '@tanstack/react-table';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { extractNumberID } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table-column-header';
 import { KeyCredentialCell } from '@/components/key-credential-cell';
@@ -156,6 +157,19 @@ export const createColumns = (
     },
     filterFn: (row, _id, value) => {
       return value.includes(row.getValue('status'));
+    },
+    enableSorting: false,
+  },
+  {
+    accessorKey: 'exposeUpstreamKeyQuota',
+    header: ({ column }) => <DataTableColumnHeader column={column} title={t('apikeys.columns.quotaExposure')} />,
+    cell: ({ row }) => {
+      const exposed = row.original.exposeUpstreamKeyQuota ?? true;
+      return (
+        <Badge variant={exposed ? 'secondary' : 'outline'} className={exposed ? '' : 'text-muted-foreground'}>
+          {exposed ? t('apikeys.quotaExposure.exposed') : t('apikeys.quotaExposure.hidden')}
+        </Badge>
+      );
     },
     enableSorting: false,
   },

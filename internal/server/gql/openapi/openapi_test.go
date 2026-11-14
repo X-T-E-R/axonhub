@@ -697,7 +697,25 @@ func TestOpenAPIResolver_APIKey_ByID(t *testing.T) {
 	require.Equal(t, fx.targetKey.ID, got.ID.ID)
 	require.Equal(t, fx.targetKey.Key, got.Key)
 	require.Equal(t, fx.targetKey.Name, got.Name)
+	require.True(t, got.ExposeUpstreamKeyQuota)
 	require.NotNil(t, got.Profiles)
+}
+
+func TestOpenAPIResolver_APIKey_ExposeUpstreamKeyQuotaFalse(t *testing.T) {
+	mr, fx, ctx, client := setupOpenAPI(t, []string{
+		string(scopes.ScopeReadAPIKeys),
+	})
+
+	bypassCtx := authz.WithTestBypass(ent.NewContext(context.Background(), client))
+	_, err := client.APIKey.UpdateOneID(fx.targetKey.ID).
+		SetExposeUpstreamKeyQuota(false).
+		Save(bypassCtx)
+	require.NoError(t, err)
+
+	qr := &queryResolver{mr.Resolver}
+	got, err := qr.APIKey(ctx, &objects.GUID{Type: ent.TypeAPIKey, ID: fx.targetKey.ID}, nil, nil)
+	require.NoError(t, err)
+	require.False(t, got.ExposeUpstreamKeyQuota)
 }
 
 func TestOpenAPIResolver_APIKey_ByKey(t *testing.T) {
