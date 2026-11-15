@@ -17,7 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/looplj/axonhub/internal/contexts"
+	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/internal/server/orchestrator"
+	"github.com/looplj/axonhub/internal/tracing"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer/shared"
@@ -29,6 +31,7 @@ func wsTestHandler(process responsesWSProcessor) *ResponsesWebSocketHandler {
 func wsTestServer(t *testing.T, h *ResponsesWebSocketHandler) *httptest.Server {
 	t.Helper()
 	router := gin.New()
+	router.Use(middleware.WithLoggingTracing(tracing.Config{}))
 	router.Use(func(c *gin.Context) {
 		ctx := shared.WithSessionScope(c.Request.Context(), "test-scope")
 		c.Request = c.Request.WithContext(ctx)
@@ -435,5 +438,27 @@ func TestResponsesWebSocketCompletedCancellationKeepsConcreteErrors(t *testing.T
 			require.Equal(t, int32(1), calls.Load())
 			require.Equal(t, int32(1), closed.Load())
 		})
+	}
+}
+
+func TestResponsesWebSocketCorrelationEcho(t *testing.T) {
+	h := wsTestHandler(nil)
+	server := wsTestServer(t, h)
+	for _, input := range []string{"ew-ws:request", "", "invalid id"} {
+		headers := http.Header{}
+		if input != "" {
+			headers.Set(httpclient.ClientRequestIDHeader, input)
+		}
+		conn, response, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", headers)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusSwitchingProtocols, response.StatusCode)
+		axonID := response.Header.Get("AH-Request-Id")
+		require.Regexp(t, `^ar-[a-f0-9-]+$`, axonID)
+		want := input
+		if !httpclient.ValidClientRequestID(want) {
+			want = axonID
+		}
+		require.Equal(t, want, response.Header.Get(httpclient.ClientRequestIDHeader))
+		require.NoError(t, conn.Close())
 	}
 }

@@ -1,6 +1,7 @@
 package biz
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -279,7 +280,7 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 			return nil, errors.New("usage observation requires an execution")
 		}
 		// Freeze values before returning to the response/stream owner.
-		requestCopy := ent.Request{ID: request.ID, ProjectID: request.ProjectID, APIKeyID: request.APIKeyID, Source: request.Source, Format: request.Format, CreatedAt: request.CreatedAt}
+		requestCopy := ent.Request{ID: request.ID, ProjectID: request.ProjectID, APIKeyID: request.APIKeyID, Source: request.Source, Format: request.Format, CreatedAt: request.CreatedAt, RequestHeaders: bytes.Clone(request.RequestHeaders)}
 		if request.EvidenceDisposition != nil {
 			disposition := *request.EvidenceDisposition
 			requestCopy.EvidenceDisposition = &disposition
@@ -358,7 +359,7 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 		// Once publication is acknowledged, retry only handoff: a missing pending
 		// row means it was consumed, not that it needs insertion again.
 		pendingAcknowledged := false
-		err = scope.submitUsage(usageCtx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
+		err = scope.submitUsage(usageCtx, int64(len(raw)+len(costBytes)+len(reference)+len(requestCopy.Format)+len(requestCopy.RequestHeaders)+len(executionCopy.ModelID)), func(workerCtx context.Context) error {
 			actualID, err := scope.resolve(requestCopy.ID)
 			if scope.writer.node.Enabled {
 				if !pendingAcknowledged {
@@ -367,7 +368,7 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 					}
 					pendingAcknowledged = true
 				}
-				return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID)
+				return scope.writer.handoffPendingUsage(workerCtx, scope.usageID, actualID, requestCopy.RequestHeaders)
 			}
 			if err != nil {
 				// Standalone has no durable pending table contract, but its accepted
@@ -381,7 +382,7 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 					if requestCopy.EvidenceDisposition != nil && requestCopy.EvidenceDisposition.ObservationID != "" {
 						fact.RequestObservationID = requestCopy.EvidenceDisposition.ObservationID
 					}
-					id, err := scope.writer.recoverPendingRequest(txCtx, fact)
+					id, err := scope.writer.recoverPendingRequest(txCtx, fact, requestCopy.RequestHeaders)
 					if err != nil {
 						return err
 					}

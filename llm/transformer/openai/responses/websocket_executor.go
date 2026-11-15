@@ -183,7 +183,7 @@ func (e *WebSocketExecutor) DoStream(ctx context.Context, request *httpclient.Re
 		return nil, err
 	}
 
-	headers := request.Headers.Clone()
+	headers := httpclient.ApplyClientRequestID(ctx, request.Headers.Clone())
 	if headers == nil {
 		headers = http.Header{}
 	}

@@ -175,7 +175,9 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 		return
 	}
 	upgrader := websocket.Upgrader{HandshakeTimeout: 10 * time.Second, ReadBufferSize: 4096, WriteBufferSize: 4096}
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, http.Header{responsesWSCapabilityHeader: []string{h.capabilities()}})
+	responseHeaders := c.Writer.Header().Clone()
+	responseHeaders.Set(responsesWSCapabilityHeader, h.capabilities())
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, responseHeaders)
 	if err != nil {
 		return
 	}

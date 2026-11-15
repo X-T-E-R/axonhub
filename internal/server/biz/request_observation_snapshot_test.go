@@ -70,3 +70,21 @@ func TestDeferredObservationUnrecognizedKeyKeepsSynchronousPath(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, deferred)
 }
+
+func TestCorrelationSurvivesObservationOmissionAndCompaction(t *testing.T) {
+	req := &httpclient.Request{Body: []byte("private body"), Headers: http.Header{
+		"X-Client-Request-Id": {"ew-ray"}, "Ah-Request-Id": {"ar-local"}, "Cf-Ray": {"ray-sin"}, "Authorization": {"private"}, "X-Private": {"omit"},
+	}}
+	for _, enabled := range []bool{false, true} {
+		snapshot, _ := observationHTTPRequest(req, enabled)
+		compactObservationHTTPClientRequest(snapshot)
+		body, headers, err := serializeObservationRequest(t.Context(), snapshot, false)
+		require.NoError(t, err)
+		require.JSONEq(t, `{}`, string(body))
+		require.JSONEq(t, `{"X-Client-Request-Id":["ew-ray"],"Ah-Request-Id":["ar-local"],"Cf-Ray":["ray-sin"]}`, string(headers))
+	}
+	_, headers, err := serializeObservationRequest(t.Context(), req, true)
+	require.NoError(t, err)
+	require.Contains(t, string(headers), "ew-ray")
+	require.NotContains(t, string(headers), "private")
+}

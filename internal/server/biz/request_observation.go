@@ -331,6 +331,7 @@ func observationHTTPRequest(req *httpclient.Request, enabled bool) (*httpclient.
 	metadata := *req
 	metadata.Body, metadata.JSONBody, metadata.Headers = nil, nil, nil
 	snapshot := cloneObservationHTTPClientRequest(&metadata)
+	snapshot.Headers = httpclient.CorrelationHeaders(req.Headers)
 	info := &requestObservationBodyInfo{Omitted: !enabled}
 	if enabled {
 		snapshot.JSONBody = observationRequestBodyBytes(req)
@@ -422,7 +423,7 @@ func compactObservationHTTPClientRequest(req *httpclient.Request) {
 	}
 	req.Body = nil
 	req.JSONBody = []byte("{}")
-	req.Headers = nil
+	req.Headers = httpclient.CorrelationHeaders(req.Headers)
 }
 
 func observationHTTPClientRequestBytes(req *httpclient.Request) int64 {
@@ -732,6 +733,10 @@ func (s *RequestService) CreateRequest(
 	if scope == nil {
 		return s.createRequest(ctx, llmRequest, httpRequest, format)
 	}
+	correlationHeaders := []byte("{}")
+	if httpRequest != nil {
+		correlationHeaders = httpclient.CorrelationHeadersJSON(httpRequest.Headers)
+	}
 	taskIdentity := llmRequest != nil && llmRequest.RequestType == llm.RequestTypeVideo
 	if taskIdentity && !scope.admitTaskIdentity() {
 		return nil, errors.New("video task identity admission unavailable before upstream execution")
@@ -775,7 +780,7 @@ func (s *RequestService) CreateRequest(
 				ModelID:             modelID,
 				ReasoningEffort:     reasoningEffort,
 				Format:              string(format),
-				RequestHeaders:      []byte("{}"),
+				RequestHeaders:      correlationHeaders,
 				RequestBody:         []byte("{}"),
 				Status:              request.StatusProcessing,
 				Stream:              stream,
@@ -819,7 +824,7 @@ func (s *RequestService) CreateRequest(
 		ModelID:             llmSnapshot.Model,
 		ReasoningEffort:     llmSnapshot.ReasoningEffort,
 		Format:              string(format),
-		RequestHeaders:      []byte("{}"),
+		RequestHeaders:      correlationHeaders,
 		RequestBody:         []byte("{}"),
 		Status:              request.StatusProcessing,
 		Stream:              stream,

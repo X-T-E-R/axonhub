@@ -49,6 +49,7 @@ func TestWebSocketExecutorNativeDeltaChainReusesAuthenticatedLiveLease(t *testin
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connections.Add(1)
+		require.Equal(t, "ew-turn-1", r.Header.Get(httpclient.ClientRequestIDHeader))
 		conn, err := upgrader.Upgrade(w, r, nil)
 		require.NoError(t, err)
 		defer conn.Close()
@@ -77,7 +78,8 @@ func TestWebSocketExecutorNativeDeltaChainReusesAuthenticatedLiveLease(t *testin
 		} else {
 			request.Body = []byte(fmt.Sprintf(`{"model":"m","previous_response_id":"resp_%d","input":[{"type":"function_call_output","call_id":"call","output":"delta"}]}`, i-1))
 		}
-		stream, err := executor.DoStream(webSocketTestContext(), request)
+		ctx := httpclient.WithClientRequestID(webSocketTestContext(), fmt.Sprintf("ew-turn-%d", i))
+		stream, err := executor.DoStream(ctx, request)
 		require.NoError(t, err)
 		require.True(t, stream.Next())
 		require.False(t, stream.Next())

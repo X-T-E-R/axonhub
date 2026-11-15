@@ -36,7 +36,7 @@ func (w *ForwardingObservationWriter) publishPendingUsage(ctx context.Context, i
 
 // A write of the existing ownership value locks the row. Competing recovery or
 // ambiguous-commit retries either own this fact or find it already consumed.
-func (w *ForwardingObservationWriter) handoffPendingUsage(ctx context.Context, id string, requestID int) error {
+func (w *ForwardingObservationWriter) handoffPendingUsage(ctx context.Context, id string, requestID int, correlationHeaders []byte) error {
 	ctx = authz.WithSystemBypass(ent.NewContext(ctx, w.primary), "cluster-accounting-handoff")
 	// Capacity bookkeeping may use the last verified policy; an optional
 	// policy read is not part of the durable pending-to-usage transaction.
@@ -55,7 +55,7 @@ func (w *ForwardingObservationWriter) handoffPendingUsage(ctx context.Context, i
 			return err
 		}
 		if requestID <= 0 {
-			requestID, err = w.recoverPendingRequest(txCtx, p)
+			requestID, err = w.recoverPendingRequest(txCtx, p, correlationHeaders)
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ func (w *ForwardingObservationWriter) handoffPendingUsage(ctx context.Context, i
 	})
 }
 
-func (w *ForwardingObservationWriter) recoverPendingRequest(ctx context.Context, p *ent.PendingUsage) (int, error) {
+func (w *ForwardingObservationWriter) recoverPendingRequest(ctx context.Context, p *ent.PendingUsage, headers []byte) (int, error) {
 	client := ent.FromContext(ctx)
 	if p.RequestID > 0 {
 		exists, err := client.Request.Query().Where(request.IDEQ(p.RequestID)).Exist(ctx)
@@ -106,10 +106,13 @@ func (w *ForwardingObservationWriter) recoverPendingRequest(ctx context.Context,
 	// unknown rather than inventing successful response evidence.
 	disposition := forwardingUnavailableEvidenceDisposition(p.RequestCreatedAt)
 	disposition.ObservationID = p.RequestObservationID
+	if len(headers) == 0 {
+		headers = []byte("{}")
+	}
 	req, err := client.Request.Create().SetAPIKeyID(p.APIKeyID).SetProjectID(p.ProjectID).
 		SetChannelID(p.ChannelID).SetModelID(p.ModelID).SetFormat(p.Format).SetSource(request.Source(p.Source)).
 		SetCreatedAt(p.RequestCreatedAt).SetUpdatedAt(p.CapturedAt).SetStatus(request.StatusProcessing).
-		SetRequestBody([]byte("{}")).SetRequestHeaders([]byte("{}")).SetEvidenceDisposition(disposition).Save(ctx)
+		SetRequestBody([]byte("{}")).SetRequestHeaders(headers).SetEvidenceDisposition(disposition).Save(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("recover pending usage request: %w", err)
 	}
@@ -128,7 +131,7 @@ func (w *ForwardingObservationWriter) recoverPendingUsage(ctx context.Context) e
 			return nil
 		}
 		for _, row := range rows {
-			if err := w.handoffPendingUsage(ctx, row.ID, 0); err != nil {
+			if err := w.handoffPendingUsage(ctx, row.ID, 0, nil); err != nil {
 				return err
 			}
 		}

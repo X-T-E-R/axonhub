@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/looplj/axonhub/internal/tracing"
+	"github.com/looplj/axonhub/llm/httpclient"
 )
 
 // WithLoggingTracing save the trace ID and request ID to the request context.
@@ -34,10 +35,20 @@ func WithLoggingTracing(config tracing.Config) gin.HandlerFunc {
 		// Generate request ID for each request
 		requestID := tracing.GenerateRequestID()
 
-		// Set request ID header in response
+		clientRequestID := c.GetHeader(httpclient.ClientRequestIDHeader)
+		if len(c.Request.Header.Values(httpclient.ClientRequestIDHeader)) != 1 || !httpclient.ValidClientRequestID(clientRequestID) {
+			clientRequestID = requestID
+		}
+		// Normalize once at ingress. Every outbound protocol uses the common
+		// inbound-header merge, and raw HTTP inherits these same headers.
+		c.Request.Header.Set(httpclient.ClientRequestIDHeader, clientRequestID)
+		c.Request.Header.Set("AH-Request-Id", requestID)
 		c.Header(requestHeader, requestID)
+		c.Header("AH-Request-Id", requestID)
+		c.Header(httpclient.ClientRequestIDHeader, clientRequestID)
 
-		ctx := tracing.WithTraceID(c.Request.Context(), traceID)
+		ctx := httpclient.WithClientRequestID(c.Request.Context(), clientRequestID)
+		ctx = tracing.WithTraceID(ctx, traceID)
 		ctx = tracing.WithRequestID(ctx, requestID)
 
 		if !strings.HasSuffix(c.FullPath(), "/graphql") {

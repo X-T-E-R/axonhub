@@ -19,9 +19,11 @@ import (
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/xjson"
 	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/middleware"
+	"github.com/looplj/axonhub/llm/httpclient"
 )
 
 type RawHTTPHandlersParams struct {
@@ -96,7 +98,7 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 		if canceled {
 			status = request.StatusCanceled
 		}
-		h.observe(context.WithoutCancel(ctx), key, id, raw.Resource, c.ClientIP(), status, stream, time.Since(started))
+		h.observe(context.WithoutCancel(ctx), key, id, raw.Resource, c.ClientIP(), status, stream, time.Since(started), httpclient.CorrelationHeaders(c.Request.Header))
 	}()
 
 	upstreamKey := h.channels.RawHTTPAPIKey(ctx, ch)
@@ -135,6 +137,8 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 			for _, name := range []string{"Connection", "Upgrade", "Te", "Cookie", "X-Project-ID", "X-Channel-ID", "X-Forwarded-Host", "X-Forwarded-For", "X-Forwarded-Proto", "Forwarded"} {
 				p.Out.Header.Del(name)
 			}
+			p.Out.Header.Del("AH-Request-Id")
+			p.Out.Header.Set(httpclient.ClientRequestIDHeader, c.Request.Header.Get(httpclient.ClientRequestIDHeader))
 			setRawHTTPAuth(p.Out.Header, raw.AuthType, raw.AuthHeader, upstreamKey)
 		},
 		ModifyResponse: func(r *http.Response) error {
@@ -144,6 +148,9 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 				r.Header.Del(name)
 			}
 			r.Header.Del(raw.AuthHeader)
+			// Upstream reflections must not override the ingress correlation IDs.
+			r.Header.Del(httpclient.ClientRequestIDHeader)
+			r.Header.Del("AH-Request-Id")
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -158,15 +165,16 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 
 // Use the existing request inventory, storing only metadata. Unknown usage has
 // no UsageLog row, so it remains absent rather than fabricated zero tokens.
-func (h *RawHTTPHandlers) observe(ctx context.Context, key *ent.APIKey, channelID int, resource, ip string, status request.Status, stream bool, latency time.Duration) {
+func (h *RawHTTPHandlers) observe(ctx context.Context, key *ent.APIKey, channelID int, resource, ip string, status request.Status, stream bool, latency time.Duration, headers http.Header) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	ctx = authz.WithSystemBypass(ctx, "raw-http-request-observation")
 	now := time.Now()
 	omitted := objects.Disposition{Intent: "omit", Location: "none", Outcome: "omitted", CapturedAt: now}
+	requestHeaders, _ := xjson.Marshal(headers)
 	_, err := h.db.Request.Create().SetProjectID(key.ProjectID).SetAPIKeyID(key.ID).SetChannelID(channelID).
 		SetModelID(resource).SetFormat("http/raw").SetSource(request.SourceAPI).SetStatus(status).SetStream(stream).SetClientIP(ip).
-		SetMetricsLatencyMs(latency.Milliseconds()).SetRequestBody(objects.JSONRawMessage("null")).
+		SetMetricsLatencyMs(latency.Milliseconds()).SetRequestHeaders(requestHeaders).SetRequestBody(objects.JSONRawMessage("null")).
 		SetEvidenceDisposition(&objects.EvidenceDisposition{Version: 1, RequestBody: omitted, ResponseBody: omitted, ResponseChunks: omitted}).Save(ctx)
 	if err != nil {
 		log.Warn(ctx, "raw HTTP request metadata could not be stored")

@@ -3,12 +3,14 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/looplj/axonhub/internal/tracing"
+	"github.com/looplj/axonhub/llm/httpclient"
 )
 
 func TestWithTracing(t *testing.T) {
@@ -129,4 +131,34 @@ func TestWithTracingEmptyConfig(t *testing.T) {
 
 	// Verify the response
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestLoggingClientRequestCorrelation(t *testing.T) {
+	for _, value := range []string{"ew-ray:abc._-", "", "bad value", strings.Repeat("x", 129), "日本"} {
+		t.Run(value, func(t *testing.T) {
+			router := gin.New()
+			router.Use(WithLoggingTracing(tracing.Config{}))
+			router.GET("/", func(c *gin.Context) {
+				id, ok := tracing.GetRequestID(c.Request.Context())
+				assert.True(t, ok)
+				assert.LessOrEqual(t, len(id), 64)
+				assert.Regexp(t, `^ar-[A-Za-z0-9._:-]+$`, id)
+				want := value
+				if !httpclient.ValidClientRequestID(value) {
+					want = id
+				}
+				assert.Equal(t, id, c.Request.Header.Get("AH-Request-Id"))
+				assert.Equal(t, want, c.Request.Header.Get(httpclient.ClientRequestIDHeader))
+				assert.Equal(t, want, c.Writer.Header().Get(httpclient.ClientRequestIDHeader))
+				c.Status(http.StatusOK)
+			})
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("x-client-request-id", value)
+			req.Header.Set("AH-Request-Id", "caller-cannot-set-this")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.NotEmpty(t, w.Header().Get(httpclient.ClientRequestIDHeader))
+		})
+	}
 }

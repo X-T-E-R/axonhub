@@ -320,7 +320,7 @@ func (s *RequestService) createRequest(
 	if capacityManaged && len(requestHeadersBytes) > 2 {
 		_, admitted, _ := s.admitManagedDatabaseEvidence(ctx, "request_headers", int64(len(requestHeadersBytes)))
 		if !admitted {
-			requestHeadersBytes = []byte("{}")
+			requestHeadersBytes = httpclient.CorrelationHeadersJSON(httpRequest.Headers)
 		}
 	}
 
@@ -448,6 +448,9 @@ func serializeObservationRequest(ctx context.Context, httpRequest *httpclient.Re
 		requestBodyBytes    objects.JSONRawMessage = []byte("{}")
 		requestHeadersBytes objects.JSONRawMessage = []byte("{}")
 	)
+	if httpRequest != nil {
+		requestHeadersBytes = httpclient.CorrelationHeadersJSON(httpRequest.Headers)
+	}
 	if storeRequestBody {
 		if len(httpRequest.JSONBody) > 0 {
 			requestBodyBytes = httpRequest.JSONBody
@@ -590,6 +593,7 @@ func (s *RequestService) createRequestExecution(
 		requestHeadersBytes objects.JSONRawMessage = []byte("{}")
 	)
 
+	requestHeadersBytes = httpclient.CorrelationHeadersJSON(channelRequest.Headers)
 	if storeRequestBody {
 		if len(channelRequest.JSONBody) > 0 {
 			requestBodyBytes = channelRequest.JSONBody
@@ -635,7 +639,7 @@ func (s *RequestService) createRequestExecution(
 	if capacityManaged && len(requestHeadersBytes) > 2 {
 		_, admitted, _ := s.admitManagedDatabaseEvidence(ctx, "execution_request_headers", int64(len(requestHeadersBytes)))
 		if !admitted {
-			requestHeadersBytes = []byte("{}")
+			requestHeadersBytes = httpclient.CorrelationHeadersJSON(channelRequest.Headers)
 		}
 	}
 

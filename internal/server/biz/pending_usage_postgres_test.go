@@ -164,7 +164,7 @@ func TestClusterPendingUsageWindowsNullCostAndStandalone(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, other.RequestCount)
 	// Unknown cost is retained as NULL in the final usage row, not repriced to zero.
-	require.NoError(t, wa.handoffPendingUsage(ctx, "1", 0))
+	require.NoError(t, wa.handoffPendingUsage(ctx, "1", 0, nil))
 	row := a.UsageLog.Query().OnlyX(ctx)
 	require.Nil(t, row.TotalCost)
 	// Old readers are allowed in standalone operation and retain their old source;
@@ -450,7 +450,7 @@ func TestClusterUsageSurvivesFailedMetadata(t *testing.T) {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		return w.handoffPendingUsage(ctx, scope.usageID, 0)
+		return w.handoffPendingUsage(ctx, scope.usageID, 0, nil)
 	}))
 	select {
 	case <-entered:

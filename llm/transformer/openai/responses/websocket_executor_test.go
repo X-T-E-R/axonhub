@@ -1284,3 +1284,28 @@ func TestToWebSocketURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ws://localhost:8080/v1/responses", got)
 }
+
+func TestWebSocketCorrelationPassesNewHandshake(t *testing.T) {
+	seen := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Get(httpclient.ClientRequestIDHeader)
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+		var payload map[string]any
+		require.NoError(t, conn.ReadJSON(&payload))
+		require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.completed", "response": map[string]any{"id": "offline", "output": []any{}}}))
+	}))
+	defer server.Close()
+	executor := NewWebSocketExecutor(nil)
+	for _, id := range []string{"ew-first", "ew-second"} {
+		ctx := shared.WithSessionID(webSocketTestContext(), id)
+		stream, err := executor.DoStream(ctx, &httpclient.Request{Method: http.MethodPost, URL: server.URL + "/v1/responses", Headers: http.Header{httpclient.ClientRequestIDHeader: {id}}, Body: []byte(`{"model":"offline","input":"offline"}`)})
+		require.NoError(t, err)
+		require.True(t, stream.Next())
+		require.False(t, stream.Next())
+		require.NoError(t, stream.Err())
+		require.NoError(t, stream.Close())
+		require.Equal(t, id, <-seen)
+	}
+}

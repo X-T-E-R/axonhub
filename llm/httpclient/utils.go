@@ -295,8 +295,9 @@ var blockedHeaders = map[string]bool{
 
 	// AxonHub customized headers that should not be forwarded to upstream to avoid recognition.
 	// NOTE: user customized trace/thread headers will be sent to upstream.
-	"Ah-Trace-Id":  true,
-	"Ah-Thread-Id": true,
+	"Ah-Trace-Id":   true,
+	"Ah-Thread-Id":  true,
+	"Ah-Request-Id": true,
 
 	// X-Initiator is used by specific channels (e.g. Copilot) for billing control.
 	// Block from auto-merge so it is only forwarded by the channel that explicitly needs it.
@@ -340,7 +341,7 @@ var sensitiveHeaders = map[string]bool{
 }
 
 func IsSensitiveHeader(key string) bool {
-	return sensitiveHeaders[http.CanonicalHeaderKey(key)]
+	return sensitiveHeaders[http.CanonicalHeaderKey(key)] || strings.HasPrefix(http.CanonicalHeaderKey(key), "Cf-Access-")
 }
 
 var mergeWithAppendHeaders = map[string]bool{}

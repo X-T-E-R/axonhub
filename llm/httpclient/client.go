@@ -446,7 +446,7 @@ func BuildHttpRequest(
 		return nil, err
 	}
 
-	httpReq.Header = request.Headers
+	httpReq.Header = ApplyClientRequestID(ctx, request.Headers)
 	if httpReq.Header == nil {
 		httpReq.Header = make(http.Header)
 	}

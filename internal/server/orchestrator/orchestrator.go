@@ -343,6 +343,10 @@ func (processor *ChatCompletionOrchestrator) process(
 		// This allows override headers to modify the User-Agent if configured.
 		applyUserAgentPassThrough(outbound, processor.SystemService),
 		applyOverrideRequestHeaders(outbound),
+		pipeline.OnRawRequest("client-request-correlation", func(ctx context.Context, req *httpclient.Request) (*httpclient.Request, error) {
+			req.Headers = httpclient.ApplyClientRequestID(ctx, req.Headers)
+			return req, nil
+		}),
 		applyNativeWSTurnMetadata(),
 	)
 	if streamLivenessObserver != nil {

@@ -419,6 +419,16 @@ func (p *pipeline) processRequest(ctx context.Context, request *llm.Request) (*R
 		return nil, fmt.Errorf("failed to apply raw request middlewares: %w", err)
 	}
 
+	// Correlation belongs to the inbound request, not channel header overrides.
+	// Apply it after raw/pass-through middlewares for every outbound protocol.
+	if request.RawRequest != nil {
+		if id := request.RawRequest.Headers.Get(httpclient.ClientRequestIDHeader); httpclient.ValidClientRequestID(id) {
+			httpReq.Headers.Set(httpclient.ClientRequestIDHeader, id)
+		}
+	}
+
+	httpReq.Headers = httpclient.ApplyClientRequestID(ctx, httpReq.Headers)
+
 	executor := p.Executor
 	if c, ok := p.Outbound.(ChannelCustomizedExecutor); ok {
 		executor = c.CustomizeExecutor(executor)

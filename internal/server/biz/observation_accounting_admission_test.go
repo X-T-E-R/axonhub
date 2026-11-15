@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -219,7 +220,7 @@ func TestObservationAccountingRecoversUnadmittedParent(t *testing.T) {
 			}()
 			require.True(t, observationFromContext(ctx).reservedUsage, "accounting is reserved independently of optional metadata")
 			ch := createStorageTestChannel(t, base, client, nil)
-			parent, err := svc.CreateRequest(ctx, &llm.Request{Model: "m"}, &httpclient.Request{}, llm.APIFormatOpenAIResponse)
+			parent, err := svc.CreateRequest(ctx, &llm.Request{Model: "m"}, &httpclient.Request{Headers: http.Header{"X-Client-Request-Id": {"ew-recovered"}, "Ah-Request-Id": {"ar-recovered"}, "Cf-Ray": {"ray-sin"}, "Authorization": {"private-credential"}}}, llm.APIFormatOpenAIResponse)
 			require.NoError(t, err)
 			exec := &ent.RequestExecution{ChannelID: ch.ID, ModelID: "m"}
 			_, err = svc.UsageLogService.CreateUsageLogFromRequest(ctx, parent, exec, &llm.Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5})
@@ -238,6 +239,8 @@ func TestObservationAccountingRecoversUnadmittedParent(t *testing.T) {
 			require.Equal(t, row.ID, bill.RequestID)
 			require.Equal(t, project.ID, row.ProjectID)
 			require.Equal(t, parent.EvidenceDisposition.ObservationID, row.EvidenceDisposition.ObservationID)
+			require.JSONEq(t, `{"X-Client-Request-Id":["ew-recovered"],"Ah-Request-Id":["ar-recovered"],"Cf-Ray":["ray-sin"]}`, string(row.RequestHeaders))
+			require.NotContains(t, string(row.RequestHeaders), "private-credential")
 			require.Zero(t, client.PendingUsage.Query().CountX(base))
 		})
 	}
