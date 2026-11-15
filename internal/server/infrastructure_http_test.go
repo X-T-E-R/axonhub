@@ -37,6 +37,11 @@ func startManagedControlBridgeForTest(t *testing.T, snapPath string) string {
 	t.Helper()
 	script, err := filepath.Abs("../../../axon-edge-worker/control/axon-bridge.mjs")
 	require.NoError(t, err)
+	if _, err := os.Stat(script); os.IsNotExist(err) {
+		t.Skip("managed control bridge requires the sibling axon-edge-worker workspace")
+	} else {
+		require.NoError(t, err)
+	}
 	dataDir := filepath.Join(t.TempDir(), "managed-control-state")
 	cmd := exec.Command("node", script, "--port", "0", "--data", dataDir, "--komodo-snapshot", snapPath)
 	cmd.Dir = filepath.Dir(filepath.Dir(script))

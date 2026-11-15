@@ -452,7 +452,7 @@ func TestResponsesWebSocketCorrelationEcho(t *testing.T) {
 		conn, response, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", headers)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusSwitchingProtocols, response.StatusCode)
-		axonID := response.Header.Get("AH-Request-Id")
+		axonID := response.Header.Get("Ah-Request-Id")
 		require.Regexp(t, `^ar-[a-f0-9-]+$`, axonID)
 		want := input
 		if !httpclient.ValidClientRequestID(want) {

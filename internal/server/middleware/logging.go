@@ -42,7 +42,7 @@ func WithLoggingTracing(config tracing.Config) gin.HandlerFunc {
 		// Normalize once at ingress. Every outbound protocol uses the common
 		// inbound-header merge, and raw HTTP inherits these same headers.
 		c.Request.Header.Set(httpclient.ClientRequestIDHeader, clientRequestID)
-		c.Request.Header.Set("AH-Request-Id", requestID)
+		c.Request.Header.Set("Ah-Request-Id", requestID)
 		c.Header(requestHeader, requestID)
 		c.Header("AH-Request-Id", requestID)
 		c.Header(httpclient.ClientRequestIDHeader, clientRequestID)

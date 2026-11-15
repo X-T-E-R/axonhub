@@ -147,14 +147,14 @@ func TestLoggingClientRequestCorrelation(t *testing.T) {
 				if !httpclient.ValidClientRequestID(value) {
 					want = id
 				}
-				assert.Equal(t, id, c.Request.Header.Get("AH-Request-Id"))
+				assert.Equal(t, id, c.Request.Header.Get("Ah-Request-Id"))
 				assert.Equal(t, want, c.Request.Header.Get(httpclient.ClientRequestIDHeader))
 				assert.Equal(t, want, c.Writer.Header().Get(httpclient.ClientRequestIDHeader))
 				c.Status(http.StatusOK)
 			})
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.Header.Set("x-client-request-id", value)
-			req.Header.Set("AH-Request-Id", "caller-cannot-set-this")
+			req.Header.Set("X-Client-Request-Id", value)
+			req.Header.Set("Ah-Request-Id", "caller-cannot-set-this")
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusOK, w.Code)

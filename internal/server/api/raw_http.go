@@ -137,7 +137,7 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 			for _, name := range []string{"Connection", "Upgrade", "Te", "Cookie", "X-Project-ID", "X-Channel-ID", "X-Forwarded-Host", "X-Forwarded-For", "X-Forwarded-Proto", "Forwarded"} {
 				p.Out.Header.Del(name)
 			}
-			p.Out.Header.Del("AH-Request-Id")
+			p.Out.Header.Del("Ah-Request-Id")
 			p.Out.Header.Set(httpclient.ClientRequestIDHeader, c.Request.Header.Get(httpclient.ClientRequestIDHeader))
 			setRawHTTPAuth(p.Out.Header, raw.AuthType, raw.AuthHeader, upstreamKey)
 		},
@@ -150,7 +150,7 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 			r.Header.Del(raw.AuthHeader)
 			// Upstream reflections must not override the ingress correlation IDs.
 			r.Header.Del(httpclient.ClientRequestIDHeader)
-			r.Header.Del("AH-Request-Id")
+			r.Header.Del("Ah-Request-Id")
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {

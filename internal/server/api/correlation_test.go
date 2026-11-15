@@ -21,9 +21,9 @@ import (
 func TestRawHTTPProxyCorrelationOwnership(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "ew-raw:fixture", r.Header.Get(httpclient.ClientRequestIDHeader))
-		require.Empty(t, r.Header.Get("AH-Request-Id"))
+		require.Empty(t, r.Header.Get("Ah-Request-Id"))
 		w.Header().Set(httpclient.ClientRequestIDHeader, "upstream-must-not-replace")
-		w.Header().Set("AH-Request-Id", "upstream-must-not-replace")
+		w.Header().Set("Ah-Request-Id", "upstream-must-not-replace")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":{"code":"offline_error"}}`)
 	}))
@@ -48,17 +48,17 @@ func TestRawHTTPProxyCorrelationOwnership(t *testing.T) {
 	defer response.Body.Close()
 	require.Equal(t, http.StatusBadRequest, response.StatusCode)
 	require.Equal(t, []string{"ew-raw:fixture"}, response.Header.Values(httpclient.ClientRequestIDHeader))
-	require.Len(t, response.Header.Values("AH-Request-Id"), 1)
-	require.Regexp(t, `^ar-[A-Za-z0-9-]+$`, response.Header.Get("AH-Request-Id"))
+	require.Len(t, response.Header.Values("Ah-Request-Id"), 1)
+	require.Regexp(t, `^ar-[A-Za-z0-9-]+$`, response.Header.Get("Ah-Request-Id"))
 }
 
 func TestProviderCannotOverrideCorrelationEcho(t *testing.T) {
 	for _, full := range []bool{false, true} {
 		dst := http.Header{httpclient.ClientRequestIDHeader: {"ew-effective"}, "Ah-Request-Id": {"ar-local"}}
-		src := http.Header{"x-client-request-id": {"upstream"}, "AH-Request-Id": {"upstream"}, "X-Request-Id": {"provider-id"}}
+		src := http.Header{"x-client-request-id": {"upstream"}, "AH-Request-Id": {"upstream"}, "X-Request-ID": {"provider-id"}}
 		copyProviderResponseHeaders(dst, src, full)
 		require.Equal(t, []string{"ew-effective"}, dst.Values(httpclient.ClientRequestIDHeader))
-		require.Equal(t, "ar-local", dst.Get("AH-Request-Id"))
-		require.Equal(t, "provider-id", dst.Get("X-Request-Id"))
+		require.Equal(t, "ar-local", dst.Get("Ah-Request-Id"))
+		require.Equal(t, "provider-id", dst.Get("X-Request-ID"))
 	}
 }

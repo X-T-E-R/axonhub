@@ -137,6 +137,9 @@ func TestRawHTTPBytesHeadersStatusesAndManagement(t *testing.T) {
 		req.Header.Set("X-Client-Hop", "drop")
 		req.Header.Set("X-Project-ID", "9999")
 		req.Header.Set("Cookie", "session=synthetic")
+		req.Header.Set("X-Arbitrary-Caller", "must-not-persist")
+		req.Header.Set("X-Client-Request-Id", "ew-raw-regression")
+		req.Header.Set("Cf-Ray", "raw-regression-sin")
 		req.Header.Set("Content-Encoding", tc.encoding)
 		res, err := client.Do(req)
 		require.NoError(t, err)
@@ -178,7 +181,16 @@ func TestRawHTTPBytesHeadersStatusesAndManagement(t *testing.T) {
 	for _, row := range rows {
 		require.Equal(t, f.key.ID, row.APIKeyID)
 		require.Equal(t, "null", string(row.RequestBody))
-		require.Empty(t, row.RequestHeaders)
+		var headers http.Header
+		require.NoError(t, json.Unmarshal(row.RequestHeaders, &headers))
+		require.Len(t, headers, 3, "only correlation metadata is retained")
+		require.Equal(t, "ew-raw-regression", headers.Get("X-Client-Request-Id"))
+		require.Equal(t, "raw-regression-sin", headers.Get("Cf-Ray"))
+		require.Len(t, headers.Values("Ah-Request-Id"), 1)
+		require.Regexp(t, `^ar-[A-Za-z0-9-]+$`, headers.Get("Ah-Request-Id"))
+		for _, name := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "X-Google-Api-Key", "Cookie", "X-Arbitrary-Caller", "Content-Type"} {
+			require.NotContains(t, headers, name)
+		}
 		require.Empty(t, row.ResponseBody)
 		require.Equal(t, "omitted", row.EvidenceDisposition.RequestBody.Outcome)
 	}
