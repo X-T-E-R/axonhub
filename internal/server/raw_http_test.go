@@ -176,6 +176,10 @@ func TestRawHTTPBytesHeadersStatusesAndManagement(t *testing.T) {
 		}
 	}
 	require.EqualValues(t, 5, calls.Load(), "4xx/429/5xx are never retried")
+	// The proxy flushes its response before the handler's deferred observation.
+	require.Eventually(t, func() bool {
+		return f.db.Request.Query().Where(request.FormatEQ("http/raw")).CountX(f.ctx) == 5
+	}, 5*time.Second, 10*time.Millisecond)
 	rows := f.db.Request.Query().Where(request.FormatEQ("http/raw")).AllX(f.ctx)
 	require.Len(t, rows, 5)
 	for _, row := range rows {

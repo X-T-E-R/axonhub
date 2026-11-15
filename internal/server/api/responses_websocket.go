@@ -27,18 +27,24 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
-const responsesWSCapabilityHeader = "X-Responses-Websocket-Capabilities"
-const responsesWSCapabilities = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":%d,"max_queued_bytes":%d,"max_state_bytes":%d,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"codex_turn_metadata_per_frame":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
+const (
+	responsesWSCapabilityHeader = "X-Responses-Websocket-Capabilities"
+	responsesWSCapabilities     = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":%d,"max_queued_bytes":%d,"max_state_bytes":%d,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"codex_turn_metadata_per_frame":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
+)
 
 // Keep the frame, expanded request, queue and checkpoint byte budgets aligned so
 // a frame admitted by the advertised limit can reach the Responses processor.
-const responsesWSMaxBytes = 32 << 20
-const responsesWSDefaultTurnTimeout = 10 * time.Minute
-const responsesWSAdmissionLifetime = 30 * time.Minute
-const responsesWSTerminalGrace = 15 * time.Second
+const (
+	responsesWSMaxBytes           = 32 << 20
+	responsesWSDefaultTurnTimeout = 10 * time.Minute
+	responsesWSAdmissionLifetime  = 30 * time.Minute
+	responsesWSTerminalGrace      = 15 * time.Second
+)
 
-type responsesWSProcessor func(context.Context, *httpclient.Request, orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error)
-type responsesWSAuthenticator func(*gin.Context) (context.Context, int, error)
+type (
+	responsesWSProcessor     func(context.Context, *httpclient.Request, orchestrator.StreamLivenessObserver) (orchestrator.ChatCompletionResult, error)
+	responsesWSAuthenticator func(*gin.Context) (context.Context, int, error)
+)
 
 // ResponsesWebSocketHandler adapts official response.create events to the existing
 // Responses orchestrator. Its state is ephemeral and local to one client socket.
@@ -118,6 +124,7 @@ func (w *responsesWSWriter) write(value any) error {
 	}
 	return nil
 }
+
 func (w *responsesWSWriter) failure(streamID string, e *responsesWSError) error {
 	event := map[string]any{"type": "error", "status": e.status, "error": map[string]any{"type": e.kind, "code": e.code, "message": e.message, "param": e.param}}
 	if value := httpclient.RetryAfterHeader(http.Header{"Retry-After": {e.retryAfter}}); value != "" {
