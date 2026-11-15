@@ -513,10 +513,12 @@ func (o *CompactAccountingOutbox) Status(ctx context.Context) (CompactOutboxStat
 	o.dbMu.Lock()
 	defer o.dbMu.Unlock()
 	o.mu.Lock()
-	status := CompactOutboxStatus{Path: o.path, ProducerUUID: o.producerUUID, Frozen: o.frozen,
+	status := CompactOutboxStatus{
+		Path: o.path, ProducerUUID: o.producerUUID, Frozen: o.frozen,
 		UnackedCount: o.unackedCount, UnackedBytes: o.unackedBytes, ReservedCount: o.reservedCount,
 		QueuedCount: o.pendingCount, QueuedBytes: o.pendingBytes, AdmissionFailures: o.admissionFailures,
-		DroppedEvents: o.droppedEvents, WriteErrors: o.writeErrors, LastError: o.lastError}
+		DroppedEvents: o.droppedEvents, WriteErrors: o.writeErrors, LastError: o.lastError,
+	}
 	closed := o.closed
 	o.mu.Unlock()
 	if closed {

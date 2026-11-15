@@ -839,8 +839,10 @@ func TestCredentialSelection_PinnedAndPoolFailClosed_WithRealEntProxies(t *testi
 
 		// A pool lease always selects a currently enabled, unexpired member.
 		for i := range 32 {
-			policy := objects.ChannelCredentialPolicy{ID: strconv.Itoa(i), EgressMode: objects.CredentialEgressModeProxyPool,
-				ProxyPoolName: "pool-mixed", EgressFailPolicy: objects.CredentialEgressFailPolicyFailClosed}
+			policy := objects.ChannelCredentialPolicy{
+				ID: strconv.Itoa(i), EgressMode: objects.CredentialEgressModeProxyPool,
+				ProxyPoolName: "pool-mixed", EgressFailPolicy: objects.CredentialEgressFailPolicyFailClosed,
+			}
 			row, err := svc.managedCredentialProxy(ctx, 77, policy)
 			require.NoError(t, err)
 			require.Contains(t, []int{mixedHealthySameIP.ID, mixedOther.ID}, row.ID)
