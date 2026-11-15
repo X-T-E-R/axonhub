@@ -26,7 +26,7 @@ import (
 )
 
 func wsTestHandler(process responsesWSProcessor) *ResponsesWebSocketHandler {
-	return &ResponsesWebSocketHandler{process: process, authenticate: func(c *gin.Context) (context.Context, int, error) { return c.Request.Context(), 200, nil }, slots: make(chan struct{}, 4), turnTimeout: time.Second * 5, lifetime: time.Minute, stateTTL: time.Minute}
+	return &ResponsesWebSocketHandler{process: process, authenticate: func(c *gin.Context) (context.Context, int, error) { return c.Request.Context(), 200, nil }, slots: make(chan struct{}, 4), turnTimeout: time.Second * 5, maxFrameBytes: DefaultResponsesWebSocketMaxFrameBytes, lifetime: time.Minute, stateTTL: time.Minute}
 }
 func wsTestServer(t *testing.T, h *ResponsesWebSocketHandler) *httptest.Server {
 	t.Helper()
@@ -41,8 +41,12 @@ func wsTestServer(t *testing.T, h *ResponsesWebSocketHandler) *httptest.Server {
 	t.Cleanup(server.Close)
 	return server
 }
-func wsTestDial(t *testing.T, server *httptest.Server) *websocket.Conn {
+func wsTestDial(t *testing.T, server *httptest.Server, frameLimits ...int64) *websocket.Conn {
 	t.Helper()
+	frameLimit := int64(DefaultResponsesWebSocketMaxFrameBytes)
+	if len(frameLimits) > 0 {
+		frameLimit = frameLimits[0]
+	}
 	conn, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)
 	require.NoError(t, err)
 	var capabilities struct {
@@ -60,10 +64,10 @@ func wsTestDial(t *testing.T, server *httptest.Server) *websocket.Conn {
 	require.Equal(t, "drain_active", capabilities.Mode)
 	require.Positive(t, capabilities.Active)
 	require.Equal(t, capabilities.Admission+capabilities.Active+15, capabilities.Lifetime)
-	require.Equal(t, responsesWSMaxBytes, capabilities.Frame)
+	require.Equal(t, int(frameLimit), capabilities.Frame)
 	require.Equal(t, responsesWSMaxBytes, capabilities.Queue)
 	require.Equal(t, responsesWSMaxBytes, capabilities.State)
-	require.JSONEq(t, fmt.Sprintf(responsesWSCapabilities, responsesWSMaxBytes, responsesWSMaxBytes, responsesWSMaxBytes,
+	require.JSONEq(t, fmt.Sprintf(responsesWSCapabilities, capabilities.Frame, responsesWSMaxBytes, responsesWSMaxBytes,
 		capabilities.Lifetime, capabilities.Admission, capabilities.Active), resp.Header.Get(http.CanonicalHeaderKey(responsesWSCapabilityHeader)))
 	t.Cleanup(func() { conn.Close() })
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -112,8 +116,9 @@ func TestResponsesWebSocketLargeFrameAndContinuation(t *testing.T) {
 		}
 		return orchestrator.ChatCompletionResult{ChatCompletionStream: streams.SliceStream([]*httpclient.StreamEvent{wsCompletion(fmt.Sprintf("large_%d", n), `[]`)})}, nil
 	})
-	conn := wsTestDial(t, wsTestServer(t, h))
-	require.Equal(t, 32<<20, responsesWSMaxBytes)
+	h.maxFrameBytes = responsesWSMaxBytes
+	conn := wsTestDial(t, wsTestServer(t, h), h.maxFrameBytes)
+	require.Equal(t, 983040, DefaultResponsesWebSocketMaxFrameBytes)
 	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": large}))
 	require.Equal(t, "response.completed", wsEventString(wsRead(t, conn), "type"))
 	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "previous_response_id": "large_1", "input": "suffix"}))
@@ -129,7 +134,7 @@ func TestResponsesWebSocketOversizedFrameNeverExecutes(t *testing.T) {
 	})
 	conn := wsTestDial(t, wsTestServer(t, h))
 	// The server can close while the client is still writing the oversized frame.
-	_ = conn.WriteMessage(websocket.TextMessage, []byte(strings.Repeat(" ", responsesWSMaxBytes+1)))
+	_ = conn.WriteMessage(websocket.TextMessage, []byte(strings.Repeat(" ", DefaultResponsesWebSocketMaxFrameBytes+1)))
 	_, _, err := conn.ReadMessage()
 	require.True(t, websocket.IsCloseError(err, websocket.CloseMessageTooBig), "expected close 1009, got %v", err)
 	require.Zero(t, calls.Load())
@@ -148,7 +153,8 @@ func TestResponsesWebSocketQueueByteBudget(t *testing.T) {
 		}
 		return orchestrator.ChatCompletionResult{ChatCompletionStream: streams.SliceStream([]*httpclient.StreamEvent{wsCompletion("queued", `[]`)})}, nil
 	})
-	conn := wsTestDial(t, wsTestServer(t, h))
+	h.maxFrameBytes = responsesWSMaxBytes
+	conn := wsTestDial(t, wsTestServer(t, h), h.maxFrameBytes)
 	defer close(release)
 	require.NoError(t, conn.WriteJSON(map[string]any{"type": "response.create", "model": "m", "input": "active"}))
 	<-started
@@ -344,7 +350,7 @@ func TestResponsesWebSocketPerGenerationTimeoutKeepsSocketUsable(t *testing.T) {
 	})
 	handlers := &OpenAIHandlers{ResponseWebSocketHandler: h}
 	router := gin.New()
-	router.GET("/v1/responses", handlers.ResponsesWebSocketWithTimeout(20*time.Millisecond))
+	router.GET("/v1/responses", handlers.ResponsesWebSocketWithLimits(20*time.Millisecond, 0))
 	server := httptest.NewServer(router)
 	defer server.Close()
 	conn := wsTestDial(t, server)

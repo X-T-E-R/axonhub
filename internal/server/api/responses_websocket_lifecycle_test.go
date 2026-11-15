@@ -151,7 +151,7 @@ func TestResponsesWebSocketLifecycleCapabilitiesAndTimeoutDefault(t *testing.T) 
 			h.lifetime = 30 * time.Minute
 			handlers := &OpenAIHandlers{ResponseWebSocketHandler: h}
 			router := gin.New()
-			router.GET("/v1/responses", handlers.ResponsesWebSocketWithTimeout(tc.timeout))
+			router.GET("/v1/responses", handlers.ResponsesWebSocketWithLimits(tc.timeout, 0))
 			server := httptest.NewServer(router)
 			defer server.Close()
 			conn, response, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)

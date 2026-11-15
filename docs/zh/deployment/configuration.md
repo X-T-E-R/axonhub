@@ -62,6 +62,7 @@ server:
   base_path: ""                 # API 路由的基础路径
   request_timeout: "30s"        # 请求超时时间
   llm_request_timeout: "600s"   # LLM 请求超时时间
+  responses_websocket_max_frame_bytes: 983040 # 每个入站帧上限为 960 KiB
   sse_keep_alive:
     enabled: false               # SSE 流空闲时发送与 API 格式兼容的心跳
     interval: "15s"              # 两次心跳之间的空闲时长
@@ -82,6 +83,7 @@ server:
 - `AXONHUB_SERVER_BASE_PATH`
 - `AXONHUB_SERVER_REQUEST_TIMEOUT`
 - `AXONHUB_SERVER_LLM_REQUEST_TIMEOUT`
+- `AXONHUB_SERVER_RESPONSES_WEBSOCKET_MAX_FRAME_BYTES`
 - `AXONHUB_SERVER_SSE_KEEP_ALIVE_ENABLED`
 - `AXONHUB_SERVER_SSE_KEEP_ALIVE_INTERVAL`
 - `AXONHUB_SERVER_TRACE_THREAD_HEADER`
@@ -94,6 +96,8 @@ server:
 - `AXONHUB_SERVER_DISABLE_SSL_VERIFY`
 
 SSE 心跳目前应用于 OpenAI 兼容和 Anthropic 兼容的流式 API，暂不应用于 Gemini 流式 API。渠道可通过 `settings.sseKeepAlive.enabled` 和 `settings.sseKeepAlive.intervalSeconds` 分别覆盖全局值；省略的字段继承服务器配置。心跳仅用于传输层保活，不会形成响应分块、用量或重试。
+
+Responses WebSocket 握手中的 `max_frame_bytes` 由 `server.responses_websocket_max_frame_bytes` 配置，默认 `983040` 字节，允许范围为 `1`–`33554432` 字节。默认值低于 Cloudflare Worker 的 1 MiB 帧硬上限，支持能力协商的客户端可将更大的初始或重连请求无损转到 HTTP SSE。只有整条 WebSocket 代理链都支持更大帧时才提高此值；展开后的请求、排队数据与检查点仍各保留 32 MiB 预算。
 
 ### 数据库配置
 

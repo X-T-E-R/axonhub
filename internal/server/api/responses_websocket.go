@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,10 +33,15 @@ const (
 	responsesWSCapabilities     = `{"version":2,"events":["response.create"],"generate":true,"generate_false":false,"background":false,"steering":false,"cancel":false,"scheduling":"connection_fifo","max_in_flight":1,"max_named_streams":8,"max_queued":8,"max_frame_bytes":%d,"max_queued_bytes":%d,"max_state_bytes":%d,"state_ttl_seconds":600,"connection_lifetime_seconds":%d,"admission_lifetime_seconds":%d,"active_turn_timeout_seconds":%d,"lifetime_mode":"drain_active","state_scope":"connection","previous_response_id":true,"codex_turn_metadata_per_frame":true,"native_responses_upstream_required":true,"state_miss":"previous_response_not_found","state_miss_execution":"not_executed"}`
 )
 
-// Keep the frame, expanded request, queue and checkpoint byte budgets aligned so
-// a frame admitted by the advertised limit can reach the Responses processor.
+// DefaultResponsesWebSocketMaxFrameBytes leaves room below the edge's 1 MiB ceiling.
+const DefaultResponsesWebSocketMaxFrameBytes = 960 << 10
+
+// MaxResponsesWebSocketFrameBytes matches the processing budget for expanded
+// requests, queues and checkpoints, which is independent of the transport limit.
+const MaxResponsesWebSocketFrameBytes = 32 << 20
+
 const (
-	responsesWSMaxBytes           = 32 << 20
+	responsesWSMaxBytes           = MaxResponsesWebSocketFrameBytes
 	responsesWSDefaultTurnTimeout = 10 * time.Minute
 	responsesWSAdmissionLifetime  = 30 * time.Minute
 	responsesWSTerminalGrace      = 15 * time.Second
@@ -49,13 +55,14 @@ type (
 // ResponsesWebSocketHandler adapts official response.create events to the existing
 // Responses orchestrator. Its state is ephemeral and local to one client socket.
 type ResponsesWebSocketHandler struct {
-	process      responsesWSProcessor
-	authenticate responsesWSAuthenticator
-	slots        chan struct{}
-	turnTimeout  time.Duration
-	lifetime     time.Duration
-	stateTTL     time.Duration
-	maintenance  *maintenance.Gate
+	process       responsesWSProcessor
+	authenticate  responsesWSAuthenticator
+	slots         chan struct{}
+	turnTimeout   time.Duration
+	maxFrameBytes int64
+	lifetime      time.Duration
+	stateTTL      time.Duration
+	maintenance   *maintenance.Gate
 }
 
 func newResponsesWebSocketHandler(handler *ChatCompletionHandlers, auth *biz.AuthService) *ResponsesWebSocketHandler {
@@ -64,7 +71,7 @@ func newResponsesWebSocketHandler(handler *ChatCompletionHandlers, auth *biz.Aut
 		authenticate: func(c *gin.Context) (context.Context, int, error) {
 			return middleware.AuthenticateAPIKeyContext(c, auth, nil)
 		},
-		slots: make(chan struct{}, 64), turnTimeout: responsesWSDefaultTurnTimeout, lifetime: responsesWSAdmissionLifetime, stateTTL: 10 * time.Minute,
+		slots: make(chan struct{}, 64), turnTimeout: responsesWSDefaultTurnTimeout, maxFrameBytes: DefaultResponsesWebSocketMaxFrameBytes, lifetime: responsesWSAdmissionLifetime, stateTTL: 10 * time.Minute,
 	}
 }
 
@@ -72,11 +79,12 @@ func (handlers *OpenAIHandlers) CreateResponseWebSocket(c *gin.Context) {
 	handlers.ResponseWebSocketHandler.Serve(c)
 }
 
-// ResponsesWebSocketWithTimeout freezes the per-generation timeout at route
-// registration. The upgraded connection has its own independent lifetime.
-func (handlers *OpenAIHandlers) ResponsesWebSocketWithTimeout(timeout time.Duration, gates ...*maintenance.Gate) gin.HandlerFunc {
+// ResponsesWebSocketWithLimits freezes transport limits at route registration.
+// The upgraded connection has its own independent lifetime.
+func (handlers *OpenAIHandlers) ResponsesWebSocketWithLimits(timeout time.Duration, maxFrameBytes int64, gates ...*maintenance.Gate) gin.HandlerFunc {
 	configured := *handlers.ResponseWebSocketHandler
 	configured.turnTimeout = responsesWSTurnTimeout(timeout)
+	configured.maxFrameBytes = cmp.Or(maxFrameBytes, int64(DefaultResponsesWebSocketMaxFrameBytes))
 	if len(gates) > 0 {
 		configured.maintenance = gates[0]
 	}
@@ -98,7 +106,7 @@ func responsesWSSeconds(duration time.Duration) int64 {
 func (h *ResponsesWebSocketHandler) capabilities() string {
 	admission := responsesWSSeconds(h.lifetime)
 	active := responsesWSSeconds(responsesWSTurnTimeout(h.turnTimeout))
-	return fmt.Sprintf(responsesWSCapabilities, responsesWSMaxBytes, responsesWSMaxBytes, responsesWSMaxBytes,
+	return fmt.Sprintf(responsesWSCapabilities, h.maxFrameBytes, responsesWSMaxBytes, responsesWSMaxBytes,
 		admission+active+responsesWSSeconds(responsesWSTerminalGrace), admission, active)
 }
 
@@ -189,7 +197,7 @@ func (h *ResponsesWebSocketHandler) Serve(c *gin.Context) {
 		return
 	}
 	defer conn.Close()
-	conn.SetReadLimit(responsesWSMaxBytes)
+	conn.SetReadLimit(h.maxFrameBytes)
 	admissionDeadline := time.Now().Add(h.lifetime)
 	hardDeadline := admissionDeadline.Add(time.Duration(responsesWSSeconds(responsesWSTurnTimeout(h.turnTimeout)))*time.Second + responsesWSTerminalGrace)
 	_ = conn.SetReadDeadline(hardDeadline)

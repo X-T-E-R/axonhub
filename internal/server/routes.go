@@ -280,7 +280,7 @@ func SetupRoutes(server *Server, handlers Handlers, client *ent.Client, services
 		middleware.WithThread(server.Config.Trace, services.ThreadService),
 		middleware.WithTrace(server.Config.Trace, services.TraceService),
 	)
-	responsesWebSocketGroup.GET("/v1/responses", handlers.OpenAI.ResponsesWebSocketWithTimeout(server.Config.LLMRequestTimeout, services.Maintenance))
+	responsesWebSocketGroup.GET("/v1/responses", handlers.OpenAI.ResponsesWebSocketWithLimits(server.Config.LLMRequestTimeout, server.Config.ResponsesWebSocketMaxFrameBytes, services.Maintenance))
 
 	apiGroup := server.Group("/",
 		middleware.WithTimeout(server.Config.LLMRequestTimeout),

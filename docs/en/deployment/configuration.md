@@ -62,6 +62,7 @@ server:
   base_path: ""                 # Base path for API routes
   request_timeout: "30s"        # Request timeout duration
   llm_request_timeout: "600s"   # LLM request timeout duration
+  responses_websocket_max_frame_bytes: 983040 # 960 KiB per inbound frame
   sse_keep_alive:
     enabled: false               # Send API-compatible heartbeats while an SSE stream is idle
     interval: "15s"              # Idle duration between heartbeats
@@ -82,6 +83,7 @@ server:
 - `AXONHUB_SERVER_BASE_PATH`
 - `AXONHUB_SERVER_REQUEST_TIMEOUT`
 - `AXONHUB_SERVER_LLM_REQUEST_TIMEOUT`
+- `AXONHUB_SERVER_RESPONSES_WEBSOCKET_MAX_FRAME_BYTES`
 - `AXONHUB_SERVER_SSE_KEEP_ALIVE_ENABLED`
 - `AXONHUB_SERVER_SSE_KEEP_ALIVE_INTERVAL`
 - `AXONHUB_SERVER_TRACE_THREAD_HEADER`
@@ -94,6 +96,8 @@ server:
 - `AXONHUB_SERVER_DISABLE_SSL_VERIFY`
 
 SSE keep-alive currently applies to OpenAI-compatible and Anthropic-compatible streaming APIs. Gemini streaming APIs are excluded. A channel can override either global value through `settings.sseKeepAlive.enabled` and `settings.sseKeepAlive.intervalSeconds`; omitted fields inherit the server value. Heartbeats are transport-only and do not create response chunks, usage, or retries.
+
+Responses WebSocket handshakes advertise `max_frame_bytes` from `server.responses_websocket_max_frame_bytes` (default `983040`, range `1`–`33554432` bytes). The default stays below Cloudflare Worker's hard 1 MiB frame ceiling. Capability-aware clients can send larger initial or reconnect requests through HTTP SSE without truncating input. Increase this limit only when every proxy on the WebSocket path supports it; expanded requests, queued data and checkpoints retain their separate 32 MiB budgets.
 
 ### Database Configuration
 

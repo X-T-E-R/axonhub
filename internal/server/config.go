@@ -91,6 +91,9 @@ type Config struct {
 	// LLMRequestTimeout is the maximum duration for processing a request to LLM.
 	LLMRequestTimeout time.Duration `conf:"llm_request_timeout" yaml:"llm_request_timeout" json:"llm_request_timeout"`
 
+	// ResponsesWebSocketMaxFrameBytes limits each inbound Responses WebSocket frame.
+	ResponsesWebSocketMaxFrameBytes int64 `conf:"responses_websocket_max_frame_bytes" yaml:"responses_websocket_max_frame_bytes" json:"responses_websocket_max_frame_bytes"`
+
 	SSEKeepAlive SSEKeepAlive `conf:"sse_keep_alive" yaml:"sse_keep_alive" json:"sse_keep_alive"`
 
 	Trace     tracing.Config `conf:"trace" yaml:"trace" json:"trace"`

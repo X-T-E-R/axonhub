@@ -11,6 +11,7 @@ server:
   # pid_file: "~/.config/axonhub/axonhub.pid"  # PID file for axonhub reload (env: AXONHUB_SERVER_PID_FILE)
   request_timeout: "30s"        # Request timeout duration (env: AXONHUB_SERVER_REQUEST_TIMEOUT)
   llm_request_timeout: "600s"   # LLM request timeout duration (env: AXONHUB_SERVER_LLM_REQUEST_TIMEOUT)
+  responses_websocket_max_frame_bytes: 983040 # 960 KiB; below Cloudflare Worker's 1 MiB ceiling (env: AXONHUB_SERVER_RESPONSES_WEBSOCKET_MAX_FRAME_BYTES)
   sse_keep_alive:
     enabled: false               # Send API-compatible heartbeats while an SSE stream is idle (env: AXONHUB_SERVER_SSE_KEEP_ALIVE_ENABLED)
     interval: "15s"              # Idle duration between heartbeats (env: AXONHUB_SERVER_SSE_KEEP_ALIVE_INTERVAL)

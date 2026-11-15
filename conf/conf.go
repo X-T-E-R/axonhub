@@ -20,6 +20,7 @@ import (
 	"github.com/looplj/axonhub/internal/metrics"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
 	"github.com/looplj/axonhub/internal/server"
+	"github.com/looplj/axonhub/internal/server/api"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/internal/server/db"
@@ -160,6 +161,10 @@ func unmarshal(v *viper.Viper) (Config, error) {
 		return Config{}, errors.New("server.sse_keep_alive.interval must be greater than zero")
 	}
 
+	if n := config.APIServer.ResponsesWebSocketMaxFrameBytes; n <= 0 || n > api.MaxResponsesWebSocketFrameBytes {
+		return Config{}, errors.New("server.responses_websocket_max_frame_bytes must be between 1 and 33554432")
+	}
+
 	if err := config.Cluster.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -255,6 +260,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.base_path", "")
 	v.SetDefault("server.request_timeout", "30s")
 	v.SetDefault("server.llm_request_timeout", "600s")
+	v.SetDefault("server.responses_websocket_max_frame_bytes", api.DefaultResponsesWebSocketMaxFrameBytes)
 	v.SetDefault("server.sse_keep_alive.enabled", false)
 	v.SetDefault("server.sse_keep_alive.interval", "15s")
 	v.SetDefault("server.trace.thread_header", "AH-Thread-Id")
