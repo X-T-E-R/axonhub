@@ -181,6 +181,7 @@ type observationScope struct {
 	usageID           string
 	usageCaptureMu    sync.Mutex
 	compactOnly       bool
+	compactDegraded   error
 	compactRelease    func()
 	lastUsageErr      error
 	retained          int
@@ -843,28 +844,27 @@ func (s *observationScope) isCompactOnly() bool {
 	return s.compactOnly
 }
 
-func (s *observationScope) admitCompactAccounting(ctx context.Context) error {
+func (s *observationScope) admitCompactAccounting(ctx context.Context) {
 	w := s.writer
 	w.mu.Lock()
 	compact := w.compact
 	w.mu.Unlock()
 	if compact == nil || !compact.Active() || !CompactAccountingEligibleContext(ctx) {
-		return nil
+		return
 	}
 	outbox := compact.Outbox()
-	if outbox == nil {
-		return ErrCompactOutboxUnavailable
-	}
 	releaseOutbox, err := outbox.Reserve()
 	if err != nil {
-		return err
+		log.Warn(ctx, "Compact accounting admission degraded; inference continues", log.Cause(err))
 	}
 
 	w.mu.Lock()
 	if s.ended || w.stopping {
 		w.mu.Unlock()
-		releaseOutbox()
-		return errObservationQueueUnavailable
+		if releaseOutbox != nil {
+			releaseOutbox()
+		}
+		return
 	}
 	// Release the pre-reserved observation queue credits now that this request
 	// is bound to local SQLite compact accounting rather than remote observation.
@@ -887,10 +887,10 @@ func (s *observationScope) admitCompactAccounting(ctx context.Context) error {
 		close(w.idle)
 	}
 	s.compactOnly = true
+	s.compactDegraded = err
 	s.compactRelease = releaseOutbox
 	w.scopes[s] = struct{}{}
 	w.mu.Unlock()
-	return nil
 }
 
 // LastForwardingAccountingError returns an ExecutedAccountingError if the active

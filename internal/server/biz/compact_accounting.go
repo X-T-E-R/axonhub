@@ -102,6 +102,12 @@ type CompactOutboxStatus struct {
 	UnackedCount        int       `json:"unacked_count"`
 	UnackedBytes        int64     `json:"unacked_bytes"`
 	ReservedCount       int       `json:"reserved_count"`
+	QueuedCount         int       `json:"queued_count"`
+	QueuedBytes         int64     `json:"queued_bytes"`
+	AdmissionFailures   uint64    `json:"admission_failures"`
+	DroppedEvents       uint64    `json:"dropped_events"`
+	WriteErrors         uint64    `json:"write_errors"`
+	LastError           string    `json:"last_error,omitempty"`
 	HasSealedBatch      bool      `json:"has_sealed_batch"`
 	SealedSeqStart      int64     `json:"sealed_seq_start,omitempty"`
 	SealedSeqEnd        int64     `json:"sealed_seq_end,omitempty"`
@@ -132,14 +138,31 @@ type CompactAccountingOutbox struct {
 	cfg  cluster.CompactAccountingConfig
 	path string
 
-	mu            sync.Mutex
-	db            *sql.DB
-	closed        bool
-	producerUUID  string
-	frozen        bool
-	unackedCount  int
-	unackedBytes  int64
-	reservedCount int
+	// mu protects only memory state; request admission never waits for SQLite.
+	mu                sync.Mutex
+	dbMu              sync.Mutex
+	db                *sql.DB
+	closed            bool
+	producerUUID      string
+	frozen            bool
+	unackedCount      int
+	unackedBytes      int64
+	reservedCount     int
+	pendingCount      int
+	pendingBytes      int64
+	admissionFailures uint64
+	droppedEvents     uint64
+	writeErrors       uint64
+	lastError         string
+	queue             chan compactQueuedEvent
+	idle              chan struct{}
+	done              chan struct{}
+	closeErr          error
+}
+
+type compactQueuedEvent struct {
+	event CompactUsageEvent
+	bytes int64
 }
 
 const compactReservationBytes int64 = 2048
@@ -168,6 +191,11 @@ func OpenCompactAccountingOutbox(cfg cluster.CompactAccountingConfig, nodeID str
 		_ = sqlDB.Close()
 		return nil, err
 	}
+	outbox.queue = make(chan compactQueuedEvent, min(1024, cfg.MaxSpoolCount))
+	outbox.idle = make(chan struct{})
+	close(outbox.idle)
+	outbox.done = make(chan struct{})
+	go outbox.writeLoop()
 	return outbox, nil
 }
 
@@ -289,141 +317,6 @@ func (o *CompactAccountingOutbox) ProducerUUID() string {
 	return o.producerUUID
 }
 
-// Close closes the underlying SQLite handle cleanly.
-func (o *CompactAccountingOutbox) Close() error {
-	if o == nil {
-		return nil
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.closed {
-		return nil
-	}
-	o.closed = true
-	return o.db.Close()
-}
-
-// Reserve checks spool capacity and freeze state before an upstream provider
-// call is dispatched. The returned release closure is idempotent and must be
-// called if Append is not invoked (e.g. upstream error or zero-usage response).
-func (o *CompactAccountingOutbox) Reserve() (func(), error) {
-	if o == nil {
-		return nil, ErrCompactOutboxUnavailable
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.closed {
-		return nil, ErrCompactOutboxUnavailable
-	}
-	if o.frozen {
-		return nil, ErrCompactOutboxFrozen
-	}
-	projectedCount := o.unackedCount + o.reservedCount + 1
-	projectedBytes := o.unackedBytes + int64(o.reservedCount+1)*compactReservationBytes
-	if o.cfg.MaxSpoolCount > 0 && projectedCount > o.cfg.MaxSpoolCount {
-		return nil, ErrCompactOutboxSpoolFull
-	}
-	if o.cfg.MaxSpoolBytes > 0 && projectedBytes > o.cfg.MaxSpoolBytes {
-		return nil, ErrCompactOutboxSpoolFull
-	}
-	o.reservedCount++
-
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			o.mu.Lock()
-			if o.reservedCount > 0 {
-				o.reservedCount--
-			}
-			o.mu.Unlock()
-		})
-	}, nil
-}
-
-// Append durably commits a completed usage event to the local SQLite WAL outbox
-// with a contiguous per-producer sequence number.
-func (o *CompactAccountingOutbox) Append(ctx context.Context, event CompactUsageEvent) (CompactUsageEvent, error) {
-	if o == nil {
-		return CompactUsageEvent{}, ErrCompactOutboxUnavailable
-	}
-	if event.EventUUID == "" {
-		event.EventUUID = uuid.NewString()
-	}
-	if event.CapturedAt.IsZero() {
-		event.CapturedAt = time.Now().UTC()
-	} else {
-		event.CapturedAt = event.CapturedAt.UTC()
-	}
-
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.closed {
-		return CompactUsageEvent{}, ErrCompactOutboxUnavailable
-	}
-	if o.frozen {
-		return CompactUsageEvent{}, ErrCompactOutboxFrozen
-	}
-	if o.cfg.MaxSpoolCount > 0 && o.unackedCount+1 > o.cfg.MaxSpoolCount {
-		return CompactUsageEvent{}, ErrCompactOutboxSpoolFull
-	}
-
-	tx, err := o.db.BeginTx(ctx, nil)
-	if err != nil {
-		return CompactUsageEvent{}, fmt.Errorf("begin compact outbox append: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var nextSeq int64
-	var frozenInt int
-	if err := tx.QueryRowContext(ctx, `SELECT next_seq, frozen FROM outbox_meta WHERE id = 1`).Scan(&nextSeq, &frozenInt); err != nil {
-		return CompactUsageEvent{}, fmt.Errorf("read outbox_meta next_seq: %w", err)
-	}
-	if frozenInt != 0 {
-		o.frozen = true
-		return CompactUsageEvent{}, ErrCompactOutboxFrozen
-	}
-
-	event.Seq = nextSeq
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return CompactUsageEvent{}, fmt.Errorf("marshal compact usage event: %w", err)
-	}
-	payloadBytes := int64(len(payload))
-	if o.cfg.MaxSpoolBytes > 0 && o.unackedBytes+payloadBytes > o.cfg.MaxSpoolBytes {
-		return CompactUsageEvent{}, ErrCompactOutboxSpoolFull
-	}
-
-	now := time.Now().UTC().UnixNano()
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO outbox_events (seq, event_uuid, captured_at, payload_json, payload_bytes) VALUES (?, ?, ?, ?, ?)`,
-		event.Seq,
-		event.EventUUID,
-		event.CapturedAt.UnixNano(),
-		payload,
-		payloadBytes,
-	); err != nil {
-		return CompactUsageEvent{}, fmt.Errorf("insert compact outbox event: %w", err)
-	}
-
-	if _, err := tx.ExecContext(
-		ctx,
-		`UPDATE outbox_meta SET next_seq = ?, updated_at = ? WHERE id = 1`,
-		nextSeq+1,
-		now,
-	); err != nil {
-		return CompactUsageEvent{}, fmt.Errorf("advance compact outbox next_seq: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return CompactUsageEvent{}, fmt.Errorf("commit compact outbox append: %w", err)
-	}
-
-	o.unackedCount++
-	o.unackedBytes += payloadBytes
-	return event, nil
-}
-
 // SealOrLoadNextBatch returns the active sealed batch if one exists (ensuring
 // crash/restart or lost-ACK retries replay the exact same [seq_start, seq_end]
 // and digest), or seals the next contiguous prefix of unacknowledged events up
@@ -432,11 +325,11 @@ func (o *CompactAccountingOutbox) SealOrLoadNextBatch(ctx context.Context) (*Com
 	if o == nil {
 		return nil, nil, ErrCompactOutboxUnavailable
 	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.closed {
-		return nil, nil, ErrCompactOutboxUnavailable
+	if err := o.Wait(ctx); err != nil {
+		return nil, nil, err
 	}
+	o.dbMu.Lock()
+	defer o.dbMu.Unlock()
 
 	var existingRaw []byte
 	err := o.db.QueryRowContext(ctx, `SELECT payload_json FROM outbox_sealed_batch WHERE id = 1`).Scan(&existingRaw)
@@ -554,11 +447,8 @@ func (o *CompactAccountingOutbox) AckBatch(ctx context.Context, seqStart, seqEnd
 	if o == nil {
 		return ErrCompactOutboxUnavailable
 	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.closed {
-		return ErrCompactOutboxUnavailable
-	}
+	o.dbMu.Lock()
+	defer o.dbMu.Unlock()
 
 	tx, err := o.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -608,8 +498,10 @@ func (o *CompactAccountingOutbox) AckBatch(ctx context.Context, seqStart, seqEnd
 		return fmt.Errorf("commit outbox ack: %w", err)
 	}
 
+	o.mu.Lock()
 	o.unackedCount = remainingCount
 	o.unackedBytes = remainingBytes
+	o.mu.Unlock()
 	return nil
 }
 
@@ -618,12 +510,23 @@ func (o *CompactAccountingOutbox) Status(ctx context.Context) (CompactOutboxStat
 	if o == nil {
 		return CompactOutboxStatus{}, ErrCompactOutboxUnavailable
 	}
+	o.dbMu.Lock()
+	defer o.dbMu.Unlock()
 	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.closed {
-		return CompactOutboxStatus{}, ErrCompactOutboxUnavailable
+	status := CompactOutboxStatus{Path: o.path, ProducerUUID: o.producerUUID, Frozen: o.frozen,
+		UnackedCount: o.unackedCount, UnackedBytes: o.unackedBytes, ReservedCount: o.reservedCount,
+		QueuedCount: o.pendingCount, QueuedBytes: o.pendingBytes, AdmissionFailures: o.admissionFailures,
+		DroppedEvents: o.droppedEvents, WriteErrors: o.writeErrors, LastError: o.lastError}
+	closed := o.closed
+	o.mu.Unlock()
+	if closed {
+		return status, ErrCompactOutboxUnavailable
 	}
-	return readCompactOutboxStatusLocked(ctx, o.db, o.path, o.reservedCount)
+	durable, err := readCompactOutboxStatusLocked(ctx, o.db, o.path, status.ReservedCount)
+	status.NextSeq, status.CommittedThroughSeq = durable.NextSeq, durable.CommittedThroughSeq
+	status.HasSealedBatch, status.SealedSeqStart, status.SealedSeqEnd = durable.HasSealedBatch, durable.SealedSeqStart, durable.SealedSeqEnd
+	status.UpdatedAt = durable.UpdatedAt
+	return status, err
 }
 
 // UnackedCount returns the fast in-memory unacknowledged record count.
@@ -633,7 +536,7 @@ func (o *CompactAccountingOutbox) UnackedCount() int {
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.unackedCount
+	return o.unackedCount + o.pendingCount
 }
 
 func readCompactOutboxStatusLocked(ctx context.Context, db *sql.DB, path string, reserved int) (CompactOutboxStatus, error) {
@@ -681,15 +584,19 @@ func (o *CompactAccountingOutbox) FreezeAndExport(ctx context.Context, exportDir
 		return nil, ErrCompactOutboxUnavailable
 	}
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.closed {
+		o.mu.Unlock()
 		return nil, ErrCompactOutboxUnavailable
 	}
-	manifest, err := freezeAndVacuumExport(ctx, o.db, o.path, exportDir)
-	if err == nil {
-		o.frozen = true
+	o.frozen = true
+	o.mu.Unlock()
+	// Stop new enqueues, then commit the already accepted queue before export.
+	if err := o.Wait(ctx); err != nil {
+		return nil, err
 	}
-	return manifest, err
+	o.dbMu.Lock()
+	defer o.dbMu.Unlock()
+	return freezeAndVacuumExport(ctx, o.db, o.path, exportDir)
 }
 
 // InspectCompactOutbox reads status from an outbox SQLite file on disk.

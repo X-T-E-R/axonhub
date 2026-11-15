@@ -641,7 +641,7 @@ func TestCredentialSelection_PinnedAndPoolFailClosed_WithRealEntProxies(t *testi
 		return row
 	}
 
-	t.Run("pinned disabled, expired, or probe-failed proxy fails closed and never leaks direct", func(t *testing.T) {
+	t.Run("pinned honors enabled and expiry state but ignores stale manual failure", func(t *testing.T) {
 		svc, client := setupTestChannelService(t)
 		defer func() {
 			svc.Stop()
@@ -708,7 +708,7 @@ func TestCredentialSelection_PinnedAndPoolFailClosed_WithRealEntProxies(t *testi
 		provider := getAPIKeyProvider(built)
 
 		reqCtx := contexts.EnsureContainer(context.Background())
-		require.Equal(t, "key-ok-proxy", provider.Get(reqCtx))
+		require.Equal(t, "key-failed-probe", provider.Get(reqCtx))
 
 		egressClient, ok := contexts.GetChannelCredentialEgress(reqCtx)
 		require.True(t, ok)
@@ -718,14 +718,16 @@ func TestCredentialSelection_PinnedAndPoolFailClosed_WithRealEntProxies(t *testi
 		proxyURL, err := egressClient.ProxyFunc()(targetReq)
 		require.NoError(t, err)
 		require.NotNil(t, proxyURL)
-		require.Equal(t, enabledProxy.ProxyURL, proxyURL.String())
+		require.Equal(t, failedProbeProxy.ProxyURL, proxyURL.String())
 
 		// Dial/transport failure (status=0, failed=true, canceled=false) temporarily blocks the proxy.
 		contexts.FinishChannelCredentialAttempt(reqCtx, 0, true, false)
 
 		blockedCtx := contexts.EnsureContainer(context.Background())
-		require.False(t, built.HasEligibleCredential(blockedCtx))
-		require.Empty(t, provider.Get(blockedCtx))
+		require.True(t, built.HasEligibleCredential(blockedCtx))
+		require.Equal(t, "key-ok-proxy", provider.Get(blockedCtx))
+		svc.blockProxyTemporarily(enabledProxy.ID)
+		require.Empty(t, provider.Get(contexts.EnsureContainer(context.Background())))
 	})
 
 	t.Run("pinned disabled proxy with backup_proxy policy routes to healthy backup", func(t *testing.T) {
@@ -779,7 +781,7 @@ func TestCredentialSelection_PinnedAndPoolFailClosed_WithRealEntProxies(t *testi
 		contexts.FinishChannelCredentialAttempt(reqCtx, http.StatusOK, false, false)
 	})
 
-	t.Run("proxy_pool fail_closed blocks unhealthy pool and does not switch away from disabled lease", func(t *testing.T) {
+	t.Run("proxy_pool skips disabled and expired members", func(t *testing.T) {
 		svc, client := setupTestChannelService(t)
 		defer func() {
 			svc.Stop()
@@ -790,13 +792,13 @@ func TestCredentialSelection_PinnedAndPoolFailClosed_WithRealEntProxies(t *testi
 		createProxy(t, client, "pool-down-2", "http://127.0.0.1:19111", "pool-dead", outboundproxy.StatusEnabled, func(b *ent.OutboundProxyCreate) {
 			b.SetExpiresAt(time.Now().Add(-time.Hour))
 		})
-		mixedDown := createProxy(t, client, "mixed-down", "http://127.0.0.1:19112", "pool-mixed", outboundproxy.StatusDisabled, func(b *ent.OutboundProxyCreate) {
+		createProxy(t, client, "mixed-down", "http://127.0.0.1:19112", "pool-mixed", outboundproxy.StatusDisabled, func(b *ent.OutboundProxyCreate) {
 			b.SetLastExitIP("198.51.100.10")
 		})
 		mixedHealthySameIP := createProxy(t, client, "mixed-same-ip", "http://127.0.0.1:19113", "pool-mixed", outboundproxy.StatusEnabled, func(b *ent.OutboundProxyCreate) {
 			b.SetLastExitIP("198.51.100.10")
 		})
-		createProxy(t, client, "mixed-other-ip", "http://127.0.0.1:19114", "pool-mixed", outboundproxy.StatusEnabled, func(b *ent.OutboundProxyCreate) {
+		mixedOther := createProxy(t, client, "mixed-other-ip", "http://127.0.0.1:19114", "pool-mixed", outboundproxy.StatusEnabled, func(b *ent.OutboundProxyCreate) {
 			b.SetLastExitIP("203.0.113.20")
 		})
 
@@ -835,92 +837,14 @@ func TestCredentialSelection_PinnedAndPoolFailClosed_WithRealEntProxies(t *testi
 		require.NoError(t, err)
 		require.Equal(t, "key-direct", getAPIKeyProvider(builtDead).Get(contexts.EnsureContainer(context.Background())))
 
-		// 2. Mixed pool: deterministically pick a key whose primary rendezvous lease hits mixedDown.
-		// Verify fail_closed blocks it while pool_fallback rescues it via mixedHealthySameIP.
-		mixedFailClosedEnt, err := client.Channel.Create().
-			SetType(channel.TypeOpenai).
-			SetName("pool-mixed-fail-closed").
-			SetBaseURL("https://api.openai.com/v1").
-			SetCredentials(objects.ChannelCredentials{APIKeys: []string{"pool-placeholder"}}).
-			SetSupportedModels([]string{"gpt-4"}).
-			SetDefaultTestModel("gpt-4").
-			SetStatus(channel.StatusEnabled).
-			Save(ctx)
-		require.NoError(t, err)
-
-		var matchedKey string
-		for i := range 128 {
-			candidateKey := "pool-real-probe-" + strconv.Itoa(i)
-			id := objects.ChannelAPIKeyFingerprint(candidateKey)
-			_, _, resolveErr := svc.resolveCredentialClient(ctx, &ent.Channel{
-				ID: mixedFailClosedEnt.ID,
-				Settings: &objects.ChannelSettings{
-					CredentialPolicies: []objects.ChannelCredentialPolicy{
-						{
-							ID:               id,
-							EgressMode:       objects.CredentialEgressModeProxyPool,
-							ProxyPoolName:    "pool-mixed",
-							EgressFailPolicy: objects.CredentialEgressFailPolicyFailClosed,
-						},
-					},
-				},
-			}, id, nil)
-			if resolveErr != nil {
-				matchedKey = candidateKey
-				break
-			}
+		// A pool lease always selects a currently enabled, unexpired member.
+		for i := range 32 {
+			policy := objects.ChannelCredentialPolicy{ID: strconv.Itoa(i), EgressMode: objects.CredentialEgressModeProxyPool,
+				ProxyPoolName: "pool-mixed", EgressFailPolicy: objects.CredentialEgressFailPolicyFailClosed}
+			row, err := svc.managedCredentialProxy(ctx, 77, policy)
+			require.NoError(t, err)
+			require.Contains(t, []int{mixedHealthySameIP.ID, mixedOther.ID}, row.ID)
 		}
-		require.NotEmpty(t, matchedKey, "expected a key whose rendezvous lease lands on disabled proxy %d", mixedDown.ID)
-
-		mixedFailClosedEnt, err = client.Channel.UpdateOneID(mixedFailClosedEnt.ID).
-			SetCredentials(objects.ChannelCredentials{APIKeys: []string{matchedKey}}).
-			SetSettings(&objects.ChannelSettings{
-				CredentialPolicies: []objects.ChannelCredentialPolicy{
-					{
-						ID:               objects.ChannelAPIKeyFingerprint(matchedKey),
-						EgressMode:       objects.CredentialEgressModeProxyPool,
-						ProxyPoolName:    "pool-mixed",
-						EgressFailPolicy: objects.CredentialEgressFailPolicyFailClosed,
-					},
-				},
-			}).
-			Save(ctx)
-		require.NoError(t, err)
-
-		builtMixedClosed, err := svc.buildChannelWithOutbounds(mixedFailClosedEnt)
-		require.NoError(t, err)
-		require.False(t, builtMixedClosed.HasEligibleCredential(context.Background()))
-		require.Empty(t, getAPIKeyProvider(builtMixedClosed).Get(contexts.EnsureContainer(context.Background())))
-
-		// With pool_fallback on the same credential, it selects healthy proxy matching mixedDown's LastExitIP.
-		mixedFallbackEnt, err := client.Channel.UpdateOneID(mixedFailClosedEnt.ID).
-			SetSettings(&objects.ChannelSettings{
-				CredentialPolicies: []objects.ChannelCredentialPolicy{
-					{
-						ID:               objects.ChannelAPIKeyFingerprint(matchedKey),
-						EgressMode:       objects.CredentialEgressModeProxyPool,
-						ProxyPoolName:    "pool-mixed",
-						EgressFailPolicy: objects.CredentialEgressFailPolicyPoolFallback,
-					},
-				},
-			}).
-			Save(ctx)
-		require.NoError(t, err)
-
-		builtMixedFallback, err := svc.buildChannelWithOutbounds(mixedFallbackEnt)
-		require.NoError(t, err)
-		fallbackCtx := contexts.EnsureContainer(context.Background())
-		require.Equal(t, matchedKey, getAPIKeyProvider(builtMixedFallback).Get(fallbackCtx))
-
-		egressClient, ok := contexts.GetChannelCredentialEgress(fallbackCtx)
-		require.True(t, ok)
-		targetReq, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/models", nil)
-		require.NoError(t, err)
-		proxyURL, err := egressClient.ProxyFunc()(targetReq)
-		require.NoError(t, err)
-		require.NotNil(t, proxyURL)
-		require.Equal(t, mixedHealthySameIP.ProxyURL, proxyURL.String())
-		contexts.FinishChannelCredentialAttempt(fallbackCtx, http.StatusOK, false, false)
 	})
 
 	t.Run("channel without credentialEgress blocks pinned and pool credentials instead of sending direct", func(t *testing.T) {

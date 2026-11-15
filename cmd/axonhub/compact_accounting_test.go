@@ -40,7 +40,7 @@ func TestCompactOutboxCLIHelpers_ExportAndImport(t *testing.T) {
 	})
 	require.NoError(t, err)
 	producerUUID := outbox.ProducerUUID()
-	require.NoError(t, outbox.Close())
+	require.NoError(t, outbox.Close(context.Background()))
 
 	manifest, err := biz.ExportFrozenCompactOutbox(ctx, srcPath, exportDir)
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestCompactOutboxCLIHelpers_ExportAndImport(t *testing.T) {
 		OutboxPath: dstPath,
 	}, "node-c")
 	require.NoError(t, err)
-	defer dstOutbox.Close()
+	defer dstOutbox.Close(context.Background())
 
 	batch, _, err := dstOutbox.SealOrLoadNextBatch(ctx)
 	require.NoError(t, err)

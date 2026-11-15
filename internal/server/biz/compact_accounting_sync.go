@@ -59,10 +59,10 @@ type CompactUsageBatchAck struct {
 type CompactAccountingServiceParams struct {
 	fx.In
 
-	Ent            *ent.Client
-	SystemService  *SystemService
-	UsageLog       *UsageLogService
-	Node           cluster.Config `optional:"true"`
+	Ent           *ent.Client
+	SystemService *SystemService
+	UsageLog      *UsageLogService
+	Node          cluster.Config `optional:"true"`
 }
 
 // CompactAccountingService owns both:
@@ -183,14 +183,17 @@ func (s *CompactAccountingService) Stop(ctx context.Context) error {
 	cancel := s.cancel
 	done := s.done
 	outbox := s.outbox
-	s.started = false
-	s.cancel = nil
-	s.done = nil
-	s.outbox = nil
 	s.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
+	}
+	// Close admission even if this shutdown deadline expires. Retain the handle
+	// until both workers finish so another Stop can await the same drain.
+	if outbox != nil {
+		if err := outbox.Close(ctx); err != nil {
+			return err
+		}
 	}
 	if done != nil {
 		select {
@@ -199,9 +202,10 @@ func (s *CompactAccountingService) Stop(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	if outbox != nil {
-		return outbox.Close()
-	}
+	s.mu.Lock()
+	s.started = false
+	s.cancel, s.done, s.outbox = nil, nil, nil
+	s.mu.Unlock()
 	return nil
 }
 
@@ -216,7 +220,7 @@ func (s *CompactAccountingService) UnackedCount(ctx context.Context) (int, error
 	if err != nil {
 		return outbox.UnackedCount(), err
 	}
-	return st.UnackedCount, nil
+	return st.UnackedCount + st.QueuedCount, nil
 }
 
 // LastSyncError returns the most recent upload error string if any.

@@ -742,9 +742,7 @@ func (s *RequestService) CreateRequest(
 		return nil, errors.New("video task identity admission unavailable before upstream execution")
 	}
 	if !taskIdentity {
-		if err := scope.admitCompactAccounting(ctx); err != nil {
-			return nil, fmt.Errorf("compact accounting admission failed before upstream execution: %w", err)
-		}
+		scope.admitCompactAccounting(ctx)
 		if scope.isCompactOnly() {
 			capturedAt := time.Now().UTC()
 			localID := scope.newID()

@@ -307,12 +307,26 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 			if compactSvc != nil {
 				outbox = compactSvc.Outbox()
 			}
-			if outbox == nil {
-				execErr := &ExecutedAccountingError{Cause: ErrCompactOutboxUnavailable}
-				scope.lastUsageErr = execErr
-				return nil, execErr
+			scope.writer.mu.Lock()
+			release := scope.compactRelease
+			scope.compactRelease = nil
+			degraded := scope.compactDegraded
+			// One submission attempt per completed response, including a drop.
+			scope.usageSubmitted = true
+			scope.writer.mu.Unlock()
+			if release != nil {
+				release()
 			}
-			_, appendErr := outbox.Append(ctx, CompactUsageEvent{
+			if degraded != nil || outbox == nil {
+				if outbox != nil {
+					outbox.recordDrop(ctx, degraded)
+				} else {
+					metrics.RecordManagedObservabilityFailure(ctx, "compact_accounting", "dropped")
+					log.Warn(ctx, "Compact accounting unavailable; completed inference preserved")
+				}
+				return nil, nil
+			}
+			_, _ = outbox.Append(ctx, CompactUsageEvent{
 				EventUUID:        scope.usageID,
 				CapturedAt:       capturedAt,
 				ProjectID:        requestCopy.ProjectID,
@@ -326,22 +340,6 @@ func (s *UsageLogService) CreateUsageLogFromRequest(
 				CostItems:        items,
 				PriceReferenceID: reference,
 			})
-			scope.writer.mu.Lock()
-			release := scope.compactRelease
-			scope.compactRelease = nil
-			if appendErr == nil {
-				scope.usageSubmitted = true
-			}
-			scope.writer.mu.Unlock()
-			if release != nil {
-				release()
-			}
-			if appendErr != nil {
-				execErr := &ExecutedAccountingError{Cause: appendErr}
-				scope.lastUsageErr = execErr
-				return nil, execErr
-			}
-			scope.lastUsageErr = nil
 			return nil, nil
 		}
 		cost := observationUsageCost{items: items, total: total, referenceID: reference}

@@ -15,6 +15,7 @@ import (
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/outboundproxy"
+	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
@@ -58,48 +59,56 @@ func (svc *ChannelService) managedCredentialProxy(ctx context.Context, channelID
 	epoch := outboundProxyEpoch.Load()
 	if cache.epoch != epoch || !cache.expires.After(now) {
 		rows, err := observationPrimaryClient(svc.db).OutboundProxy.Query().All(authz.WithSystemBypass(ctx, "credential-egress-snapshot"))
+		now = time.Now()
 		if err != nil {
-			return nil, errCredentialEgressBlocked
+			if cache.rows == nil || cache.epoch != epoch {
+				return nil, errCredentialEgressBlocked
+			}
+			log.Warn(ctx, "Outbound proxy refresh failed; reusing same-epoch snapshot", log.Cause(err))
+			cache.expires = now.Add(time.Second)
+		} else {
+			cache.rows = make(map[int]*ent.OutboundProxy, len(rows))
+			for _, row := range rows {
+				cache.rows[row.ID] = row
+			}
+			if cache.epoch != epoch {
+				cache.blockedUntil = nil
+			}
+			cache.epoch, cache.expires = epoch, now.Add(3*time.Second)
 		}
-		cache.rows = make(map[int]*ent.OutboundProxy, len(rows))
-		for _, row := range rows {
-			cache.rows[row.ID] = row
-		}
-		if cache.epoch != epoch {
-			cache.blockedUntil = nil
-		}
-		cache.epoch, cache.expires = epoch, now.Add(3*time.Second)
 	}
 	for id, until := range cache.blockedUntil {
 		if !until.After(now) {
 			delete(cache.blockedUntil, id)
 		}
 	}
-	healthy := func(row *ent.OutboundProxy) bool {
+	usable := func(row *ent.OutboundProxy) bool {
 		return row != nil && row.Status == outboundproxy.StatusEnabled && (row.ExpiresAt == nil || row.ExpiresAt.After(now)) &&
-			(row.LastTestSuccess == nil || *row.LastTestSuccess) && !cache.blockedUntil[row.ID].After(now)
+			!cache.blockedUntil[row.ID].After(now)
 	}
 	seed := strconv.Itoa(channelID) + ":" + p.ID
-	selectPool := func(name string, exitIP string, onlyHealthy bool) *ent.OutboundProxy {
+	selectPool := func(name string, exitIP string) *ent.OutboundProxy {
 		if name == "" {
 			return nil
 		}
 		var best *ent.OutboundProxy
-		bestMatch := false
+		bestMatch, bestProbe := false, false
 		top := math.Inf(-1)
 		for _, row := range cache.rows {
-			if row.PoolName != name || onlyHealthy && !healthy(row) {
+			if row.PoolName != name || !usable(row) {
 				continue
 			}
+			// Manual probes are a preference, not a permanent routing ban.
+			probeOK := row.LastTestSuccess == nil || *row.LastTestSuccess
 			sameIP := exitIP != "" && row.LastExitIP == exitIP
-			if bestMatch && !sameIP {
+			if bestProbe && !probeOK || probeOK == bestProbe && bestMatch && !sameIP {
 				continue
 			}
 			// Weighted rendezvous gives stable, deterministic proxy leases per credential.
 			u := (float64(hashAPIKey(seed+":"+strconv.Itoa(row.ID))) + 1) / (float64(^uint64(0)) + 1)
 			score := math.Log(u) / float64(max(1, row.Weight))
-			if best == nil || sameIP && !bestMatch || score > top || score == top && row.ID < best.ID {
-				best, top, bestMatch = row, score, sameIP
+			if best == nil || probeOK && !bestProbe || probeOK == bestProbe && (sameIP && !bestMatch || score > top || score == top && row.ID < best.ID) {
+				best, top, bestMatch, bestProbe = row, score, sameIP, probeOK
 			}
 		}
 		return best
@@ -110,15 +119,15 @@ func (svc *ChannelService) managedCredentialProxy(ctx context.Context, channelID
 			primary = cache.rows[*p.OutboundProxyID]
 		}
 	} else {
-		primary = selectPool(p.ProxyPoolName, "", false)
+		primary = selectPool(p.ProxyPoolName, "")
 	}
-	if healthy(primary) {
+	if usable(primary) {
 		return primary, nil
 	}
 	switch p.EgressFailPolicy {
 	case objects.CredentialEgressFailPolicyBackupProxy:
 		if primary != nil && primary.BackupProxyID != nil {
-			if backup := cache.rows[*primary.BackupProxyID]; healthy(backup) {
+			if backup := cache.rows[*primary.BackupProxyID]; usable(backup) {
 				return backup, nil
 			}
 		}
@@ -130,7 +139,7 @@ func (svc *ChannelService) managedCredentialProxy(ctx context.Context, channelID
 			}
 			exitIP = primary.LastExitIP
 		}
-		if fallback := selectPool(name, exitIP, true); fallback != nil {
+		if fallback := selectPool(name, exitIP); fallback != nil {
 			return fallback, nil
 		}
 	}

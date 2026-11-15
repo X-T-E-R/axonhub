@@ -60,7 +60,7 @@ func TestCompactAccountingOutbox_SequenceSealReplayConflictAndMigration(t *testi
 		TotalCost:  nil, // Explicit null cost when model price is unconfigured.
 	})
 	require.NoError(t, err)
-	require.Equal(t, int64(1), ev1.Seq)
+	require.Zero(t, ev1.Seq, "sequence is assigned by the background commit")
 
 	ev2, err := outbox.Append(ctx, CompactUsageEvent{
 		EventUUID:  uuid.NewString(),
@@ -75,7 +75,7 @@ func TestCompactAccountingOutbox_SequenceSealReplayConflictAndMigration(t *testi
 		TotalCost:  lo.ToPtr(0.0125),
 	})
 	require.NoError(t, err)
-	require.Equal(t, int64(2), ev2.Seq)
+	require.Zero(t, ev2.Seq)
 
 	ev3, err := outbox.Append(ctx, CompactUsageEvent{
 		EventUUID:  uuid.NewString(),
@@ -90,7 +90,7 @@ func TestCompactAccountingOutbox_SequenceSealReplayConflictAndMigration(t *testi
 		TotalCost:  lo.ToPtr(0.005),
 	})
 	require.NoError(t, err)
-	require.Equal(t, int64(3), ev3.Seq)
+	require.Zero(t, ev3.Seq)
 
 	// Seal first batch [1,2].
 	batch1, raw1, err := outbox.SealOrLoadNextBatch(ctx)
@@ -99,9 +99,12 @@ func TestCompactAccountingOutbox_SequenceSealReplayConflictAndMigration(t *testi
 	require.Equal(t, int64(1), batch1.SeqStart)
 	require.Equal(t, int64(2), batch1.SeqEnd)
 	require.Len(t, batch1.Events, 2)
+	require.Equal(t, ev1.EventUUID, batch1.Events[0].EventUUID)
+	require.Equal(t, ev2.EventUUID, batch1.Events[1].EventUUID)
+	ev2.Seq, ev3.Seq = 2, 3
 
 	// Simulate crash before ACK: close and reopen SQLite outbox.
-	require.NoError(t, outbox.Close())
+	require.NoError(t, outbox.Close(context.Background()))
 
 	reopened, err := OpenCompactAccountingOutbox(cfg, "b")
 	require.NoError(t, err)
@@ -200,7 +203,7 @@ func TestCompactAccountingOutbox_SequenceSealReplayConflictAndMigration(t *testi
 	// Frozen outbox rejects new reservations before upstream execution.
 	_, err = reopened.Reserve()
 	require.ErrorIs(t, err, ErrCompactOutboxFrozen)
-	require.NoError(t, reopened.Close())
+	require.NoError(t, reopened.Close(context.Background()))
 
 	// Tampered export file must fail SHA-256 verification on import.
 	corruptDir := filepath.Join(tempDir, "corrupt-export")
@@ -227,7 +230,7 @@ func TestCompactAccountingOutbox_SequenceSealReplayConflictAndMigration(t *testi
 		MaxSpoolBytes: 1 << 20,
 	}, "c")
 	require.NoError(t, err)
-	defer migratedOutbox.Close()
+	defer migratedOutbox.Close(context.Background())
 
 	migratedBatch, _, err := migratedOutbox.SealOrLoadNextBatch(ctx)
 	require.NoError(t, err)
@@ -252,7 +255,7 @@ func TestCompactAccountingOutbox_SequenceSealReplayConflictAndMigration(t *testi
 	require.True(t, rows[2].CreatedAt.Equal(t0.Add(10*time.Second)))
 }
 
-func TestCompactAccountingAdmission_SpoolFullAndPostExecutionFence(t *testing.T) {
+func TestCompactAccountingAdmission_SpoolFullAndPostExecutionDrop(t *testing.T) {
 	ctx := authz.WithTestBypass(t.Context())
 	client := enttest.NewEntClient(t, "sqlite3", "file:compact-admission-fence?mode=memory&_fk=0")
 	defer client.Close()
@@ -310,7 +313,7 @@ func TestCompactAccountingAdmission_SpoolFullAndPostExecutionFence(t *testing.T)
 		return reqSvc.ForwardingObservationContext(c)
 	}
 
-	// 1st request reserves the single spool slot; a concurrent 2nd request must fail BEFORE upstream execution.
+	// A full accounting spool degrades accounting, never inference admission.
 	ctx1 := makeReqCtx()
 	defer EndForwardingObservation(ctx1)
 	synthReq1, err := reqSvc.CreateRequest(ctx1, &llm.Request{Model: "m"}, &httpclient.Request{Body: []byte(`{}`)}, llm.APIFormatOpenAIResponse)
@@ -319,19 +322,31 @@ func TestCompactAccountingAdmission_SpoolFullAndPostExecutionFence(t *testing.T)
 
 	ctx2 := makeReqCtx()
 	defer EndForwardingObservation(ctx2)
-	_, err = reqSvc.CreateRequest(ctx2, &llm.Request{Model: "m"}, &httpclient.Request{Body: []byte(`{}`)}, llm.APIFormatOpenAIResponse)
-	require.ErrorIs(t, err, ErrCompactOutboxSpoolFull)
+	req2, err := reqSvc.CreateRequest(ctx2, &llm.Request{Model: "m"}, &httpclient.Request{Body: []byte(`{}`)}, llm.APIFormatOpenAIResponse)
+	require.NoError(t, err)
+	require.Less(t, req2.ID, 0)
+	require.ErrorIs(t, observationFromContext(ctx2).compactDegraded, ErrCompactOutboxSpoolFull)
+	status, err := compactSvc.Outbox().Status(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, status.AdmissionFailures)
 
-	// Simulate post-execution local SQLite failure on req1 by closing the outbox before CreateUsageLogFromRequest:
-	// must surface *ExecutedAccountingError so orchestrator retry/circuit-breaker fences never replay the upstream call.
+	// A post-execution SQLite outage must preserve the completed upstream response.
 	exec1, err := reqSvc.CreateRequestExecution(ctx1, &Channel{Channel: &ent.Channel{ID: 7}}, "m", synthReq1, httpclient.Request{}, llm.APIFormatOpenAIResponse, false)
 	require.NoError(t, err)
-	require.NoError(t, compactSvc.Outbox().Close())
+	require.NoError(t, compactSvc.Outbox().Close(context.Background()))
 
 	_, usageErr := usageSvc.CreateUsageLogFromRequest(ctx1, synthReq1, exec1, &llm.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5})
-	var execAcctErr *ExecutedAccountingError
-	require.ErrorAs(t, usageErr, &execAcctErr)
-	require.ErrorAs(t, LastForwardingAccountingError(ctx1), &execAcctErr)
+	require.NoError(t, usageErr)
+	require.NoError(t, LastForwardingAccountingError(ctx1))
+	status, err = compactSvc.Outbox().Status(ctx)
+	require.ErrorIs(t, err, ErrCompactOutboxUnavailable)
+	require.EqualValues(t, 1, status.DroppedEvents)
+	require.Zero(t, status.ReservedCount)
+	// Duplicate submission does not count the dropped fact twice.
+	_, usageErr = usageSvc.CreateUsageLogFromRequest(ctx1, synthReq1, exec1, &llm.Usage{TotalTokens: 5})
+	require.NoError(t, usageErr)
+	status, _ = compactSvc.Outbox().Status(ctx)
+	require.EqualValues(t, 1, status.DroppedEvents)
 
 	// Zero rows written to remote Request, RequestExecution, or PendingUsage tables.
 	require.Zero(t, client.Request.Query().CountX(ctx))
