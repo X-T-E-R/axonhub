@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
@@ -129,28 +130,23 @@ func (svc *ChannelService) checkAndHandleChannelError(ctx context.Context, perf 
 // checkAndHandleAPIKeyError checks if the API key should be disabled based on the error status code.
 // Returns true if the API key was disabled.
 func (svc *ChannelService) checkAndHandleAPIKeyError(ctx context.Context, perf *PerformanceRecord, policy *RetryPolicy) bool {
+	ownerID := perf.CredentialOwnerID
+	if ownerID == 0 {
+		ownerID = perf.ChannelID
+		if ch := svc.GetEnabledChannel(perf.ChannelID); ch != nil {
+			ownerID = ch.CredentialOwnerID()
+		}
+	}
 	for _, statusConfig := range policy.AutoDisableChannel.Statuses {
 		if statusConfig.Status != perf.ResponseStatusCode {
 			continue
 		}
 
-		svc.apiKeyErrorCountsLock.Lock()
-
-		if svc.apiKeyErrorCounts[perf.ChannelID] == nil {
-			svc.apiKeyErrorCounts[perf.ChannelID] = make(map[string]map[int]int)
-		}
-
-		if svc.apiKeyErrorCounts[perf.ChannelID][perf.APIKey] == nil {
-			svc.apiKeyErrorCounts[perf.ChannelID][perf.APIKey] = make(map[int]int)
-		}
-
-		svc.apiKeyErrorCounts[perf.ChannelID][perf.APIKey][perf.ResponseStatusCode]++
-		count := svc.apiKeyErrorCounts[perf.ChannelID][perf.APIKey][perf.ResponseStatusCode]
-		svc.apiKeyErrorCountsLock.Unlock()
+		count := svc.incrementAPIKeyFailureCount(ownerID, perf.APIKey, perf.ResponseStatusCode)
 
 		if count >= statusConfig.Times {
 			reason := fmt.Sprintf("Auto-disabled after %d consecutive errors with status %d", count, perf.ResponseStatusCode)
-			if err := svc.DisableAPIKey(ctx, perf.ChannelID, perf.APIKey, perf.ResponseStatusCode, reason); err != nil {
+			if err := svc.DisableAPIKey(ctx, ownerID, perf.APIKey, perf.ResponseStatusCode, reason); err != nil {
 				log.Error(ctx, "Failed to disable API key",
 					log.Int("channel_id", perf.ChannelID),
 					log.Int("error_code", perf.ResponseStatusCode),
@@ -161,7 +157,7 @@ func (svc *ChannelService) checkAndHandleAPIKeyError(ctx context.Context, perf *
 			}
 
 			svc.apiKeyErrorCountsLock.Lock()
-			delete(svc.apiKeyErrorCounts[perf.ChannelID], perf.APIKey)
+			delete(svc.apiKeyErrorCounts[ownerID], perf.APIKey)
 			svc.apiKeyErrorCountsLock.Unlock()
 
 			return true
@@ -177,11 +173,6 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 	}
 
 	channelCount := svc.incrementChannelFailureCount(perf.ChannelID, perf.ResponseStatusCode)
-	keyCount := 0
-	if perf.APIKey != "" {
-		keyCount = svc.incrementAPIKeyFailureCount(perf.ChannelID, perf.APIKey, perf.ResponseStatusCode)
-	}
-
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, perf.ChannelID)
 	if err != nil {
 		log.Warn(ctx, "failed to load channel for failure policy",
@@ -200,10 +191,15 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 	now := time.Now()
 	routingChanged := false
 	if perf.APIKey != "" {
+		ownerID := perf.CredentialOwnerID
+		if ownerID == 0 {
+			ownerID = credentialOwnerID(ch)
+		}
+		keyCount := svc.incrementAPIKeyFailureCount(ownerID, perf.APIKey, perf.ResponseStatusCode)
 		keyEvent := failurePolicyEvent{
 			Source:       objects.FailurePolicyEventSourceRequestFailure,
 			Target:       objects.FailurePolicyTargetKey,
-			ChannelID:    perf.ChannelID,
+			ChannelID:    ownerID,
 			Key:          perf.APIKey,
 			StatusCode:   perf.ResponseStatusCode,
 			FailureCount: keyCount,
@@ -223,7 +219,7 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 			routingChanged = routingChanged || changed
 			if changed {
 				svc.apiKeyErrorCountsLock.Lock()
-				delete(svc.apiKeyErrorCounts[perf.ChannelID], perf.APIKey)
+				delete(svc.apiKeyErrorCounts[ownerID], perf.APIKey)
 				svc.apiKeyErrorCountsLock.Unlock()
 			}
 		}
@@ -288,7 +284,7 @@ func (svc *ChannelService) ApplyRequestFailurePolicy(ctx context.Context, perf *
 	if svc.SystemService != nil {
 		policy = svc.SystemService.RetryPolicyOrDefault(ctx)
 	}
-	perf.FailurePolicyRoutingChanged = svc.handleRequestFailurePolicy(ctx, perf, policy)
+	perf.FailurePolicyRoutingChanged = svc.handleRequestFailurePolicy(authz.WithSystemBypass(ctx, "channel-request-failure-policy"), perf, policy)
 	perf.FailurePolicyHandled = true
 
 	return perf.FailurePolicyRoutingChanged

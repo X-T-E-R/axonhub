@@ -1,6 +1,8 @@
 package anthropic
 
 import (
+	"strings"
+
 	"github.com/samber/lo"
 
 	"github.com/looplj/axonhub/llm"
@@ -129,6 +131,16 @@ func buildBaseRequest(chatReq *llm.Request, config *Config) *MessageRequest {
 	// (for example deepseek-chat-max) preserves the explicit effort level.
 	// Note: "none" is not a valid effort value, so skip it (it means disabled thinking).
 	if config != nil && config.Type == PlatformDeepSeek && chatReq.ReasoningEffort != "" && chatReq.ReasoningEffort != "none" {
+		req.OutputConfig = &OutputConfig{Effort: chatReq.ReasoningEffort}
+	}
+
+	// Gemini 4 suffix-effort models routed over Anthropic Messages (e.g. Sub2 gemini-4-neon-{effort})
+	// resolve explicit low/medium/high/xhigh from output_config.effort while keeping adaptive thinking.
+	if req.OutputConfig == nil && chatReq.TransformerMetadata == nil && chatReq.ReasoningBudget == nil &&
+		chatReq.ReasoningEffort != "" && chatReq.ReasoningEffort != "none" &&
+		supportsAdaptiveThinking(config) && supportsOutputConfig(config) &&
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(chatReq.Model)), "gemini-4-") {
+		req.Thinking = &Thinking{Type: "adaptive"}
 		req.OutputConfig = &OutputConfig{Effort: chatReq.ReasoningEffort}
 	}
 

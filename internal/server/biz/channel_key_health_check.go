@@ -175,7 +175,7 @@ func (svc *ChannelService) dueChannelKeyHealthCheckChannels(ctx context.Context,
 
 	due := make([]*ent.Channel, 0, len(channels))
 	for _, ch := range channels {
-		if !svc.node.Owns(ch.ID) || !channelKeyHealthCheckDue(ch, now) {
+		if credentialSourceID(ch.Settings) != 0 || !svc.node.Owns(ch.ID) || !channelKeyHealthCheckDue(ch, now) {
 			continue
 		}
 
@@ -1566,9 +1566,9 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	}
 	ctx = authz.WithScopeDecision(ctx, scopes.ScopeWriteChannels)
 
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get channel: %w", err)
+		return nil, err
 	}
 	if ch.Credentials.IsOAuth() {
 		return nil, fmt.Errorf("cannot run API key health checks for OAuth channels")

@@ -138,6 +138,8 @@ type ChannelRawHTTP struct {
 }
 
 type ChannelSettings struct {
+	CredentialSourceChannelID *int `json:"credentialSourceChannelId,omitempty"`
+
 	RawHTTP            *ChannelRawHTTP           `json:"rawHTTP,omitempty"`
 	CredentialPolicies []ChannelCredentialPolicy `json:"credentialPolicies,omitempty"`
 

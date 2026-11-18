@@ -12,14 +12,14 @@ const path = resolve(import.meta.dirname, 'components/channels-keys-dialog.tsx')
 const source = readFileSync(path, 'utf8');
 const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const controls = { real_request: [], balance_probe: [] };
-let realRequestCondition;
+const conditions = {};
 
 // Exercise the production JSX control fragments, with UI wrappers and mutation
 // delivery explicitly stubbed. This is a runtime visibility/callback test, not a
 // browser screenshot or a replacement implementation of the dialog.
 function visit(node) {
-  if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'canRunRealRequest') {
-    realRequestCondition = node.initializer.getText(tree);
+  if (ts.isVariableDeclaration(node) && ['canRunRealRequest', 'canRunBalanceProbe'].includes(node.name.getText(tree))) {
+    conditions[node.name.getText(tree)] = node.initializer.getText(tree);
   }
   if (ts.isJsxElement(node) && node.openingElement.tagName.getText(tree) === 'Button') {
     const onClick = node.openingElement.attributes.properties.find(
@@ -40,7 +40,7 @@ function visit(node) {
 }
 visit(tree);
 
-function renderControls(mode, currentRow, canRunBalanceProbe = false) {
+function renderControls(mode, currentRow, balanceProbeConfigured = false) {
   const callbacks = [];
   const calls = [];
   const Button = ({ children, onClick, disabled, ...props }) => {
@@ -53,7 +53,10 @@ function renderControls(mode, currentRow, canRunBalanceProbe = false) {
     compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2023 },
     fileName: 'raw-health-controls.tsx',
   }).outputText;
-  const canRunRealRequest = new Function('currentRow', `return ${realRequestCondition};`)(currentRow);
+  const delegated = currentRow.settings?.credentialSourceChannelId != null;
+  const canRunRealRequest = new Function('currentRow', 'isCredentialSourceDependent', `return ${conditions.canRunRealRequest};`)(currentRow, delegated);
+  const canRunBalanceProbe = new Function('currentRow', 'isCredentialSourceDependent', 'channelSupportsManualBalanceProbe',
+    `return ${conditions.canRunBalanceProbe};`)(currentRow, delegated, () => balanceProbeConfigured);
   const module = { exports: {} };
   const bindings = {
     require, module, exports: module.exports, Button, Tooltip: Pass, TooltipTrigger: Pass, TooltipContent: Pass,
@@ -91,4 +94,11 @@ test('raw keys retain all three explicitly configured balance probe controls', (
   const absent = renderControls('balance_probe', raw, false);
   assert.equal(absent.markup, '');
   assert.deepEqual(absent.calls, []);
+});
+
+test('delegated keys leave health mutations on their credential owner', () => {
+  const dependent = { settings: { credentialSourceChannelId: 42 } };
+  for (const mode of ['real_request', 'balance_probe']) {
+    assert.deepEqual(renderControls(mode, dependent, true), { markup: '', calls: [] });
+  }
 });

@@ -16,9 +16,10 @@ type CopilotTokenProvider struct {
 
 // TokenProviderParams contains the parameters for creating a new CopilotTokenProvider.
 type TokenProviderParams struct {
-	Credentials *oauth.OAuthCredentials
-	HTTPClient  *httpclient.HttpClient
-	OnRefreshed func(ctx context.Context, refreshed *oauth.OAuthCredentials) error
+	Credentials       *oauth.OAuthCredentials
+	HTTPClient        *httpclient.HttpClient
+	OnRefreshed       func(ctx context.Context, refreshed *oauth.OAuthCredentials) error
+	CoordinateRefresh oauth.RefreshCoordinator
 }
 
 // NewTokenProvider creates a new CopilotTokenProvider instance.
@@ -37,11 +38,12 @@ func NewTokenProvider(params TokenProviderParams) (*CopilotTokenProvider, error)
 	}
 
 	deviceFlowProvider := oauth.NewDeviceFlowProvider(oauth.DeviceFlowProviderParams{
-		Config:         config,
-		HTTPClient:     params.HTTPClient,
-		Credentials:    params.Credentials,
-		TokenExchanger: exchanger,
-		OnRefreshed:    params.OnRefreshed,
+		Config:            config,
+		HTTPClient:        params.HTTPClient,
+		Credentials:       params.Credentials,
+		TokenExchanger:    exchanger,
+		OnRefreshed:       params.OnRefreshed,
+		CoordinateRefresh: params.CoordinateRefresh,
 	})
 
 	return &CopilotTokenProvider{

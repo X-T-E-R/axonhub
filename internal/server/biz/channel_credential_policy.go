@@ -154,7 +154,7 @@ func (svc *ChannelService) UpsertChannelCredentialPolicy(ctx context.Context, ch
 	if authz.HasScope(ctx, scopes.ScopeWriteChannels) {
 		ctx = authz.WithScopeDecision(ctx, scopes.ScopeWriteChannels)
 	}
-	row, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	row, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (svc *ChannelService) UpsertChannelCredentialPolicy(ctx context.Context, ch
 func (svc *ChannelService) populateCredentialInventory(ctx context.Context, ch *ent.Channel, item *ChannelAPIKeyInventoryItem) {
 	policy := ch.Settings.CredentialPolicy(item.ID)
 	item.Policy = &policy
-	state := svc.credentialRuntime.snapshot(ch.ID, item.ID)
+	state := svc.credentialRuntime.snapshot(credentialOwnerID(ch), item.ID)
 	item.InFlight = state.inFlight
 	if !state.cooldownUntil.IsZero() {
 		item.CooldownUntil = &state.cooldownUntil
@@ -208,7 +208,7 @@ func (svc *ChannelService) populateCredentialInventory(ctx context.Context, ch *
 		}
 	}
 	if policy.EgressMode == objects.CredentialEgressModePinnedProxy || policy.EgressMode == objects.CredentialEgressModeProxyPool {
-		proxy, err := svc.managedCredentialProxy(ctx, ch.ID, policy)
+		proxy, err := svc.managedCredentialProxy(ctx, credentialOwnerID(ch), policy)
 		if err == nil {
 			item.EffectiveProxyName = proxy.Name
 			item.EffectiveExitIP = proxy.LastExitIP

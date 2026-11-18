@@ -18,9 +18,10 @@ var DefaultTokenURLs = oauth.OAuthUrls{
 }
 
 type TokenProviderParams struct {
-	Credentials *oauth.OAuthCredentials
-	HTTPClient  *httpclient.HttpClient
-	OnRefreshed func(ctx context.Context, refreshed *oauth.OAuthCredentials) error
+	Credentials       *oauth.OAuthCredentials
+	HTTPClient        *httpclient.HttpClient
+	OnRefreshed       func(ctx context.Context, refreshed *oauth.OAuthCredentials) error
+	CoordinateRefresh oauth.RefreshCoordinator
 }
 
 type AuthJSON struct {
@@ -72,9 +73,10 @@ func DecodeAuthJSON(raw string) (*oauth.OAuthCredentials, error) {
 
 func NewTokenProvider(params TokenProviderParams) *oauth.TokenProvider {
 	return oauth.NewTokenProvider(oauth.TokenProviderParams{
-		Credentials: params.Credentials,
-		HTTPClient:  params.HTTPClient,
-		OAuthUrls:   DefaultTokenURLs,
-		OnRefreshed: params.OnRefreshed,
+		Credentials:       params.Credentials,
+		HTTPClient:        params.HTTPClient,
+		OAuthUrls:         DefaultTokenURLs,
+		OnRefreshed:       params.OnRefreshed,
+		CoordinateRefresh: params.CoordinateRefresh,
 	})
 }

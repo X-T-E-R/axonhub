@@ -302,3 +302,30 @@ func TestBackupService_RestoreCredentialPolicy_ValidAndLegacyNoPolicySucceed(t *
 	require.Equal(t, "restored-pinned", managedCh.Settings.CredentialPolicies[0].Name)
 	require.Equal(t, lo.ToPtr(proxyCap2.ID), managedCh.Settings.CredentialPolicies[0].OutboundProxyID)
 }
+
+func TestRestoreCredentialSourceRemapsChannelIDs(t *testing.T) {
+	client, service, ctx := setupBackupTest(t)
+	defer client.Close()
+	unrelated := createBackupTestChannel(t, client, ctx, "unrelated", channel.TypeOpenai)
+	backupData := BackupData{
+		Version: BackupVersion,
+		Channels: []*BackupChannel{
+			{Channel: ent.Channel{
+				ID: unrelated.ID + 100, Name: "dependent", Type: channel.TypeOpenaiResponses, Status: channel.StatusEnabled,
+				SupportedModels: []string{"m"}, DefaultTestModel: "m", Settings: &objects.ChannelSettings{CredentialSourceChannelID: &unrelated.ID},
+			}},
+			{Channel: ent.Channel{
+				ID: unrelated.ID, Name: "holder", Type: channel.TypeOpenai, Status: channel.StatusDisabled,
+				SupportedModels: []string{"m"}, DefaultTestModel: "m",
+			}, Credentials: objects.ChannelCredentials{APIKey: "synthetic"}},
+		},
+	}
+	raw, err := json.Marshal(backupData)
+	require.NoError(t, err)
+	require.NoError(t, service.Restore(ctx, raw, RestoreOptions{IncludeChannels: true, ChannelConflictStrategy: ConflictStrategyOverwrite}))
+	holder := client.Channel.Query().Where(channel.Name("holder")).OnlyX(ctx)
+	dependent := client.Channel.Query().Where(channel.Name("dependent")).OnlyX(ctx)
+	require.NotEqual(t, unrelated.ID, holder.ID)
+	require.Equal(t, &holder.ID, dependent.Settings.CredentialSourceChannelID)
+	require.Empty(t, dependent.Credentials.GetAllAPIKeys())
+}

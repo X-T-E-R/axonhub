@@ -8,6 +8,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { X, RefreshCw, Search, ChevronLeft, ChevronRight, PanelLeft, Plus, Trash2, Eye, EyeOff, Copy, Play, Info, Ban } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { extractNumberID } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -37,6 +38,7 @@ import {
   useDisableChannelAPIKey,
   useEnableChannelAPIKey,
   useSyncChannelModels,
+  useAllChannelSummarys,
 } from '../data/channels';
 import { claudecodeOAuthExchange, claudecodeOAuthStart } from '../data/claudecode';
 import { codexDecodeAuthJSON, codexOAuthExchange, codexOAuthStart } from '../data/codex';
@@ -67,6 +69,7 @@ import {
   AXONHUB_CAPTURE_PRESETS,
   getAxonHubBehaviorPreset,
   getAxonHubCaptureSettings,
+  getCredentialSourceChannelId,
   getGenericChannelBehaviorSettings,
   resolveGenericChannelBehaviorSettings,
   resolveAxonHubBehaviorPreset,
@@ -362,6 +365,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const fetchModels = useFetchModels();
   const syncChannelModels = useSyncChannelModels();
   const { data: allChannelNames = [], isSuccess: allChannelNamesLoaded } = useAllChannelNames({ enabled: open && isDuplicate });
+  const { data: sourceChannelsData } = useAllChannelSummarys(undefined, { enabled: open, includeArchived: false });
   const { data: allTags = [], isLoading: isLoadingTags } = useAllChannelTags();
   const { data: proxyPresets = [] } = useProxyPresets();
   const saveProxyPreset = useSaveProxyPreset();
@@ -761,7 +765,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                 jsonData: currentRow.credentials?.gcp?.jsonData || '',
               },
             },
-            settings: currentRow.settings ?? undefined,
+            settings: {
+              ...(currentRow.settings ?? {}),
+              credentialSourceChannelId: getCredentialSourceChannelId(currentRow.settings),
+            },
           }
         : duplicateFromRow
           ? {
@@ -775,7 +782,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
               defaultTestModel: duplicateFromRow.defaultTestModel,
               tags: duplicateFromRow.tags || [],
               remark: duplicateFromRow.remark || '',
-              settings: duplicateFromRow.settings ?? undefined,
+              settings: {
+                ...(duplicateFromRow.settings ?? {}),
+                credentialSourceChannelId: getCredentialSourceChannelId(duplicateFromRow.settings),
+              },
               credentials: {
                 // OAuth 类型 (codex/claudecode/antigravity) 的凭据存储在 apiKey 字段，不放入 apiKeys
                 apiKey: duplicateFromRow.credentials?.apiKey || undefined,
@@ -804,13 +814,38 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
               defaultTestModel: '',
               tags: [],
               remark: '',
-              settings: undefined,
+              settings: { credentialSourceChannelId: null },
             },
   });
 
+  const selectedCredentialSourceId = form.watch('settings.credentialSourceChannelId');
+  const hasCredentialSource = selectedCredentialSourceId != null;
+  const credentialSourceChannels = useMemo(
+    () =>
+      (sourceChannelsData?.edges ?? [])
+        .map((edge) => edge.node)
+        .filter(
+          (channel) =>
+            channel.status !== 'archived' &&
+            channel.settings?.credentialSourceChannelId == null &&
+            extractNumberID(channel.id) !== extractNumberID(initialRow?.id ?? '')
+        )
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [sourceChannelsData, initialRow?.id]
+  );
+  const selectedCredentialSourceIsUnavailable =
+    hasCredentialSource &&
+    !credentialSourceChannels.some((channel) => extractNumberID(channel.id) === String(selectedCredentialSourceId));
   const apiKeys = form.watch('credentials.apiKeys');
   const apiKeysCount = useMemo(() => (apiKeys || []).filter((k) => k.trim().length > 0).length, [apiKeys]);
   const isSubmitting = createChannel.isPending || duplicateChannel.isPending || updateChannel.isPending;
+
+  useEffect(() => {
+    if (hasCredentialSource) {
+      setShowApiKey(false);
+      setShowApiKeysPanel(false);
+    }
+  }, [hasCredentialSource]);
 
   const { data: disabledKeys = [], isFetching: isFetchingDisabledKeys } = useChannelDisabledAPIKeys(currentRow?.id || '', {
     enabled: isEdit && !!currentRow?.id && showApiKeysPanel,
@@ -1326,15 +1361,19 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         values.credentials.apiKeys = [...new Set(values.credentials.apiKeys.filter((k) => k.trim().length > 0))];
       }
 
-      const hasExplicitCredentials = !!(
-        values.credentials?.apiKey?.trim() ||
-        values.credentials?.apiKeys?.some((key) => key.trim()) ||
-        (values.credentials?.gcp?.region?.trim() && values.credentials.gcp.projectID?.trim() && values.credentials.gcp.jsonData?.trim())
-      );
+      const hasCredentialSource = values.settings?.credentialSourceChannelId != null;
+      const hasExplicitCredentials =
+        !hasCredentialSource &&
+        !!(
+          values.credentials?.apiKey?.trim() ||
+          values.credentials?.apiKeys?.some((key) => key.trim()) ||
+          (values.credentials?.gcp?.region?.trim() && values.credentials.gcp.projectID?.trim() && values.credentials.gcp.jsonData?.trim())
+        );
       if (
         (credentialsResetRef.current ||
           (isNativeDecisionPreset(selectedProvider) && getNativeDecisionPreset(initialRow) !== selectedProvider)) &&
-        !hasExplicitCredentials
+        !hasExplicitCredentials &&
+        !hasCredentialSource
       ) {
         toast.error(t('channels.nativeDecisions.providerKeyRequired'));
         return;
@@ -1419,7 +1458,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           ...(isOAuthChannel ? { type: undefined } : {}),
         } as z.infer<typeof updateChannelInputSchema>;
 
-        if (!hasExplicitCredentials) {
+        if (hasCredentialSource || !hasExplicitCredentials) {
           delete updateInput.credentials;
         }
 
@@ -1573,8 +1612,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const handleFetchModels = useCallback(async () => {
     const channelType = form.getValues('type');
     const baseURL = form.getValues('baseURL');
-    const apiKeys = form.getValues('credentials.apiKeys');
-    const oauthApiKey = form.getValues('credentials.apiKey');
+    const apiKeys = hasCredentialSource ? [] : form.getValues('credentials.apiKeys');
+    const oauthApiKey = hasCredentialSource ? undefined : form.getValues('credentials.apiKey');
 
     if (!channelType || !baseURL) {
       return;
@@ -1645,10 +1684,10 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
 
     setSupportedModels(result.supportedModels || []);
     return result.supportedModels || [];
-  }, [currentRow, form, patternError, syncChannelModels]);
+  }, [currentRow, form, hasCredentialSource, patternError, syncChannelModels]);
 
   const canFetchModels = () => {
-    if (isNativeDecisionPreset(selectedProvider)) return false;
+    if (isNativeDecisionPreset(selectedProvider) || hasCredentialSource) return false;
     const baseURL = form.watch('baseURL');
     const apiKeys = form.watch('credentials.apiKeys');
     const hasApiKey = apiKeys?.some((key) => key.trim().length > 0);
@@ -2088,7 +2127,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         </FormItem>
                       )}
 
-                      {selectedProvider === 'antigravity' && (
+                      {selectedProvider === 'antigravity' && !hasCredentialSource && (
                         <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
                           <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
                             {t('channels.dialogs.fields.apiFormat.label')}
@@ -2166,7 +2205,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         </FormItem>
                       )}
 
-                      {isCopilotType && (
+                      {isCopilotType && !hasCredentialSource && (
                         <div className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
                           <div className='col-span-2' />
                           <div className='space-y-4 md:col-span-6'>
@@ -2284,7 +2323,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         </FormItem>
                       )}
 
-                      {(isCodexType || isClaudeCodeType) && (
+                      {(isCodexType || isClaudeCodeType) && !hasCredentialSource && (
                         <div className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
                           <div className='col-span-2' />
                           <div className='space-y-4 md:col-span-6'>
@@ -2377,9 +2416,61 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         )}
                       />
 
+                      <FormField
+                        control={form.control}
+                        name='settings.credentialSourceChannelId'
+                        render={({ field }) => (
+                          <FormItem className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
+                            <FormLabel className='pt-2 font-medium md:col-span-2 md:text-right'>
+                              {t('channels.dialogs.fields.credentialSource.label')}
+                            </FormLabel>
+                            <div className='space-y-1 md:col-span-6'>
+                              <Select
+                                value={field.value == null ? '__own_credentials__' : String(field.value)}
+                                onValueChange={(value) => {
+                                  field.onChange(value === '__own_credentials__' ? null : Number(value));
+                                  if (value !== '__own_credentials__') {
+                                    setShowApiKey(false);
+                                    setShowApiKeysPanel(false);
+                                  }
+                                }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger data-testid='channel-credential-source-select'>
+                                    <SelectValue placeholder={t('channels.dialogs.fields.credentialSource.placeholder')} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='__own_credentials__'>
+                                    {t('channels.dialogs.fields.credentialSource.own')}
+                                  </SelectItem>
+                                  {credentialSourceChannels.map((channel) => (
+                                    <SelectItem key={channel.id} value={extractNumberID(channel.id)}>
+                                      #{extractNumberID(channel.id)} · {channel.name}
+                                      {channel.status === 'disabled' ? ` · ${t('channels.status.disabled')}` : ''}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <p className='text-muted-foreground text-xs'>
+                                {hasCredentialSource
+                                  ? t('channels.dialogs.fields.credentialSource.selectedDescription')
+                                  : t('channels.dialogs.fields.credentialSource.description')}
+                              </p>
+                              {selectedCredentialSourceIsUnavailable && (
+                                <p className='text-muted-foreground text-xs'>
+                                  {t('channels.dialogs.fields.credentialSource.unavailable', { id: selectedCredentialSourceId })}
+                                </p>
+                              )}
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+
                       {(!(isCodexType || isClaudeCodeType || isCopilotType) || authMode === 'third-party') &&
                         selectedProvider !== 'antigravity' &&
-                        selectedType !== 'anthropic_gcp' && (
+                        selectedType !== 'anthropic_gcp' &&
+                        !hasCredentialSource && (
                           <FormField
                             control={form.control}
                             name='credentials.apiKeys'

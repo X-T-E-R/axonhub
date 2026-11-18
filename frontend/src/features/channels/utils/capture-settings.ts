@@ -107,6 +107,10 @@ export function getAxonHubCaptureSettings(settings?: ChannelSettings | null): Ax
   };
 }
 
+export function getCredentialSourceChannelId(settings?: ChannelSettings | null): number | null {
+  return settings?.credentialSourceChannelId ?? null;
+}
+
 export function getGenericChannelBehaviorSettings(settings?: ChannelSettings | null): GenericChannelBehaviorSettings {
   return {
     passThroughUserAgent: settings?.passThroughUserAgent ?? null,

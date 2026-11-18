@@ -40,6 +40,13 @@ func WithOnTokenRefreshed(onRefreshed func(ctx context.Context, refreshed *oauth
 }
 
 // GetTokenProvider returns the OAuth token provider.
+// WithRefreshCoordinator coordinates refreshes for a shared credential owner.
+func WithRefreshCoordinator(coordinator oauth.RefreshCoordinator) Option {
+	return func(t *Transformer) {
+		t.coordinateRefresh = coordinator
+	}
+}
+
 func (t *Transformer) GetTokenProvider() *oauth.TokenProvider {
 	return t.tokenProvider
 }
@@ -58,6 +65,7 @@ type Transformer struct {
 	tokenProvider     *oauth.TokenProvider
 	httpClient        *httpclient.HttpClient
 	onTokenRefreshed  func(ctx context.Context, refreshed *oauth.OAuthCredentials) error
+	coordinateRefresh oauth.RefreshCoordinator
 }
 
 // NewTransformer creates a new Antigravity Transformer.
@@ -116,8 +124,9 @@ func (t *Transformer) initTokenProvider(apiKey string) {
 			ClientID:     ClientID,
 			Scopes:       Scopes,
 		},
-		HTTPClient:  httpClient,
-		OnRefreshed: t.onTokenRefreshed,
+		HTTPClient:        httpClient,
+		OnRefreshed:       t.onTokenRefreshed,
+		CoordinateRefresh: t.coordinateRefresh,
 	})
 }
 

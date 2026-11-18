@@ -15,7 +15,7 @@ func (c *Channel) logCredentialAffinityEscape(ctx context.Context, key string, e
 	id := objects.ChannelAPIKeyFingerprint(key)
 	p := c.Settings.CredentialPolicy(id)
 	now := time.Now()
-	s := c.credentialRuntime.state(credentialRuntimeKey{c.ID, id}, now)
+	s := c.credentialRuntime.state(credentialRuntimeKey{c.CredentialOwnerID(), id}, now)
 	reason := "egress_blocked"
 	switch {
 	case contexts.ChannelCredentialExcluded(ctx, c.ID, key):

@@ -111,6 +111,7 @@ export function mergeChannelSettingsForUpdate(
   };
 
   return {
+    credentialSourceChannelId: pick('credentialSourceChannelId', existing?.credentialSourceChannelId ?? null),
     rawHTTP: pick('rawHTTP', existing?.rawHTTP ?? null),
     credentialPolicies: pick('credentialPolicies', existing?.credentialPolicies ?? null),
     extraModelPrefix: pick('extraModelPrefix', existing?.extraModelPrefix ?? ''),

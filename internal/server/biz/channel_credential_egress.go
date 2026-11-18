@@ -161,7 +161,7 @@ func (svc *ChannelService) resolveCredentialClient(ctx context.Context, ch *ent.
 		}
 		raw, noReuse = p.CustomProxy.URL, p.CustomProxy.DisableConnectionReuse
 	case objects.CredentialEgressModePinnedProxy, objects.CredentialEgressModeProxyPool:
-		proxy, err := svc.managedCredentialProxy(ctx, ch.ID, p)
+		proxy, err := svc.managedCredentialProxy(ctx, credentialOwnerID(ch), p)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -223,7 +223,7 @@ func (c *Channel) SelectOAuthCredentialEgress(ctx context.Context) error {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	now := time.Now()
-	admitted := filterCredentialCandidates([]credentialCandidate{candidate}, runtime, c.ID, now, true)
+	admitted := filterCredentialCandidates([]credentialCandidate{candidate}, runtime, c.CredentialOwnerID(), now, true)
 	if len(admitted) == 0 {
 		return errors.New("OAuth credential has no available admission slot")
 	}

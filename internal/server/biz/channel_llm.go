@@ -56,6 +56,10 @@ type AutoRefresher interface {
 var sourcePriority = map[string]int{"direct": 4, "auto_trim": 3, "mapping": 2, "prefix": 1}
 
 func setupAutoRefresh(ch *Channel, refresher AutoRefresher, opts oauth.AutoRefreshOptions) {
+	// The owner may pre-refresh; delegating providers refresh on demand.
+	if ch.CredentialOwnerID() != ch.ID {
+		return
+	}
 	ch.startTokenProvider = func() {
 		refresher.StartAutoRefresh(context.Background(), opts)
 	}
@@ -385,9 +389,9 @@ func (svc *ChannelService) buildCodexOutbound(
 		}
 
 		p := codex.NewTokenProvider(codex.TokenProviderParams{
-			Credentials: creds,
-			HTTPClient:  httpClient,
-			OnRefreshed: svc.onTokenRefreshed(c),
+			Credentials:       creds,
+			HTTPClient:        httpClient,
+			CoordinateRefresh: svc.coordinateOAuthRefresh(c),
 		})
 
 		if ch != nil && ch.startTokenProvider == nil {
@@ -565,7 +569,7 @@ func (svc *ChannelService) buildChannelOnOwner(c *ent.Channel, apiKeyOverride ..
 		// - anthropic_gcp uses GCP credentials JSON
 		// - *_fake are test-only
 	default:
-		if len(enabledKeys) == 0 {
+		if len(enabledKeys) == 0 && len(apiKeyOverride) == 0 {
 			return nil, fmt.Errorf("missing api key for channel %s", c.Name)
 		}
 	}
@@ -792,9 +796,9 @@ func (svc *ChannelService) buildChannelOnOwner(c *ent.Channel, apiKeyOverride ..
 			}
 
 			tokens := claudecode.NewTokenProvider(oauth.TokenProviderParams{
-				Credentials: creds,
-				HTTPClient:  httpClient,
-				OnRefreshed: svc.onTokenRefreshed(c),
+				Credentials:       creds,
+				HTTPClient:        httpClient,
+				CoordinateRefresh: svc.coordinateOAuthRefresh(c),
 			})
 
 			transformer, err := claudecode.NewOutboundTransformer(claudecode.Params{
@@ -1056,9 +1060,9 @@ func (svc *ChannelService) buildChannelOnOwner(c *ent.Channel, apiKeyOverride ..
 
 		// Create CopilotTokenProvider with the token exchanger
 		p, err := copilot.NewTokenProvider(copilot.TokenProviderParams{
-			Credentials: creds,
-			HTTPClient:  httpClient,
-			OnRefreshed: svc.onTokenRefreshed(c),
+			Credentials:       creds,
+			HTTPClient:        httpClient,
+			CoordinateRefresh: svc.coordinateOAuthRefresh(c),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create CopilotTokenProvider: %w", err)
@@ -1154,7 +1158,7 @@ func (svc *ChannelService) buildChannelOnOwner(c *ent.Channel, apiKeyOverride ..
 		transformer, err := antigravity.NewTransformer(
 			antigravity.Config{BaseURL: c.BaseURL, APIKey: c.Credentials.APIKey},
 			antigravity.WithHTTPClient(httpClient),
-			antigravity.WithOnTokenRefreshed(svc.onTokenRefreshed(c)),
+			antigravity.WithRefreshCoordinator(svc.coordinateOAuthRefresh(c)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create antigravity outbound transformer: %w", err)
@@ -1201,38 +1205,6 @@ func extractProjectIDFromAntigravityCreds(apiKey string) (string, error) {
 		return parts[1], nil
 	}
 	return "", errors.New("api key does not contain project ID (expected format: \"<refreshToken>|<projectID>\")")
-}
-
-func (svc *ChannelService) refreshOAuthToken(ctx context.Context, ch *ent.Channel, refreshed *oauth.OAuthCredentials) error {
-	if refreshed == nil {
-		return nil
-	}
-
-	updated := ch.Credentials
-
-	if ch.Type == channel.TypeAntigravity {
-		projectID, err := extractProjectIDFromAntigravityCreds(ch.Credentials.APIKey)
-		if err != nil {
-			log.Warn(ctx, "failed to extract project ID from antigravity credentials",
-				log.Cause(err),
-				log.String("channel", ch.Name))
-			return fmt.Errorf("failed to extract project ID from antigravity credentials: %w", err)
-		}
-		updated.APIKey = fmt.Sprintf("%s|%s", refreshed.RefreshToken, projectID)
-	} else {
-		credJSON, err := refreshed.ToJSON()
-		if err != nil {
-			return fmt.Errorf("failed to serialize refreshed credentials: %w", err)
-		}
-		// NOTE：必须是使用 APIKey 字段，不能使用 API Keys 字段
-		updated.APIKey = credJSON
-	}
-
-	updated.OAuth = refreshed
-
-	_, err := svc.entFromContext(ctx).Channel.UpdateOneID(ch.ID).SetCredentials(updated).Save(ctx)
-
-	return err
 }
 
 // GetModelEntries returns all models this channel can handle, RequestModel -> Entry

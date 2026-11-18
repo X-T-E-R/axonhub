@@ -373,9 +373,11 @@ func (svc *ChannelService) RecordPerformance(ctx context.Context, perf *Performa
 		if perf.APIKey != "" {
 			svc.apiKeyErrorCountsLock.Lock()
 
-			if svc.apiKeyErrorCounts[perf.ChannelID] != nil {
-				delete(svc.apiKeyErrorCounts[perf.ChannelID], perf.APIKey)
+			ownerID := perf.CredentialOwnerID
+			if ownerID == 0 {
+				ownerID = perf.ChannelID
 			}
+			delete(svc.apiKeyErrorCounts[ownerID], perf.APIKey)
 
 			svc.apiKeyErrorCountsLock.Unlock()
 		}
@@ -541,6 +543,7 @@ func deriveErrorMessage(errorCode int) string {
 
 // PerformanceRecord contains performance metrics collected during request processing.
 type PerformanceRecord struct {
+	CredentialOwnerID  int // Pool used by this attempt, even if delegation later changes.
 	ChannelID          int
 	APIKey             string // API key used for the request (sensitive, do not log full value)
 	StartTime          time.Time

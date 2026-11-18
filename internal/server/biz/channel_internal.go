@@ -6,10 +6,8 @@ import (
 	"time"
 
 	"github.com/looplj/axonhub/internal/authz"
-	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/pkg/xtime"
-	"github.com/looplj/axonhub/llm/oauth"
 )
 
 // startPerformanceProcess starts the background goroutine to flush metrics to database.
@@ -70,13 +68,6 @@ func (svc *ChannelService) onCacheRefreshed(ctx context.Context, current []*Chan
 		svc.loadedPlacementVersion.Store(version)
 	}
 	return channels, updated, changed, err
-}
-
-func (svc *ChannelService) onTokenRefreshed(ch *ent.Channel) func(ctx context.Context, refreshed *oauth.OAuthCredentials) error {
-	return func(ctx context.Context, refreshed *oauth.OAuthCredentials) error {
-		ctx = authz.WithSystemBypass(ctx, "channel-refresh-cache")
-		return svc.refreshOAuthToken(ctx, ch, refreshed)
-	}
 }
 
 func (svc *ChannelService) initChannelPerformances(ctx context.Context) {

@@ -36,17 +36,25 @@ type TokenGetter interface {
 	Get(ctx context.Context) (*OAuthCredentials, error)
 }
 
+// RefreshFunc refreshes one OAuth session using the provider's transport.
+type RefreshFunc func(context.Context, *OAuthCredentials) (*OAuthCredentials, error)
+
+// RefreshCoordinator lets callers share refresh and persistence across providers
+// that read the same credential pool.
+type RefreshCoordinator func(context.Context, *OAuthCredentials, RefreshFunc) (*OAuthCredentials, error)
+
 // TokenProvider manages OAuth2 credentials for a transformer instance.
 // Each transformer has its own provider, so we can keep the credentials in memory.
 type TokenProvider struct {
-	httpClient  *httpclient.HttpClient
-	oauthUrls   OAuthUrls
-	strategy    ExchangeStrategy
-	sf          singleflight.Group
-	mu          sync.RWMutex
-	creds       *OAuthCredentials
-	userAgent   string
-	onRefreshed func(ctx context.Context, refreshed *OAuthCredentials) error
+	httpClient        *httpclient.HttpClient
+	oauthUrls         OAuthUrls
+	strategy          ExchangeStrategy
+	sf                singleflight.Group
+	mu                sync.RWMutex
+	creds             *OAuthCredentials
+	userAgent         string
+	onRefreshed       func(ctx context.Context, refreshed *OAuthCredentials) error
+	coordinateRefresh RefreshCoordinator
 
 	autoMu     sync.Mutex
 	autoCancel context.CancelFunc
@@ -55,10 +63,11 @@ type TokenProvider struct {
 type TokenProviderParams struct {
 	Credentials *OAuthCredentials
 	// HTTPClient should be pre-configured with proxy settings if needed
-	HTTPClient  *httpclient.HttpClient
-	OAuthUrls   OAuthUrls
-	UserAgent   string
-	OnRefreshed func(ctx context.Context, refreshed *OAuthCredentials) error
+	HTTPClient        *httpclient.HttpClient
+	OAuthUrls         OAuthUrls
+	UserAgent         string
+	OnRefreshed       func(ctx context.Context, refreshed *OAuthCredentials) error
+	CoordinateRefresh RefreshCoordinator
 	// ExchangeStrategy defines how to format token requests (form-encoded or JSON)
 	// If not provided, defaults to FormEncodedStrategy
 	ExchangeStrategy ExchangeStrategy
@@ -83,12 +92,13 @@ func NewTokenProvider(params TokenProviderParams) *TokenProvider {
 	}
 
 	return &TokenProvider{
-		httpClient:  params.HTTPClient,
-		oauthUrls:   params.OAuthUrls,
-		strategy:    strategy,
-		userAgent:   params.UserAgent,
-		creds:       params.Credentials,
-		onRefreshed: params.OnRefreshed,
+		httpClient:        params.HTTPClient,
+		oauthUrls:         params.OAuthUrls,
+		strategy:          strategy,
+		userAgent:         params.UserAgent,
+		creds:             params.Credentials,
+		onRefreshed:       params.OnRefreshed,
+		coordinateRefresh: params.CoordinateRefresh,
 	}
 }
 
@@ -458,6 +468,13 @@ func (p *APIKeyTokenProvider) Get(ctx context.Context) (*OAuthCredentials, error
 
 // refresh performs the OAuth2 token refresh flow.
 func (p *TokenProvider) refresh(ctx context.Context, creds *OAuthCredentials) (*OAuthCredentials, error) {
+	if p.coordinateRefresh != nil {
+		return p.coordinateRefresh(ctx, creds, p.refreshToken)
+	}
+	return p.refreshToken(ctx, creds)
+}
+
+func (p *TokenProvider) refreshToken(ctx context.Context, creds *OAuthCredentials) (*OAuthCredentials, error) {
 	if creds == nil {
 		return nil, errors.New("nil credentials")
 	}

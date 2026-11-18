@@ -224,6 +224,38 @@ func TestOutboundTransformer_TransformRequest_DeepSeekReasoningEffortUsesOutputC
 	require.Nil(t, anthropicReq.Thinking)
 }
 
+func TestOutboundTransformer_TransformRequest_Gemini4ReasoningEffortUsesAdaptiveOutputConfig(t *testing.T) {
+	transformer, err := NewOutboundTransformerWithConfig(&Config{
+		Type:           PlatformDirect,
+		BaseURL:        "https://api.example.com",
+		APIKeyProvider: auth.NewStaticKeyProvider("test-api-key"),
+	})
+	require.NoError(t, err)
+
+	result, err := transformer.TransformRequest(t.Context(), &llm.Request{
+		Model:           "gemini-4-neon",
+		ReasoningEffort: "xhigh",
+		MaxTokens:       lo.ToPtr(int64(4096)),
+		Messages: []llm.Message{
+			{
+				Role: "user",
+				Content: llm.MessageContent{
+					Content: lo.ToPtr("Solve this"),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var anthropicReq MessageRequest
+	require.NoError(t, json.Unmarshal(result.Body, &anthropicReq))
+	require.NotNil(t, anthropicReq.Thinking)
+	require.Equal(t, "adaptive", anthropicReq.Thinking.Type)
+	require.NotNil(t, anthropicReq.OutputConfig)
+	require.Equal(t, "xhigh", anthropicReq.OutputConfig.Effort)
+}
+
 func TestOutboundTransformer_TransformResponse(t *testing.T) {
 	transformer, _ := NewOutboundTransformer("", "")
 

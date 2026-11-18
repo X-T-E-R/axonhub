@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -116,18 +117,24 @@ func (svc *ChannelService) PreviewPlacement(ctx context.Context, channelID int, 
 	if _, ok := svc.node.Nodes[target]; !ok {
 		return nil, fmt.Errorf("execution machine %q is not registered", target)
 	}
-	_, state, err := readChannelPlacement(ctx, svc.db)
+	db := observationPrimaryClient(svc.entFromContext(ctx))
+	_, state, err := readChannelPlacement(ctx, db)
 	if err != nil {
 		return nil, err
 	}
 	bindings := svc.node.AtPlacement(state.PlacementSnapshot).Bindings()
 	binding := bindings[channelID]
-	all, err := observationPrimaryClient(svc.db).Channel.Query().Order(ent.Asc(channel.FieldID)).All(ctx)
+	all, err := db.Channel.Query().Order(ent.Asc(channel.FieldID)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
 	identities := map[string]bool{}
 	secrets := map[string]bool{}
+	pools := map[int]bool{}
+	rows := make(map[int]*ent.Channel, len(all))
+	for _, ch := range all {
+		rows[ch.ID] = ch
+	}
 	selected := map[int]bool{}
 	for changed := true; changed; {
 		changed = false
@@ -135,9 +142,14 @@ func (svc *ChannelService) PreviewPlacement(ctx context.Context, channelID int, 
 			if selected[ch.ID] {
 				continue
 			}
-			keys := placementCredentialKeys(ch)
+			poolID := credentialOwnerID(ch)
+			source := rows[poolID]
+			if source == nil || (poolID != ch.ID && (ch.Status == channel.StatusArchived || source.Status == channel.StatusArchived)) {
+				poolID, source = ch.ID, ch
+			}
+			keys := placementCredentialKeys(source)
 			peer := bindings[ch.ID]
-			shares := ch.ID == channelID || identities[peer.Identity]
+			shares := ch.ID == channelID || identities[peer.Identity] || pools[poolID]
 			for _, key := range keys {
 				shares = shares || secrets[key]
 			}
@@ -148,6 +160,7 @@ func (svc *ChannelService) PreviewPlacement(ctx context.Context, channelID int, 
 				return nil, fmt.Errorf("disable channel %d before assigning its execution machine", ch.ID)
 			}
 			selected[ch.ID] = true
+			pools[poolID] = true
 			if peer.Identity != "" {
 				identities[peer.Identity] = true
 			}
@@ -239,7 +252,7 @@ func (svc *ChannelService) PreparePlacement(ctx context.Context, plan PlacementP
 		if ch.Status != channel.StatusEnabled || current.Owner == plan.To {
 			continue
 		}
-		candidate, err := prepared.buildChannelWithOutbounds(ch)
+		candidate, err := prepared.buildChannelWithCredentialSource(ctx, ch)
 		if err != nil {
 			return nil, fmt.Errorf("target channel %d: %w", ch.ID, err)
 		}
@@ -307,6 +320,16 @@ func (svc *ChannelService) SavePlacement(ctx context.Context, input PlacementSav
 	var committed cluster.PlacementSnapshot
 	err = primary.RunInTransaction(ent.NewContext(ctx, primary.db), func(txCtx context.Context) error {
 		client := primary.entFromContext(txCtx)
+		if err := svc.lockCredentialTopology(txCtx, actual...); err != nil {
+			return err
+		}
+		latest, err := svc.PreviewPlacement(txCtx, input.ChannelID, input.Target)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(latest.Channels, plan.Channels) || !maps.Equal(latest.Identities, plan.Identities) {
+			return errors.New("affected channels changed; refresh and confirm the preview")
+		}
 		row, state, err := readChannelPlacement(txCtx, client)
 		if err != nil {
 			return err

@@ -89,7 +89,8 @@ type DeviceFlowProvider struct {
 	sf singleflight.Group
 
 	// Callback fired when credentials are refreshed (for persistence)
-	onRefreshed func(ctx context.Context, refreshed *OAuthCredentials) error
+	onRefreshed       func(ctx context.Context, refreshed *OAuthCredentials) error
+	coordinateRefresh RefreshCoordinator
 
 	// Auto-refresh state
 	autoMu     sync.Mutex
@@ -105,17 +106,19 @@ type DeviceFlowProviderParams struct {
 	// TokenExchanger is optional - for two-step token flows
 	TokenExchanger TokenExchanger
 	// OnRefreshed is called when credentials are refreshed (for persistence)
-	OnRefreshed func(ctx context.Context, refreshed *OAuthCredentials) error
+	OnRefreshed       func(ctx context.Context, refreshed *OAuthCredentials) error
+	CoordinateRefresh RefreshCoordinator
 }
 
 // NewDeviceFlowProvider creates a new DeviceFlowProvider instance.
 func NewDeviceFlowProvider(params DeviceFlowProviderParams) *DeviceFlowProvider {
 	return &DeviceFlowProvider{
-		config:         params.Config,
-		httpClient:     params.HTTPClient,
-		creds:          params.Credentials,
-		tokenExchanger: params.TokenExchanger,
-		onRefreshed:    params.OnRefreshed,
+		config:            params.Config,
+		httpClient:        params.HTTPClient,
+		creds:             params.Credentials,
+		tokenExchanger:    params.TokenExchanger,
+		onRefreshed:       params.OnRefreshed,
+		coordinateRefresh: params.CoordinateRefresh,
 	}
 }
 
@@ -533,6 +536,13 @@ func (p *DeviceFlowProvider) nextAutoRefreshDelay(refreshBefore time.Duration, f
 
 // refresh performs the OAuth2 token refresh flow.
 func (p *DeviceFlowProvider) refresh(ctx context.Context, creds *OAuthCredentials) (*OAuthCredentials, error) {
+	if p.coordinateRefresh != nil {
+		return p.coordinateRefresh(ctx, creds, p.refreshToken)
+	}
+	return p.refreshToken(ctx, creds)
+}
+
+func (p *DeviceFlowProvider) refreshToken(ctx context.Context, creds *OAuthCredentials) (*OAuthCredentials, error) {
 	if creds == nil {
 		return nil, errors.New("nil credentials")
 	}

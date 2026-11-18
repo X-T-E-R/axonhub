@@ -158,3 +158,23 @@ test('unrelated channel updates preserve proxy reuse while stripping key-health 
     historyLimit: 20,
   });
 });
+
+test('partial settings updates preserve a selected credential source', () => {
+  const updated = merge.mergeChannelSettingsForUpdate(
+    { credentialSourceChannelId: 17, disableRetries: false },
+    { rateLimit: { rpm: 30 } }
+  );
+
+  assert.equal(updated.credentialSourceChannelId, 17);
+});
+
+test('detaching a credential source sends an explicit null through the settings merge', () => {
+  const updated = merge.mergeChannelSettingsForUpdate({ credentialSourceChannelId: 17 }, { credentialSourceChannelId: null });
+
+  assert.equal(updated.credentialSourceChannelId, null);
+});
+
+test('credential source extraction treats absent settings as own credentials', () => {
+  assert.equal(capture.getCredentialSourceChannelId(undefined), null);
+  assert.equal(capture.getCredentialSourceChannelId({ credentialSourceChannelId: 17 }), 17);
+});

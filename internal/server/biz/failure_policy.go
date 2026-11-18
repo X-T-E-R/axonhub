@@ -406,6 +406,12 @@ func matchesToFailurePolicyActions(matches []failurePolicyMatch) []objects.Failu
 func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event failurePolicyEvent, matchedPolicy string, actions []objects.FailurePolicyAction, persistBackoff bool) (bool, error) {
 	routingChanged := false
 	if event.Source == objects.FailurePolicyEventSourceRequestFailure {
+		if event.Target == objects.FailurePolicyTargetKey {
+			owner, err := svc.currentFailureCredentialOwner(ctx, event.ChannelID, event.Key)
+			if err != nil || owner == nil {
+				return false, err
+			}
+		}
 		if err := svc.recordRequestFailurePolicyHistory(ctx, event, matchedPolicy, actions); err != nil {
 			return routingChanged, err
 		}
@@ -438,10 +444,16 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 			if event.Key == "" {
 				continue
 			}
-			if err := svc.DisableAPIKey(ctx, event.ChannelID, event.Key, event.StatusCode, reason); err != nil {
+			owner, err := svc.currentFailureCredentialOwner(ctx, event.ChannelID, event.Key)
+			if err != nil {
 				return routingChanged, err
 			}
-			routingChanged = true
+			if owner != nil {
+				if err := svc.disableOwnedAPIKey(ctx, owner, event.Key, event.StatusCode, reason); err != nil {
+					return routingChanged, err
+				}
+				routingChanged = true
+			}
 		case objects.FailurePolicyActionRestoreKey:
 			if event.Key == "" {
 				continue

@@ -856,6 +856,7 @@ type ComplexityRoot struct {
 		BalanceProbe               func(childComplexity int) int
 		BodyOverrideOperations     func(childComplexity int) int
 		CredentialPolicies         func(childComplexity int) int
+		CredentialSourceChannelID  func(childComplexity int) int
 		DisableRetries             func(childComplexity int) int
 		ExtraModelPrefix           func(childComplexity int) int
 		FailurePolicy              func(childComplexity int) int
@@ -6037,6 +6038,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.CredentialPolicies(childComplexity), true
+	case "ChannelSettings.credentialSourceChannelId":
+		if e.complexity.ChannelSettings.CredentialSourceChannelID == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.CredentialSourceChannelID(childComplexity), true
 	case "ChannelSettings.disableRetries":
 		if e.complexity.ChannelSettings.DisableRetries == nil {
 			break
@@ -23095,6 +23102,8 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "credentialSourceChannelId":
+				return ec.fieldContext_ChannelSettings_credentialSourceChannelId(ctx, field)
 			case "rawHTTP":
 				return ec.fieldContext_ChannelSettings_rawHTTP(ctx, field)
 			case "credentialPolicies":
@@ -33952,6 +33961,35 @@ func (ec *executionContext) _ChannelSSEKeepAlive_intervalSeconds(ctx context.Con
 func (ec *executionContext) fieldContext_ChannelSSEKeepAlive_intervalSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelSSEKeepAlive",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_credentialSourceChannelId(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_credentialSourceChannelId,
+		func(ctx context.Context) (any, error) {
+			return obj.CredentialSourceChannelID, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_credentialSourceChannelId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -84875,13 +84913,20 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"rawHTTP", "credentialPolicies", "extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
+	fieldsInOrder := [...]string{"credentialSourceChannelId", "rawHTTP", "credentialPolicies", "extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
+		case "credentialSourceChannelId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("credentialSourceChannelId"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CredentialSourceChannelID = data
 		case "rawHTTP":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rawHTTP"))
 			data, err := ec.unmarshalOChannelRawHTTPInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRawHTTP(ctx, v)
@@ -113309,6 +113354,8 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("ChannelSettings")
+		case "credentialSourceChannelId":
+			out.Values[i] = ec._ChannelSettings_credentialSourceChannelId(ctx, field, obj)
 		case "rawHTTP":
 			out.Values[i] = ec._ChannelSettings_rawHTTP(ctx, field, obj)
 		case "credentialPolicies":

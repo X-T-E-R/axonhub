@@ -108,7 +108,7 @@ func (c *Channel) HasEligibleCredential(ctx context.Context) bool {
 	runtime := c.runtime()
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	return len(filterCredentialCandidates(candidates, runtime, c.ID, time.Now(), false)) > 0
+	return len(filterCredentialCandidates(candidates, runtime, c.CredentialOwnerID(), time.Now(), false)) > 0
 }
 
 func weightedCredentialRoundRobin(candidates []credentialCandidate) int {
@@ -151,7 +151,7 @@ func (c *Channel) selectCredential(ctx context.Context, strategy objects.Channel
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	now := time.Now()
-	candidates = filterCredentialCandidates(candidates, runtime, c.ID, now, true)
+	candidates = filterCredentialCandidates(candidates, runtime, c.CredentialOwnerID(), now, true)
 	if len(candidates) == 0 {
 		contexts.WithChannelAPIKey(ctx, "")
 		return ""
@@ -239,7 +239,7 @@ func (c *Channel) selectCredential(ctx context.Context, strategy objects.Channel
 // reserveCredential runs under the credential runtime lock.
 func (c *Channel) reserveCredential(ctx context.Context, selected credentialCandidate, now time.Time) {
 	runtime := c.credentialRuntime
-	finish := runtime.start(ctx, c.ID, selected.id, now)
+	finish := runtime.start(ctx, c.CredentialOwnerID(), selected.id, now)
 	if finish != nil && c.credentialEgress != nil && selected.proxyID > 0 {
 		if runtime.proxyInFlight == nil {
 			runtime.proxyInFlight = make(map[int]int)

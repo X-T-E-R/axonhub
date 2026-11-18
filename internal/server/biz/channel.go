@@ -13,6 +13,7 @@ import (
 
 	"github.com/samber/lo"
 	"go.uber.org/fx"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
@@ -94,9 +95,10 @@ type Channel struct {
 	apiKeyOverride string
 
 	// globalKeySelection is the system default used when a channel follows global key routing.
-	globalKeySelection *objects.ChannelKeySelection
-	credentialRuntime  *credentialRuntime
-	credentialEgress   *ChannelService
+	globalKeySelection        *objects.ChannelKeySelection
+	credentialRuntime         *credentialRuntime
+	credentialEgress          *ChannelService
+	credentialSourceUpdatedAt time.Time
 }
 
 type ChannelServiceParams struct {
@@ -176,6 +178,7 @@ type ChannelService struct {
 
 	httpClient        *httpclient.HttpClient
 	credentialRuntime credentialRuntime
+	oauthRefresh      singleflight.Group
 	transportPool     UpstreamTransportPool
 	outboundProxies   outboundProxySnapshot
 
@@ -248,8 +251,10 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 	if err := svc.validateExecutionIdentities(ctx); err != nil {
 		return current, lastUpdate, false, err
 	}
-	// Query latest updated channel including soft-deleted ones to detect deletions
-	latestUpdatedChannel, err := svc.entFromContext(ctx).Channel.Query().
+	// Credential changes must be visible to execution immediately after commit.
+	db := observationPrimaryClient(svc.entFromContext(ctx))
+	// Query latest updated channel including soft-deleted ones to detect deletions.
+	latestUpdatedChannel, err := db.Channel.Query().
 		Order(ent.Desc(channel.FieldUpdatedAt)).
 		First(schematype.SkipSoftDelete(ctx))
 	if err != nil && !ent.IsNotFound(err) {
@@ -267,12 +272,31 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 		}
 	}
 
-	entities, err := svc.entFromContext(ctx).Channel.Query().
+	entities, err := db.Channel.Query().
 		Where(channel.StatusEQ(channel.StatusEnabled)).
 		Order(ent.Desc(channel.FieldOrderingWeight)).
 		All(ctx)
 	if err != nil {
 		return current, lastUpdate, false, err
+	}
+
+	sources := make(map[int]*ent.Channel)
+	for _, row := range entities {
+		if id := credentialSourceID(row.Settings); id != 0 {
+			sources[id] = nil
+		}
+	}
+	if len(sources) != 0 {
+		rows, err := db.Channel.Query().
+			Where(channel.IDIn(lo.Keys(sources)...), channel.DeletedAtEQ(0), channel.StatusNEQ(channel.StatusArchived)).All(ctx)
+		if err != nil {
+			return current, lastUpdate, false, fmt.Errorf("load credential source channels: %w", err)
+		}
+		for _, row := range rows {
+			if credentialSourceID(row.Settings) == 0 {
+				sources[row.ID] = row
+			}
+		}
 	}
 
 	var channels []*Channel
@@ -291,7 +315,17 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 			// A legacy unassigned channel cannot run, but other channels still load.
 			continue
 		}
-		if previous := unchanged[c.ID]; previous != nil && c.UpdatedAt.Equal(previous.UpdatedAt) {
+		source := c
+		var sourceUpdatedAt time.Time
+		if id := credentialSourceID(c.Settings); id != 0 {
+			source = sources[id]
+			if source == nil {
+				log.Warn(ctx, "credential source unavailable", log.Int("channel_id", c.ID), log.Int("source_channel_id", id))
+				continue
+			}
+			sourceUpdatedAt = source.UpdatedAt
+		}
+		if previous := unchanged[c.ID]; previous != nil && c.UpdatedAt.Equal(previous.UpdatedAt) && sourceUpdatedAt.Equal(previous.credentialSourceUpdatedAt) {
 			remoteOwner := owner
 			if remoteOwner == svc.node.NodeID {
 				remoteOwner = ""
@@ -301,7 +335,7 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 				continue
 			}
 		}
-		channel, err := svc.buildChannelWithOutbounds(c)
+		channel, err := svc.buildChannelWithOutbounds(withEffectiveCredentials(c, source))
 		if err != nil {
 			log.Warn(ctx, "failed to build channel",
 				log.String("channel", c.Name),
@@ -311,6 +345,8 @@ func (svc *ChannelService) reloadEnabledChannels(ctx context.Context, current []
 
 			continue
 		}
+
+		channel.credentialSourceUpdatedAt = sourceUpdatedAt
 
 		// Preload override parameters
 		overrideParams := channel.GetBodyOverrideOperations()
@@ -455,12 +491,12 @@ func (svc *ChannelService) SetEnabledChannelsForTest(channels []*Channel) {
 // including disabled channels. This bypasses the normal enabled-only filtering.
 func (svc *ChannelService) GetChannel(ctx context.Context, channelID int) (*Channel, error) {
 	// Get the channel entity from database (including disabled ones)
-	entity, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	entity, err := observationPrimaryClient(svc.entFromContext(ctx)).Channel.Get(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("channel not found: %w", err)
 	}
 
-	return svc.buildChannelWithOutbounds(entity)
+	return svc.buildChannelWithCredentialSource(ctx, entity)
 }
 
 // GetChannelWithKey returns a channel with the outbound transformer's API key
@@ -468,12 +504,12 @@ func (svc *ChannelService) GetChannel(ctx context.Context, channelID int) (*Chan
 // a specific key. Each call creates a fresh channel instance, so the override
 // does not affect other requests.
 func (svc *ChannelService) GetChannelWithKey(ctx context.Context, channelID int, apiKey string) (*Channel, error) {
-	entity, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	entity, err := observationPrimaryClient(svc.entFromContext(ctx)).Channel.Get(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("channel not found: %w", err)
 	}
 
-	return svc.buildChannelWithOutbounds(entity, apiKey)
+	return svc.buildChannelWithCredentialSource(ctx, entity, apiKey)
 }
 
 // ListModelsInput represents the input for listing models with filters.
@@ -585,6 +621,9 @@ func (svc *ChannelService) ListModels(ctx context.Context, input ListModelsInput
 // This is useful for batch operations where reload should happen once at the end.
 func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateChannelInput) (*ent.Channel, error) {
 	settings := mergeChannelSettingsForUpdate(nil, input.Settings)
+	if err := svc.validateCredentialSource(ctx, 0, settings); err != nil {
+		return nil, err
+	}
 	if err := ValidateRawHTTPChannel(lo.FromPtr(input.BaseURL), input.SupportedModels, settings); err != nil {
 		return nil, err
 	}
@@ -905,6 +944,11 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 	var updated *ent.Channel
 	err := svc.credentialPolicyTransaction(input.Settings)(ctx, func(ctx context.Context) error {
 		db := svc.entFromContext(ctx)
+		if input.Settings != nil {
+			if err := svc.validateCredentialSource(ctx, id, settings); err != nil {
+				return err
+			}
+		}
 		if input.Settings != nil && input.Settings.CredentialPolicies != nil {
 			credentials := current.Credentials
 			if input.Credentials != nil {
@@ -1013,16 +1057,25 @@ func (svc *ChannelService) UpdateChannelStatus(ctx context.Context, id int, stat
 			return nil, err
 		}
 	}
-	channel, err := svc.entFromContext(ctx).Channel.UpdateOneID(id).
-		SetStatus(status).
-		Save(ctx)
+	var updated *ent.Channel
+	err := svc.RunInTransaction(ctx, func(ctx context.Context) error {
+		if err := svc.validateCredentialStatusChange(ctx, []int{id}, status); err != nil {
+			return err
+		}
+		var err error
+		updated, err = svc.entFromContext(ctx).Channel.UpdateOneID(id).SetStatus(status).Save(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to update channel status: %w", err)
+	}
+	if ent.TxFromContext(ctx) == nil {
+		updated.Unwrap()
 	}
 
 	svc.reloadChannelsAfterCommit(ctx)
 
-	return channel, nil
+	return updated, nil
 }
 
 // For test, disable async reload.
@@ -1088,13 +1141,21 @@ func (svc *ChannelService) SaveChannelEndpoints(ctx context.Context, input SaveC
 
 // DeleteChannel deletes a channel by ID.
 func (svc *ChannelService) DeleteChannel(ctx context.Context, id int) error {
-	if err := svc.entFromContext(ctx).Channel.DeleteOneID(id).Exec(ctx); err != nil {
+	if err := svc.RunInTransaction(ctx, func(ctx context.Context) error {
+		if err := svc.lockCredentialTopology(ctx, id); err != nil {
+			return err
+		}
+		if err := svc.requireNoCredentialDependents(ctx, id); err != nil {
+			return err
+		}
+		return svc.entFromContext(ctx).Channel.DeleteOneID(id).Exec(ctx)
+	}); err != nil {
 		return fmt.Errorf("failed to delete channel: %w", err)
 	}
 
 	svc.forgetLimiter(id)
 	svc.rawHTTPKeyProviders.Delete(id)
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }

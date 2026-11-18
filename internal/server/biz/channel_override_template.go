@@ -216,7 +216,7 @@ func (svc *ChannelOverrideTemplateService) ApplyTemplate(
 			settings.BodyOverrideOperations = newBodyOps
 			settings.OverrideParameters = ""
 
-			updatedChannel, err := db.Channel.UpdateOneID(ch.ID).
+			updatedChannel, err := channelAPIKeyStateUpdate(db, ch).
 				SetSettings(&settings).
 				Save(ctx)
 			if err != nil {
@@ -273,7 +273,7 @@ func (svc *ChannelOverrideTemplateService) ClearTemplates(
 			settings.BodyOverrideOperations = nil
 			settings.OverrideParameters = ""
 
-			updatedChannel, err := db.Channel.UpdateOneID(ch.ID).
+			updatedChannel, err := channelAPIKeyStateUpdate(db, ch).
 				SetSettings(&settings).
 				Save(ctx)
 			if err != nil {

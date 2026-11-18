@@ -419,6 +419,7 @@ const CREATE_CHANNEL_MUTATION = `
       tags
       defaultTestModel
       settings {
+        credentialSourceChannelId
         rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
@@ -510,6 +511,7 @@ const DUPLICATE_CHANNEL_MUTATION = `
       tags
       defaultTestModel
       settings {
+        credentialSourceChannelId
         rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
@@ -601,6 +603,7 @@ const BULK_CREATE_CHANNELS_MUTATION = `
       tags
       defaultTestModel
       settings {
+        credentialSourceChannelId
         rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
@@ -692,6 +695,7 @@ const UPDATE_CHANNEL_MUTATION = `
       tags
       defaultTestModel
       settings {
+        credentialSourceChannelId
         rawHTTP { enabled resource authType authHeader }
         extraModelPrefix
         modelMappings {
@@ -902,7 +906,8 @@ const BULK_IMPORT_CHANNELS_MUTATION = `
           transport
         }
         settings {
-        rawHTTP { enabled resource authType authHeader }
+          credentialSourceChannelId
+          rawHTTP { enabled resource authType authHeader }
           extraModelPrefix
           modelMappings {
             from
@@ -1164,7 +1169,8 @@ const BULK_UPDATE_CHANNEL_ORDERING_MUTATION = `
           transport
         }
         settings {
-        rawHTTP { enabled resource authType authHeader }
+          credentialSourceChannelId
+          rawHTTP { enabled resource authType authHeader }
           extraModelPrefix
           modelMappings {
             from
@@ -1221,6 +1227,9 @@ const ALL_CHANNEL_SUMMARYS_QUERY = `
       baseURL
       orderingWeight
       tags
+      settings {
+        credentialSourceChannelId
+      }
       endpoints {
         apiFormat
         path
@@ -1297,7 +1306,8 @@ const QUERY_CHANNELS_QUERY = `
           tags
           defaultTestModel
           settings {
-        rawHTTP { enabled resource authType authHeader }
+            credentialSourceChannelId
+            rawHTTP { enabled resource authType authHeader }
             extraModelPrefix
             modelMappings {
               from
@@ -1602,6 +1612,7 @@ export function useCreateChannel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('channels.messages.createSuccess'));
     },
     onError: (error) => {
@@ -1622,6 +1633,7 @@ export function useDuplicateChannel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('common.success.duplicated'));
     },
     onError: (error) => {
@@ -1662,6 +1674,7 @@ export function useBulkCreateChannels() {
     },
     onSuccess: (channels) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('channels.messages.batchCreateSuccess', { count: channels.length }));
     },
   });
@@ -1679,6 +1692,7 @@ export function useUpdateChannel() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       queryClient.invalidateQueries({ queryKey: ['channel', data.id] });
       queryClient.invalidateQueries({ queryKey: ['channelAPIKeyInventory', data.id] });
       toast.success(t('channels.messages.updateSuccess'));
@@ -1762,6 +1776,7 @@ export function useUpdateChannelStatus() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       const statusText =
         variables.status === 'enabled'
           ? t('channels.status.enabled')
@@ -1793,6 +1808,7 @@ export function useBulkArchiveChannels() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('channels.messages.bulkArchiveSuccess', { count: variables.length }));
     },
   });
@@ -1815,6 +1831,7 @@ export function useBulkDisableChannels() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('channels.messages.bulkDisableSuccess', { count: variables.length }));
     },
   });
@@ -1837,6 +1854,7 @@ export function useBulkEnableChannels() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('channels.messages.bulkEnableSuccess', { count: variables.length }));
     },
   });
@@ -1859,6 +1877,7 @@ export function useBulkRecoverChannels() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       queryClient.invalidateQueries({ queryKey: ['errorChannelsCount'] });
       toast.success(t('channels.messages.bulkRecoverSuccess', { count: variables.length }));
     },
@@ -1882,6 +1901,7 @@ export function useDeleteChannel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('channels.messages.deleteSuccess'));
     },
   });
@@ -1904,6 +1924,7 @@ export function useBulkDeleteChannels() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       toast.success(t('channels.messages.bulkDeleteSuccess', { count: variables.length }));
     },
   });

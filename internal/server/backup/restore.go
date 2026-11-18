@@ -613,7 +613,16 @@ func (svc *BackupService) restoreChannelModelPrices(
 }
 
 func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, channels []*BackupChannel, opts RestoreOptions) error {
+	pending := make(map[int]int)
 	for _, chData := range channels {
+		settings := chData.Settings
+		var sourceID int
+		if settings != nil && settings.CredentialSourceChannelID != nil {
+			sourceID = lo.FromPtr(settings.CredentialSourceChannelID)
+			next := *settings
+			next.CredentialSourceChannelID = nil
+			settings = &next
+		}
 		existing, err := db.Channel.Query().
 			Where(channel.Name(chData.Name)).
 			First(ctx)
@@ -623,7 +632,7 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 
 		credentials := chData.Credentials
 		// Check if credentials are empty (no API key and no OAuth)
-		if credentials.APIKey == "" && len(credentials.APIKeys) == 0 && credentials.OAuth == nil {
+		if sourceID <= 0 && credentials.APIKey == "" && len(credentials.APIKeys) == 0 && credentials.OAuth == nil {
 			continue
 		}
 
@@ -643,7 +652,7 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 
 				return fmt.Errorf("channel %s already exists", chData.Name)
 			case ConflictStrategyOverwrite:
-				if err := biz.ValidateChannelCredentialBindings(ctx, db, existing.ID, chData.Settings); err != nil {
+				if err := biz.ValidateChannelCredentialBindings(ctx, db, existing.ID, settings); err != nil {
 					return fmt.Errorf("restore channel %s: %w", chData.Name, err)
 				}
 				update := db.Channel.UpdateOneID(existing.ID).
@@ -656,7 +665,7 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 					SetManualModels(chData.ManualModels).
 					SetTags(chData.Tags).
 					SetDefaultTestModel(chData.DefaultTestModel).
-					SetSettings(chData.Settings).
+					SetSettings(settings).
 					SetOrderingWeight(chData.OrderingWeight)
 
 				if chData.Remark != nil {
@@ -672,9 +681,12 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 
 					return fmt.Errorf("failed to restore channel %s: %w", chData.Name, err)
 				}
+				if sourceID > 0 {
+					pending[existing.ID] = sourceID
+				}
 			}
 		} else {
-			if err := biz.ValidateChannelCredentialBindings(ctx, db, 0, chData.Settings); err != nil {
+			if err := biz.ValidateChannelCredentialBindings(ctx, db, 0, settings); err != nil {
 				return fmt.Errorf("restore channel %s: %w", chData.Name, err)
 			}
 			create := db.Channel.Create().
@@ -689,24 +701,51 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 				SetManualModels(chData.ManualModels).
 				SetTags(chData.Tags).
 				SetDefaultTestModel(chData.DefaultTestModel).
-				SetSettings(chData.Settings).
+				SetSettings(settings).
 				SetOrderingWeight(chData.OrderingWeight)
 
 			if chData.Remark != nil {
 				create.SetRemark(*chData.Remark)
 			}
 
-			if _, err := create.Save(ctx); err != nil {
+			created, err := create.Save(ctx)
+			if err != nil {
 				log.Error(ctx, "failed to create channel",
 					log.String("channel", chData.Name),
 					log.Cause(err))
 
 				return fmt.Errorf("failed to create channel %s: %w", chData.Name, err)
 			}
+			if sourceID > 0 {
+				pending[created.ID] = sourceID
+			}
 		}
 	}
 
-	return nil
+	if len(pending) != 0 {
+		ids, err := svc.buildChannelIDMap(ctx, db, channels)
+		if err != nil {
+			return err
+		}
+		for id, oldSource := range pending {
+			row, err := db.Channel.Get(ctx, id)
+			if err != nil {
+				return err
+			}
+			sourceID, ok := ids[oldSource]
+			if !ok {
+				if row.Status == channel.StatusArchived {
+					continue // A retired dependent may outlive a deleted source.
+				}
+				return fmt.Errorf("restore channel %q: credential source #%d was not restored", row.Name, oldSource)
+			}
+			row.Settings.CredentialSourceChannelID = &sourceID
+			if err := db.Channel.UpdateOneID(id).SetSettings(row.Settings).Exec(ctx); err != nil {
+				return fmt.Errorf("restore credential source for channel %q: %w", row.Name, err)
+			}
+		}
+	}
+	return biz.ValidateChannelCredentialSourceTopology(ctx, db)
 }
 
 func (svc *BackupService) restoreModels(ctx context.Context, db *ent.Client, models []*BackupModel, opts RestoreOptions, channelIDMap map[int]int) error {

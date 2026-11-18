@@ -57,6 +57,12 @@ func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
 
+	source, err := resolveCredentialOwner(ctx, svc.entFromContext(ctx), ch)
+	if err != nil {
+		return nil, err
+	}
+	ch = withEffectiveCredentials(ch, source)
+
 	disabled := make(map[string]objects.DisabledAPIKey, len(ch.DisabledAPIKeys))
 	for _, dk := range ch.DisabledAPIKeys {
 		if dk.Key != "" {
@@ -145,7 +151,7 @@ func (svc *ChannelService) AddChannelAPIKey(ctx context.Context, channelID int, 
 		return fmt.Errorf("api key cannot be empty")
 	}
 
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -163,13 +169,13 @@ func (svc *ChannelService) AddChannelAPIKey(ctx context.Context, channelID int, 
 		return fmt.Errorf("failed to add channel api key: %w", err)
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }
 
 func (svc *ChannelService) DeleteChannelAPIKey(ctx context.Context, channelID int, keyID string) (*DeleteDisabledAPIKeysResult, error) {
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -185,7 +191,7 @@ func (svc *ChannelService) DeleteChannelAPIKey(ctx context.Context, channelID in
 				return nil, fmt.Errorf("failed to delete archived channel api key: %w", err)
 			}
 
-			svc.asyncReloadChannels()
+			svc.reloadChannelsAfterCommit(ctx)
 		}
 
 		return &DeleteDisabledAPIKeysResult{Success: true}, nil
@@ -209,13 +215,13 @@ func (svc *ChannelService) DeleteChannelAPIKey(ctx context.Context, channelID in
 		return nil, fmt.Errorf("failed to delete channel api key: %w", err)
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return result, nil
 }
 
 func (svc *ChannelService) ArchiveChannelAPIKey(ctx context.Context, channelID int, keyID string, reason string) error {
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -267,13 +273,13 @@ func (svc *ChannelService) ArchiveChannelAPIKey(ctx context.Context, channelID i
 		return fmt.Errorf("failed to archive channel api key: %w", err)
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }
 
 func (svc *ChannelService) RestoreChannelAPIKey(ctx context.Context, channelID int, keyID string) error {
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -301,23 +307,57 @@ func (svc *ChannelService) RestoreChannelAPIKey(ctx context.Context, channelID i
 		return fmt.Errorf("failed to restore channel api key: %w", err)
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }
 
-// DisableAPIKey 禁用指定 key；若所有 key 都不可用则禁用 channel.
-func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key string, errorCode int, reason string) error {
-	if key == "" {
-		return fmt.Errorf("api key cannot be empty")
+// DisableChannelAPIKey is the admin mutation; delegated keys are edited at the source.
+func (svc *ChannelService) DisableChannelAPIKey(ctx context.Context, channelID int, key, reason string) error {
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
+	if err != nil {
+		return err
 	}
+	return svc.disableOwnedAPIKey(ctx, ch, key, 0, reason)
+}
 
-	// 读取 channel
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+// DisableAPIKey applies runtime disablement to the credential owner.
+func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key string, errorCode int, reason string) error {
+	db := svc.entFromContext(ctx)
+	ch, err := db.Channel.Get(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
+	ch, err = resolveCredentialOwner(ctx, db, ch)
+	if err != nil {
+		return err
+	}
+	return svc.disableOwnedAPIKey(ctx, ch, key, errorCode, reason)
+}
 
+// Late failure feedback cannot follow a new reference after an owner is replaced.
+func (svc *ChannelService) currentFailureCredentialOwner(ctx context.Context, id int, key string) (*ent.Channel, error) {
+	ch, err := observationPrimaryClient(svc.entFromContext(ctx)).Channel.Get(ctx, id)
+	if ent.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if ch.Status == channel.StatusArchived || credentialSourceID(ch.Settings) != 0 {
+		return nil, nil
+	}
+	if _, ok := resolveChannelAPIKey(ch.Credentials, key); !ok {
+		return nil, nil
+	}
+	return ch, nil
+}
+
+func (svc *ChannelService) disableOwnedAPIKey(ctx context.Context, ch *ent.Channel, key string, errorCode int, reason string) error {
+	if key == "" {
+		return fmt.Errorf("api key cannot be empty")
+	}
+	channelID := ch.ID
 	resolvedKey, found := resolveChannelAPIKey(ch.Credentials, key)
 	if !found {
 		// key 不在 credentials 中，忽略
@@ -352,7 +392,7 @@ func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key
 		SetDisabledAPIKeys(newDisabledKeys)
 
 	// 如果没有可用 key 了，禁用整个 channel
-	channelDisabled := len(enabledKeys) == 0
+	channelDisabled := len(enabledKeys) == 0 && ch.Status != channel.StatusArchived
 	if channelDisabled {
 		update.SetStatus(channel.StatusDisabled)
 		update.SetErrorMessage(fmt.Sprintf("All API keys disabled (last error: %d)", errorCode))
@@ -371,22 +411,21 @@ func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key
 		log.Int("error_code", errorCode),
 	)
 
-	if channelDisabled {
-		// Synchronously reload the local cache to immediately stop selecting this channel.
-		// This matches the behavior of markChannelUnavailable.
+	if ent.TxFromContext(ctx) == nil {
+		// Stop selecting the disabled key on this node before the next attempt.
 		reloadCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
 		if err := svc.enabledChannelsCache.Load(reloadCtx, true); err != nil {
-			log.Warn(ctx, "Failed to synchronously reload channels after API key exhaustion",
+			log.Warn(ctx, "Failed to synchronously reload channels after API key disablement",
 				log.Int("channel_id", channelID),
 				log.Cause(err),
 			)
 		}
 	}
 
-	// Also notify other instances via the watcher for cross-instance cache invalidation.
-	svc.asyncReloadChannels()
+	// Also notify other instances after the write is visible to cache readers.
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }
@@ -394,7 +433,7 @@ func (svc *ChannelService) DisableAPIKey(ctx context.Context, channelID int, key
 // EnableAPIKey 重新启用指定 key（从 disabled_api_keys 中移除）.
 func (svc *ChannelService) EnableAPIKey(ctx context.Context, channelID int, key string) error {
 	// 读取 channel
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -433,7 +472,7 @@ func (svc *ChannelService) EnableAPIKey(ctx context.Context, channelID int, key 
 		return fmt.Errorf("failed to enable api key: %w", err)
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }
@@ -441,7 +480,7 @@ func (svc *ChannelService) EnableAPIKey(ctx context.Context, channelID int, key 
 // EnableAllAPIKeys 清空 disabled_api_keys.
 func (svc *ChannelService) EnableAllAPIKeys(ctx context.Context, channelID int) error {
 	// 读取 channel
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -463,7 +502,7 @@ func (svc *ChannelService) EnableAllAPIKeys(ctx context.Context, channelID int) 
 		log.Int("channel_id", channelID),
 	)
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }
@@ -474,7 +513,7 @@ func (svc *ChannelService) EnableSelectedAPIKeys(ctx context.Context, channelID 
 		return nil
 	}
 
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -511,7 +550,7 @@ func (svc *ChannelService) EnableSelectedAPIKeys(ctx context.Context, channelID 
 		log.Int("count", len(keys)),
 	)
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }
@@ -529,7 +568,7 @@ func (svc *ChannelService) DeleteDisabledAPIKeys(ctx context.Context, channelID 
 		return &DeleteDisabledAPIKeysResult{Success: true}, nil
 	}
 
-	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, channelID)
+	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -602,7 +641,7 @@ func (svc *ChannelService) DeleteDisabledAPIKeys(ctx context.Context, channelID 
 		result.Message = "ONE_KEY_PRESERVED"
 	}
 
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return result, nil
 }
@@ -873,6 +912,9 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	next := cloneChannelSettings(input)
 	if next == nil {
 		return nil
+	}
+	if credentialSourceID(next) == 0 {
+		next.CredentialSourceChannelID = nil
 	}
 	normalizeChannelFailurePolicy(next.FailurePolicy)
 

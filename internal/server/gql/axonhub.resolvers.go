@@ -435,7 +435,7 @@ func (r *mutationResolver) BulkUpdateChannelOrdering(ctx context.Context, input 
 
 // DisableChannelAPIKey is the resolver for the disableChannelAPIKey field.
 func (r *mutationResolver) DisableChannelAPIKey(ctx context.Context, channelID objects.GUID, key string) (bool, error) {
-	if err := r.channelService.DisableAPIKey(ctx, channelID.ID, key, 0, "Manually disabled by user"); err != nil {
+	if err := r.channelService.DisableChannelAPIKey(ctx, channelID.ID, key, "Manually disabled by user"); err != nil {
 		return false, fmt.Errorf("failed to disable channel API key: %w", err)
 	}
 

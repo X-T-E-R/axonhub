@@ -13,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/llm/auth"
 	"golang.org/x/net/http/httpguts"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
@@ -77,11 +78,12 @@ type rawHTTPKeyProviderConfig struct {
 }
 
 type rawHTTPKeyProvider struct {
-	mu        sync.Mutex
-	keys      []string
-	config    rawHTTPKeyProviderConfig
-	provider  auth.APIKeyProvider
-	updatedAt time.Time
+	mu              sync.Mutex
+	keys            []string
+	config          rawHTTPKeyProviderConfig
+	provider        auth.APIKeyProvider
+	updatedAt       time.Time
+	sourceUpdatedAt time.Time
 }
 
 // RawHTTPAPIKey retains the existing providers' counters and affinity caches
@@ -99,9 +101,10 @@ func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) strin
 		likelyTTLMinutes: selection.LikelyAffinityTTLMinutesOrDefault(),
 		exactTTLMinutes:  selection.ExactAffinityTTLMinutesOrDefault(),
 	}
-	if state.provider == nil || !slices.Equal(state.keys, ch.cachedEnabledAPIKeys) || state.config != config || !state.updatedAt.Equal(ch.UpdatedAt) {
+	if state.provider == nil || !slices.Equal(state.keys, ch.cachedEnabledAPIKeys) || state.config != config || !state.updatedAt.Equal(ch.UpdatedAt) || !state.sourceUpdatedAt.Equal(ch.credentialSourceUpdatedAt) {
 		state.keys = slices.Clone(ch.cachedEnabledAPIKeys)
 		state.updatedAt = ch.UpdatedAt
+		state.sourceUpdatedAt = ch.credentialSourceUpdatedAt
 		state.config = config
 		state.provider = getAPIKeyProvider(ch)
 	}
@@ -136,5 +139,16 @@ func (svc *ChannelService) OpenRawHTTPChannel(ctx context.Context, row *ent.Chan
 			return nil, &ExecutionOwnerError{ChannelID: row.ID, Owner: node.Owner(row.ID)}
 		}
 	}
-	return svc.buildChannelOnOwner(row)
+	source, err := resolveCredentialOwner(authz.WithSystemBypass(ctx, "open-raw-channel-credentials"), observationPrimaryClient(svc.db), row)
+	if err != nil {
+		return nil, err
+	}
+	ch, err := svc.buildChannelOnOwner(withEffectiveCredentials(row, source))
+	if err != nil {
+		return nil, err
+	}
+	if source != row {
+		ch.credentialSourceUpdatedAt = source.UpdatedAt
+	}
+	return ch, nil
 }

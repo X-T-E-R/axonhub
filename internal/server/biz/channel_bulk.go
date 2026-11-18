@@ -178,15 +178,17 @@ func (svc *ChannelService) bulkUpdateChannelStatus(ctx context.Context, ids []in
 		}
 	}
 
-	updater := client.Channel.Update().
-		Where(channel.IDIn(ids...)).
-		SetStatus(status)
-
-	if clearErrorMessage {
-		updater.ClearErrorMessage()
-	}
-
-	if _, err = updater.Save(ctx); err != nil {
+	if err := svc.RunInTransaction(ctx, func(ctx context.Context) error {
+		if err := svc.validateCredentialStatusChange(ctx, ids, status); err != nil {
+			return err
+		}
+		updater := svc.entFromContext(ctx).Channel.Update().Where(channel.IDIn(ids...)).SetStatus(status)
+		if clearErrorMessage {
+			updater.ClearErrorMessage()
+		}
+		_, err := updater.Save(ctx)
+		return err
+	}); err != nil {
 		return fmt.Errorf("failed to %s channels: %w", action, err)
 	}
 
@@ -221,7 +223,18 @@ func (svc *ChannelService) BulkDeleteChannels(ctx context.Context, ids []int) er
 		return nil
 	}
 
-	deleted, err := svc.entFromContext(ctx).Channel.Delete().Where(channel.IDIn(ids...)).Exec(ctx)
+	var deleted int
+	err := svc.RunInTransaction(ctx, func(ctx context.Context) error {
+		if err := svc.lockCredentialTopology(ctx, ids...); err != nil {
+			return err
+		}
+		if err := svc.requireNoCredentialDependents(ctx, ids...); err != nil {
+			return err
+		}
+		var err error
+		deleted, err = svc.entFromContext(ctx).Channel.Delete().Where(channel.IDIn(ids...)).Exec(ctx)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("failed to bulk delete channels: %w", err)
 	}
@@ -232,7 +245,7 @@ func (svc *ChannelService) BulkDeleteChannels(ctx context.Context, ids []int) er
 	}
 
 	log.Info(ctx, "bulk deleted channels", log.Int("count", deleted))
-	svc.asyncReloadChannels()
+	svc.reloadChannelsAfterCommit(ctx)
 
 	return nil
 }

@@ -74,9 +74,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChannelSetting } from '@/features/system/data/system';
-import { useChannels } from '../context/channels-context';
+import { extractNumberID } from '@/lib/utils';
 import {
   useAddChannelAPIKey,
+  useAllChannelSummarys,
   useArchiveChannelAPIKey,
   useChannelAPIKeyInventory,
   useDeleteChannelAPIKey,
@@ -1772,6 +1773,11 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
   const [confirmDiscardSettings, setConfirmDiscardSettings] = useState(false);
 
+  const credentialSourceChannelId = currentRow.settings?.credentialSourceChannelId ?? null;
+  const isCredentialSourceDependent = credentialSourceChannelId != null;
+  const { data: sourceCandidates } = useAllChannelSummarys(null, { enabled: open && isCredentialSourceDependent, includeArchived: false });
+  const sourceName = sourceCandidates?.edges.find(({ node }) => extractNumberID(node.id) === String(credentialSourceChannelId))?.node.name;
+  const sourceLabel = sourceName ? `#${credentialSourceChannelId} ${sourceName}` : `#${credentialSourceChannelId}`;
   const keyInventory = useChannelAPIKeyInventory(currentRow.id, { enabled: open });
   const { data: channelSetting } = useChannelSetting();
   const addAPIKey = useAddChannelAPIKey();
@@ -1883,8 +1889,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
     [inventory]
   );
   const channelFailureHistory = useMemo(() => channelHistory.filter(isRequestFailureHistory), [channelHistory]);
-  const canRunBalanceProbe = useMemo(() => channelSupportsManualBalanceProbe(currentRow), [currentRow]);
-  const canRunRealRequest = !currentRow.settings?.rawHTTP?.enabled;
+  const canRunBalanceProbe = !isCredentialSourceDependent && channelSupportsManualBalanceProbe(currentRow);
+  const canRunRealRequest = !isCredentialSourceDependent && !currentRow.settings?.rawHTTP?.enabled;
   const globalRoutingStrategy = channelSetting?.routing?.strategy ?? 'trace_sticky';
   const isPending =
     keyInventory.isFetching ||
@@ -2004,6 +2010,21 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
       await saveSettings(values);
       toast.success(t('channels.messages.updateSuccess'));
       form.reset(values);
+      onOpenChange(false);
+    } catch {
+      // Error handled by hook.
+    }
+  };
+
+  const handleDetachCredentialSource = async () => {
+    try {
+      await updateChannel.mutateAsync({
+        id: currentRow.id,
+        input: {
+          settings: mergeChannelSettingsForUpdate(currentRow.settings, { credentialSourceChannelId: null }),
+        },
+      });
+      toast.success(t('channels.messages.updateSuccess'));
       onOpenChange(false);
     } catch {
       // Error handled by hook.
@@ -2157,6 +2178,25 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
             <DialogDescription>{t('channels.dialogs.keys.description', { name: currentRow.name })}</DialogDescription>
           </DialogHeader>
 
+          {isCredentialSourceDependent && (
+            <Alert>
+              <IconInfoCircle className='h-4 w-4' />
+              <AlertDescription className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                <span>{t('channels.dialogs.keys.sourceNotice', { source: sourceLabel })}</span>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  onClick={handleDetachCredentialSource}
+                  disabled={isPending || hasUnsavedChanges}
+                  title={hasUnsavedChanges ? t('channels.dialogs.keys.detachSourceDisabled') : undefined}
+                >
+                  {t('channels.dialogs.keys.detachSource')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <Form {...form}>
             <Tabs defaultValue='inventory' className='min-h-0 min-w-0 flex-1 overflow-hidden'>
               <div className='w-full max-w-full touch-pan-x snap-x overflow-x-auto overflow-y-hidden overscroll-x-contain py-1'>
@@ -2241,6 +2281,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                           <CardDescription className='break-words'>{t('channels.dialogs.keys.inventory.description')}</CardDescription>
                         </CardHeader>
                         <CardContent className='min-w-0 space-y-4'>
+                          {!isCredentialSourceDependent && (
                           <div className='flex flex-col gap-2 sm:flex-row sm:items-start'>
                             <div className='flex-1 space-y-2'>
                               <label className='text-sm font-medium' htmlFor='channel-new-api-key'>
@@ -2273,6 +2314,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                               {t('channels.dialogs.keys.actions.add')}
                             </Button>
                           </div>
+                          )}
 
                           <Alert>
                             <IconAlertTriangle className='h-4 w-4' />
@@ -2396,7 +2438,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                                   <IconCopy className='mr-2 h-4 w-4' />
                                   {t('channels.dialogs.keys.actions.copySelected', { count: selectedRawKeys.length })}
                                 </Button>
-                                <DropdownMenu>
+                                {!isCredentialSourceDependent && (
+                                  <>
+                                  <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button type='button' variant='outline' size='sm' disabled={isPending}>
                                       <IconDotsVertical className='mr-2 h-4 w-4' />
@@ -2446,6 +2490,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                                   <IconTrash className='mr-2 h-4 w-4' aria-hidden='true' />
                                   {t('channels.dialogs.keys.actions.deleteSelected', { count: selectedRows.length })}
                                 </Button>
+                                  </>
+                                )}
                                 <Button
                                   type='button'
                                   variant='ghost'
@@ -2648,6 +2694,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                                                 </TooltipContent>
                                               </Tooltip>
                                             ) : null}
+                                            {!isCredentialSourceDependent && (
                                             <Tooltip>
                                               <TooltipTrigger asChild>
                                                 <Button
@@ -2663,6 +2710,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                                               </TooltipTrigger>
                                               <TooltipContent>{t('channels.dialogs.keys.actions.configurePolicy')}</TooltipContent>
                                             </Tooltip>
+                                            )}
                                             <Tooltip>
                                               <TooltipTrigger asChild>
                                                 <Button
@@ -2677,6 +2725,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                                               </TooltipTrigger>
                                               <TooltipContent>{t('channels.dialogs.keys.actions.viewDetails')}</TooltipContent>
                                             </Tooltip>
+                                            {!isCredentialSourceDependent && (
                                             <DropdownMenu>
                                               <DropdownMenuTrigger asChild>
                                                 <Button
@@ -2729,6 +2778,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                                                 </DropdownMenuItem>
                                               </DropdownMenuContent>
                                             </DropdownMenu>
+                                            )}
                                           </div>
                                         </TableCell>
                                       </TableRow>

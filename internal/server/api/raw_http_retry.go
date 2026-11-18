@@ -210,7 +210,7 @@ func (t *rawHTTPRetryTransport) CloseIdleConnections() {
 
 func (t *rawHTTPRetryTransport) finishAttempt(ctx context.Context, key string, status int, failed, canceled bool, started time.Time) {
 	contexts.FinishChannelCredentialAttempt(ctx, status, failed, canceled)
-	if t.maxAttempts < 2 || !failed || canceled {
+	if !failed || canceled {
 		return
 	}
 	policyStatus := status
@@ -219,6 +219,7 @@ func (t *rawHTTPRetryTransport) finishAttempt(ctx context.Context, key string, s
 	}
 	perf := &biz.PerformanceRecord{
 		ChannelID:          t.channel.ID,
+		CredentialOwnerID:  t.channel.CredentialOwnerID(),
 		APIKey:             key,
 		StartTime:          started,
 		EndTime:            time.Now(),

@@ -644,7 +644,7 @@ func (h *ManagementHandlers) DisableManagementChannelKey(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.channelService.DisableAPIKey(ctx, id, keyID, 0, reason); err != nil {
+	if err := h.channelService.DisableChannelAPIKey(ctx, id, keyID, reason); err != nil {
 		h.writeServiceError(c, err)
 		return
 	}

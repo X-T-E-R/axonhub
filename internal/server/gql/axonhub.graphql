@@ -211,6 +211,7 @@ input ChannelCredentialPolicyInput {
 }
 
 type ChannelSettings {
+  credentialSourceChannelId: Int
   rawHTTP: ChannelRawHTTP
   credentialPolicies: [ChannelCredentialPolicy!]
   extraModelPrefix: String
@@ -859,6 +860,7 @@ input ModelMappingInput {
 }
 
 input ChannelSettingsInput {
+  credentialSourceChannelId: Int
   rawHTTP: ChannelRawHTTPInput
   credentialPolicies: [ChannelCredentialPolicyInput!]
   extraModelPrefix: String

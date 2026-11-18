@@ -686,6 +686,7 @@ export const channelSSEKeepAliveSchema = z.object({
 export type ChannelSSEKeepAlive = z.infer<typeof channelSSEKeepAliveSchema>;
 
 export const channelSettingsSchema = z.object({
+  credentialSourceChannelId: z.number().int().optional().nullable(),
   rawHTTP: channelRawHTTPSchema.optional().nullable(),
   credentialPolicies: z.array(channelCredentialPolicySchema).optional().nullable(),
   extraModelPrefix: z.string().optional(),
@@ -958,9 +959,10 @@ export const createChannelInputSchema = z
       data.type === 'codex' || data.type === 'claudecode' || data.type === 'antigravity' || data.type === 'github_copilot';
     const hasApiKey = data.credentials.apiKey && data.credentials.apiKey.trim().length > 0;
     const hasApiKeys = data.credentials.apiKeys && data.credentials.apiKeys.some((k) => k.trim().length > 0);
+    const hasCredentialSource = data.settings?.credentialSourceChannelId != null;
 
     // github_copilot requires credentials.apiKey (OAuth JSON with access_token)
-    if (data.type === 'github_copilot' && !hasApiKey) {
+    if (!hasCredentialSource && data.type === 'github_copilot' && !hasApiKey) {
       ctx.addIssue({
         code: 'custom' as const,
         message: 'channels.dialogs.oauth.errors.copilotCredentialsRequired',
@@ -969,7 +971,7 @@ export const createChannelInputSchema = z
     }
 
     // Validate that at least one credential type is provided
-    if (!hasApiKey && !hasApiKeys && data.type !== 'anthropic_aws' && data.type !== 'anthropic_gcp') {
+    if (!hasCredentialSource && !hasApiKey && !hasApiKeys && data.type !== 'anthropic_aws' && data.type !== 'anthropic_gcp') {
       ctx.addIssue({
         code: 'custom' as const,
         message: 'At least one API Key is required',
@@ -982,7 +984,7 @@ export const createChannelInputSchema = z
       validateOAuthCredentials(data.type, data.credentials.apiKey, ctx);
     }
     // 如果是 anthropic_gcp 类型，GCP 字段必填（精确到字段级报错）
-    if (data.type === 'anthropic_gcp') {
+    if (!hasCredentialSource && data.type === 'anthropic_gcp') {
       const gcp = data.credentials?.gcp;
       if (!gcp?.region) {
         ctx.addIssue({
@@ -1045,6 +1047,7 @@ export const updateChannelInputSchema = z
   })
   .superRefine((data, ctx) => {
     const effectiveType = data.type;
+    const hasCredentialSource = data.settings?.credentialSourceChannelId != null;
     const apiKey = data.credentials?.apiKey;
     const hasApiKey = typeof apiKey === 'string' && apiKey.trim().length > 0;
 
@@ -1063,7 +1066,7 @@ export const updateChannelInputSchema = z
     }
 
     // 如果是 anthropic_gcp 类型且提供了 credentials，GCP 字段必填（字段级报错）
-    if (data.type === 'anthropic_gcp' && data.credentials) {
+    if (!hasCredentialSource && data.type === 'anthropic_gcp' && data.credentials) {
       const gcp = data.credentials.gcp;
       if (!gcp?.region) {
         ctx.addIssue({
@@ -1167,6 +1170,12 @@ export const channelSummarySchema = z.object({
   baseURL: z.string(),
   orderingWeight: z.number(),
   tags: z.array(z.string()).optional().default([]).nullable(),
+  settings: z
+    .object({
+      credentialSourceChannelId: z.number().int().optional().nullable(),
+    })
+    .optional()
+    .nullable(),
   endpoints: z.array(channelEndpointSchema).optional().default([]).nullable(),
   allModelEntries: z.array(channelModelEntrySchema).optional().default([]),
 });

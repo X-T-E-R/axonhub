@@ -86,15 +86,32 @@ func (svc *ChannelService) validateExecutionIdentities(ctx context.Context) erro
 		return err
 	}
 	owners := map[string]string{}
+	poolOwners := map[int]string{}
+	rows := make(map[int]*ent.Channel, len(channels))
+	for _, ch := range channels {
+		rows[ch.ID] = ch
+	}
 	for _, ch := range channels {
 		owner := svc.node.Owner(ch.ID)
 		if owner == "" {
 			continue
 		}
-		keys := ch.Credentials.GetAllAPIKeys()
-		creds := ch.Credentials.OAuth
-		if creds == nil && ch.Credentials.IsOAuth() {
-			creds, err = oauth.ParseCredentialsJSON(ch.Credentials.APIKey)
+		poolID := credentialOwnerID(ch)
+		if ch.Status == channel.StatusArchived && poolID != ch.ID {
+			continue // An archived dependent no longer reserves the source's placement.
+		}
+		source := rows[poolID]
+		if source == nil || (poolID != ch.ID && (source.Status == channel.StatusArchived || credentialOwnerID(source) != source.ID)) {
+			continue // Cache construction will skip this unavailable dependent.
+		}
+		if previous := poolOwners[poolID]; previous != "" && previous != owner {
+			return fmt.Errorf("channel %d and its credential pool #%d have different execution owners", ch.ID, poolID)
+		}
+		poolOwners[poolID] = owner
+		keys := source.Credentials.GetAllAPIKeys()
+		creds := source.Credentials.OAuth
+		if creds == nil && source.Credentials.IsOAuth() {
+			creds, err = oauth.ParseCredentialsJSON(source.Credentials.APIKey)
 			if err != nil {
 				return fmt.Errorf("channel %d OAuth identity: %w", ch.ID, err)
 			}
