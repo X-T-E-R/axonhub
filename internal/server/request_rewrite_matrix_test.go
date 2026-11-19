@@ -787,6 +787,19 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 		require.Equal(t, "claude-mapped-pri", decoded["model"], "upstream last-wins JSON decode must observe remapped model")
 		require.Equal(t, 1, strings.Count(string(atts[0].Body), `"model"`), "canonical AST output must not retain duplicate model keys")
 
+		// 1b. Case-folded duplicate top-level key ("model" + "Model") must also mark RawBodyAmbiguous
+		// and emit canonical remapped JSON instead of passing through the mixed-case duplicate.
+		h.resetAttempts()
+		caseDupBody := []byte(`{"model":"claude-mapped-pri","Model":"claude-logical","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+		resp, out = h.postRaw("/anthropic/v1/messages", caseDupBody, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(out))
+		atts = h.snapshotAttempts()
+		require.Len(t, atts, 1)
+		decoded = nil
+		require.NoError(t, json.Unmarshal(atts[0].Body, &decoded))
+		require.Equal(t, "claude-mapped-pri", decoded["model"], "case-folded duplicate model keys must emit canonical remapped model")
+		require.NotContains(t, string(atts[0].Body), `"Model"`, "canonical AST must not retain mixed-case duplicate Model key")
+
 		// 2. Same duplicate-key test under AxonHub FullPassThrough=true.
 		h.resetAttempts()
 		dupFullPT := []byte(`{"model":"claude-fullpt-mapped","model":"claude-fullpt","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)

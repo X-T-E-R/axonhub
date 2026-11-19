@@ -589,11 +589,16 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 	)
 	gjson.Parse(s).ForEach(func(k, v gjson.Result) bool {
 		key := k.Str
-		if _, exists := seenKeys[key]; exists {
+		lowerKey := strings.ToLower(key)
+		if _, exists := seenKeys[lowerKey]; exists {
 			hasDupKey = true
 			return false
 		}
-		seenKeys[key] = struct{}{}
+		if key != lowerKey && (lowerKey == "model" || lowerKey == "stream") {
+			hasDupKey = true
+			return false
+		}
+		seenKeys[lowerKey] = struct{}{}
 		fields[key] = v
 		return true
 	})

@@ -823,6 +823,15 @@ type postCommitRawErrorStream struct {
 	current      *httpclient.StreamEvent
 	providerErr  *llm.ResponseError
 	errorYielded bool
+	closed       bool
+}
+
+func (s *postCommitRawErrorStream) closeStream() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	return s.stream.Close()
 }
 
 func (s *postCommitRawErrorStream) reportProviderError() {
@@ -834,6 +843,7 @@ func (s *postCommitRawErrorStream) reportProviderError() {
 func (s *postCommitRawErrorStream) Next() bool {
 	if s.errorYielded {
 		s.current = nil
+		_ = s.closeStream()
 		s.reportProviderError()
 		return false
 	}
@@ -856,8 +866,9 @@ func (s *postCommitRawErrorStream) Current() *httpclient.StreamEvent { return s.
 func (s *postCommitRawErrorStream) Err() error { return s.stream.Err() }
 
 func (s *postCommitRawErrorStream) Close() error {
+	closeErr := s.closeStream()
 	s.reportProviderError()
-	return s.stream.Close()
+	return closeErr
 }
 
 func parseRawStreamProviderError(apiFormat llm.APIFormat, event *httpclient.StreamEvent) *llm.ResponseError {
