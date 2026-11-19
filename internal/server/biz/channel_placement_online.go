@@ -108,6 +108,10 @@ func placementCredentialKeys(ch *ent.Channel) []string {
 // Preview moves the transitive credential identity group, including disabled and
 // archived peers. Secrets are compared in memory and never returned or persisted.
 func (svc *ChannelService) PreviewPlacement(ctx context.Context, channelID int, target string) (*PlacementPlan, error) {
+	return svc.previewPlacement(ctx, channelID, target, uuid.NewString())
+}
+
+func (svc *ChannelService) previewPlacement(ctx context.Context, channelID int, target, newIdentity string) (*PlacementPlan, error) {
 	if err := requirePlacementWrite(ctx); err != nil {
 		return nil, err
 	}
@@ -190,7 +194,7 @@ func (svc *ChannelService) PreviewPlacement(ctx context.Context, channelID int, 
 		return nil, fmt.Errorf("shared credentials already use %q; assign this channel there before moving the group", owner)
 	}
 	if identity == "" {
-		identity = uuid.NewString()
+		identity = newIdentity
 	}
 	plan := &PlacementPlan{Version: state.Version, ChannelID: channelID, From: binding.Owner, To: target, Channels: []PlacementChannel{}, Identities: map[int]string{}}
 	for _, ch := range all {
@@ -323,7 +327,7 @@ func (svc *ChannelService) SavePlacement(ctx context.Context, input PlacementSav
 		if err := svc.lockCredentialTopology(txCtx, actual...); err != nil {
 			return err
 		}
-		latest, err := svc.PreviewPlacement(txCtx, input.ChannelID, input.Target)
+		latest, err := svc.previewPlacement(txCtx, input.ChannelID, input.Target, plan.Identities[input.ChannelID])
 		if err != nil {
 			return err
 		}

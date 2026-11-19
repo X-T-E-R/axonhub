@@ -53,8 +53,8 @@ func (svc *ChannelService) oauthCredentialHTTPClient(ch *ent.Channel, base *http
 func (svc *ChannelService) coordinateOAuthRefresh(ch *ent.Channel) oauth.RefreshCoordinator {
 	id := credentialOwnerID(ch)
 	return func(ctx context.Context, current *oauth.OAuthCredentials, refresh oauth.RefreshFunc) (*oauth.OAuthCredentials, error) {
+		ctx = authz.WithSystemBypass(ctx, "refresh-channel-oauth-credentials")
 		result, err, _ := svc.oauthRefresh.Do(strconv.Itoa(id), func() (any, error) {
-			ctx = authz.WithSystemBypass(ctx, "refresh-channel-oauth-credentials")
 			db := observationPrimaryClient(svc.entFromContext(ctx))
 			owner, err := credentialSourceChannel(ctx, db, id)
 			if err != nil {
@@ -106,6 +106,10 @@ func (svc *ChannelService) coordinateOAuthRefresh(ch *ent.Channel) oauth.Refresh
 		if err != nil {
 			return nil, err
 		}
-		return result.(*oauth.OAuthCredentials), nil
+		fresh, ok := result.(*oauth.OAuthCredentials)
+		if !ok {
+			return nil, fmt.Errorf("unexpected OAuth refresh result type %T", result)
+		}
+		return fresh, nil
 	}
 }
