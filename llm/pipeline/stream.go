@@ -811,31 +811,43 @@ func classifyRawStreamEvent(apiFormat llm.APIFormat, event *httpclient.StreamEve
 }
 
 // postCommitRawErrorStream preserves forwarding raw provider SSE error frames
-// downstream once while also dispatching a typed *llm.ResponseError through the
-// shared terminalErrorReporter when the stream finishes or closes, so health,
-// cooldown, circuit-breaker, and RequestExecution failure hooks stay consistent
-// with full-pipeline streams.
+// downstream once, then stops pulling upstream and dispatches the typed
+// *llm.ResponseError through the shared terminalErrorReporter once (even if the
+// provider holds the transport open or cancellation follows), so health,
+// cooldown, circuit-breaker, admission-slot release, and RequestExecution
+// failure hooks stay consistent with full-pipeline streams.
 type postCommitRawErrorStream struct {
-	stream      streams.Stream[*httpclient.StreamEvent]
-	apiFormat   llm.APIFormat
-	reporter    *terminalErrorReporter
-	current     *httpclient.StreamEvent
-	providerErr *llm.ResponseError
+	stream       streams.Stream[*httpclient.StreamEvent]
+	apiFormat    llm.APIFormat
+	reporter     *terminalErrorReporter
+	current      *httpclient.StreamEvent
+	providerErr  *llm.ResponseError
+	errorYielded bool
+}
+
+func (s *postCommitRawErrorStream) reportProviderError() {
+	if s.providerErr != nil && s.reporter != nil {
+		s.reporter.report(s.providerErr)
+	}
 }
 
 func (s *postCommitRawErrorStream) Next() bool {
+	if s.errorYielded {
+		s.current = nil
+		s.reportProviderError()
+		return false
+	}
 	if s.stream.Next() {
 		ev := s.stream.Current()
 		s.current = ev
 		if s.providerErr == nil && classifyRawStreamEvent(s.apiFormat, ev) == rawEventProviderError {
 			s.providerErr = parseRawStreamProviderError(s.apiFormat, ev)
+			s.errorYielded = true
 		}
 		return true
 	}
 	s.current = nil
-	if s.stream.Err() == nil && s.providerErr != nil && s.reporter != nil {
-		s.reporter.report(s.providerErr)
-	}
+	s.reportProviderError()
 	return false
 }
 
@@ -844,9 +856,7 @@ func (s *postCommitRawErrorStream) Current() *httpclient.StreamEvent { return s.
 func (s *postCommitRawErrorStream) Err() error { return s.stream.Err() }
 
 func (s *postCommitRawErrorStream) Close() error {
-	if s.stream.Err() == nil && s.providerErr != nil && s.reporter != nil {
-		s.reporter.report(s.providerErr)
-	}
+	s.reportProviderError()
 	return s.stream.Close()
 }
 

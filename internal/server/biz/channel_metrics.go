@@ -390,17 +390,6 @@ func (svc *ChannelService) RecordPerformance(ctx context.Context, perf *Performa
 		}
 	}
 
-	// Get or create channel metrics
-	svc.channelPerfMetricsLock.Lock()
-
-	cm, exists := svc.channelPerfMetrics[perf.ChannelID]
-	if !exists {
-		cm = newChannelMetrics(perf.ChannelID)
-		svc.channelPerfMetrics[perf.ChannelID] = cm
-	}
-
-	svc.channelPerfMetricsLock.Unlock()
-
 	// Determine window size
 	var windowSize int64 = defaultPerformanceWindowSize
 	if svc.perfWindowSeconds > 0 {
@@ -408,6 +397,18 @@ func (svc *ChannelService) RecordPerformance(ctx context.Context, perf *Performa
 	}
 
 	ts := perf.EndTime.Unix()
+
+	// Hold channelPerfMetricsLock continuously across channel lookup, sliding-window
+	// rollover (cleanupExpiredSlots mutates aggregatedMetrics), slot count update,
+	// and success/failure aggregation so GetChannelMetrics and IncrementChannelSelection
+	// never observe torn updates.
+	svc.channelPerfMetricsLock.Lock()
+
+	cm, exists := svc.channelPerfMetrics[perf.ChannelID]
+	if !exists {
+		cm = newChannelMetrics(perf.ChannelID)
+		svc.channelPerfMetrics[perf.ChannelID] = cm
+	}
 
 	// Get or create time slot for this second
 	slot := cm.getOrCreateTimeSlot(ts, perf.EndTime, windowSize)
@@ -421,21 +422,15 @@ func (svc *ChannelService) RecordPerformance(ctx context.Context, perf *Performa
 	} else {
 		// If canceled, decrement the aggregated request count that was incremented at selection time.
 		// We don't increment slot.RequestCount, so it won't be subtracted later.
-		svc.channelPerfMetricsLock.Lock()
-
 		cm.aggregatedMetrics.RequestCount--
-
-		svc.channelPerfMetricsLock.Unlock()
 	}
 
-	// Record success or failure under channelPerfMetricsLock so aggregatedMetrics
-	// updates (e.g. LastSelectedAt) do not race with IncrementChannelSelection.
-	svc.channelPerfMetricsLock.Lock()
 	if perf.Success {
 		cm.recordSuccess(slot, perf)
 	} else if !perf.Canceled {
 		cm.recordFailure(slot, perf)
 	}
+
 	svc.channelPerfMetricsLock.Unlock()
 
 	if log.DebugEnabled(ctx) {

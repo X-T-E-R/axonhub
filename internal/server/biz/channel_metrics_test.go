@@ -689,6 +689,7 @@ func TestDatabaseTimeScan_DriverShapes(t *testing.T) {
 func TestChannelService_MetricsConcurrentReadWriteRace(t *testing.T) {
 	svc := &ChannelService{
 		channelPerfMetrics: make(map[int]*channelMetrics),
+		perfWindowSeconds:  5,
 	}
 
 	const (
@@ -696,6 +697,8 @@ func TestChannelService_MetricsConcurrentReadWriteRace(t *testing.T) {
 		workers   = 8
 		iters     = 200
 	)
+	base := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+
 	var wg sync.WaitGroup
 	wg.Add(workers * 3)
 
@@ -703,17 +706,22 @@ func TestChannelService_MetricsConcurrentReadWriteRace(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := range iters {
-				now := time.Now()
+				// Advance timestamps deterministically across perfWindowSeconds (5s) so
+				// cleanupExpiredSlots actively expires and subtracts old slots while
+				// readers and selectors run concurrently.
+				end := base.Add(time.Duration(j/5) * time.Second)
 				perf := &PerformanceRecord{
-					ChannelID:        channelID,
-					StartTime:        now.Add(-15 * time.Millisecond),
-					EndTime:          now,
-					Stream:           true,
-					Success:          (id+j)%2 == 0,
-					CompletionTokens: 64,
+					ChannelID:            channelID,
+					StartTime:            end.Add(-15 * time.Millisecond),
+					EndTime:              end,
+					RequestCompleted:     true,
+					FailurePolicyHandled: true,
+					Stream:               true,
+					Success:              (id+j)%2 == 0,
+					CompletionTokens:     64,
 				}
 				if perf.Success {
-					t1 := now.Add(-5 * time.Millisecond)
+					t1 := end.Add(-5 * time.Millisecond)
 					perf.FirstTokenTime = &t1
 				} else {
 					perf.ResponseStatusCode = 502
@@ -736,6 +744,8 @@ func TestChannelService_MetricsConcurrentReadWriteRace(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, m)
 				_ = m.RequestCount
+				_ = m.SuccessCount
+				_ = m.FailureCount
 				_ = m.ConsecutiveFailures
 				_ = m.LastSelectedAt
 			}
@@ -745,5 +755,9 @@ func TestChannelService_MetricsConcurrentReadWriteRace(t *testing.T) {
 	wg.Wait()
 	finalMetrics, err := svc.GetChannelMetrics(context.Background(), channelID)
 	require.NoError(t, err)
-	require.Equal(t, int64(workers*iters), finalMetrics.RequestCount)
+	totalWrites := int64(workers * iters)
+	require.Greater(t, finalMetrics.SuccessCount, int64(0), "valid completed success records must be counted")
+	require.Greater(t, finalMetrics.FailureCount, int64(0), "valid completed failure records must be counted")
+	require.Less(t, finalMetrics.SuccessCount+finalMetrics.FailureCount, totalWrites, "expired time slots must be evicted and subtracted during rollover")
+	require.Less(t, finalMetrics.RequestCount, totalWrites, "expired slot RequestCount must be subtracted during rollover")
 }

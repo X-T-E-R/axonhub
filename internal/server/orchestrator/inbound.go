@@ -578,33 +578,10 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 	}
 	s := unsafe.String(unsafe.SliceData(body), len(body))
 
-	var isAnthropic, isOpenAIChat, isOpenAIResponses bool
-	switch wrapped.(type) {
-	case *anthropic.InboundTransformer:
-		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
-			return nil, false
-		}
-		isAnthropic = true
-	case *openai.InboundTransformer:
-		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
-			return nil, false
-		}
-		isOpenAIChat = true
-	case *responses.InboundTransformer:
-		if strings.HasSuffix(request.Path, "/compact") || strings.Contains(request.URL, "/compact") {
-			return nil, false
-		}
-		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
-			return nil, false
-		}
-		isOpenAIResponses = true
-	default:
-		return nil, false
-	}
-
-	// Single top-level object scan: detects duplicate keys (which json.Unmarshal
-	// resolves last-wins while gjson.Get resolves first-wins) and extracts all
-	// routing/template scalars in one pass.
+	// Single top-level object scan BEFORE any Content-Type or route early-return:
+	// detects duplicate keys (which json.Unmarshal resolves last-wins while gjson/sjson
+	// resolve first-wins) so any fallback to full parsing marks RawBodyAmbiguous = true
+	// and prevents pass-through / sjson reuse of ambiguous raw JSON bytes.
 	var (
 		seenKeys  = make(map[string]struct{}, 16)
 		hasDupKey bool
@@ -624,6 +601,30 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 		if state != nil {
 			state.RawBodyAmbiguous = true
 		}
+		return nil, false
+	}
+
+	var isAnthropic, isOpenAIChat, isOpenAIResponses bool
+	switch wrapped.(type) {
+	case *anthropic.InboundTransformer:
+		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
+			return nil, false
+		}
+		isAnthropic = true
+	case *openai.InboundTransformer:
+		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
+			return nil, false
+		}
+		isOpenAIChat = true
+	case *responses.InboundTransformer:
+		if strings.HasSuffix(request.Path, "/compact") || strings.Contains(request.URL, "/compact") {
+			return nil, false
+		}
+		if ct := request.Headers.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
+			return nil, false
+		}
+		isOpenAIResponses = true
+	default:
 		return nil, false
 	}
 

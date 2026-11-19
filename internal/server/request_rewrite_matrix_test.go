@@ -732,13 +732,20 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 		h, primarySrv, backupSrv := newRewriteMatrixHarness(
 			t,
 			func(w http.ResponseWriter, r *http.Request) {
-				if strings.HasSuffix(r.URL.Path, "/messages") {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/messages"):
 					writeAnthropicSSE(w, "dup-ok", 10, 0, 5)
-					return
+				case strings.HasSuffix(r.URL.Path, "/responses"):
+					writeOpenAIResponsesSSE(w, "gpt-resp-mapped", "dup-resp-ok", 10, 5)
+				default:
+					writeOpenAIChatSSE(w, "gpt-mapped", "dup-chat-ok", 10, 5)
 				}
-				writeOpenAIChatSSE(w, "gpt-mapped", "dup-chat-ok", 10, 5)
 			},
 			func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/responses") {
+					writeOpenAIResponsesSSE(w, "gpt-resp-fullpt-mapped", "fullpt-resp-dup-ok", 10, 5)
+					return
+				}
 				writeAnthropicSSE(w, "fullpt-dup-ok", 10, 0, 5)
 			},
 		)
@@ -753,12 +760,17 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 			FullPassThrough: true,
 			ModelMappings:   []objects.ModelMapping{{From: "claude-fullpt", To: "claude-fullpt-mapped"}},
 		})
-		// OpenAI Chat + Responses channels for Content-Type validation parity
+		// OpenAI Chat + Responses channels for Content-Type validation parity & omitted-CT duplicate-key tests
 		h.addChannel("oai-ct-chat", channel.TypeOpenai, primarySrv.URL+"/v1", 100, []string{"gpt-ct"}, &objects.ChannelSettings{
 			PassThroughBody: lo.ToPtr(true),
 		})
-		h.addChannel("oai-ct-resp", channel.TypeOpenaiResponses, primarySrv.URL+"/v1", 100, []string{"gpt-resp-ct"}, &objects.ChannelSettings{
+		h.addChannel("oai-ct-resp", channel.TypeOpenaiResponses, primarySrv.URL+"/v1", 100, []string{"gpt-resp-ct", "gpt-resp-mapped"}, &objects.ChannelSettings{
 			PassThroughBody: lo.ToPtr(true),
+			ModelMappings:   []objects.ModelMapping{{From: "gpt-resp-logical", To: "gpt-resp-mapped"}},
+		})
+		h.addChannel("axon-fullpt-resp-dup", channel.TypeAxonhub, backupSrv.URL, 100, []string{"gpt-resp-fullpt-mapped"}, &objects.ChannelSettings{
+			FullPassThrough: true,
+			ModelMappings:   []objects.ModelMapping{{From: "gpt-resp-fullpt", To: "gpt-resp-fullpt-mapped"}},
 		})
 
 		// 1. Duplicate top-level "model" key: first value equals mapped target, last value is logical alias.
@@ -786,6 +798,40 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 		require.NoError(t, json.Unmarshal(atts[0].Body, &decoded))
 		require.Equal(t, "claude-fullpt-mapped", decoded["model"], "FullPassThrough must emit canonical AST for duplicate-key bodies")
 		require.Equal(t, 1, strings.Count(string(atts[0].Body), `"model"`))
+
+		// 2b. /v1/responses with OMITTED Content-Type + duplicate "model" keys must remain accepted
+		// (matching llm/transformer/openai/responses/inbound.go) AND still mark RawBodyAmbiguous so both
+		// ordinary PassThroughBody and AxonHub FullPassThrough emit canonical remapped JSON.
+		for _, tc := range []struct {
+			name       string
+			logical    string
+			wantMapped string
+		}{
+			{"responses_omitted_ct_passthrough", "gpt-resp-logical", "gpt-resp-mapped"},
+			{"responses_omitted_ct_full_passthrough", "gpt-resp-fullpt", "gpt-resp-fullpt-mapped"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h.resetAttempts()
+				body := fmt.Sprintf(`{"model":%q,"model":%q,"stream":true,"input":"hi"}`, tc.wantMapped, tc.logical)
+				req, err := http.NewRequest(http.MethodPost, h.server.URL+"/v1/responses", strings.NewReader(body))
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer "+h.apiKey)
+				// Deliberately omit Content-Type header.
+				res, err := h.server.Client().Do(req)
+				require.NoError(t, err)
+				outBytes, readErr := io.ReadAll(res.Body)
+				_ = res.Body.Close()
+				require.NoError(t, readErr)
+				require.Equal(t, http.StatusOK, res.StatusCode, string(outBytes))
+
+				atts := h.snapshotAttempts()
+				require.Len(t, atts, 1)
+				var dec map[string]any
+				require.NoError(t, json.Unmarshal(atts[0].Body, &dec))
+				require.Equal(t, tc.wantMapped, dec["model"], "omitted-CT Responses duplicate-key body must emit remapped model")
+				require.Equal(t, 1, strings.Count(string(atts[0].Body), `"model"`), "canonical AST must not retain duplicate model keys")
+			})
+		}
 
 		// 3. Invalid/missing Content-Type must match full inbound transformer validation parity:
 		// OpenAI Chat and Anthropic reject both empty and non-JSON Content-Type; OpenAI Responses rejects non-JSON.
@@ -820,10 +866,17 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 	})
 
 	t.Run("DirectPassThrough_PostContentError_PreTerminalEOF_And_ResponsesIncomplete", func(t *testing.T) {
-		var mode string
+		var (
+			mode               string
+			openSocketCanceled = make(chan struct{}, 1)
+		)
 		h, primarySrv, _ := newRewriteMatrixHarness(
 			t,
 			func(w http.ResponseWriter, r *http.Request) {
+				if mode == "post_hang_recovery_ok" {
+					writeAnthropicSSE(w, "slot-released-ok", 10, 0, 5)
+					return
+				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(http.StatusOK)
 				fl, _ := w.(http.Flusher)
@@ -838,6 +891,23 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 					_, _ = fmt.Fprint(w, "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"mid-stream boom\"}}\n\n")
 					if fl != nil {
 						fl.Flush()
+					}
+				case "post_content_error_open_socket":
+					_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_hang\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-hang\",\"content\":[],\"usage\":{\"input_tokens\":30,\"output_tokens\":2}}}\n\n")
+					_, _ = fmt.Fprint(w, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+					_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"before-hang\"}}\n\n")
+					if fl != nil {
+						fl.Flush()
+					}
+					_, _ = fmt.Fprint(w, "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"mid-stream hang boom\"}}\n\n")
+					if fl != nil {
+						fl.Flush()
+					}
+					// Keep transport open until AxonHub closes/cancels upstream.
+					<-r.Context().Done()
+					select {
+					case openSocketCanceled <- struct{}{}:
+					default:
 					}
 				case "pre_terminal_eof":
 					_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_eof\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-err\",\"content\":[],\"usage\":{\"input_tokens\":30,\"output_tokens\":5}}}\n\n")
@@ -861,6 +931,12 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 
 		chAnth := h.addChannel("anth-direct-err", channel.TypeAnthropic, primarySrv.URL, 100, []string{"claude-err"}, &objects.ChannelSettings{
 			PassThroughBody: lo.ToPtr(true),
+		})
+		chAnthHang := h.addChannel("anth-direct-hang", channel.TypeAnthropic, primarySrv.URL, 100, []string{"claude-hang"}, &objects.ChannelSettings{
+			PassThroughBody: lo.ToPtr(true),
+			RateLimit: &objects.ChannelRateLimit{
+				MaxConcurrent: lo.ToPtr(int64(1)),
+			},
 		})
 		chResp := h.addChannel("resp-direct-inc", channel.TypeOpenaiResponses, primarySrv.URL+"/v1", 100, []string{"gpt-inc"}, &objects.ChannelSettings{
 			PassThroughBody: lo.ToPtr(true),
@@ -904,5 +980,36 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 		mResp, err := h.channels.GetChannelMetrics(h.ctx, chResp.ID)
 		require.NoError(t, err)
 		require.Zero(t, mResp.SuccessCount, "response.incomplete must not latch channel performance success")
+
+		// (d) Post-content SSE error where upstream holds the HTTP socket open waiting on r.Context().Done():
+		// downstream must finish promptly with the single error event, upstream socket must close,
+		// RequestExecution must be marked StatusFailed, and the MaxConcurrent=1 admission slot must be released.
+		mode = "post_content_error_open_socket"
+		startHang := time.Now()
+		resp, out = h.postRaw("/anthropic/v1/messages", []byte(`{"model":"claude-hang","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`), nil)
+		require.Less(t, time.Since(startHang), 3*time.Second, "post-commit SSE error must terminate downstream promptly even when upstream holds socket open")
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(t, 1, strings.Count(string(out), "mid-stream hang boom"), "raw SSE error frame must be forwarded exactly once")
+
+		select {
+		case <-openSocketCanceled:
+		case <-time.After(3 * time.Second):
+			t.Fatal("upstream open socket was not canceled promptly after post-commit SSE error")
+		}
+
+		require.Eventually(t, func() bool {
+			execs := h.db.RequestExecution.Query().Where(requestexecution.ChannelIDEQ(chAnthHang.ID)).AllX(h.ctx)
+			if len(execs) == 0 {
+				return false
+			}
+			m, err := h.channels.GetChannelMetrics(h.ctx, chAnthHang.ID)
+			return err == nil && execs[len(execs)-1].Status == requestexecution.StatusFailed && m.FailureCount >= 1
+		}, 3*time.Second, 25*time.Millisecond, "open-socket post-content SSE error must persist failed execution and channel failure")
+
+		// Follow-up request on the same MaxConcurrent=1 channel must succeed immediately, proving the admission slot was released.
+		mode = "post_hang_recovery_ok"
+		resp, out = h.postRaw("/anthropic/v1/messages", []byte(`{"model":"claude-hang","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"after-hang"}]}`), nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(out))
+		require.Contains(t, string(out), "slot-released-ok")
 	})
 }
