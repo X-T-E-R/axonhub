@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -40,6 +41,7 @@ type AnthropicHandlers struct {
 	ModelService           *biz.ModelService
 	SystemService          *biz.SystemService
 	ChatCompletionHandlers *ChatCompletionHandlers
+	ThreadStore            *AnthropicThreadStore
 }
 
 func NewAnthropicHandlers(params AnthropicHandlersParams) *AnthropicHandlers {
@@ -66,11 +68,61 @@ func NewAnthropicHandlers(params AnthropicHandlersParams) *AnthropicHandlers {
 		ChannelService: params.ChannelService,
 		ModelService:   params.ModelService,
 		SystemService:  params.SystemService,
+		ThreadStore:    NewAnthropicThreadStore(),
 	}
 }
 
 func (handlers *AnthropicHandlers) CreateMessage(c *gin.Context) {
-	handlers.ChatCompletionHandlers.ChatCompletion(c)
+	ctx := c.Request.Context()
+
+	genericReq, err := httpclient.ReadHTTPRequest(c.Request)
+	if err != nil {
+		httpErr := handlers.ChatCompletionHandlers.ChatCompletionOrchestrator.Inbound.TransformError(ctx, err)
+		c.JSON(httpErr.StatusCode, json.RawMessage(httpErr.Body))
+		return
+	}
+
+	betaTokens := parseAnthropicBetaTokens(genericReq.Headers)
+	if hasAnthropicBetaToken(betaTokens, anthropicMessageThreadsBeta) && len(genericReq.Body) > 0 {
+		var topFields map[string]json.RawMessage
+		if json.Unmarshal(genericReq.Body, &topFields) == nil && topFields != nil {
+			if _, hasThread := topFields["thread"]; hasThread {
+				session, materializedReq, threadErr := handlers.prepareAnthropicThreadRequest(ctx, genericReq, topFields, betaTokens)
+				if threadErr != nil {
+					writeAnthropicThreadError(c, threadErr)
+					return
+				}
+				handlers.ChatCompletionHandlers.chatCompletionWithRequest(c, materializedReq, session)
+				return
+			}
+		}
+	}
+
+	handlers.ChatCompletionHandlers.ChatCompletionWithRequest(c, genericReq)
+}
+
+// CountTokens rejects requests carrying the message-threads "thread" field per
+// the message-threads-2026-08-12 specification.
+func (handlers *AnthropicHandlers) CountTokens(c *gin.Context) {
+	genericReq, err := httpclient.ReadHTTPRequest(c.Request)
+	if err != nil {
+		writeAnthropicThreadError(c, newAnthropicThreadInvalidRequestError("Failed to read request body."))
+		return
+	}
+	if len(genericReq.Body) > 0 {
+		var topFields map[string]json.RawMessage
+		if json.Unmarshal(genericReq.Body, &topFields) == nil && topFields != nil {
+			if _, hasThread := topFields["thread"]; hasThread {
+				writeAnthropicThreadError(c, newAnthropicThreadInvalidRequestError("The 'thread' parameter is not supported on token counting endpoints."))
+				return
+			}
+		}
+	}
+	writeAnthropicThreadError(c, &anthropicThreadError{
+		status:  http.StatusNotFound,
+		errType: "not_found_error",
+		message: "Token counting endpoint is not supported.",
+	})
 }
 
 type AnthropicModel struct {

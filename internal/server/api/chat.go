@@ -83,8 +83,21 @@ func (handlers *ChatCompletionHandlers) ChatCompletion(c *gin.Context) {
 	handlers.ChatCompletionWithRequest(c, genericReq)
 }
 
+type chatResponseHook interface {
+	OnResponse(resp *httpclient.Response) *httpclient.Response
+	WrapStream(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) streams.Stream[*httpclient.StreamEvent]
+	OnAbort()
+}
+
 func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context, genericReq *httpclient.Request) {
+	handlers.chatCompletionWithRequest(c, genericReq, nil)
+}
+
+func (handlers *ChatCompletionHandlers) chatCompletionWithRequest(c *gin.Context, genericReq *httpclient.Request, hook chatResponseHook) {
 	ctx := c.Request.Context()
+	if hook != nil {
+		defer hook.OnAbort()
+	}
 
 	if genericReq == nil || len(genericReq.Body) == 0 {
 		JSONError(c, http.StatusBadRequest, errors.New("Request body is empty"))
@@ -152,6 +165,9 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 
 	if result.ChatCompletion != nil {
 		resp := result.ChatCompletion
+		if hook != nil {
+			resp = hook.OnResponse(resp)
+		}
 		copyProviderResponseHeaders(c.Writer.Header(), resp.Headers, result.FullResponseHeaderPassThrough)
 
 		contentType := "application/json"
@@ -182,6 +198,9 @@ func (handlers *ChatCompletionHandlers) ChatCompletionWithRequest(c *gin.Context
 		c.Header("Access-Control-Allow-Origin", "*")
 
 		stream := newUpstreamErrorStream(ctx, ownedStream, handlers.ChatCompletionOrchestrator.SystemService)
+		if hook != nil {
+			stream = hook.WrapStream(ctx, stream)
+		}
 		// Custom writers are reserved for non-SSE protocols (for example binary
 		// speech and Gemini JSON). Ordinary OpenAI/Responses/Anthropic SSE routes
 		// always use the liveness-aware writer below.
