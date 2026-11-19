@@ -568,6 +568,11 @@ func (p *pipeline) directPassThroughStream(
 		ctx:     ctx,
 		onError: p.applyRawErrorResponseMiddlewares,
 	}
+	outboundStream = &postCommitRawErrorStream{
+		stream:    outboundStream,
+		apiFormat: llm.APIFormat(request.APIFormat),
+		reporter:  terminalErrorReporter,
+	}
 	outboundStream = &terminalErrorReportingStream[*httpclient.StreamEvent]{
 		stream:   outboundStream,
 		reporter: terminalErrorReporter,
@@ -729,6 +734,9 @@ func classifyRawStreamEvent(apiFormat llm.APIFormat, event *httpclient.StreamEve
 			return rawEventTerminal
 		case "message_delta":
 			if sr := gjson.Get(s, "delta.stop_reason"); sr.Type == gjson.String && sr.Str != "" {
+				if sr.Str == "error" {
+					return rawEventProviderError
+				}
 				return rawEventTerminal
 			}
 			return rawEventPreamble
@@ -755,7 +763,14 @@ func classifyRawStreamEvent(apiFormat llm.APIFormat, event *httpclient.StreamEve
 
 	case llm.APIFormatOpenAIResponse:
 		switch evType {
-		case "response.completed", "response.failed", "response.incomplete", "response.cancelled":
+		case "response.failed":
+			return rawEventProviderError
+		case "response.completed":
+			if gjson.Get(s, "response.status").Str == "failed" {
+				return rawEventProviderError
+			}
+			return rawEventTerminal
+		case "response.incomplete", "response.cancelled", "response.canceled":
 			return rawEventTerminal
 		case "response.output_text.delta",
 			"response.output_text.done",
@@ -784,12 +799,55 @@ func classifyRawStreamEvent(apiFormat llm.APIFormat, event *httpclient.StreamEve
 			return rawEventContent
 		}
 		if fr := choice0.Get("finish_reason"); fr.Type == gjson.String && fr.Str != "" {
+			if fr.Str == "error" {
+				return rawEventProviderError
+			}
 			return rawEventTerminal
 		}
 		return rawEventPreamble
 	}
 
 	return rawEventContent
+}
+
+// postCommitRawErrorStream preserves forwarding raw provider SSE error frames
+// downstream once while also dispatching a typed *llm.ResponseError through the
+// shared terminalErrorReporter when the stream finishes or closes, so health,
+// cooldown, circuit-breaker, and RequestExecution failure hooks stay consistent
+// with full-pipeline streams.
+type postCommitRawErrorStream struct {
+	stream      streams.Stream[*httpclient.StreamEvent]
+	apiFormat   llm.APIFormat
+	reporter    *terminalErrorReporter
+	current     *httpclient.StreamEvent
+	providerErr *llm.ResponseError
+}
+
+func (s *postCommitRawErrorStream) Next() bool {
+	if s.stream.Next() {
+		ev := s.stream.Current()
+		s.current = ev
+		if s.providerErr == nil && classifyRawStreamEvent(s.apiFormat, ev) == rawEventProviderError {
+			s.providerErr = parseRawStreamProviderError(s.apiFormat, ev)
+		}
+		return true
+	}
+	s.current = nil
+	if s.stream.Err() == nil && s.providerErr != nil && s.reporter != nil {
+		s.reporter.report(s.providerErr)
+	}
+	return false
+}
+
+func (s *postCommitRawErrorStream) Current() *httpclient.StreamEvent { return s.current }
+
+func (s *postCommitRawErrorStream) Err() error { return s.stream.Err() }
+
+func (s *postCommitRawErrorStream) Close() error {
+	if s.stream.Err() == nil && s.providerErr != nil && s.reporter != nil {
+		s.reporter.report(s.providerErr)
+	}
+	return s.stream.Close()
 }
 
 func parseRawStreamProviderError(apiFormat llm.APIFormat, event *httpclient.StreamEvent) *llm.ResponseError {
@@ -812,6 +870,9 @@ func parseRawStreamProviderError(apiFormat llm.APIFormat, event *httpclient.Stre
 		}
 	}
 	errObj := candidate.Get("error")
+	if !errObj.Exists() {
+		errObj = candidate.Get("response.error")
+	}
 	detail := llm.ErrorDetail{
 		Code:      strings.Clone(errObj.Get("code").String()),
 		Message:   strings.Clone(errObj.Get("message").String()),

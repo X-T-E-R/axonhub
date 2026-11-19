@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -21,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/klauspost/compress/zstd"
 	"github.com/tidwall/gjson"
 )
@@ -106,11 +108,23 @@ func saveHeapProfile(client *http.Client, debugURL, outPath string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("pprof heap HTTP %d", resp.StatusCode)
+	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
+	if len(data) == 0 {
+		return fmt.Errorf("empty pprof heap profile from %s", debugURL)
+	}
 	return os.WriteFile(outPath, data, 0o644)
+}
+
+func mustSaveHeapProfile(client *http.Client, debugURL, outPath string) {
+	if err := saveHeapProfile(client, debugURL, outPath); err != nil {
+		panic(fmt.Errorf("saveHeapProfile(%s): %w", outPath, err))
+	}
 }
 
 // --- Synthetic real-topology payload builders ---
@@ -332,27 +346,29 @@ func buildResponsesSSE(model string, n int) []string {
 // --- Active Wire-Verifying Mock Upstream SSE Server ---
 
 type mockUpstream struct {
-	anthFrames      []string
-	chatFrames      []string
-	respFrames      []string
-	spikeFrame      string
-	holdGate        chan struct{}
-	midGate         chan struct{}
-	openedCh        chan struct{}
-	midCh           chan struct{}
-	totalReqs       atomic.Int64
-	wireVerifiedCnt atomic.Int64
-	wireMismatchCnt atomic.Int64
-	firstMismatch   atomic.Value
-	retries502      atomic.Int64
-	retriesPreErr   atomic.Int64
-	enable502       atomic.Bool
-	enablePreErr    atomic.Bool
-	enableHold      atomic.Bool
-	verifyWire      atomic.Bool
-	spikeNext       atomic.Bool
-	canceledCnt     atomic.Int64
-	bufPool         sync.Pool
+	anthFrames           []string
+	chatFrames           []string
+	respFrames           []string
+	spikeFrame           string
+	holdGate             chan struct{}
+	midGate              chan struct{}
+	openedCh             chan struct{}
+	midCh                chan struct{}
+	totalReqs            atomic.Int64
+	wireVerifiedCnt      atomic.Int64
+	wireMismatchCnt      atomic.Int64
+	threadContinueMatCnt atomic.Int64
+	firstMismatch        atomic.Value
+	retries502           atomic.Int64
+	retriesPreErr        atomic.Int64
+	enable502            atomic.Bool
+	enablePreErr         atomic.Bool
+	enableHold           atomic.Bool
+	verifyWire           atomic.Bool
+	expectThreads        atomic.Bool
+	spikeNext            atomic.Bool
+	canceledCnt          atomic.Int64
+	bufPool              sync.Pool
 }
 
 func newMockUpstream(anth, chat, resp []string, spike string) *mockUpstream {
@@ -411,6 +427,17 @@ func (m *mockUpstream) validateWire(r *http.Request, body []byte) error {
 	}
 	if got := r.Header.Get("X-Crucible-User"); got != "usr_crucible" {
 		return fmt.Errorf("wire header X-Crucible-User mismatch on %s: got %q want usr_crucible", r.URL.Path, got)
+	}
+	if m.expectThreads.Load() {
+		if gjson.GetBytes(body, "thread").Exists() {
+			return fmt.Errorf("wire thread field leaked to upstream on %s", r.URL.Path)
+		}
+		if strings.Contains(r.Header.Get("Anthropic-Beta"), "message-threads-2026-08-12") {
+			return fmt.Errorf("wire message-threads beta token leaked to upstream on %s", r.URL.Path)
+		}
+		if msgCount := len(gjson.GetBytes(body, "messages").Array()); msgCount >= 3 {
+			m.threadContinueMatCnt.Add(1)
+		}
 	}
 	return nil
 }
@@ -584,7 +611,7 @@ func gql(client *http.Client, baseURL, token, query string, vars map[string]any)
 	return out.Data, nil
 }
 
-func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThrough, verifyWire bool, keyCount int) ([]string, error) {
+func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThrough, verifyWire bool, keyCount int) ([]string, []int, error) {
 	deadline := time.Now().Add(45 * time.Second)
 	ready := false
 	for time.Now().Before(deadline) {
@@ -600,7 +627,7 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 		time.Sleep(150 * time.Millisecond)
 	}
 	if !ready {
-		return nil, fmt.Errorf("axonhub /health did not become ready in time")
+		return nil, nil, fmt.Errorf("axonhub /health did not become ready in time")
 	}
 
 	// 1. Initialize system
@@ -612,7 +639,7 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 		"brandName":      "AxonBench",
 	})
 	if err != nil || code != 200 {
-		return nil, fmt.Errorf("init failed (%d): %v %s", code, err, string(data))
+		return nil, nil, fmt.Errorf("init failed (%d): %v %s", code, err, string(data))
 	}
 
 	// 2. Sign in
@@ -621,13 +648,13 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 		"password": "BenchPass123!",
 	})
 	if err != nil || code != 200 {
-		return nil, fmt.Errorf("signin failed (%d): %v %s", code, err, string(data))
+		return nil, nil, fmt.Errorf("signin failed (%d): %v %s", code, err, string(data))
 	}
 	var signIn struct {
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal(data, &signIn); err != nil || signIn.Token == "" {
-		return nil, fmt.Errorf("signin missing token: %s", string(data))
+		return nil, nil, fmt.Errorf("signin missing token: %s", string(data))
 	}
 	tok := signIn.Token
 
@@ -642,7 +669,7 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 		})
 	}`, nil)
 	if err != nil {
-		return nil, fmt.Errorf("updateStoragePolicy: %w", err)
+		return nil, nil, fmt.Errorf("updateStoragePolicy: %w", err)
 	}
 
 	// 4. RetryPolicy: enable channel failover retry
@@ -656,7 +683,7 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 		})
 	}`, nil)
 	if err != nil {
-		return nil, fmt.Errorf("updateRetryPolicy: %w", err)
+		return nil, nil, fmt.Errorf("updateRetryPolicy: %w", err)
 	}
 
 	// 5. Create Channels with distinct primary/backup model mappings & body/header override templates
@@ -709,7 +736,7 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 				"type":             ch.chType,
 				"name":             ch.name,
 				"baseURL":          ch.url,
-				"credentials":      map[string]any{"apiKey": "synthetic-upstream-key"},
+				"credentials":      map[string]any{"apiKey": "synthetic-upstream-key-" + ch.name},
 				"supportedModels":  supported,
 				"defaultTestModel": defaultTest,
 				"orderingWeight":   ch.weight,
@@ -717,7 +744,7 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("createChannel %s: %w", ch.name, err)
+			return nil, nil, fmt.Errorf("createChannel %s: %w", ch.name, err)
 		}
 		if cc, ok := res["createChannel"].(map[string]any); ok {
 			if id, ok := cc["id"].(string); ok && id != "" {
@@ -729,15 +756,26 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 		if _, err := gql(client, baseURL, tok, `mutation BulkEnableChannels($ids: [ID!]!) {
 			bulkEnableChannels(ids: $ids)
 		}`, map[string]any{"ids": chIDs}); err != nil {
-			return nil, fmt.Errorf("bulkEnableChannels: %w", err)
+			return nil, nil, fmt.Errorf("bulkEnableChannels: %w", err)
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+
+	var numericChIDs []int
+	for _, rawID := range chIDs {
+		s := rawID
+		if idx := strings.LastIndex(s, "/"); idx >= 0 {
+			s = s[idx+1:]
+		}
+		if n, convErr := strconv.Atoi(s); convErr == nil && n > 0 {
+			numericChIDs = append(numericChIDs, n)
+		}
 	}
 
 	// 6. Query default project ID & create API Key(s)
 	projData, err := gql(client, baseURL, tok, `query { projects(first: 5) { edges { node { id name } } } }`, nil)
 	if err != nil {
-		return nil, fmt.Errorf("query projects: %w", err)
+		return nil, nil, fmt.Errorf("query projects: %w", err)
 	}
 	projID := ""
 	if projects, ok := projData["projects"].(map[string]any); ok {
@@ -748,7 +786,7 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 		}
 	}
 	if projID == "" {
-		return nil, fmt.Errorf("no default project found: %v", projData)
+		return nil, nil, fmt.Errorf("no default project found: %v", projData)
 	}
 
 	if keyCount < 1 {
@@ -767,50 +805,56 @@ func bootstrapAxonHub(client *http.Client, baseURL, upstreamURL string, passThro
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("createAPIKey #%d: %w", k, err)
+			return nil, nil, fmt.Errorf("createAPIKey #%d: %w", k, err)
 		}
 		apiKey := ""
 		if ck, ok := keyData["createAPIKey"].(map[string]any); ok {
 			apiKey, _ = ck["key"].(string)
 		}
 		if apiKey == "" {
-			return nil, fmt.Errorf("empty apiKey #%d: %v", k, keyData)
+			return nil, nil, fmt.Errorf("empty apiKey #%d: %v", k, keyData)
 		}
 		apiKeys = append(apiKeys, apiKey)
 	}
-	return apiKeys, nil
+	return apiKeys, numericChIDs, nil
 }
 
-func drainSSE(resp *http.Response, abort bool, slow bool) (int, error) {
+func drainSSE(resp *http.Response, abort bool, slow bool) (int, string, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
+		return 0, "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
 	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 8192), 16<<20)
 	lines := 0
 	terminal := false
+	msgID := ""
 	for sc.Scan() {
 		lines++
 		ln := sc.Bytes()
+		if msgID == "" && bytes.HasPrefix(ln, []byte("data: ")) && bytes.Contains(ln, []byte(`"message_start"`)) {
+			if id := gjson.GetBytes(ln[6:], "message.id").String(); id != "" {
+				msgID = id
+			}
+		}
 		if bytes.Contains(ln, []byte("message_stop")) || bytes.Contains(ln, []byte("[DONE]")) || bytes.Contains(ln, []byte("response.completed")) {
 			terminal = true
 		}
 		if abort && lines >= 30 {
-			return lines, nil
+			return lines, msgID, nil
 		}
 		if slow && lines%120 == 100 {
 			time.Sleep(2 * time.Millisecond)
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return lines, err
+		return lines, msgID, err
 	}
 	if !terminal {
-		return lines, fmt.Errorf("stream ended without terminal event (lines=%d)", lines)
+		return lines, msgID, fmt.Errorf("stream ended without terminal event (lines=%d)", lines)
 	}
-	return lines, nil
+	return lines, msgID, nil
 }
 
 func main() {
@@ -854,59 +898,22 @@ func main() {
 	defer upSrv.Close()
 	upstreamURL := "http://" + upLn.Addr().String()
 
-	// Pick free ports for AxonHub & debug listener
-	p1, _ := net.Listen("tcp", "127.0.0.1:0")
-	sutPort := p1.Addr().(*net.TCPAddr).Port
-	p1.Close()
-	p2, _ := net.Listen("tcp", "127.0.0.1:0")
-	dbgPort := p2.Addr().(*net.TCPAddr).Port
-	p2.Close()
+	// Pick free ports for AxonHub SUT, debug listener, and (for compact_accounting) Control Node A.
+	pickPort := func() int {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			panic(err)
+		}
+		p := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+		return p
+	}
+	sutPort := pickPort()
+	dbgPort := pickPort()
 
 	workDir, _ := os.MkdirTemp("", "axon-sut-*")
 	defer os.RemoveAll(workDir)
 	dbPath := filepath.Join(workDir, "axonhub.db")
-
-	sutCmd := exec.Command(*sutBin)
-	sutCmd.Dir = workDir
-	sutEnv := append(os.Environ(),
-		"AXONHUB_SERVER_HOST=127.0.0.1",
-		fmt.Sprintf("AXONHUB_SERVER_PORT=%d", sutPort),
-		fmt.Sprintf("AXONHUB_SERVER_DEBUG_LISTENER=127.0.0.1:%d", dbgPort),
-		"AXONHUB_LOG_LEVEL=error",
-		"AXONHUB_LOG_OUTPUT=stdio",
-	)
-	if *pgDSN != "" {
-		sutEnv = append(sutEnv,
-			"AXONHUB_DB_DIALECT=postgres",
-			"AXONHUB_DB_DSN="+*pgDSN,
-		)
-	} else {
-		sutEnv = append(sutEnv,
-			"AXONHUB_DB_DIALECT=sqlite3",
-			fmt.Sprintf("AXONHUB_DB_DSN=file:%s?cache=shared&_fk=1&_journal_mode=WAL&_busy_timeout=5000", dbPath),
-		)
-	}
-	if *redisURL != "" {
-		sutEnv = append(sutEnv,
-			"AXONHUB_CACHE_MODE=redis",
-			"AXONHUB_CACHE_REDIS_URL="+*redisURL,
-		)
-	}
-	if *memLimit != "" {
-		sutEnv = append(sutEnv, "GOMEMLIMIT="+*memLimit)
-	}
-	sutCmd.Env = sutEnv
-	sutLog, _ := os.Create(filepath.Join(*outDir, "sut.log"))
-	sutCmd.Stdout = sutLog
-	sutCmd.Stderr = sutLog
-	if err := sutCmd.Start(); err != nil {
-		panic(fmt.Errorf("start sut: %w", err))
-	}
-	defer func() {
-		_ = sutCmd.Process.Kill()
-		_ = sutCmd.Wait()
-		sutLog.Close()
-	}()
 
 	sutBase := fmt.Sprintf("http://127.0.0.1:%d", sutPort)
 	dbgBase := fmt.Sprintf("http://127.0.0.1:%d", dbgPort)
@@ -918,9 +925,222 @@ func main() {
 		// dictionaries (> maxCachedDictDecoders=16), exercising real cross-tenant decoder LRU eviction.
 		keyCount = 6
 	}
-	apiKeys, err := bootstrapAxonHub(adminClient, sutBase, upstreamURL, *passThrough, *verifyWire, keyCount)
-	if err != nil {
-		panic(fmt.Errorf("bootstrap: %w", err))
+
+	var (
+		sutCmd     *exec.Cmd
+		sutLog     *os.File
+		apiKeys    []string
+		outboxPath string
+	)
+
+	if *scenario == "compact_accounting" {
+		if *pgDSN == "" || *redisURL == "" {
+			panic("compact_accounting requires --pg-dsn and --redis-url")
+		}
+		ctrlPort := pickPort()
+		ctrlBase := fmt.Sprintf("http://127.0.0.1:%d", ctrlPort)
+		ctrlDir, _ := os.MkdirTemp("", "axon-ctrl-*")
+		defer os.RemoveAll(ctrlDir)
+
+		ctrlYAML := fmt.Sprintf(`server:
+  host: "127.0.0.1"
+  port: %d
+db:
+  dialect: "postgres"
+  dsn: %q
+cache:
+  mode: "redis"
+  redis:
+    url: %q
+log:
+  level: "error"
+  output: "stdio"
+cluster:
+  enabled: true
+  node_id: "ctrl-a"
+  control_node: "ctrl-a"
+  nodes:
+    ctrl-a: %q
+    data-b: %q
+  channels:
+    1:
+      owner: "data-b"
+      identity: "crucible-acct-1"
+    2:
+      owner: "data-b"
+      identity: "crucible-acct-2"
+    3:
+      owner: "data-b"
+      identity: "crucible-acct-3"
+    4:
+      owner: "data-b"
+      identity: "crucible-acct-4"
+    5:
+      owner: "data-b"
+      identity: "crucible-acct-5"
+    6:
+      owner: "data-b"
+      identity: "crucible-acct-6"
+    7:
+      owner: "data-b"
+      identity: "crucible-acct-7"
+    8:
+      owner: "data-b"
+      identity: "crucible-acct-8"
+  compact_accounting:
+    enabled: true
+    shared_secret: "crucible-compact-secret"
+`, ctrlPort, *pgDSN, *redisURL, ctrlBase, sutBase)
+		if err := os.WriteFile(filepath.Join(ctrlDir, "config.yml"), []byte(ctrlYAML), 0o600); err != nil {
+			panic(err)
+		}
+
+		ctrlCmd := exec.Command(*sutBin)
+		ctrlCmd.Dir = ctrlDir
+		ctrlCmd.Env = os.Environ()
+		ctrlLog, _ := os.Create(filepath.Join(*outDir, "ctrl.log"))
+		ctrlCmd.Stdout = ctrlLog
+		ctrlCmd.Stderr = ctrlLog
+		if err := ctrlCmd.Start(); err != nil {
+			panic(fmt.Errorf("start ctrl node: %w", err))
+		}
+		defer func() {
+			_ = ctrlCmd.Process.Kill()
+			_ = ctrlCmd.Wait()
+			ctrlLog.Close()
+		}()
+
+		var chIDs []int
+		apiKeys, chIDs, err = bootstrapAxonHub(adminClient, ctrlBase, upstreamURL, *passThrough, *verifyWire, keyCount)
+		if err != nil {
+			panic(fmt.Errorf("bootstrap control node: %w", err))
+		}
+		if len(chIDs) == 0 {
+			panic("bootstrap returned zero channel IDs for cluster bindings")
+		}
+
+		var chBindings strings.Builder
+		for _, id := range chIDs {
+			fmt.Fprintf(&chBindings, "    %d:\n      owner: \"data-b\"\n      identity: \"crucible-acct-%d\"\n", id, id)
+		}
+		outboxPath = filepath.Join(workDir, "compact-outbox-data-b.db")
+		dataYAML := fmt.Sprintf(`server:
+  host: "127.0.0.1"
+  port: %d
+  debug_listener: "127.0.0.1:%d"
+db:
+  dialect: "postgres"
+  dsn: %q
+  disable_auto_migration: true
+cache:
+  mode: "redis"
+  redis:
+    url: %q
+log:
+  level: "error"
+  output: "stdio"
+cluster:
+  enabled: true
+  node_id: "data-b"
+  control_node: "ctrl-a"
+  nodes:
+    ctrl-a: %q
+    data-b: %q
+  channels:
+%s  compact_accounting:
+    enabled: true
+    outbox_path: %q
+    sync_interval: "1s"
+    shared_secret: "crucible-compact-secret"
+`, sutPort, dbgPort, *pgDSN, *redisURL, ctrlBase, sutBase, chBindings.String(), outboxPath)
+		if err := os.WriteFile(filepath.Join(workDir, "config.yml"), []byte(dataYAML), 0o600); err != nil {
+			panic(err)
+		}
+
+		sutCmd = exec.Command(*sutBin)
+		sutCmd.Dir = workDir
+		sutEnv := os.Environ()
+		if *memLimit != "" {
+			sutEnv = append(sutEnv, "GOMEMLIMIT="+*memLimit)
+		}
+		sutCmd.Env = sutEnv
+		sutLog, _ = os.Create(filepath.Join(*outDir, "sut.log"))
+		sutCmd.Stdout = sutLog
+		sutCmd.Stderr = sutLog
+		if err := sutCmd.Start(); err != nil {
+			panic(fmt.Errorf("start data-b sut: %w", err))
+		}
+		defer func() {
+			_ = sutCmd.Process.Kill()
+			_ = sutCmd.Wait()
+			sutLog.Close()
+		}()
+
+		// Wait for Data Node B /health
+		deadline := time.Now().Add(45 * time.Second)
+		ready := false
+		for time.Now().Before(deadline) {
+			resp, hErr := adminClient.Get(sutBase + "/health")
+			if hErr == nil && resp.StatusCode == 200 {
+				resp.Body.Close()
+				ready = true
+				break
+			}
+			if resp != nil {
+				resp.Body.Close()
+			}
+			time.Sleep(150 * time.Millisecond)
+		}
+		if !ready {
+			panic("data-b /health did not become ready in time")
+		}
+	} else {
+		sutCmd = exec.Command(*sutBin)
+		sutCmd.Dir = workDir
+		sutEnv := append(os.Environ(),
+			"AXONHUB_SERVER_HOST=127.0.0.1",
+			fmt.Sprintf("AXONHUB_SERVER_PORT=%d", sutPort),
+			fmt.Sprintf("AXONHUB_SERVER_DEBUG_LISTENER=127.0.0.1:%d", dbgPort),
+			"AXONHUB_LOG_LEVEL=error",
+			"AXONHUB_LOG_OUTPUT=stdio",
+		)
+		if *pgDSN != "" {
+			sutEnv = append(sutEnv,
+				"AXONHUB_DB_DIALECT=postgres",
+				"AXONHUB_DB_DSN="+*pgDSN,
+			)
+		} else {
+			sutEnv = append(sutEnv,
+				"AXONHUB_DB_DIALECT=sqlite3",
+				fmt.Sprintf("AXONHUB_DB_DSN=file:%s?cache=shared&_fk=1&_journal_mode=WAL&_busy_timeout=5000", dbPath),
+			)
+		}
+		if *redisURL != "" {
+			sutEnv = append(sutEnv,
+				"AXONHUB_CACHE_MODE=redis",
+				"AXONHUB_CACHE_REDIS_URL="+*redisURL,
+			)
+		}
+		if *memLimit != "" {
+			sutEnv = append(sutEnv, "GOMEMLIMIT="+*memLimit)
+		}
+		sutCmd.Env = sutEnv
+		sutLog, _ = os.Create(filepath.Join(*outDir, "sut.log"))
+		sutCmd.Stdout = sutLog
+		sutCmd.Stderr = sutLog
+		if err := sutCmd.Start(); err != nil {
+			panic(fmt.Errorf("start sut: %w", err))
+		}
+		defer func() {
+			_ = sutCmd.Process.Kill()
+			_ = sutCmd.Wait()
+			sutLog.Close()
+		}()
+
+		apiKeys, _, err = bootstrapAxonHub(adminClient, sutBase, upstreamURL, *passThrough, *verifyWire, keyCount)
+		if err != nil {
+			panic(fmt.Errorf("bootstrap: %w", err))
+		}
 	}
 	apiKey := apiKeys[0]
 
@@ -942,7 +1162,22 @@ func main() {
 	case "anthropic_threads":
 		targetURL = sutBase + "/v1/messages"
 		reqHeaders.Set("Anthropic-Beta", "message-threads-2026-08-12")
-		reqSpecs = []reqSpec{{body: buildAnthropicBody("bench-anthropic", min(bodyBytes, 256<<10)), apiKey: apiKey}}
+		up.expectThreads.Store(true)
+		// Build a real message-threads Turn-1 create body carrying "thread":{"type":"create"}.
+		// Turn-2 continuations carrying "thread":{"type":"continue","previous_message_id":...}
+		// are constructed per worker after Turn-1 returns each unique message_start.message.id.
+		createObj := map[string]any{
+			"model":      "bench-anthropic",
+			"stream":     true,
+			"max_tokens": 65536,
+			"metadata":   map[string]any{"user_id": "usr_crucible"},
+			"system":     "Work only with the synthetic records supplied in this benchmark.",
+			"thinking":   map[string]any{"type": "enabled", "budget_tokens": 32768},
+			"tools":      buildTools()[:10],
+			"messages":   []map[string]any{{"role": "user", "content": []map[string]any{{"type": "text", "text": "Initial thread context:\n" + stressCode(7, min(bodyBytes, 128<<10))}}}},
+			"thread":     map[string]any{"type": "create"},
+		}
+		reqSpecs = []reqSpec{{body: mustJSON(createObj), apiKey: apiKey}}
 	case "anthropic_zstd":
 		targetURL = sutBase + "/v1/messages"
 		plain := buildAnthropicBody("bench-anthropic", bodyBytes)
@@ -1007,14 +1242,59 @@ func main() {
 		if err != nil {
 			panic(fmt.Errorf("warmup failed: %w", err))
 		}
-		if _, err := drainSSE(wResp, false, false); err != nil {
+		if _, _, err := drainSSE(wResp, false, false); err != nil {
 			panic(fmt.Errorf("warmup drain failed: %w", err))
+		}
+	}
+
+	// For anthropic_threads, create *conc real threads (Turn 1) before activating the mid-stream
+	// barrier, then drive all *conc concurrent Turn-2 continuations simultaneously so
+	// anthropic_threads.go materialization is genuinely exercised under concurrency.
+	var threadContinueBodies [][]byte
+	if *scenario == "anthropic_threads" {
+		threadContinueBodies = make([][]byte, *conc)
+		var twg sync.WaitGroup
+		var tErr atomic.Value
+		for i := 0; i < *conc; i++ {
+			twg.Add(1)
+			go func(idx int) {
+				defer twg.Done()
+				cReq, _ := http.NewRequest(http.MethodPost, targetURL, bytes.NewReader(reqSpecs[0].body))
+				cReq.Header = reqHeaders.Clone()
+				cReq.Header.Set("X-API-Key", apiKey)
+				cReq.Header.Set("Authorization", "Bearer "+apiKey)
+				cResp, err := adminClient.Do(cReq)
+				if err != nil {
+					tErr.CompareAndSwap(nil, fmt.Errorf("thread create #%d: %w", idx, err))
+					return
+				}
+				_, msgID, err := drainSSE(cResp, false, false)
+				if err != nil || msgID == "" {
+					tErr.CompareAndSwap(nil, fmt.Errorf("thread create #%d drain/id=%q: %v", idx, msgID, err))
+					return
+				}
+				contObj := map[string]any{
+					"model":      "bench-anthropic",
+					"stream":     true,
+					"max_tokens": 65536,
+					"metadata":   map[string]any{"user_id": "usr_crucible"},
+					"thinking":   map[string]any{"type": "enabled", "budget_tokens": 32768},
+					"messages":   []map[string]any{{"role": "user", "content": fmt.Sprintf("Turn 2 continuation #%d: summarize the prior thread state.", idx)}},
+					"thread":     map[string]any{"type": "continue", "previous_message_id": msgID},
+				}
+				threadContinueBodies[idx] = mustJSON(contObj)
+			}(i)
+		}
+		twg.Wait()
+		if v := tErr.Load(); v != nil {
+			panic(v)
 		}
 	}
 
 	// Reset counters & capture before-load baseline
 	up.totalReqs.Store(0)
 	up.wireVerifiedCnt.Store(0)
+	up.threadContinueMatCnt.Store(0)
 	up.retries502.Store(0)
 	up.retriesPreErr.Store(0)
 	up.canceledCnt.Store(0)
@@ -1025,7 +1305,7 @@ func main() {
 		up.spikeNext.Store(true)
 	}
 
-	_ = saveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "before_heap.pb.gz"))
+	mustSaveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "before_heap.pb.gz"))
 	before := captureSample(adminClient, sutCmd.Process.Pid, dbgBase)
 
 	// Start background peak monitor
@@ -1088,13 +1368,14 @@ func main() {
 			defer wg.Done()
 			admit <- struct{}{}
 			spec := reqSpecs[idx%len(reqSpecs)]
-			req, _ := http.NewRequest(http.MethodPost, targetURL, bytes.NewReader(spec.body))
+			body := spec.body
+			if *scenario == "anthropic_threads" {
+				body = threadContinueBodies[idx]
+			}
+			req, _ := http.NewRequest(http.MethodPost, targetURL, bytes.NewReader(body))
 			req.Header = reqHeaders.Clone()
 			req.Header.Set("X-API-Key", spec.apiKey)
 			req.Header.Set("Authorization", "Bearer "+spec.apiKey)
-			if *scenario == "anthropic_threads" {
-				req.Header.Set("AH-Thread-Id", fmt.Sprintf("thr_crucible_%03d", idx))
-			}
 			resp, err := loadClient.Do(req)
 			<-admit
 			if err != nil {
@@ -1104,7 +1385,7 @@ func main() {
 			}
 			abort := idx%10 == 9
 			slow := idx%7 == 6
-			_, err = drainSSE(resp, abort, slow)
+			_, _, err = drainSSE(resp, abort, slow)
 			if err != nil {
 				errCnt.Add(1)
 				firstErr.CompareAndSwap(nil, err.Error())
@@ -1134,21 +1415,29 @@ func main() {
 	}
 
 	openedStreams := waitOpen(up.openedCh, *conc, 60*time.Second)
+	if openedStreams < *conc {
+		panic(fmt.Errorf("open barrier incomplete: got %d/%d", openedStreams, *conc))
+	}
 	time.Sleep(1 * time.Second)
-	_ = saveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "open_heap.pb.gz"))
+	mustSaveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "open_heap.pb.gz"))
 	openSample := captureSample(adminClient, sutCmd.Process.Pid, dbgBase)
 
 	close(up.holdGate)
 	wantMid := *conc - (*conc / 10)
 	midStreams := waitOpen(up.midCh, wantMid, 60*time.Second)
+	if midStreams < wantMid {
+		panic(fmt.Errorf("midstream barrier incomplete: got %d/%d", midStreams, wantMid))
+	}
 	time.Sleep(time.Duration(*holdSec) * time.Second)
 
-	_ = saveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "midstream_heap.pb.gz"))
+	mustSaveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "midstream_heap.pb.gz"))
 	midSample := captureSample(adminClient, sutCmd.Process.Pid, dbgBase)
 
 	close(up.midGate)
 	wg.Wait()
 	elapsed := time.Since(start)
+	// Capture main-wave allocation BEFORE optional post-spike wave so alloc_bytes_per_req is uncontaminated.
+	mainWaveAfter := captureSample(adminClient, sutCmd.Process.Pid, dbgBase)
 
 	var postSpikeSample sample
 	if *scenario == "anthropic_256" || *scenario == "anthropic_chaos" {
@@ -1167,64 +1456,94 @@ func main() {
 				req.Header.Set("Authorization", "Bearer "+apiKey)
 				resp, err := loadClient.Do(req)
 				if err == nil {
-					_, _ = drainSSE(resp, false, false)
+					_, _, _ = drainSSE(resp, false, false)
 				}
 			}()
 		}
 		wg2.Wait()
 		time.Sleep(500 * time.Millisecond)
-		_ = saveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "post_spike_heap.pb.gz"))
+		mustSaveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "post_spike_heap.pb.gz"))
 		postSpikeSample = captureSample(adminClient, sutCmd.Process.Pid, dbgBase)
 	}
 
 	loadClient.CloseIdleConnections()
 	time.Sleep(1 * time.Second)
-	_ = saveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "after_heap.pb.gz"))
+	mustSaveHeapProfile(adminClient, dbgBase, filepath.Join(*outDir, "after_heap.pb.gz"))
 	after := captureSample(adminClient, sutCmd.Process.Pid, dbgBase)
 
 	close(stopMon)
 	peak := <-peakCh
 
+	// Verify real compact_accounting outbox + PG18 batch ingestion when scenario == compact_accounting.
+	var compactOutboxBytes int64
+	var compactBatchesIngested int64
+	var compactUsageLogsFlushed int64
+	if *scenario == "compact_accounting" {
+		pgDB, err := sql.Open("pgx", *pgDSN)
+		if err != nil {
+			panic(fmt.Errorf("open pg for compact verification: %w", err))
+		}
+		defer pgDB.Close()
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if st, statErr := os.Stat(outboxPath); statErr == nil {
+				compactOutboxBytes = st.Size()
+			}
+			_ = pgDB.QueryRow(`SELECT COUNT(*) FROM compact_usage_batches`).Scan(&compactBatchesIngested)
+			_ = pgDB.QueryRow(`SELECT COUNT(*) FROM usage_logs`).Scan(&compactUsageLogsFlushed)
+			if compactOutboxBytes > 0 && compactBatchesIngested > 0 && compactUsageLogsFlushed >= okCnt.Load() {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+
 	totalDone := okCnt.Load() + abortCnt.Load()
 	var allocPerReq uint64
-	if totalDone > 0 && after.TotalAlloc > before.TotalAlloc {
-		allocPerReq = (after.TotalAlloc - before.TotalAlloc) / uint64(totalDone)
+	if totalDone > 0 && mainWaveAfter.TotalAlloc > before.TotalAlloc {
+		allocPerReq = (mainWaveAfter.TotalAlloc - before.TotalAlloc) / uint64(totalDone)
 	}
 
 	res := map[string]any{
-		"scenario":               *scenario,
-		"sut":                    filepath.Base(*sutBin),
-		"passthrough":            *passThrough,
-		"verify_wire":            *verifyWire,
-		"gomemlimit":             *memLimit,
-		"db_mode":                map[bool]string{true: "postgres", false: "sqlite"}[*pgDSN != ""],
-		"cache_mode":             map[bool]string{true: "redis", false: "memory"}[*redisURL != ""],
-		"concurrency":            *conc,
-		"body_bytes":             bodyBytes,
-		"wire_bytes":             len(reqSpecs[0].body),
-		"dict_count":             len(reqSpecs),
-		"events_per_stream":      *events,
-		"opened_concurrent":      openedStreams,
-		"midstream_concurrent":   midStreams,
-		"completed":              okCnt.Load(),
-		"aborted":                abortCnt.Load(),
-		"errors":                 errCnt.Load(),
-		"first_error":            firstErr.Load(),
-		"upstream_total_reqs":    up.totalReqs.Load(),
-		"wire_verified_reqs":     up.wireVerifiedCnt.Load(),
-		"wire_mismatch_reqs":     up.wireMismatchCnt.Load(),
-		"first_wire_mismatch":    up.firstMismatch.Load(),
-		"upstream_502_retries":   up.retries502.Load(),
-		"upstream_preerr_retry":  up.retriesPreErr.Load(),
-		"upstream_canceled":      up.canceledCnt.Load(),
-		"elapsed_ms":             elapsed.Milliseconds(),
-		"alloc_bytes_per_req":    allocPerReq,
-		"before":                 before,
-		"open":                   openSample,
-		"midstream":              midSample,
-		"post_spike":             postSpikeSample,
-		"after":                  after,
-		"peak":                   peak,
+		"scenario":                   *scenario,
+		"sut":                        filepath.Base(*sutBin),
+		"passthrough":                *passThrough,
+		"verify_wire":                *verifyWire,
+		"gomemlimit":                 *memLimit,
+		"db_mode":                    map[bool]string{true: "postgres", false: "sqlite"}[*pgDSN != ""],
+		"cache_mode":                 map[bool]string{true: "redis", false: "memory"}[*redisURL != ""],
+		"cluster_compact_active":     *scenario == "compact_accounting",
+		"compact_outbox_bytes":       compactOutboxBytes,
+		"compact_batches_ingested":   compactBatchesIngested,
+		"compact_usage_logs_flushed": compactUsageLogsFlushed,
+		"thread_continue_materialized": up.threadContinueMatCnt.Load(),
+		"concurrency":                *conc,
+		"body_bytes":                 bodyBytes,
+		"wire_bytes":                 len(reqSpecs[0].body),
+		"dict_count":                 len(reqSpecs),
+		"events_per_stream":          *events,
+		"opened_concurrent":          openedStreams,
+		"midstream_concurrent":       midStreams,
+		"completed":                  okCnt.Load(),
+		"aborted":                    abortCnt.Load(),
+		"errors":                     errCnt.Load(),
+		"first_error":                firstErr.Load(),
+		"upstream_total_reqs":        up.totalReqs.Load(),
+		"wire_verified_reqs":         up.wireVerifiedCnt.Load(),
+		"wire_mismatch_reqs":         up.wireMismatchCnt.Load(),
+		"first_wire_mismatch":        up.firstMismatch.Load(),
+		"upstream_502_retries":       up.retries502.Load(),
+		"upstream_preerr_retry":      up.retriesPreErr.Load(),
+		"upstream_canceled":          up.canceledCnt.Load(),
+		"elapsed_ms":                 elapsed.Milliseconds(),
+		"alloc_bytes_per_req":        allocPerReq,
+		"before":                     before,
+		"open":                       openSample,
+		"midstream":                  midSample,
+		"post_spike":                 postSpikeSample,
+		"after":                      after,
+		"peak":                       peak,
 	}
 	raw, _ := json.MarshalIndent(res, "", "  ")
 	_ = os.WriteFile(filepath.Join(*outDir, "result.json"), raw, 0o644)
@@ -1233,6 +1552,16 @@ func main() {
 	if errCnt.Load() > 0 || up.wireMismatchCnt.Load() > 0 {
 		fmt.Fprintf(os.Stderr, "CRUCIBLE FAIL: errors=%d wire_mismatch=%d first_err=%v first_mismatch=%v\n",
 			errCnt.Load(), up.wireMismatchCnt.Load(), firstErr.Load(), up.firstMismatch.Load())
+		os.Exit(1)
+	}
+	if *scenario == "anthropic_threads" && up.threadContinueMatCnt.Load() < int64(*conc) {
+		fmt.Fprintf(os.Stderr, "CRUCIBLE FAIL: anthropic_threads materialized continuations=%d < expected=%d\n",
+			up.threadContinueMatCnt.Load(), *conc)
+		os.Exit(1)
+	}
+	if *scenario == "compact_accounting" && (compactOutboxBytes == 0 || compactBatchesIngested == 0 || compactUsageLogsFlushed < okCnt.Load()) {
+		fmt.Fprintf(os.Stderr, "CRUCIBLE FAIL: compact_accounting inactive/unflushed: outbox_bytes=%d batches=%d usage_logs=%d completed=%d\n",
+			compactOutboxBytes, compactBatchesIngested, compactUsageLogsFlushed, okCnt.Load())
 		os.Exit(1)
 	}
 }

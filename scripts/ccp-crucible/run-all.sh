@@ -69,17 +69,42 @@ start_infra() {
 
 assert_zero_skips() {
   local label="$1"
-  local logfile="$2"
-  local skips
-  skips=$(grep -c '^--- SKIP:' "$logfile" || true)
-  local fails
-  fails=$(grep -c '^--- FAIL:' "$logfile" || true)
-  echo "[$label] fails=$fails skips=$skips"
-  if [[ "$fails" -ne 0 || "$skips" -ne 0 ]]; then
-    echo "ERROR: [$label] expected 0 fails and 0 skips!" >&2
-    grep -E '^--- (FAIL|SKIP):' "$logfile" >&2 || true
-    exit 1
-  fi
+  local jsonlog="$2"
+  python3 - "$label" "$jsonlog" <<'PY'
+import json, sys
+label, path = sys.argv[1], sys.argv[2]
+passes, fails, skips = 0, 0, 0
+skipped_names, failed_names = [], []
+with open(path, encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        if not ev.get("Test"):
+            continue
+        act = ev.get("Action")
+        if act == "pass":
+            passes += 1
+        elif act == "fail":
+            fails += 1
+            failed_names.append(f"{ev.get('Package','')}:{ev['Test']}")
+        elif act == "skip":
+            skips += 1
+            skipped_names.append(f"{ev.get('Package','')}:{ev['Test']}")
+print(f"[{label}] passes={passes} fails={fails} skips={skips}")
+if passes == 0 or fails != 0 or skips != 0:
+    if failed_names:
+        print(f"FAILED: {failed_names}", file=sys.stderr)
+    if skipped_names:
+        print(f"SKIPPED: {skipped_names}", file=sys.stderr)
+    if passes == 0:
+        print(f"ERROR: [{label}] matched 0 tests!", file=sys.stderr)
+    sys.exit(1)
+PY
 }
 
 fresh_pg_db() {
@@ -106,34 +131,34 @@ run_gate_a() {
   redis-cli -p "$REDIS_PORT" FLUSHALL >/dev/null
   dsn="$(fresh_pg_db axonhub_a3_server)"
   (cd "$REPO_ROOT" && AXONHUB_TEST_PG_DISPOSABLE=1 AXONHUB_TEST_PG_DSN="$dsn" AXONHUB_TEST_REDIS_URL="$AXONHUB_TEST_REDIS_URL" \
-    go test -v -race -count=1 \
+    go test -json -race -count=1 \
     -run 'TestClusterCompactAccountingAndLocalSystemSnapshotPG18|TestClusterTwoHTTPServicesAuthorizationAndOwnership|TestClusterSharedPGAndRedisControlOnlyOAuthState' \
-    ./internal/server) 2>&1 | tee "$OUT_DIR/gate-a/pg18_server_race.log"
-  assert_zero_skips "A3-PG18-server" "$OUT_DIR/gate-a/pg18_server_race.log"
+    ./internal/server) > "$OUT_DIR/gate-a/pg18_server_race.json"
+  assert_zero_skips "A3-PG18-server" "$OUT_DIR/gate-a/pg18_server_race.json"
 
   for gc_test in TestManagedObservabilityPostgresApplicationContract TestManagedLedgerRevisionUpgradeAndMutations TestManagedCapacityPostgresRepairContracts TestWorker_runVacuum_Postgres; do
     dsn="$(fresh_pg_db "axonhub_a3_${gc_test,,}")"
     (cd "$REPO_ROOT" && AXONHUB_TEST_PG_DISPOSABLE=1 AXONHUB_TEST_PG_DSN="$dsn" \
-      go test -v -race -count=1 -run "^${gc_test}" ./internal/server/gc) 2>&1 | tee "$OUT_DIR/gate-a/pg18_gc_${gc_test}.log"
-    assert_zero_skips "A3-PG18-gc-${gc_test}" "$OUT_DIR/gate-a/pg18_gc_${gc_test}.log"
+      go test -json -race -count=1 -run "^${gc_test}" ./internal/server/gc) > "$OUT_DIR/gate-a/pg18_gc_${gc_test}.json"
+    assert_zero_skips "A3-PG18-gc-${gc_test}" "$OUT_DIR/gate-a/pg18_gc_${gc_test}.json"
   done
 
   dsn="$(fresh_pg_db axonhub_a3_biz)"
   (cd "$REPO_ROOT" && AXONHUB_TEST_PG_DISPOSABLE=1 AXONHUB_TEST_PG_DSN="$dsn" AXONHUB_TEST_REDIS_URL="$AXONHUB_TEST_REDIS_URL" \
-    go test -v -race -count=1 \
-    -run 'TestAccountedUsagePostgresCommitAfterSnapshot|TestClusterPendingUsage|TestClusterAccountingAdditiveMigrationAndDrainedRollback|TestClusterUsage|TestForwardingObservation' \
-    ./internal/server/biz) 2>&1 | tee "$OUT_DIR/gate-a/pg18_biz_race.log"
-  assert_zero_skips "A3-PG18-biz" "$OUT_DIR/gate-a/pg18_biz_race.log"
+    go test -json -race -count=1 \
+    -run 'TestAccountedUsagePostgresCommitAfterSnapshot|TestClusterPendingUsage|TestClusterAccountingAdditiveMigrationAndDrainedRollback|TestClusterUsage|TestForwardingObservation|TestChannelService_MetricsConcurrentReadWriteRace' \
+    ./internal/server/biz) > "$OUT_DIR/gate-a/pg18_biz_race.json"
+  assert_zero_skips "A3-PG18-biz" "$OUT_DIR/gate-a/pg18_biz_race.json"
 
   dsn="$(fresh_pg_db axonhub_a3_orch)"
   (cd "$REPO_ROOT" && AXONHUB_TEST_PG_DISPOSABLE=1 AXONHUB_TEST_PG_DSN="$dsn" \
-    go test -v -race -count=1 -run 'TestForwardingObservationCoreBarrier' ./internal/server/orchestrator) 2>&1 | tee "$OUT_DIR/gate-a/pg18_orch_race.log"
-  assert_zero_skips "A3-PG18-orch" "$OUT_DIR/gate-a/pg18_orch_race.log"
+    go test -json -race -count=1 -run 'TestForwardingObservationCoreBarrier' ./internal/server/orchestrator) > "$OUT_DIR/gate-a/pg18_orch_race.json"
+  assert_zero_skips "A3-PG18-orch" "$OUT_DIR/gate-a/pg18_orch_race.json"
 
   redis-cli -p "$REDIS_PORT" FLUSHALL >/dev/null
   (cd "$REPO_ROOT" && AXONHUB_TEST_REDIS_URL="$AXONHUB_TEST_REDIS_URL" \
-    go test -v -race -count=1 ./internal/pkg/xcache/...) 2>&1 | tee "$OUT_DIR/gate-a/xcache_race.log"
-  assert_zero_skips "A3-xcache" "$OUT_DIR/gate-a/xcache_race.log"
+    go test -json -race -count=1 ./internal/pkg/xcache/...) > "$OUT_DIR/gate-a/xcache_race.json"
+  assert_zero_skips "A3-xcache" "$OUT_DIR/gate-a/xcache_race.json"
 
   (cd "$REPO_ROOT" && env -u AXONHUB_TEST_PG_DSN -u AXONHUB_TEST_REDIS_URL \
     go test -race -count=1 ./internal/server/orchestrator/... ./internal/server/api/... ./internal/server/middleware/...) \
@@ -141,8 +166,8 @@ run_gate_a() {
 
   echo "--- A4: integration_test/{openai,anthropic,gemini} zero-skip ---"
   for mod in openai anthropic gemini; do
-    (cd "$REPO_ROOT/integration_test/$mod" && go test -v -count=1 ./...) 2>&1 | tee "$OUT_DIR/gate-a/integration_${mod}.log"
-    assert_zero_skips "A4-integration-$mod" "$OUT_DIR/gate-a/integration_${mod}.log"
+    (cd "$REPO_ROOT/integration_test/$mod" && go test -json -count=1 ./...) > "$OUT_DIR/gate-a/integration_${mod}.json"
+    assert_zero_skips "A4-integration-$mod" "$OUT_DIR/gate-a/integration_${mod}.json"
   done
   echo "GATE A: PASS"
 }
@@ -153,15 +178,18 @@ run_gate_b() {
   echo "============================================================"
   mkdir -p "$OUT_DIR/gate-b"
 
-  (cd "$REPO_ROOT" && go test -v -race -count=1 \
-    -run 'TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix|TestDirectPassThrough|TestShallowInbound|TestStreamOptionsAttemptIsolation' \
-    ./internal/server ./internal/server/orchestrator) 2>&1 | tee "$OUT_DIR/gate-b/server_matrix_race.log"
-  assert_zero_skips "B1-server-matrix" "$OUT_DIR/gate-b/server_matrix_race.log"
+  (cd "$REPO_ROOT" && go test -json -race -count=1 \
+    -run 'TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix|TestDirectPassThrough|TestShallowInbound|TestStreamOptionsAttemptIsolation|TestRawStreamObserver_AnthropicPartialUsageMergeAndResponsesIncomplete|TestChannelService_MetricsConcurrentReadWriteRace' \
+    ./internal/server ./internal/server/orchestrator ./internal/server/biz) > "$OUT_DIR/gate-b/server_matrix_race.json"
+  assert_zero_skips "B1-server-matrix" "$OUT_DIR/gate-b/server_matrix_race.json"
 
-  (cd "$REPO_ROOT/llm" && go test -v -race -count=1 \
+  (cd "$REPO_ROOT/llm" && go test -json -race -count=1 \
     -run 'TestHTTP2EarlyResponseAndCancelRace|TestRedirect307And308BodyReplay|TestReadLimitedBodySizedTruncatedUnexpectedEOF' \
-    ./httpclient/...) 2>&1 | tee "$OUT_DIR/gate-b/httpclient_race.log"
-  assert_zero_skips "B2-httpclient" "$OUT_DIR/gate-b/httpclient_race.log"
+    ./httpclient/...) > "$OUT_DIR/gate-b/httpclient_race.json"
+  assert_zero_skips "B2-httpclient" "$OUT_DIR/gate-b/httpclient_race.json"
+
+  (cd "$REPO_ROOT/llm" && go test -json -race -count=1 ./pipeline/...) > "$OUT_DIR/gate-b/pipeline_race.json"
+  assert_zero_skips "B3-pipeline" "$OUT_DIR/gate-b/pipeline_race.json"
 
   echo "GATE B: PASS"
 }
@@ -175,9 +203,11 @@ run_bench_case() {
   mkdir -p "$dir"
   echo "--- Gate C [$tag / $scenario] ---"
   "$BENCH_BIN" --sut "$bin" --scenario "$scenario" --out "$dir" "$@" > "$dir/stdout.json"
-  if [[ -f "$dir/midstream_heap.pb.gz" ]]; then
-    go tool pprof -top -nodecount=15 -inuse_space "$dir/midstream_heap.pb.gz" > "$dir/top_midstream.txt" 2>/dev/null || true
+  if [[ ! -s "$dir/midstream_heap.pb.gz" ]]; then
+    echo "ERROR: missing or empty $dir/midstream_heap.pb.gz" >&2
+    exit 1
   fi
+  go tool pprof -top -nodecount=15 -inuse_space "$dir/midstream_heap.pb.gz" > "$dir/top_midstream.txt"
 }
 
 run_gate_c() {

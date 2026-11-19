@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -683,4 +684,66 @@ func TestDatabaseTimeScan_DriverShapes(t *testing.T) {
 
 	var invalid databaseTime
 	require.Error(t, invalid.Scan(42))
+}
+
+func TestChannelService_MetricsConcurrentReadWriteRace(t *testing.T) {
+	svc := &ChannelService{
+		channelPerfMetrics: make(map[int]*channelMetrics),
+	}
+
+	const (
+		channelID = 42
+		workers   = 8
+		iters     = 200
+	)
+	var wg sync.WaitGroup
+	wg.Add(workers * 3)
+
+	for i := range workers {
+		go func(id int) {
+			defer wg.Done()
+			for j := range iters {
+				now := time.Now()
+				perf := &PerformanceRecord{
+					ChannelID:        channelID,
+					StartTime:        now.Add(-15 * time.Millisecond),
+					EndTime:          now,
+					Stream:           true,
+					Success:          (id+j)%2 == 0,
+					CompletionTokens: 64,
+				}
+				if perf.Success {
+					t1 := now.Add(-5 * time.Millisecond)
+					perf.FirstTokenTime = &t1
+				} else {
+					perf.ResponseStatusCode = 502
+				}
+				svc.RecordPerformance(context.Background(), perf)
+			}
+		}(i)
+
+		go func() {
+			defer wg.Done()
+			for range iters {
+				svc.IncrementChannelSelection(channelID)
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			for range iters {
+				m, err := svc.GetChannelMetrics(context.Background(), channelID)
+				require.NoError(t, err)
+				require.NotNil(t, m)
+				_ = m.RequestCount
+				_ = m.ConsecutiveFailures
+				_ = m.LastSelectedAt
+			}
+		}()
+	}
+
+	wg.Wait()
+	finalMetrics, err := svc.GetChannelMetrics(context.Background(), channelID)
+	require.NoError(t, err)
+	require.Equal(t, int64(workers*iters), finalMetrics.RequestCount)
 }

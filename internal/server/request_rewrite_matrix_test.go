@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +34,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/prompt"
 	"github.com/looplj/axonhub/internal/ent/promptprotectionrule"
 	"github.com/looplj/axonhub/internal/ent/request"
+	"github.com/looplj/axonhub/internal/ent/requestexecution"
 	"github.com/looplj/axonhub/internal/ent/usagelog"
 	"github.com/looplj/axonhub/internal/ent/user"
 	"github.com/looplj/axonhub/internal/metrics"
@@ -724,5 +726,183 @@ func TestFullPipeline_WireRewriteEncodingsAndFailoverMatrix(t *testing.T) {
 		require.Len(t, atts, 1)
 		require.True(t, gjson.GetBytes(atts[0].Body, "stream").Bool(), "channel with Stream=Require must force stream=true")
 		require.True(t, gjson.GetBytes(atts[0].Body, "stream_options.include_usage").Bool(), "channel with Stream=Require must force stream_options.include_usage=true")
+	})
+
+	t.Run("DuplicateKeys_And_ContentTypeParity", func(t *testing.T) {
+		h, primarySrv, backupSrv := newRewriteMatrixHarness(
+			t,
+			func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/messages") {
+					writeAnthropicSSE(w, "dup-ok", 10, 0, 5)
+					return
+				}
+				writeOpenAIChatSSE(w, "gpt-mapped", "dup-chat-ok", 10, 5)
+			},
+			func(w http.ResponseWriter, r *http.Request) {
+				writeAnthropicSSE(w, "fullpt-dup-ok", 10, 0, 5)
+			},
+		)
+
+		// Ordinary PassThroughBody=true Anthropic channel with model mapping: claude-logical -> claude-mapped-pri
+		h.addChannel("anth-dup-pt", channel.TypeAnthropic, primarySrv.URL, 100, []string{"claude-mapped-pri"}, &objects.ChannelSettings{
+			PassThroughBody: lo.ToPtr(true),
+			ModelMappings:   []objects.ModelMapping{{From: "claude-logical", To: "claude-mapped-pri"}},
+		})
+		// AxonHub FullPassThrough=true channel with model mapping: claude-fullpt -> claude-fullpt-mapped
+		h.addChannel("axon-fullpt-dup", channel.TypeAxonhub, backupSrv.URL, 100, []string{"claude-fullpt-mapped"}, &objects.ChannelSettings{
+			FullPassThrough: true,
+			ModelMappings:   []objects.ModelMapping{{From: "claude-fullpt", To: "claude-fullpt-mapped"}},
+		})
+		// OpenAI Chat + Responses channels for Content-Type validation parity
+		h.addChannel("oai-ct-chat", channel.TypeOpenai, primarySrv.URL+"/v1", 100, []string{"gpt-ct"}, &objects.ChannelSettings{
+			PassThroughBody: lo.ToPtr(true),
+		})
+		h.addChannel("oai-ct-resp", channel.TypeOpenaiResponses, primarySrv.URL+"/v1", 100, []string{"gpt-resp-ct"}, &objects.ChannelSettings{
+			PassThroughBody: lo.ToPtr(true),
+		})
+
+		// 1. Duplicate top-level "model" key: first value equals mapped target, last value is logical alias.
+		// Gateway resolves last-wins ("claude-logical"), remaps to "claude-mapped-pri", and must emit canonical
+		// JSON so a last-wins upstream decoder observes "claude-mapped-pri" (not the raw duplicate "claude-logical").
+		h.resetAttempts()
+		dupBody := []byte(`{"model":"claude-mapped-pri","model":"claude-logical","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+		resp, out := h.postRaw("/anthropic/v1/messages", dupBody, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(out))
+		atts := h.snapshotAttempts()
+		require.Len(t, atts, 1)
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal(atts[0].Body, &decoded))
+		require.Equal(t, "claude-mapped-pri", decoded["model"], "upstream last-wins JSON decode must observe remapped model")
+		require.Equal(t, 1, strings.Count(string(atts[0].Body), `"model"`), "canonical AST output must not retain duplicate model keys")
+
+		// 2. Same duplicate-key test under AxonHub FullPassThrough=true.
+		h.resetAttempts()
+		dupFullPT := []byte(`{"model":"claude-fullpt-mapped","model":"claude-fullpt","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+		resp, out = h.postRaw("/anthropic/v1/messages", dupFullPT, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(out))
+		atts = h.snapshotAttempts()
+		require.Len(t, atts, 1)
+		decoded = nil
+		require.NoError(t, json.Unmarshal(atts[0].Body, &decoded))
+		require.Equal(t, "claude-fullpt-mapped", decoded["model"], "FullPassThrough must emit canonical AST for duplicate-key bodies")
+		require.Equal(t, 1, strings.Count(string(atts[0].Body), `"model"`))
+
+		// 3. Invalid/missing Content-Type must match full inbound transformer validation parity:
+		// OpenAI Chat and Anthropic reject both empty and non-JSON Content-Type; OpenAI Responses rejects non-JSON.
+		for _, tc := range []struct {
+			name string
+			path string
+			body string
+			ct   string
+		}{
+			{"chat_empty_ct", "/v1/chat/completions", `{"model":"gpt-ct","stream":true,"messages":[{"role":"user","content":"hi"}]}`, ""},
+			{"chat_text_plain", "/v1/chat/completions", `{"model":"gpt-ct","stream":true,"messages":[{"role":"user","content":"hi"}]}`, "text/plain"},
+			{"anthropic_empty_ct", "/anthropic/v1/messages", `{"model":"claude-logical","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`, ""},
+			{"anthropic_text_plain", "/anthropic/v1/messages", `{"model":"claude-logical","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`, "text/plain"},
+			{"responses_text_plain", "/v1/responses", `{"model":"gpt-resp-ct","stream":true,"input":"hi"}`, "text/plain"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h.resetAttempts()
+				req, err := http.NewRequest(http.MethodPost, h.server.URL+tc.path, strings.NewReader(tc.body))
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer "+h.apiKey)
+				if tc.ct != "" {
+					req.Header.Set("Content-Type", tc.ct)
+				}
+				res, err := h.server.Client().Do(req)
+				require.NoError(t, err)
+				defer res.Body.Close()
+				_, _ = io.ReadAll(res.Body)
+				require.NotEqual(t, http.StatusOK, res.StatusCode, "empty/non-JSON Content-Type must be rejected")
+				require.Empty(t, h.snapshotAttempts(), "invalid Content-Type must not reach upstream")
+			})
+		}
+	})
+
+	t.Run("DirectPassThrough_PostContentError_PreTerminalEOF_And_ResponsesIncomplete", func(t *testing.T) {
+		var mode string
+		h, primarySrv, _ := newRewriteMatrixHarness(
+			t,
+			func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				fl, _ := w.(http.Flusher)
+				switch mode {
+				case "post_content_error":
+					_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_pce\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-err\",\"content\":[],\"usage\":{\"input_tokens\":30,\"output_tokens\":2}}}\n\n")
+					_, _ = fmt.Fprint(w, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+					_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n")
+					if fl != nil {
+						fl.Flush()
+					}
+					_, _ = fmt.Fprint(w, "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"mid-stream boom\"}}\n\n")
+					if fl != nil {
+						fl.Flush()
+					}
+				case "pre_terminal_eof":
+					_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_eof\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-err\",\"content\":[],\"usage\":{\"input_tokens\":30,\"output_tokens\":5}}}\n\n")
+					_, _ = fmt.Fprint(w, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+					_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"cut off\"}}\n\n")
+					if fl != nil {
+						fl.Flush()
+					}
+					// Clean EOF without message_stop.
+				case "responses_incomplete":
+					_, _ = fmt.Fprint(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_inc\",\"object\":\"response\",\"status\":\"in_progress\",\"model\":\"gpt-inc\",\"output\":[]}}\n\n")
+					_, _ = fmt.Fprint(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"m1\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n")
+					_, _ = fmt.Fprint(w, "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"resp_inc\",\"object\":\"response\",\"status\":\"incomplete\",\"model\":\"gpt-inc\",\"output\":[],\"usage\":{\"input_tokens\":77,\"output_tokens\":33,\"total_tokens\":110}}}\n\n")
+					if fl != nil {
+						fl.Flush()
+					}
+				}
+			},
+			func(w http.ResponseWriter, r *http.Request) {},
+		)
+
+		chAnth := h.addChannel("anth-direct-err", channel.TypeAnthropic, primarySrv.URL, 100, []string{"claude-err"}, &objects.ChannelSettings{
+			PassThroughBody: lo.ToPtr(true),
+		})
+		chResp := h.addChannel("resp-direct-inc", channel.TypeOpenaiResponses, primarySrv.URL+"/v1", 100, []string{"gpt-inc"}, &objects.ChannelSettings{
+			PassThroughBody: lo.ToPtr(true),
+		})
+
+		// (a) Post-content SSE error frame: forwarded once to client AND persisted as failed execution + channel failure metric.
+		mode = "post_content_error"
+		resp, out := h.postRaw("/anthropic/v1/messages", []byte(`{"model":"claude-err","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`), nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Contains(t, string(out), "mid-stream boom", "raw SSE error frame must still be forwarded downstream")
+
+		require.Eventually(t, func() bool {
+			execs := h.db.RequestExecution.Query().Where(requestexecution.ChannelIDEQ(chAnth.ID)).AllX(h.ctx)
+			if len(execs) == 0 {
+				return false
+			}
+			m, err := h.channels.GetChannelMetrics(h.ctx, chAnth.ID)
+			return err == nil && execs[len(execs)-1].Status == requestexecution.StatusFailed && m.FailureCount >= 1 && m.ConsecutiveFailures >= 1
+		}, 3*time.Second, 25*time.Millisecond, "post-content SSE error must persist failed execution and record channel failure")
+
+		// (b) Pre-terminal EOF after partial usage: must NOT record bogus success or reset ConsecutiveFailures.
+		mode = "pre_terminal_eof"
+		resp, out = h.postRaw("/anthropic/v1/messages", []byte(`{"model":"claude-err","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}]}`), nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Contains(t, string(out), "cut off")
+
+		// Give async metric goroutine a brief window, then confirm SuccessCount remained 0 and ConsecutiveFailures did not reset.
+		time.Sleep(100 * time.Millisecond)
+		mAnth, err := h.channels.GetChannelMetrics(h.ctx, chAnth.ID)
+		require.NoError(t, err)
+		require.Zero(t, mAnth.SuccessCount, "pre-terminal EOF with partial usage must never record bogus success")
+		require.GreaterOrEqual(t, mAnth.ConsecutiveFailures, int64(1), "pre-terminal EOF must not reset ConsecutiveFailures")
+
+		// (c) OpenAI Responses response.incomplete with usage: must NOT record bogus success on channel metrics.
+		mode = "responses_incomplete"
+		resp, out = h.postRaw("/v1/responses", []byte(`{"model":"gpt-inc","stream":true,"input":"hi"}`), nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Contains(t, string(out), "response.incomplete")
+
+		time.Sleep(100 * time.Millisecond)
+		mResp, err := h.channels.GetChannelMetrics(h.ctx, chResp.ID)
+		require.NoError(t, err)
+		require.Zero(t, mResp.SuccessCount, "response.incomplete must not latch channel performance success")
 	})
 }

@@ -489,15 +489,15 @@ func (cm *channelMetrics) cleanupExpiredSlots(cutoff time.Time) {
 // If in-memory metrics are not available (e.g., after restart), it falls back to database values.
 func (svc *ChannelService) GetChannelMetrics(ctx context.Context, channelID int) (*AggregatedMetrics, error) {
 	svc.channelPerfMetricsLock.RLock()
-	cm, exists := svc.channelPerfMetrics[channelID]
-	svc.channelPerfMetricsLock.RUnlock()
+	defer svc.channelPerfMetricsLock.RUnlock()
 
+	cm, exists := svc.channelPerfMetrics[channelID]
 	if !exists {
 		return &AggregatedMetrics{}, nil
 	}
 
-	// Return a full copy of the aggregated metrics to avoid concurrent modification
-	// while preserving all load-balancing signals, including latency EWMA.
+	// Return a full copy of the aggregated metrics while holding RLock to prevent
+	// concurrent read/write races with RecordPerformance and IncrementChannelSelection.
 	return cm.aggregatedMetrics.Clone(), nil
 }
 

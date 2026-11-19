@@ -141,6 +141,11 @@ type PersistenceState struct {
 	// header stripping, or auto reasoning effort), making the transformed AST the
 	// authoritative wire source instead of the unmutated raw inbound bytes.
 	ASTContentMutated bool
+	// RawBodyAmbiguous records that the raw inbound JSON contained duplicate
+	// top-level keys (where json.Unmarshal uses last-wins while gjson/sjson uses
+	// first-wins), so outbound serialization must emit canonical AST bytes rather
+	// than reusing or patching the ambiguous raw inbound body.
+	RawBodyAmbiguous bool
 
 	deferredFailureMu                 sync.Mutex
 	deferredStreamError               error
@@ -158,7 +163,7 @@ func (s *PersistenceState) hasASTContentMutation() bool {
 	if s == nil {
 		return false
 	}
-	if s.ASTContentMutated {
+	if s.ASTContentMutated || s.RawBodyAmbiguous {
 		return true
 	}
 	if s.LlmRequest != nil && s.LlmRequest.TransformerMetadata != nil {

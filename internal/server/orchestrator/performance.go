@@ -297,7 +297,7 @@ func (s *recordRawPerformanceStream) Close() error {
 	err := s.stream.Close()
 	if !s.recorded && s.state != nil && s.state.Perf != nil {
 		obs := s.state.ensureRawStreamObserver()
-		if !obs.terminalFailed && s.stream.Err() == nil && obs.outputTokens > 0 {
+		if obs.terminalSuccess && !obs.terminalFailed && s.stream.Err() == nil && s.ctx.Err() == nil && obs.outputTokens > 0 {
 			s.state.Perf.CompletionTokens = obs.outputTokens
 			s.state.Perf.MarkSuccess()
 			if s.state.ChannelService != nil {

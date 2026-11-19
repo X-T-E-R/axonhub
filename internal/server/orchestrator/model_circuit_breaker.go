@@ -236,21 +236,24 @@ func (s *rawProbeReleasingStream) Next() bool { return s.stream.Next() }
 
 func (s *rawProbeReleasingStream) Current() *httpclient.StreamEvent {
 	event := s.stream.Current()
-	if event == nil || s.modelCircuitBreaker == nil || s.recorded {
+	if event == nil || s.modelCircuitBreaker == nil {
 		return event
 	}
 	obs := s.state.ensureRawStreamObserver()
 	obs.observe(event)
-	if obs.terminalSuccess && !obs.terminalFailed && obs.outputTokens > 0 {
-		s.modelCircuitBreaker.RecordSuccess(s.ctx, s.probeChannelID, s.probeModelID)
-		s.recorded = true
-	}
 	return event
 }
 
 func (s *rawProbeReleasingStream) Err() error { return s.stream.Err() }
 
 func (s *rawProbeReleasingStream) Close() error {
+	if !s.recorded && s.modelCircuitBreaker != nil && s.state != nil {
+		obs := s.state.ensureRawStreamObserver()
+		if obs.terminalSuccess && !obs.terminalFailed && s.stream.Err() == nil && s.ctx.Err() == nil && obs.outputTokens > 0 {
+			s.modelCircuitBreaker.RecordSuccess(s.ctx, s.probeChannelID, s.probeModelID)
+			s.recorded = true
+		}
+	}
 	if !s.released && s.release != nil {
 		s.released = true
 		s.release()

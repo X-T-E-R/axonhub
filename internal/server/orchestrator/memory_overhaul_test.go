@@ -245,3 +245,59 @@ func TestStreamOptionsAttemptIsolationAcrossRetries(t *testing.T) {
 	require.NotContains(t, string(raw2.Body), `"stream":true`)
 	require.NotContains(t, string(raw2.Body), `"include_usage":true`)
 }
+
+func TestRawStreamObserver_AnthropicPartialUsageMergeAndResponsesIncomplete(t *testing.T) {
+	t.Parallel()
+
+	// Anthropic: message_delta updating only input_tokens & output_tokens must preserve
+	// cache_creation_input_tokens and cache_read_input_tokens from message_start,
+	// and terminalSuccess must wait for message_stop.
+	anth := &rawStreamObserver{apiFormat: llm.APIFormatAnthropicMessage}
+	anth.observe(&httpclient.StreamEvent{
+		Type: "message_start",
+		Data: []byte(`{"type":"message_start","message":{"id":"m1","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":200,"output_tokens":1}}}`),
+	})
+	require.Equal(t, int64(350), anth.inputTokens)
+	require.False(t, anth.terminalSuccess)
+
+	anth.observe(&httpclient.StreamEvent{
+		Type: "message_delta",
+		Data: []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":120,"output_tokens":45}}`),
+	})
+	require.Equal(t, int64(370), anth.inputTokens, "omitted cache_creation/cache_read on message_delta must preserve message_start subfields")
+	require.Equal(t, int64(45), anth.outputTokens)
+	require.Equal(t, int64(415), anth.totalTokens)
+	require.False(t, anth.terminalSuccess, "message_delta alone must not latch terminalSuccess before message_stop")
+
+	anth.observe(&httpclient.StreamEvent{Type: "message_stop", Data: []byte(`{"type":"message_stop"}`)})
+	require.True(t, anth.terminalSuccess)
+
+	// OpenAI Responses: response.incomplete extracts usage for TPM without latching terminalSuccess.
+	respInc := &rawStreamObserver{apiFormat: llm.APIFormatOpenAIResponse}
+	respInc.observe(&httpclient.StreamEvent{
+		Type: "response.incomplete",
+		Data: []byte(`{"type":"response.incomplete","response":{"status":"incomplete","usage":{"input_tokens":77,"output_tokens":33,"total_tokens":110}}}`),
+	})
+	require.Equal(t, int64(77), respInc.inputTokens)
+	require.Equal(t, int64(33), respInc.outputTokens)
+	require.Equal(t, int64(110), respInc.totalTokens)
+	require.False(t, respInc.terminalSuccess)
+
+	// OpenAI Responses: response.completed with status=failed must mark terminalFailed, not terminalSuccess.
+	respFail := &rawStreamObserver{apiFormat: llm.APIFormatOpenAIResponse}
+	respFail.observe(&httpclient.StreamEvent{
+		Type: "response.completed",
+		Data: []byte(`{"type":"response.completed","response":{"status":"failed","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}`),
+	})
+	require.True(t, respFail.terminalFailed)
+	require.False(t, respFail.terminalSuccess)
+
+	// OpenAI Chat: finish_reason=error followed by [DONE] must stay terminalFailed, never terminalSuccess.
+	chatErr := &rawStreamObserver{apiFormat: llm.APIFormatOpenAIChatCompletion}
+	chatErr.observe(&httpclient.StreamEvent{
+		Data: []byte(`{"choices":[{"index":0,"delta":{},"finish_reason":"error"}]}`),
+	})
+	chatErr.observe(&httpclient.StreamEvent{Data: []byte(`[DONE]`)})
+	require.True(t, chatErr.terminalFailed)
+	require.False(t, chatErr.terminalSuccess)
+}

@@ -530,12 +530,13 @@ func (p *PersistentInboundTransformer) TransformRequest(ctx context.Context, req
 	if p.state != nil {
 		p.state.inboundTransformer = p.wrapped
 		p.state.llmRequestShallow = false
+		p.state.RawBodyAmbiguous = false
 	}
 
 	var llmRequest *llm.Request
 	var shallow bool
 	if p.state != nil && !shared.NativeResponsesWebSocket(ctx) {
-		llmRequest, shallow = tryShallowTransformRequest(p.wrapped, request)
+		llmRequest, shallow = tryShallowTransformRequest(p.wrapped, request, p.state)
 	}
 	if !shallow {
 		var err error
@@ -564,7 +565,7 @@ func (p *PersistentInboundTransformer) TransformRequest(ctx context.Context, req
 // Tools. Any missing required field, invalid JSON, duplicate top-level key,
 // unsupported content-type, or special-case request falls back to the wrapped
 // transformer so validation behavior and error messages remain identical.
-func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient.Request) (*llm.Request, bool) {
+func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient.Request, state *PersistenceState) (*llm.Request, bool) {
 	if request == nil || len(request.Body) == 0 {
 		return nil, false
 	}
@@ -585,7 +586,7 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 		}
 		isAnthropic = true
 	case *openai.InboundTransformer:
-		if ct := request.Headers.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
+		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
 			return nil, false
 		}
 		isOpenAIChat = true
@@ -593,7 +594,7 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 		if strings.HasSuffix(request.Path, "/compact") || strings.Contains(request.URL, "/compact") {
 			return nil, false
 		}
-		if ct := request.Headers.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
+		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
 			return nil, false
 		}
 		isOpenAIResponses = true
@@ -605,10 +606,9 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 	// resolves last-wins while gjson.Get resolves first-wins) and extracts all
 	// routing/template scalars in one pass.
 	var (
-		seenKeys      = make(map[string]struct{}, 16)
-		hasDupKey     bool
-		fields        = make(map[string]gjson.Result, 16)
-		fallbackEarly bool
+		seenKeys  = make(map[string]struct{}, 16)
+		hasDupKey bool
+		fields    = make(map[string]gjson.Result, 16)
 	)
 	gjson.Parse(s).ForEach(func(k, v gjson.Result) bool {
 		key := k.Str
@@ -620,7 +620,10 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 		fields[key] = v
 		return true
 	})
-	if hasDupKey || fallbackEarly {
+	if hasDupKey {
+		if state != nil {
+			state.RawBodyAmbiguous = true
+		}
 		return nil, false
 	}
 
