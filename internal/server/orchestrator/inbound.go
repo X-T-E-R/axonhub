@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/tidwall/gjson"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/dumper"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
@@ -17,6 +20,10 @@ import (
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer"
+	"github.com/looplj/axonhub/llm/transformer/anthropic"
+	"github.com/looplj/axonhub/llm/transformer/openai"
+	"github.com/looplj/axonhub/llm/transformer/openai/responses"
+	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
 // InboundPersistentStream wraps a stream and tracks all responses for final saving to database.
@@ -33,6 +40,7 @@ type InboundPersistentStream struct {
 	perf            *biz.PerformanceRecord
 	responseChunks  []*httpclient.StreamEvent
 	observation     *biz.ObservationStreamBuffer
+	metadataOnly    bool
 	streamMeta      llm.ResponseMeta
 	currentEvent    *httpclient.StreamEvent
 	closed          bool
@@ -53,6 +61,16 @@ func NewInboundPersistentStream(
 	perf *biz.PerformanceRecord,
 	state *PersistenceState,
 ) *InboundPersistentStream {
+	obs := requestService.NewObservationStreamBuffer(ctx, nil, false)
+	metadataOnly := false
+	if obs == nil && requestService != nil && requestService.SystemService != nil {
+		policyCtx := authz.WithSystemBypass(context.WithoutCancel(ctx), "inbound-stream-storage-policy")
+		if policy, err := requestService.SystemService.StoragePolicy(policyCtx); err == nil && policy != nil {
+			if !policy.StoreResponseBody && !policy.StoreChunks {
+				metadataOnly = true
+			}
+		}
+	}
 	s := &InboundPersistentStream{
 		ctx:            ctx,
 		stream:         stream,
@@ -61,10 +79,10 @@ func NewInboundPersistentStream(
 		requestService: requestService,
 		transformer:    transformer,
 		perf:           perf,
-		responseChunks: make([]*httpclient.StreamEvent, 0),
 		closed:         false,
 		state:          state,
-		observation:    requestService.NewObservationStreamBuffer(ctx, nil, false),
+		observation:    obs,
+		metadataOnly:   metadataOnly,
 	}
 
 	return s
@@ -99,8 +117,19 @@ func (ts *InboundPersistentStream) Current() *httpclient.StreamEvent {
 		if ts.observation != nil {
 			if event.Type == "speech.audio.done" || event.Type == httpclient.BinaryStreamDoneEventType {
 				ts.streamMeta.ID = llm.SpeechStreamResponseID
+			} else if ts.streamMeta.ID == "" {
+				ts.streamMeta.ID = extractStreamResponseID(event)
 			}
 			ts.responseChunks = ts.observation.Append(httpclient.SummarizeBinaryChunk(event))
+			if ClassifyStreamSemanticTerminal(event) == StreamSemanticSucceeded {
+				ts.streamMeta.Completed = true
+			}
+		} else if ts.metadataOnly {
+			if event.Type == "speech.audio.done" || event.Type == httpclient.BinaryStreamDoneEventType {
+				ts.streamMeta.ID = llm.SpeechStreamResponseID
+			} else if ts.streamMeta.ID == "" {
+				ts.streamMeta.ID = extractStreamResponseID(event)
+			}
 			if ClassifyStreamSemanticTerminal(event) == StreamSemanticSucceeded {
 				ts.streamMeta.Completed = true
 			}
@@ -129,6 +158,29 @@ func (ts *InboundPersistentStream) Current() *httpclient.StreamEvent {
 // For Chat Completions API this is the raw [DONE] event; for Responses API this is response.completed.
 func isTerminalStreamEvent(event *httpclient.StreamEvent) bool {
 	return terminalStreamStatus(event) == streamTerminalCompleted
+}
+
+// extractStreamResponseID extracts a provider response/message ID from early
+// stream events using zero-copy gjson lookup plus strings.Clone so the raw
+// event buffer is never pinned.
+func extractStreamResponseID(event *httpclient.StreamEvent) string {
+	if event == nil || len(event.Data) == 0 {
+		return ""
+	}
+	if !bytes.Contains(event.Data, []byte(`"id"`)) {
+		return ""
+	}
+	s := unsafe.String(unsafe.SliceData(event.Data), len(event.Data))
+	if id := gjson.Get(s, "message.id"); id.Type == gjson.String && id.Str != "" {
+		return strings.Clone(id.Str)
+	}
+	if id := gjson.Get(s, "response.id"); id.Type == gjson.String && id.Str != "" {
+		return strings.Clone(id.Str)
+	}
+	if id := gjson.Get(s, "id"); id.Type == gjson.String && id.Str != "" {
+		return strings.Clone(id.Str)
+	}
+	return ""
 }
 
 type streamTerminalStatus uint8
@@ -301,7 +353,7 @@ func (ts *InboundPersistentStream) Close() error {
 	var meta llm.ResponseMeta
 	var aggErr error
 
-	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) && ts.streamMeta.Completed {
+	if (ts.metadataOnly || (ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable))) && ts.streamMeta.Completed {
 		streamCompleted = true
 		ts.state.markStreamCompleted()
 	}
@@ -409,8 +461,8 @@ func (ts *InboundPersistentStream) persistTerminalStreamFailureChunks(ctx contex
 }
 
 func (ts *InboundPersistentStream) persistResponseChunks(ctx context.Context) {
-	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) {
-		ts._persistResponse(ctx, nil, ts.streamMeta)
+	if ts.metadataOnly || (ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable)) {
+		ts._persistResponse(context.WithoutCancel(ctx), nil, ts.streamMeta)
 		return
 	}
 	defer func() {
@@ -475,9 +527,24 @@ func (p *PersistentInboundTransformer) TransformError(ctx context.Context, rawEr
 }
 
 func (p *PersistentInboundTransformer) TransformRequest(ctx context.Context, request *httpclient.Request) (*llm.Request, error) {
-	llmRequest, err := p.wrapped.TransformRequest(ctx, request)
-	if err != nil {
-		return nil, err
+	if p.state != nil {
+		p.state.inboundTransformer = p.wrapped
+		p.state.llmRequestShallow = false
+	}
+
+	var llmRequest *llm.Request
+	var shallow bool
+	if p.state != nil && !shared.NativeResponsesWebSocket(ctx) {
+		llmRequest, shallow = tryShallowTransformRequest(p.wrapped, request)
+	}
+	if !shallow {
+		var err error
+		llmRequest, err = p.wrapped.TransformRequest(ctx, request)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		p.state.llmRequestShallow = true
 	}
 
 	llmRequest.RawRequest = request
@@ -489,6 +556,145 @@ func (p *PersistentInboundTransformer) TransformRequest(ctx context.Context, req
 	p.state.OriginalRequestStream = llmRequest.Stream
 
 	return llmRequest, nil
+}
+
+// tryShallowTransformRequest extracts scalar routing/policy fields using zero-copy
+// gjson for the three high-volume chat inbound formats, avoiding a multi-MB AST
+// unmarshal until a downstream stage actually needs Messages/Tools. Any missing
+// required field, invalid JSON, or special-case request falls back to the wrapped
+// transformer so validation behavior and error messages remain identical.
+func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient.Request) (*llm.Request, bool) {
+	if request == nil || len(request.Body) == 0 {
+		return nil, false
+	}
+	body := bytes.TrimSpace(request.Body)
+	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
+		return nil, false
+	}
+	// Preserve Claude Code billing-header stripping on non-passthrough paths.
+	if bytes.Contains(body, []byte("x-anthropic-billing-header:")) {
+		return nil, false
+	}
+	if !gjson.ValidBytes(body) {
+		return nil, false
+	}
+	s := unsafe.String(unsafe.SliceData(body), len(body))
+
+	switch wrapped.(type) {
+	case *anthropic.InboundTransformer:
+		model := gjson.Get(s, "model")
+		if model.Type != gjson.String || model.Str == "" {
+			return nil, false
+		}
+		msgs := gjson.Get(s, "messages")
+		if !msgs.IsArray() || len(msgs.Array()) == 0 {
+			return nil, false
+		}
+		maxTokens := gjson.Get(s, "max_tokens")
+		if maxTokens.Type != gjson.Number || maxTokens.Int() <= 0 {
+			return nil, false
+		}
+		req := &llm.Request{
+			APIFormat:   llm.APIFormatAnthropicMessage,
+			RequestType: llm.RequestTypeChat,
+			Model:       strings.Clone(model.Str),
+		}
+		if mt := maxTokens.Int(); mt > 0 {
+			req.MaxTokens = &mt
+		}
+		if st := gjson.Get(s, "stream"); st.Type == gjson.True || st.Type == gjson.False {
+			v := st.Bool()
+			req.Stream = &v
+		}
+		if eff := gjson.Get(s, "output_config.effort"); eff.Type == gjson.String && eff.Str != "" {
+			req.ReasoningEffort = strings.Clone(eff.Str)
+		}
+		if budget := gjson.Get(s, "thinking.budget_tokens"); budget.Type == gjson.Number && budget.Int() > 0 {
+			b := budget.Int()
+			req.ReasoningBudget = &b
+		}
+		return req, true
+
+	case *openai.InboundTransformer:
+		model := gjson.Get(s, "model")
+		if model.Type != gjson.String || model.Str == "" {
+			return nil, false
+		}
+		msgs := gjson.Get(s, "messages")
+		if !msgs.IsArray() || len(msgs.Array()) == 0 {
+			return nil, false
+		}
+		req := &llm.Request{
+			APIFormat:   llm.APIFormatOpenAIChatCompletion,
+			RequestType: llm.RequestTypeChat,
+			Model:       strings.Clone(model.Str),
+		}
+		if st := gjson.Get(s, "stream"); st.Type == gjson.True || st.Type == gjson.False {
+			v := st.Bool()
+			req.Stream = &v
+		}
+		if eff := gjson.Get(s, "reasoning_effort"); eff.Type == gjson.String && eff.Str != "" {
+			req.ReasoningEffort = strings.Clone(eff.Str)
+		}
+		if pck := gjson.Get(s, "prompt_cache_key"); pck.Type == gjson.String && pck.Str != "" {
+			v := strings.Clone(pck.Str)
+			req.PromptCacheKey = &v
+		}
+		return req, true
+
+	case *responses.InboundTransformer:
+		if strings.HasSuffix(request.Path, "/compact") || strings.Contains(request.URL, "/compact") {
+			return nil, false
+		}
+		model := gjson.Get(s, "model")
+		if model.Type != gjson.String || model.Str == "" {
+			return nil, false
+		}
+		if !gjson.Get(s, "input").Exists() {
+			return nil, false
+		}
+		req := &llm.Request{
+			APIFormat:   llm.APIFormatOpenAIResponse,
+			RequestType: llm.RequestTypeChat,
+			Model:       strings.Clone(model.Str),
+		}
+		if st := gjson.Get(s, "stream"); st.Type == gjson.True || st.Type == gjson.False {
+			v := st.Bool()
+			req.Stream = &v
+		}
+		if eff := gjson.Get(s, "reasoning.effort"); eff.Type == gjson.String && eff.Str != "" {
+			req.ReasoningEffort = strings.Clone(eff.Str)
+		}
+		if pck := gjson.Get(s, "prompt_cache_key"); pck.Type == gjson.String && pck.Str != "" {
+			v := strings.Clone(pck.Str)
+			req.PromptCacheKey = &v
+		}
+		if prev := gjson.Get(s, "previous_response_id"); prev.Type == gjson.String && prev.Str != "" {
+			v := strings.Clone(prev.Str)
+			req.PreviousResponseID = &v
+		}
+		return req, true
+	}
+
+	return nil, false
+}
+
+// WrapDirectPassThroughInboundStream wraps a raw pass-through stream with
+// InboundPersistentStream without running LLM AST stream conversion.
+func (p *PersistentInboundTransformer) WrapDirectPassThroughInboundStream(
+	ctx context.Context,
+	stream streams.Stream[*httpclient.StreamEvent],
+) (streams.Stream[*httpclient.StreamEvent], error) {
+	return NewInboundPersistentStream(
+		ctx,
+		stream,
+		p.state.Request,
+		p.state.RequestExec,
+		p.state.RequestService,
+		p,
+		p.state.Perf,
+		p.state,
+	), nil
 }
 
 func (p *PersistentInboundTransformer) TransformResponse(ctx context.Context, response *llm.Response) (*httpclient.Response, error) {

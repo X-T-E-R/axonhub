@@ -133,6 +133,24 @@ func (m *modelCircuitBreakerTracker) OnOutboundLlmStream(ctx context.Context, st
 	}, nil
 }
 
+func (m *modelCircuitBreakerTracker) OnDirectPassThroughStream(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	if m.outbound == nil || m.outbound.state == nil || m.modelCircuitBreaker == nil {
+		return stream, nil
+	}
+	return &rawProbeReleasingStream{
+		ctx:            ctx,
+		stream:         stream,
+		probeChannelID: m.probeChannelID,
+		probeModelID:   m.probeModelID,
+		release: func() {
+			if m.outbound != nil {
+				m.releaseProbeLease()
+			}
+		},
+		modelCircuitBreaker: m.modelCircuitBreaker,
+	}, nil
+}
+
 func (m *modelCircuitBreakerTracker) releaseProbeLease() {
 	if m.outbound == nil || m.outbound.state == nil || m.modelCircuitBreaker == nil {
 		return
@@ -197,5 +215,41 @@ func (s *probeReleasingStream) Close() error {
 		s.release()
 	}
 
+	return s.stream.Close()
+}
+
+//nolint:containedctx // Checked.
+type rawProbeReleasingStream struct {
+	ctx                 context.Context
+	stream              streams.Stream[*httpclient.StreamEvent]
+	release             func()
+	released            bool
+	recorded            bool
+	modelCircuitBreaker *biz.ModelCircuitBreaker
+	probeChannelID      int
+	probeModelID        string
+}
+
+func (s *rawProbeReleasingStream) Next() bool { return s.stream.Next() }
+
+func (s *rawProbeReleasingStream) Current() *httpclient.StreamEvent {
+	event := s.stream.Current()
+	if event == nil || s.modelCircuitBreaker == nil || s.recorded {
+		return event
+	}
+	if ct, _ := extractRawStreamTokens(event); ct > 0 {
+		s.modelCircuitBreaker.RecordSuccess(s.ctx, s.probeChannelID, s.probeModelID)
+		s.recorded = true
+	}
+	return event
+}
+
+func (s *rawProbeReleasingStream) Err() error { return s.stream.Err() }
+
+func (s *rawProbeReleasingStream) Close() error {
+	if !s.released && s.release != nil {
+		s.released = true
+		s.release()
+	}
 	return s.stream.Close()
 }

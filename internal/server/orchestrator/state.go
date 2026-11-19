@@ -11,6 +11,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/transformer"
 )
 
 // PersistenceState holds shared state with channel management and retry capabilities.
@@ -24,6 +25,7 @@ type PersistenceState struct {
 	providerUsageFinal atomic.Bool
 
 	RequestService      *biz.RequestService
+	SystemService       *biz.SystemService
 	UsageLogService     *biz.UsageLogService
 	ChannelService      *biz.ChannelService
 	PromptProvider      PromptProvider
@@ -43,6 +45,12 @@ type PersistenceState struct {
 	RequestedModel string
 	RawRequest     *httpclient.Request
 	LlmRequest     *llm.Request
+
+	// llmRequestShallow records that LlmRequest was populated via zero-copy scalar
+	// extraction for same-protocol pass-through and has not yet unmarshaled the
+	// full Messages/Tools AST. EnsureFullLlmRequest materializes it on demand.
+	llmRequestShallow  bool
+	inboundTransformer transformer.Inbound
 
 	// OriginalRequestStream stores the client's original stream intent before any
 	// candidate-specific forcing to provider-side streaming happens.
@@ -121,6 +129,9 @@ type PersistenceState struct {
 
 	// PassThroughApplied records whether the inbound request body was substituted during pass-through.
 	PassThroughApplied bool
+	// DirectPassThroughStream records whether the current streaming attempt bypasses
+	// LLM AST stream conversion and shadow drain goroutines.
+	DirectPassThroughStream bool
 
 	deferredFailureMu                 sync.Mutex
 	deferredStreamError               error
@@ -277,6 +288,7 @@ func (s *PersistenceState) resetStreamTerminalState() {
 	}
 	s.deferredFailureMu.Lock()
 	s.StreamCompleted = false
+	s.DirectPassThroughStream = false
 	s.providerTerminalStatus = streamTerminalNone
 	s.ProviderStreamResponse = nil
 	s.deferredStreamError = nil
@@ -396,4 +408,95 @@ func (s *PersistenceState) deferredStreamFailure() (error, bool, bool) {
 	defer s.deferredFailureMu.Unlock()
 
 	return s.deferredStreamError, s.deferredRequestFailurePersisted, s.deferredExecutionFailurePersisted
+}
+
+// EnsureFullLlmRequest materializes the complete llm.Request AST on demand when
+// the inbound phase performed a shallow scalar parse. Any scalar mutations made
+// by earlier middlewares (Model, Stream, ReasoningEffort, ReasoningBudget,
+// ChannelKeyAffinityID) are preserved in place so all existing pointers remain valid.
+func (s *PersistenceState) EnsureFullLlmRequest(ctx context.Context) (*llm.Request, error) {
+	if s == nil || !s.llmRequestShallow {
+		if s == nil {
+			return nil, nil
+		}
+		return s.LlmRequest, nil
+	}
+	if s.inboundTransformer == nil || s.RawRequest == nil {
+		s.llmRequestShallow = false
+		return s.LlmRequest, nil
+	}
+
+	fullReq, err := s.inboundTransformer.TransformRequest(ctx, s.RawRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.LlmRequest != nil {
+		if s.LlmRequest.Model != "" {
+			fullReq.Model = s.LlmRequest.Model
+		}
+		if s.LlmRequest.Stream != nil {
+			fullReq.Stream = s.LlmRequest.Stream
+		}
+		if s.LlmRequest.StreamOptions != nil {
+			fullReq.StreamOptions = s.LlmRequest.StreamOptions
+		}
+		if s.LlmRequest.ReasoningEffort != "" {
+			fullReq.ReasoningEffort = s.LlmRequest.ReasoningEffort
+		}
+		if s.LlmRequest.ReasoningBudget != nil {
+			fullReq.ReasoningBudget = s.LlmRequest.ReasoningBudget
+		}
+		if s.LlmRequest.ChannelKeyAffinityID != "" {
+			fullReq.ChannelKeyAffinityID = s.LlmRequest.ChannelKeyAffinityID
+		}
+		fullReq.RawRequest = s.RawRequest
+		*s.LlmRequest = *fullReq
+	} else {
+		fullReq.RawRequest = s.RawRequest
+		s.LlmRequest = fullReq
+	}
+	s.llmRequestShallow = false
+	return s.LlmRequest, nil
+}
+
+// ReleaseRequestPayloads drops multi-MB inbound/outbound request bodies and
+// parsed LLM AST payloads once a streaming response has been established and
+// all pre-first-event retry windows have closed. Scalar metadata (APIFormat,
+// Model, Stream, Headers) is preserved via body-less shallow copies so neither
+// callers nor async observation writers holding the original structs are mutated.
+func (s *PersistenceState) ReleaseRequestPayloads() {
+	if s == nil {
+		return
+	}
+	// When legacy shadow-drain pass-through (e.g. NativeResponsesWebSocket) is
+	// active, its background drain goroutine is already reading state fields.
+	if s.RawStreamAttempt != nil {
+		return
+	}
+	s.RawRequest = nil
+	if s.RawProviderRequest != nil {
+		metaCopy := *s.RawProviderRequest
+		metaCopy.Body = nil
+		metaCopy.JSONBody = nil
+		metaCopy.RawRequest = nil
+		s.RawProviderRequest = &metaCopy
+	}
+	if s.ProviderStreamResponse != nil {
+		respCopy := *s.ProviderStreamResponse
+		respCopy.Request = nil
+		respCopy.RawRequest = nil
+		s.ProviderStreamResponse = &respCopy
+	}
+	if s.LlmRequest != nil {
+		s.LlmRequest = &llm.Request{
+			APIFormat:   s.LlmRequest.APIFormat,
+			RequestType: s.LlmRequest.RequestType,
+			Model:       s.LlmRequest.Model,
+			Stream:      s.LlmRequest.Stream,
+		}
+	}
+	s.ReasoningBoundsExtraBody = nil
+	s.ReasoningBoundsTransformerMetadata = nil
+	s.ReasoningWireSnapshot = nil
 }

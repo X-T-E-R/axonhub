@@ -1,8 +1,10 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"unsafe"
 
 	"github.com/tidwall/gjson"
 
@@ -19,6 +21,7 @@ import (
 type streamObservationMeta struct {
 	start     *httpclient.StreamEvent
 	final     *httpclient.StreamEvent
+	chatID    string
 	chatUsage *openai.Usage
 }
 
@@ -41,8 +44,21 @@ type anthropicObservationMeta struct {
 }
 
 func (m *streamObservationMeta) observe(event *httpclient.StreamEvent) {
+	if event == nil || len(event.Data) == 0 {
+		return
+	}
+	// Fast byte pre-filter: >99% of streaming events are content/thinking deltas
+	// that carry neither billing usage nor lifecycle boundaries.
+	data := event.Data
+	if !bytes.Contains(data, []byte(`"usage"`)) &&
+		!bytes.Contains(data, []byte(`"message_start"`)) &&
+		!bytes.Contains(data, []byte(`"message_delta"`)) &&
+		!bytes.Contains(data, []byte(`"response.completed"`)) {
+		return
+	}
 	// The aggregator dispatches on JSON type, not the SSE event header.
-	kind := gjson.GetBytes(event.Data, "type").String()
+	dataStr := unsafe.String(unsafe.SliceData(data), len(data))
+	kind := gjson.Get(dataStr, "type").String()
 	var value any
 	var decodedType *string
 	switch kind {
@@ -60,7 +76,7 @@ func (m *streamObservationMeta) observe(event *httpclient.StreamEvent) {
 		projected := &anthropicObservationMeta{}
 		value, decodedType = projected, &projected.Type
 	default:
-		if kind != "" || !gjson.GetBytes(event.Data, "usage").IsObject() {
+		if kind != "" || !gjson.Get(dataStr, "usage").IsObject() {
 			return
 		}
 		projected := &chatObservationMeta{}
@@ -69,7 +85,7 @@ func (m *streamObservationMeta) observe(event *httpclient.StreamEvent) {
 	// Reject ambiguous projections (including duplicate type keys) rather than
 	// validating one type and sending another type to the consumer. Raw events
 	// remain untouched and still follow the original business decoder.
-	if json.Unmarshal(event.Data, value) != nil || *decodedType != kind {
+	if json.Unmarshal(data, value) != nil || *decodedType != kind {
 		return
 	}
 	if start, ok := value.(*anthropicObservationMeta); ok && kind == "message_start" && start.Message == nil {
@@ -79,6 +95,9 @@ func (m *streamObservationMeta) observe(event *httpclient.StreamEvent) {
 	}
 	if chat, ok := value.(*chatObservationMeta); ok {
 		m.chatUsage = chat.Usage
+		if chat.ID != "" {
+			m.chatID = chat.ID
+		}
 	}
 	data, err := json.Marshal(value)
 	if err != nil {

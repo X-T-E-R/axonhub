@@ -7,8 +7,10 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+	"unsafe"
 
 	"github.com/cespare/xxhash/v2"
+	"github.com/tidwall/gjson"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/pipeline"
@@ -153,6 +155,10 @@ func buildChannelKeyCacheAffinitySource(req *llm.Request) (channelKeyCacheAffini
 
 	var stableBytes int
 
+	if len(req.Messages) == 0 && req.Compact == nil && req.RawRequest != nil && len(req.RawRequest.Body) > 0 {
+		return buildShallowRawCacheAffinitySource(source, req.RawRequest.Body)
+	}
+
 	source.Messages, stableBytes = boundedCacheRelevantMessagePrefix(req.Messages)
 	source.ToolsFingerprint, stableBytes = fingerprintBoundedJSONWithStableBytes(req.Tools, stableBytes)
 	source.ToolChoiceFingerprint, stableBytes = fingerprintBoundedJSONWithStableBytes(req.ToolChoice, stableBytes)
@@ -172,6 +178,102 @@ func buildChannelKeyCacheAffinitySource(req *llm.Request) (channelKeyCacheAffini
 		return channelKeyCacheAffinitySource{}, channelKeyCacheAffinityTierNone
 	}
 
+	return source, channelKeyCacheAffinityTierLikely
+}
+
+// buildShallowRawCacheAffinitySource derives a bounded likely-tier cache
+// affinity fingerprint directly from the raw JSON payload when the inbound
+// request was shallow-parsed without unmarshaling the full Messages/Tools AST.
+func buildShallowRawCacheAffinitySource(source channelKeyCacheAffinitySource, rawBody []byte) (channelKeyCacheAffinitySource, channelKeyCacheAffinityTier) {
+	bodyStr := unsafe.String(unsafe.SliceData(rawBody), len(rawBody))
+	remaining := channelKeyCacheAffinityMaxInspectedBytes
+	stableBytes := 0
+
+	appendRawMsg := func(role, text string) {
+		if remaining <= 0 {
+			return
+		}
+		norm := normalizeCacheAffinityText(text, min(channelKeyCacheAffinityMaxFieldBytes, remaining))
+		remaining -= len(norm)
+		stableBytes += len(norm)
+		source.Messages = append(source.Messages, cacheAffinityMessage{
+			Role:        strings.ToLower(strings.TrimSpace(role)),
+			ContentHash: fingerprintString(norm),
+		})
+	}
+
+	if sys := gjson.Get(bodyStr, "system"); sys.Exists() {
+		if sys.Type == gjson.String {
+			appendRawMsg("system", sys.Str)
+		} else if sys.IsArray() {
+			var sb strings.Builder
+			sys.ForEach(func(_, block gjson.Result) bool {
+				if t := block.Get("text"); t.Type == gjson.String && t.Str != "" {
+					if sb.Len() > 0 {
+						sb.WriteByte('\n')
+					}
+					sb.WriteString(t.Str)
+					if sb.Len() >= channelKeyCacheAffinityMaxFieldBytes {
+						return false
+					}
+				}
+				return true
+			})
+			appendRawMsg("system", sb.String())
+		}
+	} else if instr := gjson.Get(bodyStr, "instructions"); instr.Type == gjson.String && instr.Str != "" {
+		appendRawMsg("system", instr.Str)
+	}
+
+	arrKey := "messages"
+	if source.APIFormat == llm.APIFormatOpenAIResponse {
+		arrKey = "input"
+	}
+	if arr := gjson.Get(bodyStr, arrKey); arr.IsArray() {
+		count := 0
+		arr.ForEach(func(_, item gjson.Result) bool {
+			if count >= channelKeyCacheAffinityMaxMessages || remaining <= 0 {
+				return false
+			}
+			role := item.Get("role").Str
+			var text string
+			content := item.Get("content")
+			if content.Type == gjson.String {
+				text = content.Str
+			} else if content.IsArray() {
+				var sb strings.Builder
+				content.ForEach(func(_, part gjson.Result) bool {
+					if t := part.Get("text"); t.Type == gjson.String && t.Str != "" {
+						if sb.Len() > 0 {
+							sb.WriteByte('\n')
+						}
+						sb.WriteString(t.Str)
+						if sb.Len() >= channelKeyCacheAffinityMaxFieldBytes {
+							return false
+						}
+					}
+					return true
+				})
+				text = sb.String()
+			}
+			appendRawMsg(role, text)
+			count++
+			return true
+		})
+	}
+
+	if tools := gjson.Get(bodyStr, "tools"); tools.Exists() && len(tools.Raw) > 0 {
+		rawTools := tools.Raw
+		if len(rawTools) > channelKeyCacheAffinityMaxFieldBytes {
+			rawTools = rawTools[:channelKeyCacheAffinityMaxFieldBytes]
+		}
+		stableBytes += len(rawTools)
+		source.ToolsFingerprint = fingerprintString(rawTools)
+	}
+
+	if stableBytes < channelKeyCacheAffinityMinLikelyBytes {
+		return channelKeyCacheAffinitySource{}, channelKeyCacheAffinityTierNone
+	}
 	return source, channelKeyCacheAffinityTierLikely
 }
 

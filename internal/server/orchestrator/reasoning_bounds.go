@@ -185,7 +185,7 @@ func reconcileBoundedReasoningWire(outbound *PersistentOutboundTransformer) pipe
 			var err error
 			if value.exists {
 				body, err = sjson.SetRawBytes(body, path, []byte(value.raw))
-			} else {
+			} else if gjson.GetBytes(body, path).Exists() {
 				body, err = sjson.DeleteBytes(body, path)
 			}
 			if err != nil {

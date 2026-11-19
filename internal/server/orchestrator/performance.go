@@ -1,9 +1,13 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"time"
+	"unsafe"
+
+	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/log"
@@ -134,6 +138,14 @@ func (m *performanceRecording) OnOutboundLlmStream(ctx context.Context, stream s
 	}, nil
 }
 
+func (m *performanceRecording) OnDirectPassThroughStream(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	return &recordRawPerformanceStream{
+		ctx:    ctx,
+		stream: stream,
+		state:  m.outbound.state,
+	}, nil
+}
+
 func (m *performanceRecording) OnOutboundRawError(ctx context.Context, err error) {
 	// A transport/decoder failure has no upstream HTTP status. Keep status=0 so
 	// managed egress can apply its network-failure block; performance metrics
@@ -177,7 +189,8 @@ func (m *performanceRecording) OnOutboundRawError(ctx context.Context, err error
 		m.outbound.state.FailurePolicyRoutingChanged = m.outbound.state.ChannelService.ApplyRequestFailurePolicy(ctx, perf)
 	}
 
-	m.outbound.state.ChannelService.AsyncRecordPerformance(ctx, perf)
+	perfCopy := *perf
+	m.outbound.state.ChannelService.AsyncRecordPerformance(ctx, &perfCopy)
 }
 
 // recordPerformanceStream records performance metrics for a stream of responses.
@@ -224,7 +237,8 @@ func (s *recordPerformanceStream) Current() *llm.Response {
 	if tokenCount := event.Usage.GetCompletionTokens(); tokenCount != nil && *tokenCount > 0 {
 		s.state.Perf.CompletionTokens = *tokenCount
 		s.state.Perf.MarkSuccess()
-		s.state.ChannelService.AsyncRecordPerformance(s.ctx, s.state.Perf)
+		perfCopy := *s.state.Perf
+		s.state.ChannelService.AsyncRecordPerformance(s.ctx, &perfCopy)
 	}
 
 	return event
@@ -241,6 +255,75 @@ func (s *recordPerformanceStream) Close() error {
 func (s *recordPerformanceStream) Err() error {
 	return s.stream.Err()
 }
+
+// extractRawStreamTokens extracts completion and total token counts from a raw
+// provider SSE event (Anthropic, OpenAI Chat, OpenAI Responses) using a cheap
+// byte pre-filter so regular content deltas incur near-zero overhead.
+func extractRawStreamTokens(event *httpclient.StreamEvent) (completionTokens, totalTokens int64) {
+	if event == nil || len(event.Data) == 0 || !bytes.Contains(event.Data, []byte(`"usage"`)) {
+		return 0, 0
+	}
+	s := unsafe.String(unsafe.SliceData(event.Data), len(event.Data))
+	if u := gjson.Get(s, "usage"); u.IsObject() {
+		if ct := u.Get("completion_tokens").Int(); ct > 0 {
+			completionTokens = ct
+		} else if ot := u.Get("output_tokens").Int(); ot > 0 {
+			completionTokens = ot
+		}
+		if tt := u.Get("total_tokens").Int(); tt > 0 {
+			totalTokens = tt
+		} else if completionTokens > 0 {
+			totalTokens = u.Get("input_tokens").Int() + completionTokens
+		}
+		return completionTokens, totalTokens
+	}
+	if u := gjson.Get(s, "response.usage"); u.IsObject() {
+		completionTokens = u.Get("output_tokens").Int()
+		totalTokens = u.Get("total_tokens").Int()
+		if totalTokens == 0 && completionTokens > 0 {
+			totalTokens = u.Get("input_tokens").Int() + completionTokens
+		}
+		return completionTokens, totalTokens
+	}
+	return 0, 0
+}
+
+//nolint:containedctx // ctx is used for logging.
+type recordRawPerformanceStream struct {
+	ctx           context.Context
+	stream        streams.Stream[*httpclient.StreamEvent]
+	state         *PersistenceState
+	firstTokenSet bool
+	recorded      bool
+}
+
+func (s *recordRawPerformanceStream) Next() bool { return s.stream.Next() }
+
+func (s *recordRawPerformanceStream) Current() *httpclient.StreamEvent {
+	event := s.stream.Current()
+	if event == nil {
+		return nil
+	}
+	if !s.firstTokenSet && s.state != nil && s.state.Perf != nil {
+		s.state.Perf.MarkFirstToken()
+		s.firstTokenSet = true
+	}
+	if !s.recorded && s.state != nil && s.state.Perf != nil {
+		if completionTokens, _ := extractRawStreamTokens(event); completionTokens > 0 {
+			s.state.Perf.CompletionTokens = completionTokens
+			s.state.Perf.MarkSuccess()
+			if s.state.ChannelService != nil {
+				perfCopy := *s.state.Perf
+				s.state.ChannelService.AsyncRecordPerformance(s.ctx, &perfCopy)
+			}
+			s.recorded = true
+		}
+	}
+	return event
+}
+
+func (s *recordRawPerformanceStream) Close() error { return s.stream.Close() }
+func (s *recordRawPerformanceStream) Err() error   { return s.stream.Err() }
 
 // ExtractErrorCode extracts HTTP error code from error.
 func ExtractErrorCode(err error) int {

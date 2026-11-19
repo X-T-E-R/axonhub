@@ -20,6 +20,24 @@ func protectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 			return llmRequest, nil
 		}
 
+		if inbound.state.llmRequestShallow {
+			if checker, ok := inbound.state.PromptProtecter.(interface {
+				HasEnabledRules(context.Context) (bool, error)
+			}); ok {
+				hasRules, err := checker.HasEnabledRules(ctx)
+				if err != nil {
+					log.Warn(ctx, "failed to check prompt protection rules", log.Cause(err))
+					return llmRequest, nil
+				}
+				if !hasRules {
+					return llmRequest, nil
+				}
+			}
+			if _, err := inbound.state.EnsureFullLlmRequest(ctx); err != nil {
+				return nil, err
+			}
+		}
+
 		protected, err := inbound.state.PromptProtecter.Protect(ctx, llmRequest)
 		if err != nil {
 			if errors.Is(err, biz.ErrPromptProtectionRejected) {

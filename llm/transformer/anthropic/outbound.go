@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -120,6 +121,71 @@ func NewOutboundTransformerWithConfig(config *Config) (transformer.Outbound, err
 // APIFormat returns the API format of the transformer.
 func (t *OutboundTransformer) APIFormat() llm.APIFormat {
 	return llm.APIFormatAnthropicMessage
+}
+
+// BuildPassThroughRequest constructs the outbound HTTP request envelope (URL,
+// headers, auth, API format) without converting or marshaling the LLM AST body.
+// Callers use this when same-protocol PassThroughBody will supply the raw body.
+// Returns (nil, nil) when the platform or request type requires full TransformRequest.
+func (t *OutboundTransformer) BuildPassThroughRequest(
+	ctx context.Context,
+	llmReq *llm.Request,
+) (*httpclient.Request, error) {
+	if llmReq == nil {
+		return nil, fmt.Errorf("chat completion request is nil")
+	}
+	if t.config.Type == PlatformBedrock || t.config.Type == PlatformVertex {
+		return nil, nil
+	}
+	if llmReq.RequestType != llm.RequestTypeChat && llmReq.RequestType != "" {
+		return nil, nil
+	}
+	if llmReq.Model == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+
+	var apiKey string
+	if t.config.APIKeyProvider != nil {
+		apiKey = t.config.APIKeyProvider.Get(ctx)
+	}
+
+	url, err := t.buildFullRequestURL(llmReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build platform URL: %w", err)
+	}
+
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	headers.Set("Accept", "application/json")
+	headers.Set("Anthropic-Version", "2023-06-01")
+
+	if t.config.Type == PlatformDirect && llmReq.RawRequest != nil && bytes.Contains(llmReq.RawRequest.Body, []byte(ToolTypeWebSearch20250305)) {
+		headers.Add("Anthropic-Beta", "web-search-2025-03-05")
+	}
+
+	var authConfig *httpclient.AuthConfig
+	if apiKey != "" {
+		if t.config.Type == PlatformLongCat {
+			authConfig = &httpclient.AuthConfig{
+				Type:   httpclient.AuthTypeBearer,
+				APIKey: apiKey,
+			}
+		} else {
+			authConfig = &httpclient.AuthConfig{
+				Type:      httpclient.AuthTypeAPIKey,
+				APIKey:    apiKey,
+				HeaderKey: "X-API-Key",
+			}
+		}
+	}
+
+	return &httpclient.Request{
+		Method:    http.MethodPost,
+		URL:       url,
+		Headers:   headers,
+		Auth:      authConfig,
+		APIFormat: string(llm.APIFormatAnthropicMessage),
+	}, nil
 }
 
 // TransformRequest transforms ChatCompletionRequest to Anthropic HTTP request.

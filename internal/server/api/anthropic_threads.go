@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -386,14 +387,14 @@ func countRawCacheControl(raw json.RawMessage) int {
 	if isJSONNullOrEmpty(raw) || !bytes.Contains(raw, []byte(`"cache_control"`)) {
 		return 0
 	}
-	return countBlockCacheControl(gjson.ParseBytes(raw))
+	return countBlockCacheControl(gjson.Parse(unsafe.String(unsafe.SliceData(raw), len(raw))))
 }
 
 func stripMessageCacheControl(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 || !bytes.Contains(raw, []byte(`"cache_control"`)) {
 		return raw
 	}
-	stripped := withoutBlockCacheControl(gjson.ParseBytes(raw))
+	stripped := withoutBlockCacheControl(gjson.Parse(unsafe.String(unsafe.SliceData(raw), len(raw))))
 	return json.RawMessage(stripped)
 }
 
@@ -457,7 +458,20 @@ func materializeThreadMessages(
 		}
 	}
 
+	totalSize := 2 // '[' and ']'
+	totalCount := len(resolvedStored) + len(newMessages)
+	if totalCount > 1 {
+		totalSize += totalCount - 1 // commas
+	}
+	for _, raw := range resolvedStored {
+		totalSize += len(raw)
+	}
+	for _, raw := range newMessages {
+		totalSize += len(raw)
+	}
+
 	var buf bytes.Buffer
+	buf.Grow(totalSize)
 	buf.WriteByte('[')
 	wrote := false
 	for _, raw := range resolvedStored {

@@ -1,11 +1,10 @@
 package middleware
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
+	"unsafe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -15,6 +14,7 @@ import (
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/tracing"
+	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/transformer/anthropic/claudecode"
 	"github.com/looplj/axonhub/llm/transformer/openai/codex"
 	"github.com/looplj/axonhub/llm/transformer/shared"
@@ -53,20 +53,19 @@ func tryGetTraceIDFromBody(c *gin.Context, config tracing.Config) (string, error
 		return "", nil
 	}
 
-	body, err := io.ReadAll(c.Request.Body)
+	body, err := httpclient.PeekRequestBody(c.Request)
 	if err != nil {
 		return "", fmt.Errorf("failed to read request body: %w", err)
 	}
-
-	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	if len(body) == 0 {
 		return "", nil
 	}
 
+	bodyStr := unsafe.String(unsafe.SliceData(body), len(body))
 	for _, field := range config.ExtraTraceBodyFields {
-		result := gjson.GetBytes(body, field)
+		result := gjson.Get(bodyStr, field)
 		if result.Exists() && result.String() != "" {
-			return result.String(), nil
+			return strings.Clone(result.String()), nil
 		}
 	}
 
@@ -187,17 +186,15 @@ func tryExtractTraceIDFromClaudeCodeRequest(c *gin.Context, config tracing.Confi
 		return "", nil
 	}
 
-	bodyBytes, err := io.ReadAll(c.Request.Body)
+	bodyBytes, err := httpclient.PeekRequestBody(c.Request)
 	if err != nil {
 		return "", fmt.Errorf("failed to read request body: %w", err)
 	}
-
-	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	if len(bodyBytes) == 0 {
 		return "", nil
 	}
 
-	userID := gjson.GetBytes(bodyBytes, "metadata.user_id").String()
+	userID := gjson.Get(unsafe.String(unsafe.SliceData(bodyBytes), len(bodyBytes)), "metadata.user_id").String()
 	if userID == "" {
 		return "", nil
 	}
@@ -207,7 +204,7 @@ func tryExtractTraceIDFromClaudeCodeRequest(c *gin.Context, config tracing.Confi
 		return "", nil
 	}
 
-	traceID := uid.SessionID
+	traceID := strings.Clone(uid.SessionID)
 
 	log.Debug(c.Request.Context(), "Extracted trace ID from claude code payload", log.String("trace_id", traceID))
 

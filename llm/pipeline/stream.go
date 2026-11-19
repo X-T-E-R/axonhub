@@ -298,6 +298,19 @@ func nextLlmStreamEvent(
 	return hasNext, nil
 }
 
+// DirectPassThroughOutbound is optionally implemented by outbound transformers
+// that support bypassing LLM AST stream transformation for same-protocol pass-through.
+type DirectPassThroughOutbound interface {
+	ShouldDirectPassThroughStream(ctx context.Context, request *httpclient.Request) bool
+	WrapDirectPassThroughOutboundStream(ctx context.Context, request *httpclient.Request, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error)
+}
+
+// DirectPassThroughInbound is optionally implemented by inbound transformers
+// paired with DirectPassThroughOutbound.
+type DirectPassThroughInbound interface {
+	WrapDirectPassThroughInboundStream(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error)
+}
+
 // Process executes the streaming LLM pipeline
 // Steps: outbound transform -> HTTP stream -> outbound stream transform -> inbound stream transform.
 func (p *pipeline) stream(
@@ -334,6 +347,12 @@ func (p *pipeline) stream(
 		}
 
 		return nil, WrapUpstreamError(err)
+	}
+
+	if directOut, ok := p.Outbound.(DirectPassThroughOutbound); ok {
+		if directIn, ok := p.Inbound.(DirectPassThroughInbound); ok && !p.emptyResponseDetection && directOut.ShouldDirectPassThroughStream(ctx, request) {
+			return p.directPassThroughStream(ctx, request, outboundStream, firstEventGuard, firstEventTimeout, directOut, directIn)
+		}
 	}
 
 	// Apply raw stream middlewares
@@ -474,4 +493,144 @@ func (p *pipeline) stream(
 	}
 
 	return inboundStream, nil
+}
+
+func (p *pipeline) directPassThroughStream(
+	ctx context.Context,
+	request *httpclient.Request,
+	outboundStream streams.Stream[*httpclient.StreamEvent],
+	firstEventGuard *firstEventTimeoutGuard,
+	firstEventTimeout time.Duration,
+	directOut DirectPassThroughOutbound,
+	directIn DirectPassThroughInbound,
+) (streams.Stream[*httpclient.StreamEvent], error) {
+	rawStream := outboundStream
+	var err error
+
+	outboundStream, err = p.applyRawStreamMiddlewares(ctx, outboundStream)
+	if err != nil {
+		rawStream.Close()
+		err = firstEventGuard.finishBeforeFirstEvent(err)
+		p.applyRawErrorResponseMiddlewares(ctx, err)
+		if errors.Is(err, ErrStreamFirstEventTimeout) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to apply raw stream middlewares: %w", err)
+	}
+
+	outboundStream, err = directOut.WrapDirectPassThroughOutboundStream(ctx, request, outboundStream)
+	if err != nil {
+		rawStream.Close()
+		err = firstEventGuard.finishBeforeFirstEvent(err)
+		p.applyRawErrorResponseMiddlewares(ctx, err)
+		if errors.Is(err, ErrStreamFirstEventTimeout) {
+			return nil, err
+		}
+		return nil, WrapUpstreamError(err)
+	}
+
+	wrappedOutbound := outboundStream
+	outboundStream, err = p.applyDirectPassThroughStreamMiddlewares(ctx, outboundStream)
+	if err != nil {
+		wrappedOutbound.Close()
+		err = firstEventGuard.finishBeforeFirstEvent(err)
+		p.applyRawErrorResponseMiddlewares(ctx, err)
+		if errors.Is(err, ErrStreamFirstEventTimeout) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to apply direct pass-through stream middlewares: %w", err)
+	}
+
+	if firstEventTimeout > 0 || p.hasStreamRetryBudget() {
+		preReadSrc := outboundStream
+		outboundStream, err = preReadRawStream(ctx, outboundStream, firstEventGuard)
+		if err != nil {
+			preReadSrc.Close()
+			err = firstEventGuard.finishBeforeFirstEvent(err)
+			p.applyRawErrorResponseMiddlewares(ctx, err)
+			if !shouldWrapPreReadStreamError(err) {
+				return nil, err
+			}
+			return nil, WrapUpstreamError(err)
+		}
+	} else if firstEventGuard != nil {
+		firstEventGuard.stop()
+	}
+
+	terminalErrorReporter := &terminalErrorReporter{
+		ctx:     ctx,
+		onError: p.applyRawErrorResponseMiddlewares,
+	}
+	outboundStream = &terminalErrorReportingStream[*httpclient.StreamEvent]{
+		stream:   outboundStream,
+		reporter: terminalErrorReporter,
+	}
+
+	inboundStream, err := directIn.WrapDirectPassThroughInboundStream(ctx, outboundStream)
+	if err != nil {
+		outboundStream.Close()
+		firstEventGuard.cancelStream()
+		terminalErrorReporter.report(err)
+		return nil, err
+	}
+
+	rawInboundStream := inboundStream
+	inboundStream, err = p.applyInboundRawStreamMiddlewares(ctx, inboundStream)
+	if err != nil {
+		rawInboundStream.Close()
+		firstEventGuard.cancelStream()
+		terminalErrorReporter.report(err)
+		return nil, fmt.Errorf("failed to apply inbound raw stream middlewares: %w", err)
+	}
+
+	inboundStream = &terminalErrorReportingStream[*httpclient.StreamEvent]{
+		stream:   inboundStream,
+		reporter: terminalErrorReporter,
+	}
+
+	if firstEventGuard != nil {
+		inboundStream = &cancelOnCloseStream{
+			stream: inboundStream,
+			cancel: firstEventGuard.cancelStream,
+		}
+	}
+
+	return inboundStream, nil
+}
+
+func preReadRawStream(
+	ctx context.Context,
+	rawStream streams.Stream[*httpclient.StreamEvent],
+	firstEventGuard *firstEventTimeoutGuard,
+) (streams.Stream[*httpclient.StreamEvent], error) {
+	hasNext := rawStream.Next()
+	if hasNext {
+		if firstEventGuard != nil && !firstEventGuard.acceptFirstEvent() {
+			rawStream.Close()
+			return nil, ErrStreamFirstEventTimeout
+		}
+		first := rawStream.Current()
+		return streams.PrependStream(rawStream, first), nil
+	}
+
+	if firstEventGuard != nil {
+		firstEventGuard.completeFirstEventPhase()
+		if firstEventGuard.timedOut() {
+			rawStream.Close()
+			return nil, ErrStreamFirstEventTimeout
+		}
+	}
+	if err := rawStream.Err(); err != nil {
+		rawStream.Close()
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		if firstEventGuard != nil {
+			firstEventGuard.cancelStream()
+		}
+		rawStream.Close()
+		return nil, ctx.Err()
+	}
+
+	return rawStream, nil
 }

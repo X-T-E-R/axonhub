@@ -1,10 +1,8 @@
 package middleware
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"errors"
-	"io"
 	"mime"
 	"net/http"
 	"strings"
@@ -89,15 +87,15 @@ func WithDecodedRequestBody(transports ...*RequestBodyTransport) gin.HandlerFunc
 			return
 		}
 
-		c.Request.Body = io.NopCloser(bytes.NewReader(body))
-		c.Request.ContentLength = int64(len(body))
-		c.Request.Header.Del("Content-Encoding")
-		c.Request.Header.Del("Content-Length")
+		httpclient.SetDecodedRequestBody(c.Request, body)
 		if retain && eligible {
 			if hash := transport.retain(scope, body); hash != "" {
 				c.Header("X-Dict-Stored", hash)
 			}
 		}
+		// Drop the stack-frame reference before handing off to downstream handlers
+		// so multi-MB decoded payloads are not pinned for the lifetime of long SSE streams.
+		body = nil
 		c.Next()
 	}
 }

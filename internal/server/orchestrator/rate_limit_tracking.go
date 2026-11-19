@@ -72,6 +72,15 @@ func (m *rateLimitTracking) OnOutboundLlmStream(ctx context.Context, stream stre
 	}, nil
 }
 
+func (m *rateLimitTracking) OnDirectPassThroughStream(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	return &rawRateLimitTrackingStream{
+		ctx:      ctx,
+		stream:   stream,
+		tracker:  m.tracker,
+		outbound: m.outbound,
+	}, nil
+}
+
 // OnOutboundRawError handles raw HTTP errors, specifically capturing 429 Too Many Requests.
 // When a 429 is received, it parses the Retry-After header and sets a cooldown for the channel.
 func (m *rateLimitTracking) OnOutboundRawError(ctx context.Context, err error) {
@@ -152,6 +161,32 @@ func (s *rateLimitTrackingStream) Current() *llm.Response {
 func (s *rateLimitTrackingStream) Next() bool {
 	return s.stream.Next()
 }
+
+//nolint:containedctx // ctx is used for logging.
+type rawRateLimitTrackingStream struct {
+	ctx      context.Context
+	stream   streams.Stream[*httpclient.StreamEvent]
+	tracker  *ChannelRequestTracker
+	outbound *PersistentOutboundTransformer
+}
+
+func (s *rawRateLimitTrackingStream) Next() bool { return s.stream.Next() }
+
+func (s *rawRateLimitTrackingStream) Current() *httpclient.StreamEvent {
+	event := s.stream.Current()
+	if event == nil {
+		return nil
+	}
+	if _, totalTokens := extractRawStreamTokens(event); totalTokens > 0 {
+		if channel := s.outbound.GetCurrentChannel(); channel != nil {
+			s.tracker.AddTokens(channel.ID, totalTokens)
+		}
+	}
+	return event
+}
+
+func (s *rawRateLimitTrackingStream) Close() error { return s.stream.Close() }
+func (s *rawRateLimitTrackingStream) Err() error   { return s.stream.Err() }
 
 func (s *rateLimitTrackingStream) Close() error {
 	return s.stream.Close()

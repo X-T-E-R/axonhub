@@ -71,6 +71,14 @@ func ApplyPromptProtectionRules(req *llm.Request, rules []*ent.PromptProtectionR
 	}
 }
 
+func (svc *PromptProtectionRuleService) HasEnabledRules(ctx context.Context) (bool, error) {
+	rules, err := svc.ListEnabledRules(ctx)
+	if err != nil {
+		return false, err
+	}
+	return len(rules) > 0, nil
+}
+
 func (svc *PromptProtectionRuleService) Protect(ctx context.Context, req *llm.Request) (*llm.Request, error) {
 	rules, err := svc.ListEnabledRules(ctx)
 	if err != nil {

@@ -1,12 +1,19 @@
 // Package jsonutil provides byte-preserving JSON utilities.
 package jsonutil
 
+import "bytes"
+
+var unicodeEscapePrefix = []byte(`\u`)
+
 // NormalizeSurrogates replaces unpaired UTF-16 surrogate escapes in JSON strings
 // with \ufffd, matching encoding/json's string decoding. Valid pairs and every
 // other byte (including escaped backslashes, numbers and whitespace) are retained.
 // It does not validate JSON. The input is never modified; unchanged input is
 // returned without an allocation.
 func NormalizeSurrogates(data []byte) []byte {
+	if !bytes.Contains(data, unicodeEscapePrefix) {
+		return data
+	}
 	out := data
 	copied := false
 	inString := false

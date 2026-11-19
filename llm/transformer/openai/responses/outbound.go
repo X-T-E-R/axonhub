@@ -193,6 +193,41 @@ func (t *OutboundTransformer) TransformError(ctx context.Context, rawErr *httpcl
 	}, rawErr, t.APIFormat())
 }
 
+// BuildPassThroughRequest constructs the outbound HTTP request envelope (URL,
+// headers, auth, API format) without converting or marshaling the LLM AST body.
+// Returns (nil, nil) when the request type requires full TransformRequest.
+func (t *OutboundTransformer) BuildPassThroughRequest(ctx context.Context, llmReq *llm.Request) (*httpclient.Request, error) {
+	if llmReq == nil {
+		return nil, fmt.Errorf("chat request is nil")
+	}
+	if llmReq.RequestType != llm.RequestTypeChat && llmReq.RequestType != "" {
+		return nil, nil
+	}
+
+	apiKey := t.config.APIKeyProvider.Get(ctx)
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	headers.Set("Accept", "application/json")
+
+	fullURL, err := t.buildFullRequestURL(llmReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return &httpclient.Request{
+		Method:  http.MethodPost,
+		URL:     fullURL,
+		Headers: headers,
+		Auth: &httpclient.AuthConfig{
+			Type:   "bearer",
+			APIKey: apiKey,
+		},
+		APIFormat:             string(llm.APIFormatOpenAIResponse),
+		TransformerMetadata:   llmReq.TransformerMetadata,
+		SkipInboundQueryMerge: true,
+	}, nil
+}
+
 func (t *OutboundTransformer) TransformRequest(ctx context.Context, llmReq *llm.Request) (*httpclient.Request, error) {
 	if llmReq == nil {
 		return nil, fmt.Errorf("chat request is nil")

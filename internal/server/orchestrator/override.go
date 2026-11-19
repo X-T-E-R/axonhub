@@ -246,6 +246,9 @@ func applyBodySet(
 	renderedValue := renderOverrideValue(ctx, op.Value, renderCtx)
 
 	if renderedValue == "__AXONHUB_CLEAR__" {
+		if !gjson.GetBytes(body, op.Path).Exists() {
+			return body, nil
+		}
 		return sjson.DeleteBytes(body, op.Path)
 	}
 
@@ -267,6 +270,9 @@ func applyBodySetIfAbsent(
 }
 
 func applyBodyDelete(body []byte, op objects.OverrideOperation) ([]byte, error) {
+	if !gjson.GetBytes(body, op.Path).Exists() {
+		return body, nil
+	}
 	return sjson.DeleteBytes(body, op.Path)
 }
 

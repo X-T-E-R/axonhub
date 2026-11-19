@@ -6,9 +6,118 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
 )
+
+const maxCachedDictDecoders = 16
+
+type dictDecoderEntry struct {
+	hash     [sha256.Size]byte
+	dec      *zstd.Decoder
+	lastUsed uint64
+	mu       sync.RWMutex
+}
+
+var dictDecoderCache = struct {
+	mu      sync.Mutex
+	clock   uint64
+	entries map[[sha256.Size]byte]*dictDecoderEntry
+}{
+	entries: make(map[[sha256.Size]byte]*dictDecoderEntry, maxCachedDictDecoders),
+}
+
+func getOrCreateDictDecoder(hash [sha256.Size]byte, dictionary []byte) (*dictDecoderEntry, error) {
+	dictDecoderCache.mu.Lock()
+	if entry, ok := dictDecoderCache.entries[hash]; ok {
+		dictDecoderCache.clock++
+		entry.lastUsed = dictDecoderCache.clock
+		dictDecoderCache.mu.Unlock()
+		return entry, nil
+	}
+	dictDecoderCache.mu.Unlock()
+
+	dec, err := zstd.NewReader(nil,
+		zstd.WithDecoderConcurrency(1),
+		zstd.WithDecoderMaxMemory(httpRequestBodyReadLimit),
+		zstd.WithDecoderMaxWindow(32<<20),
+		zstd.WithDecoderDictRaw(0, dictionary),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var evicted *dictDecoderEntry
+	dictDecoderCache.mu.Lock()
+	if existing, ok := dictDecoderCache.entries[hash]; ok {
+		dictDecoderCache.clock++
+		existing.lastUsed = dictDecoderCache.clock
+		dictDecoderCache.mu.Unlock()
+		dec.Close()
+		return existing, nil
+	}
+	if len(dictDecoderCache.entries) >= maxCachedDictDecoders {
+		var oldestKey [sha256.Size]byte
+		var oldestUsed uint64
+		first := true
+		for k, e := range dictDecoderCache.entries {
+			if first || e.lastUsed < oldestUsed {
+				oldestKey = k
+				oldestUsed = e.lastUsed
+				first = false
+			}
+		}
+		evicted = dictDecoderCache.entries[oldestKey]
+		delete(dictDecoderCache.entries, oldestKey)
+	}
+	dictDecoderCache.clock++
+	entry := &dictDecoderEntry{
+		hash:     hash,
+		dec:      dec,
+		lastUsed: dictDecoderCache.clock,
+	}
+	dictDecoderCache.entries[hash] = entry
+	dictDecoderCache.mu.Unlock()
+
+	if evicted != nil {
+		evicted.mu.Lock()
+		if evicted.dec != nil {
+			evicted.dec.Close()
+			evicted.dec = nil
+		}
+		evicted.mu.Unlock()
+	}
+
+	return entry, nil
+}
+
+func decodeDictionaryZstd(hash [sha256.Size]byte, dictionary, frame []byte, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		return nil, ErrHTTPRequestBodyTooLarge
+	}
+	entry, err := getOrCreateDictDecoder(hash, dictionary)
+	if err != nil {
+		return nil, err
+	}
+
+	entry.mu.RLock()
+	dec := entry.dec
+	if dec == nil {
+		entry.mu.RUnlock()
+		return decodeZstdRequestBody(frame, limit, zstd.WithDecoderDictRaw(0, dictionary))
+	}
+	decoded, err := dec.DecodeAll(frame, nil)
+	entry.mu.RUnlock()
+
+	if errors.Is(err, zstd.ErrDecoderSizeExceeded) || int64(len(decoded)) > limit {
+		return nil, ErrHTTPRequestBodyTooLarge
+	}
+	if err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
 
 var (
 	ErrRequestDictionaryMissing     = errors.New("request dictionary is unavailable")
@@ -42,7 +151,7 @@ func decodeDictionaryRequest(body []byte, lookup RequestDictionaryLookup) ([]byt
 	if err := validateDictionaryFrame(frame); err != nil {
 		return nil, err
 	}
-	decoded, err := decodeZstdRequestBody(frame, httpRequestBodyReadLimit, zstd.WithDecoderDictRaw(0, dictionary))
+	decoded, err := decodeDictionaryZstd(hash, dictionary, frame, httpRequestBodyReadLimit)
 	if err != nil {
 		if errors.Is(err, ErrHTTPRequestBodyTooLarge) {
 			return nil, err

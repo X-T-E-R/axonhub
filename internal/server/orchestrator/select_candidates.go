@@ -125,6 +125,11 @@ func selectCandidates(inbound *PersistentInboundTransformer, quotaProvider Provi
 			modelSettings := candidates[0].ModelSettings
 			inbound.state.ReasoningBoundsActive = modelSettings != nil &&
 				(modelSettings.MinReasoningEffort != "" || modelSettings.MaxReasoningEffort != "")
+			if inbound.state.ReasoningBoundsActive {
+				if _, err := inbound.state.EnsureFullLlmRequest(ctx); err != nil {
+					return nil, err
+				}
+			}
 			inbound.state.ReasoningBoundsEnforced, inbound.state.ReasoningBoundsChanged = applyModelReasoningBounds(
 				ctx,
 				llmRequest,

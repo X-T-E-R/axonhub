@@ -12,14 +12,159 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/samber/lo"
 )
 
-const httpRequestBodyReadLimit = 32 << 20
+const (
+	httpRequestBodyReadLimit = 32 << 20
+	// maxPooledBufferCap caps temporary bytes.Buffer capacities returned to
+	// sync.Pool so multi-MB spike requests never ratchet idle pool memory.
+	maxPooledBufferCap = 256 << 10
+)
 
 var ErrHTTPRequestBodyTooLarge = errors.New("http request body exceeds size limit")
+
+// decodedBodyReader wraps an already-decoded request body so middleware and
+// ReadHTTPRequest can share or take ownership of the byte slice without
+// duplicating multi-MB payloads or keeping them pinned on http.Request.Body.
+type decodedBodyReader struct {
+	data   []byte
+	offset int
+}
+
+func (r *decodedBodyReader) Read(p []byte) (int, error) {
+	if r.offset >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.offset:])
+	r.offset += n
+	return n, nil
+}
+
+func (r *decodedBodyReader) Close() error {
+	r.data = nil
+	r.offset = 0
+	return nil
+}
+
+// SetDecodedRequestBody installs a decoded body on rawReq for zero-copy
+// handoff to downstream middleware and ReadHTTPRequest.
+func SetDecodedRequestBody(rawReq *http.Request, body []byte) {
+	if rawReq == nil {
+		return
+	}
+	rawReq.Body = &decodedBodyReader{data: body}
+	rawReq.ContentLength = int64(len(body))
+	rawReq.Header.Del("Content-Encoding")
+	rawReq.Header.Del("Content-Length")
+}
+
+// PeekRequestBody returns the request body bytes for read-only inspection
+// (such as trace extraction) without copying when already buffered, and
+// restores rawReq.Body for zero-copy consumption by ReadHTTPRequest.
+func PeekRequestBody(rawReq *http.Request) ([]byte, error) {
+	if rawReq == nil || rawReq.Body == nil {
+		return nil, nil
+	}
+	if dr, ok := rawReq.Body.(*decodedBodyReader); ok && dr.offset == 0 {
+		return dr.data, nil
+	}
+	body, err := readLimitedBodySized(rawReq.Body, httpRequestBodyReadLimit, rawReq.ContentLength)
+	if err != nil {
+		return nil, err
+	}
+	rawReq.Body = &decodedBodyReader{data: body}
+	rawReq.ContentLength = int64(len(body))
+	return body, nil
+}
+
+var (
+	limitedBodyBufPool = sync.Pool{
+		New: func() any {
+			return bytes.NewBuffer(make([]byte, 0, 8<<10))
+		},
+	}
+
+	gzipReaderPool = sync.Pool{}
+
+	// plainZstdDecoderPool reuses dictionary-free zstd decoders across requests.
+	// Pooled decoders MUST NOT be closed (Close terminates internal resources);
+	// only Reset(nil) is allowed before Put. Dictionary decoders are never placed
+	// in this pool.
+	plainZstdDecoderPool = sync.Pool{}
+)
+
+func putLimitedBodyBuf(buf *bytes.Buffer) {
+	if buf == nil || buf.Cap() > maxPooledBufferCap {
+		return
+	}
+	buf.Reset()
+	limitedBodyBufPool.Put(buf)
+}
+
+func acquireGzipReader(r io.Reader) (*gzip.Reader, error) {
+	if v := gzipReaderPool.Get(); v != nil {
+		gr := v.(*gzip.Reader)
+		err, panicked := resetGzipReaderSafe(gr, r)
+		if !panicked {
+			if err != nil {
+				gzipReaderPool.Put(gr)
+				return nil, err
+			}
+			return gr, nil
+		}
+	}
+	return gzip.NewReader(r)
+}
+
+func resetGzipReaderSafe(gr *gzip.Reader, r io.Reader) (err error, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			panicked = true
+		}
+	}()
+	return gr.Reset(r), false
+}
+
+func releaseGzipReader(gr *gzip.Reader) {
+	if gr == nil {
+		return
+	}
+	_ = gr.Close()
+	gzipReaderPool.Put(gr)
+}
+
+func acquirePlainZstdDecoder() (*zstd.Decoder, error) {
+	if v := plainZstdDecoderPool.Get(); v != nil {
+		return v.(*zstd.Decoder), nil
+	}
+	return zstd.NewReader(nil,
+		zstd.WithDecoderConcurrency(1),
+		zstd.WithDecoderMaxMemory(httpRequestBodyReadLimit),
+		zstd.WithDecoderMaxWindow(32<<20),
+	)
+}
+
+func releasePlainZstdDecoder(dec *zstd.Decoder) {
+	if dec == nil {
+		return
+	}
+	if safeResetZstdDecoder(dec) {
+		plainZstdDecoderPool.Put(dec)
+	}
+}
+
+func safeResetZstdDecoder(dec *zstd.Decoder) (ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	return dec.Reset(nil) == nil
+}
 
 func ReadHTTPRequest(rawReq *http.Request) (*Request, error) {
 	req := &Request{
@@ -58,10 +203,20 @@ func ReadRequestBodyWithDictionary(rawReq *http.Request, lookup RequestDictionar
 	if err != nil {
 		return nil, err
 	}
-	body, err := readLimitedBody(rawReq.Body, httpRequestBodyReadLimit)
+	if dr, ok := rawReq.Body.(*decodedBodyReader); ok && dr.offset == 0 && (encoding == "" || encoding == "identity") {
+		body := dr.data
+		dr.data = nil
+		rawReq.Body = http.NoBody
+		if int64(len(body)) > httpRequestBodyReadLimit {
+			return nil, ErrHTTPRequestBodyTooLarge
+		}
+		return body, nil
+	}
+	body, err := readLimitedBodySized(rawReq.Body, httpRequestBodyReadLimit, rawReq.ContentLength)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read request body: %w", err)
 	}
+	rawReq.Body = http.NoBody
 	if encoding == "dcz" {
 		decoded, err := decodeDictionaryRequest(body, lookup)
 		if err != nil {
@@ -105,11 +260,11 @@ func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) (
 		return body, nil
 
 	case "gzip", "x-gzip":
-		reader, err := gzip.NewReader(bytes.NewReader(body))
+		reader, err := acquireGzipReader(bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		defer reader.Close()
+		defer releaseGzipReader(reader)
 
 		decoded, err := readLimitedBody(reader, limit)
 		if err != nil {
@@ -156,6 +311,23 @@ func decodeZstdRequestBody(body []byte, limit int64, extra ...zstd.DOption) ([]b
 	if limit <= 0 {
 		return nil, ErrHTTPRequestBodyTooLarge
 	}
+	if len(extra) == 0 && limit <= httpRequestBodyReadLimit {
+		decoder, err := acquirePlainZstdDecoder()
+		if err != nil {
+			return nil, err
+		}
+		defer releasePlainZstdDecoder(decoder)
+
+		decoded, err := decoder.DecodeAll(body, nil)
+		if errors.Is(err, zstd.ErrDecoderSizeExceeded) || int64(len(decoded)) > limit {
+			return nil, ErrHTTPRequestBodyTooLarge
+		}
+		if err != nil {
+			return nil, err
+		}
+		return decoded, nil
+	}
+
 	options := []zstd.DOption{
 		zstd.WithDecoderConcurrency(1),
 		// Production's decoded cap is 32 MiB. Keep the existing window allowance
@@ -181,6 +353,10 @@ func decodeZstdRequestBody(body []byte, limit int64, extra ...zstd.DOption) ([]b
 }
 
 func readLimitedBody(reader io.Reader, limit int64) ([]byte, error) {
+	return readLimitedBodySized(reader, limit, -1)
+}
+
+func readLimitedBodySized(reader io.Reader, limit, contentLength int64) ([]byte, error) {
 	if reader == nil {
 		return nil, nil
 	}
@@ -188,16 +364,61 @@ func readLimitedBody(reader io.Reader, limit int64) ([]byte, error) {
 		return nil, ErrHTTPRequestBodyTooLarge
 	}
 
-	var buf bytes.Buffer
+	// Exact single allocation when Content-Length is known and within limit:
+	// io.ReadFull avoids bytes.Buffer.ReadFrom's MinRead (512B) doubling copy
+	// at EOF on multi-MB JSON payloads.
+	if contentLength > 0 && contentLength <= limit {
+		body := make([]byte, contentLength)
+		n, err := io.ReadFull(reader, body)
+		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+			return body[:n], nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		var extra [1]byte
+		en, err := reader.Read(extra[:])
+		if en == 0 && (err == nil || errors.Is(err, io.EOF)) {
+			return body, nil
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if int64(len(body))+int64(en) > limit {
+			return nil, ErrHTTPRequestBodyTooLarge
+		}
+		buf := bytes.NewBuffer(body)
+		buf.Write(extra[:en])
+		remaining := limit - int64(buf.Len())
+		more, err := buf.ReadFrom(io.LimitReader(reader, remaining+1))
+		if err != nil {
+			return nil, err
+		}
+		if more > remaining {
+			return nil, ErrHTTPRequestBodyTooLarge
+		}
+		return buf.Bytes(), nil
+	}
+
+	buf := limitedBodyBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
 	n, err := buf.ReadFrom(io.LimitReader(reader, limit+1))
 	if err != nil {
+		putLimitedBodyBuf(buf)
 		return nil, err
 	}
 	if n > limit {
+		putLimitedBodyBuf(buf)
 		return nil, ErrHTTPRequestBodyTooLarge
 	}
-
-	return buf.Bytes(), nil
+	if buf.Cap() > maxPooledBufferCap {
+		// Hand ownership directly to the caller and drop the oversized buffer
+		// instead of returning it to the pool (anti-pool-pollution guard).
+		return buf.Bytes(), nil
+	}
+	out := bytes.Clone(buf.Bytes())
+	putLimitedBodyBuf(buf)
+	return out, nil
 }
 
 func decodeZlibOrFlate(body []byte, limit int64) ([]byte, error) {

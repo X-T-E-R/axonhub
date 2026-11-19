@@ -184,6 +184,15 @@ func (handlers *ChatCompletionHandlers) chatCompletionWithRequest(c *gin.Context
 	}
 
 	if result.ChatCompletionStream != nil {
+		// Sever the multi-MB request body from genericReq before entering the
+		// long-lived SSE write loop: caller frames (ChatCompletion / CreateMessage)
+		// remain on the stack until the stream finishes.
+		if genericReq != nil {
+			genericReq.Body = nil
+			genericReq.JSONBody = nil
+			genericReq.RawRequest = nil
+			genericReq = nil
+		}
 		copyProviderResponseHeaders(c.Writer.Header(), result.ProviderResponseHeaders, result.FullResponseHeaderPassThrough)
 		ownedStream := newCloseOnceStream(result.ChatCompletionStream)
 		defer func() {

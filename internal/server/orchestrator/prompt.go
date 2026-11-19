@@ -73,6 +73,10 @@ func injectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 			log.Int("matching_count", len(matchingPrompts)),
 		)
 
+		if _, err := inbound.state.EnsureFullLlmRequest(ctx); err != nil {
+			return nil, err
+		}
+
 		originalCount := len(llmRequest.Messages)
 		llmRequest = matcher.ApplyPrompts(llmRequest, matchingPrompts)
 		if shared.NativeResponsesWebSocket(ctx) {

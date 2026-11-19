@@ -237,6 +237,7 @@ func (processor *ChatCompletionOrchestrator) process(
 	state := &PersistenceState{
 		APIKey:                apiKey,
 		RequestService:        processor.RequestService,
+		SystemService:         processor.SystemService,
 		UsageLogService:       processor.UsageLogService,
 		ChannelService:        processor.ChannelService,
 		PromptProvider:        processor.PromptProvider,
@@ -449,6 +450,7 @@ func (processor *ChatCompletionOrchestrator) process(
 		if state.ProviderStreamResponse != nil {
 			providerResponseHeaders = state.ProviderStreamResponse.Headers.Clone()
 		}
+		state.ReleaseRequestPayloads()
 		streamOwnsObservation = true
 		return ChatCompletionResult{
 			ChatCompletion:                nil,

@@ -363,6 +363,72 @@ func (m *streamLivenessMiddleware) OnOutboundLlmStream(
 	}, nil
 }
 
+func (m *streamLivenessMiddleware) OnDirectPassThroughStream(
+	_ context.Context,
+	stream streams.Stream[*httpclient.StreamEvent],
+) (streams.Stream[*httpclient.StreamEvent], error) {
+	if !m.downstreamWantsStream() {
+		return stream, nil
+	}
+
+	isResponses := m.state != nil && m.state.LlmRequest != nil && m.state.LlmRequest.APIFormat == llm.APIFormatOpenAIResponse
+	var notified bool
+	var responsesContentNotified bool
+	nonEmptyText := "1"
+	stopReason := "stop"
+
+	return &livenessObservedStream[*httpclient.StreamEvent]{
+		stream: stream,
+		onCurrent: func(event *httpclient.StreamEvent) {
+			if event == nil {
+				return
+			}
+			if !notified {
+				notified = true
+				m.observer.OnTransformableEvent(&llm.Response{Object: "pass_through"})
+			}
+			if !isResponses {
+				return
+			}
+			evType := event.Type
+			if evType == "" && len(event.Data) > 0 {
+				evType = gjson.GetBytes(event.Data, "type").String()
+			}
+			switch evType {
+			case "response.output_text.delta",
+				"response.output_text.done",
+				"response.function_call_arguments.delta",
+				"response.function_call_arguments.done",
+				"response.reasoning_summary_text.delta",
+				"response.refusal.delta",
+				"response.output_item.done":
+				if !responsesContentNotified {
+					responsesContentNotified = true
+					m.observer.OnTransformableEvent(&llm.Response{
+						Object: evType,
+						Choices: []llm.Choice{{
+							Index: 0,
+							Delta: &llm.Message{
+								Content: llm.MessageContent{Content: &nonEmptyText},
+							},
+						}},
+					})
+				}
+			case "response.completed":
+				if ClassifyStreamSemanticTerminal(event) == StreamSemanticSucceeded {
+					m.observer.OnTransformableEvent(&llm.Response{
+						Object: evType,
+						Choices: []llm.Choice{{
+							Index:        0,
+							FinishReason: &stopReason,
+						}},
+					})
+				}
+			}
+		},
+	}, nil
+}
+
 func (m *streamLivenessMiddleware) OnOutboundRawError(_ context.Context, err error) {
 	if !m.downstreamWantsStream() {
 		return

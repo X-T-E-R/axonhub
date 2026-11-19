@@ -64,6 +64,14 @@ type Middleware interface {
 	OnOutboundLlmStream(ctx context.Context, stream streams.Stream[*llm.Response]) (streams.Stream[*llm.Response], error)
 }
 
+// DirectPassThroughStreamMiddleware is an optional interface implemented by
+// middlewares whose OnOutboundLlmStream hooks (TTFT, limiter release, circuit
+// breaker, TPM tracking, liveness) should run directly on raw stream events
+// when same-protocol pass-through bypasses LLM AST stream transformation.
+type DirectPassThroughStreamMiddleware interface {
+	OnDirectPassThroughStream(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error)
+}
+
 func OnLlmRequest(name string, handler func(ctx context.Context, request *llm.Request) (*llm.Request, error)) Middleware {
 	return &simpleMiddleware{
 		name:                  name,

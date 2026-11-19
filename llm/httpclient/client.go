@@ -1,7 +1,6 @@
 package httpclient
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -26,6 +25,12 @@ import (
 // validation error messages, producing response bodies of 1+ GB.
 const MaxErrorBodySize = 1 << 20 // 1 MB
 
+// DefaultResponseHeaderTimeout bounds how long the transport waits for an
+// upstream server to send response headers after the request has been written.
+// Five minutes accommodates slow reasoning models while preventing hung
+// upstream connections from pinning goroutines and buffers indefinitely.
+const DefaultResponseHeaderTimeout = 5 * time.Minute
+
 // HttpClient implements the HttpClient interface.
 type HttpClient struct {
 	client      *http.Client
@@ -37,7 +42,8 @@ type HttpClient struct {
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	insecureSkipVerify bool
+	insecureSkipVerify    bool
+	responseHeaderTimeout *time.Duration
 }
 
 // WithInsecureSkipVerify disables TLS certificate verification.
@@ -45,6 +51,24 @@ func WithInsecureSkipVerify(skip bool) ClientOption {
 	return func(o *clientOptions) {
 		o.insecureSkipVerify = skip
 	}
+}
+
+// WithResponseHeaderTimeout overrides the transport ResponseHeaderTimeout.
+// Passing d <= 0 disables the header timeout.
+func WithResponseHeaderTimeout(d time.Duration) ClientOption {
+	return func(o *clientOptions) {
+		o.responseHeaderTimeout = &d
+	}
+}
+
+func resolveResponseHeaderTimeout(o clientOptions) time.Duration {
+	if o.responseHeaderTimeout != nil {
+		if *o.responseHeaderTimeout <= 0 {
+			return 0
+		}
+		return *o.responseHeaderTimeout
+	}
+	return DefaultResponseHeaderTimeout
 }
 
 // NewHttpClientWithProxy creates a new HTTP client with proxy configuration.
@@ -69,6 +93,7 @@ func NewHttpClientWithProxy(proxyConfig *ProxyConfig, opts ...ClientOption) *Htt
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: resolveResponseHeaderTimeout(options),
 	}
 
 	if options.insecureSkipVerify {
@@ -164,28 +189,27 @@ func NewHttpClient(opts ...ClientOption) *HttpClient {
 		opt(&options)
 	}
 
-	client := &http.Client{}
+	var transport *http.Transport
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	} else {
+		// Fall back to a transport close to http.DefaultTransport when it has been replaced.
+		transport = &http.Transport{
+			Proxy: getProxyFunc(nil),
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+	}
+	transport.ResponseHeaderTimeout = resolveResponseHeaderTimeout(options)
 
 	if options.insecureSkipVerify {
-		var transport *http.Transport
-		if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
-			transport = defaultTransport.Clone()
-		} else {
-			// Fall back to a transport close to http.DefaultTransport when it has been replaced.
-			transport = (&http.Transport{
-				Proxy: getProxyFunc(nil),
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-				ForceAttemptHTTP2:     true,
-				MaxIdleConns:          100,
-				IdleConnTimeout:       90 * time.Second,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-			})
-		}
-
 		if transport.TLSClientConfig == nil {
 			transport.TLSClientConfig = &tls.Config{}
 		} else {
@@ -193,7 +217,10 @@ func NewHttpClient(opts ...ClientOption) *HttpClient {
 		}
 
 		transport.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec // User-configured option for self-signed certificates
-		client.Transport = transport
+	}
+
+	client := &http.Client{
+		Transport: transport,
 	}
 
 	return &HttpClient{
@@ -383,13 +410,18 @@ func (hc *HttpClient) DoStream(ctx context.Context, request *Request) (streams.S
 
 	stream := decoderFactory(ctx, rawResp.Body)
 
+	// Once upstream response headers have arrived, the outbound request body has
+	// already been transmitted. Sever references from rawReq/rawResp so multi-MB
+	// request buffers are not pinned for the duration of long SSE streams.
+	rawReq.Body = nil
+	rawReq.GetBody = nil
+	rawResp.Request = nil
+
 	return newResponseStream(stream, &Response{
 		StatusCode:  rawResp.StatusCode,
 		Headers:     rawResp.Header,
 		Stream:      rawResp.Body,
-		Request:     request,
 		RawResponse: rawResp,
-		RawRequest:  rawReq,
 	}), nil
 }
 
@@ -428,6 +460,7 @@ func BuildHttpRequest(
 	request *Request,
 ) (*http.Request, error) {
 	var body io.Reader
+	var contentLength int64
 	if len(request.Body) > 0 {
 		contentType := request.ContentType
 		if contentType == "" {
@@ -438,12 +471,21 @@ func BuildHttpRequest(
 		if mediaType == "application/json" || (strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+json")) {
 			bodyBytes = jsonutil.NormalizeSurrogates(bodyBytes)
 		}
-		body = bytes.NewReader(bodyBytes)
+		// Wrap in decodedBodyReader (io.ReadCloser) with explicit ContentLength
+		// instead of bytes.NewReader so net/http.NewRequestWithContext does not
+		// synthesize a GetBody closure pinning multi-MB request bodies on
+		// Transport's internal request clone for the lifetime of open SSE streams,
+		// and Transport's post-write Body.Close() releases the slice immediately.
+		body = &decodedBodyReader{data: bodyBytes}
+		contentLength = int64(len(bodyBytes))
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, request.Method, request.URL, body)
 	if err != nil {
 		return nil, err
+	}
+	if contentLength > 0 {
+		httpReq.ContentLength = contentLength
 	}
 
 	httpReq.Header = ApplyClientRequestID(ctx, request.Headers)

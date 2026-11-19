@@ -13,6 +13,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
 
+	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
@@ -25,6 +26,9 @@ import (
 	"github.com/looplj/axonhub/llm/pipeline"
 	"github.com/looplj/axonhub/llm/streams"
 	"github.com/looplj/axonhub/llm/transformer"
+	"github.com/looplj/axonhub/llm/transformer/anthropic"
+	"github.com/looplj/axonhub/llm/transformer/openai"
+	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 	"github.com/looplj/axonhub/llm/transformer/shared"
 )
 
@@ -46,6 +50,7 @@ type OutboundPersistentStream struct {
 	perf            *biz.PerformanceRecord
 	responseChunks  []*httpclient.StreamEvent
 	observation     *biz.ObservationStreamBuffer
+	metadataOnly    bool
 	streamMeta      llm.ResponseMeta
 	usageMeta       streamObservationMeta
 	currentEvent    *httpclient.StreamEvent
@@ -76,6 +81,29 @@ func NewOutboundPersistentStream(
 	if state != nil && state.CurrentCandidate != nil {
 		channel = state.CurrentCandidate.Channel
 	}
+	obs := requestService.NewObservationStreamBuffer(ctx, channel, true)
+	metadataOnly := false
+	if obs == nil && requestService != nil && requestService.SystemService != nil && outboundTransformer != nil {
+		switch outboundTransformer.APIFormat() {
+		case llm.APIFormatAnthropicMessage, llm.APIFormatOpenAIChatCompletion, llm.APIFormatOpenAICompletion, llm.APIFormatOpenAIResponse:
+			policyCtx := authz.WithSystemBypass(context.WithoutCancel(ctx), "outbound-stream-storage-policy")
+			if policy, err := requestService.SystemService.StoragePolicy(policyCtx); err == nil && policy != nil {
+				storeBody := policy.StoreResponseBody
+				storeChunks := policy.StoreChunks
+				if channel != nil && channel.Channel != nil && channel.Settings != nil {
+					if channel.Settings.StoreExecutionResponseBody != nil {
+						storeBody = *channel.Settings.StoreExecutionResponseBody
+					}
+					if channel.Settings.StoreExecutionStreamChunks != nil {
+						storeChunks = *channel.Settings.StoreExecutionStreamChunks
+					}
+				}
+				if !storeBody && !storeChunks {
+					metadataOnly = true
+				}
+			}
+		}
+	}
 	s := &OutboundPersistentStream{
 		ctx:             ctx,
 		stream:          stream,
@@ -85,11 +113,11 @@ func NewOutboundPersistentStream(
 		UsageLogService: usageLogService,
 		transformer:     outboundTransformer,
 		perf:            perf,
-		responseChunks:  make([]*httpclient.StreamEvent, 0),
 		closed:          false,
 		state:           state,
 		channel:         channel,
-		observation:     requestService.NewObservationStreamBuffer(ctx, channel, true),
+		observation:     obs,
+		metadataOnly:    metadataOnly,
 	}
 	state.registerFailedStreamEvidence(s)
 
@@ -125,6 +153,15 @@ func (ts *OutboundPersistentStream) Next() bool {
 				ts.streamMeta.ID = llm.SpeechStreamResponseID
 			}
 			ts.responseChunks = ts.observation.Append(httpclient.SummarizeBinaryChunk(event))
+			if ClassifyStreamSemanticTerminal(event) == StreamSemanticSucceeded {
+				ts.streamMeta.Completed = true
+			}
+		} else if ts.metadataOnly {
+			if event.Type == "speech.audio.done" || event.Type == httpclient.BinaryStreamDoneEventType {
+				ts.streamMeta.ID = llm.SpeechStreamResponseID
+			} else if ts.streamMeta.ID == "" {
+				ts.streamMeta.ID = extractStreamResponseID(event)
+			}
 			if ClassifyStreamSemanticTerminal(event) == StreamSemanticSucceeded {
 				ts.streamMeta.Completed = true
 			}
@@ -285,7 +322,7 @@ func (ts *OutboundPersistentStream) Close() error {
 	var meta llm.ResponseMeta
 	var aggErr error
 	aggregatedCompleted := false
-	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) && ts.streamMeta.Completed {
+	if (ts.metadataOnly || (ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable))) && ts.streamMeta.Completed {
 		streamCompleted = true
 		ts.state.markStreamCompleted()
 	}
@@ -592,8 +629,13 @@ func (ts *OutboundPersistentStream) logFinalizationDecision(ctx context.Context,
 }
 
 func (ts *OutboundPersistentStream) persistResponseChunks(ctx context.Context) {
-	if ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable) {
-		if chunks := ts.usageMeta.chunks(); len(chunks) > 0 {
+	if ts.metadataOnly || (ts.observation != nil && (!ts.observation.BodyEnabled || ts.observation.Unavailable)) {
+		if ts.usageMeta.chatUsage != nil && (ts.transformer.APIFormat() == llm.APIFormatOpenAIChatCompletion || ts.transformer.APIFormat() == llm.APIFormatOpenAICompletion) {
+			ts.streamMeta.Usage = ts.usageMeta.chatUsage.ToLLMUsage()
+			if ts.streamMeta.ID == "" && ts.usageMeta.chatID != "" {
+				ts.streamMeta.ID = ts.usageMeta.chatID
+			}
+		} else if chunks := ts.usageMeta.chunks(); len(chunks) > 0 {
 			if _, meta, err := ts.transformer.AggregateStreamChunks(ctx, ts.state.RawProviderRequest, chunks); err == nil {
 				if meta.ID != "" {
 					ts.streamMeta.ID = meta.ID
@@ -603,7 +645,7 @@ func (ts *OutboundPersistentStream) persistResponseChunks(ctx context.Context) {
 				}
 			}
 		}
-		ts.persistAggregatedResponse(ctx, nil, ts.streamMeta)
+		ts.persistAggregatedResponse(context.WithoutCancel(ctx), nil, ts.streamMeta)
 		return
 	}
 	defer func() {
@@ -824,11 +866,39 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 		}
 	}
 
-	httpRequest, err := p.wrapped.TransformRequest(ctx, llmRequest)
-	restoreBoundedReasoningRequest(p.state, llmRequest)
-	if err != nil {
-		contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
-		return nil, err
+	var (
+		httpRequest *httpclient.Request
+		err         error
+	)
+	if p.canUsePassThroughRequestFastPath(ctx, candidate, llmRequest) {
+		if builder, ok := p.wrapped.(passThroughRequestBuilder); ok {
+			httpRequest, err = builder.BuildPassThroughRequest(ctx, llmRequest)
+			if err != nil {
+				restoreBoundedReasoningRequest(p.state, llmRequest)
+				contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
+				return nil, err
+			}
+		}
+	}
+	if httpRequest == nil {
+		if _, matErr := p.state.EnsureFullLlmRequest(ctx); matErr != nil {
+			restoreBoundedReasoningRequest(p.state, llmRequest)
+			contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, matErr))
+			return nil, matErr
+		}
+		// Re-apply candidate-specific model & transform options after materialization.
+		llmRequest.Model = entry.ActualModel
+		llmRequest = applyTransformOptions(llmRequest, candidate.Channel.Settings)
+		llmRequest = filterResponseCustomToolMessagesForNonResponsesOutbound(llmRequest, p.wrapped)
+
+		httpRequest, err = p.wrapped.TransformRequest(ctx, llmRequest)
+		restoreBoundedReasoningRequest(p.state, llmRequest)
+		if err != nil {
+			contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
+			return nil, err
+		}
+	} else {
+		restoreBoundedReasoningRequest(p.state, llmRequest)
 	}
 
 	// An all-excluded or otherwise empty API-key selection must fail before the
@@ -852,6 +922,94 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 	p.credentialHTTPClient, p.credentialEgressSelected = contexts.GetChannelCredentialEgress(ctx)
 
 	return httpRequest, nil
+}
+
+type passThroughRequestBuilder interface {
+	BuildPassThroughRequest(ctx context.Context, llmReq *llm.Request) (*httpclient.Request, error)
+}
+
+func (p *PersistentOutboundTransformer) canUsePassThroughRequestFastPath(
+	ctx context.Context,
+	candidate *ChannelModelsCandidate,
+	llmRequest *llm.Request,
+) bool {
+	if p == nil || p.state == nil || p.wrapped == nil || candidate == nil || candidate.Channel == nil || llmRequest == nil {
+		return false
+	}
+	if p.state.ReasoningBoundsActive || p.state.ReasoningBoundsEnforced {
+		return false
+	}
+	if llmRequest.RawRequest == nil || len(llmRequest.RawRequest.Body) == 0 {
+		return false
+	}
+	if llmRequest.APIFormat != p.wrapped.APIFormat() {
+		return false
+	}
+	if !passThroughBodySupported(llmRequest.APIFormat) {
+		return false
+	}
+	if !passThroughStreamAligned(p.state.OriginalRequestStream, llmRequest.Stream) {
+		return false
+	}
+	if isAxonHubFullPassThroughChannel(candidate.Channel) {
+		return false
+	}
+	if shared.NativeResponsesWebSocket(ctx) && llmRequest.APIFormat == llm.APIFormatOpenAIResponse {
+		return true
+	}
+	if candidate.Channel.Settings != nil && candidate.Channel.Settings.PassThroughBody != nil {
+		return *candidate.Channel.Settings.PassThroughBody
+	}
+	if p.state.SystemService != nil {
+		enabled, err := p.state.SystemService.PassThrough(ctx)
+		if err == nil {
+			return enabled
+		}
+	}
+	return false
+}
+
+// ShouldDirectPassThroughStream reports whether the current streaming attempt
+// can bypass LLM AST stream transformation and shadow drain goroutines.
+func (p *PersistentOutboundTransformer) ShouldDirectPassThroughStream(ctx context.Context, _ *httpclient.Request) bool {
+	if p == nil || p.state == nil || p.wrapped == nil {
+		return false
+	}
+	if shared.NativeResponsesWebSocket(ctx) {
+		return false
+	}
+	// Only bypass Inbound.TransformStream when the inbound transformer is one of
+	// the standard unwrapped chat transformers (so custom decorators remain honored).
+	switch p.state.inboundTransformer.(type) {
+	case *anthropic.InboundTransformer, *openai.InboundTransformer, *responses.InboundTransformer:
+	default:
+		return false
+	}
+	if !p.isPassThroughEnabled(ctx, p.state.SystemService) {
+		return false
+	}
+	p.state.DirectPassThroughStream = true
+	return true
+}
+
+// WrapDirectPassThroughOutboundStream wraps the raw upstream stream with
+// OutboundPersistentStream without running LLM AST stream conversion.
+func (p *PersistentOutboundTransformer) WrapDirectPassThroughOutboundStream(
+	ctx context.Context,
+	_ *httpclient.Request,
+	stream streams.Stream[*httpclient.StreamEvent],
+) (streams.Stream[*httpclient.StreamEvent], error) {
+	return NewOutboundPersistentStream(
+		ctx,
+		stream,
+		p.state.Request,
+		p.state.RequestExec,
+		p.state.RequestService,
+		p.state.UsageLogService,
+		p,
+		p.state.Perf,
+		p.state,
+	), nil
 }
 
 func requestAttemptCanceled(ctx context.Context, err error) bool {

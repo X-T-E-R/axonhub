@@ -92,10 +92,16 @@ func (handlers *AnthropicHandlers) CreateMessage(c *gin.Context) {
 					writeAnthropicThreadError(c, threadErr)
 					return
 				}
+				// Release pre-materialized request and raw top-level field slices before
+				// entering the potentially long-lived streaming call.
+				topFields = nil
+				genericReq.Body = nil
+				genericReq = nil
 				handlers.ChatCompletionHandlers.chatCompletionWithRequest(c, materializedReq, session)
 				return
 			}
 		}
+		topFields = nil
 	}
 
 	handlers.ChatCompletionHandlers.ChatCompletionWithRequest(c, genericReq)

@@ -265,6 +265,24 @@ func (p *pipeline) applyLlmStreamMiddlewares(ctx context.Context, stream streams
 	return stream, nil
 }
 
+func (p *pipeline) applyDirectPassThroughStreamMiddlewares(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	var err error
+
+	// Direct pass-through stream middlewares run in the same reverse order as OnOutboundLlmStream.
+	for i := len(p.middlewares) - 1; i >= 0; i-- {
+		mw, ok := p.middlewares[i].(DirectPassThroughStreamMiddleware)
+		if !ok {
+			continue
+		}
+		stream, err = mw.OnDirectPassThroughStream(ctx, stream)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return stream, nil
+}
+
 func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*Result, error) {
 	// Step 1: Transform httpclient.Request to llm.Request using inbound transformer
 	llmRequest, err := p.Inbound.TransformRequest(ctx, request)

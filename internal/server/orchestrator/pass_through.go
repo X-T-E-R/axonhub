@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -279,17 +281,20 @@ func applyPassThroughRequestBody(outbound *PersistentOutboundTransformer, system
 }
 
 func mergePassThroughRequestBody(rawBody []byte, apiFormat llm.APIFormat, model string) ([]byte, error) {
-	body := append([]byte(nil), rawBody...)
-	if passThroughBodySupported(apiFormat) && json.Valid(body) {
+	body := rawBody
+	if passThroughBodySupported(apiFormat) && bytes.Contains(body, []byte(`\u`)) && json.Valid(body) {
 		body = jsonutil.NormalizeSurrogates(body)
 	}
 
-	if !passThroughBodyNeedsModelPatch(apiFormat) {
+	if !passThroughBodyNeedsModelPatch(apiFormat) || model == "" {
 		return body, nil
 	}
 
-	if model == "" {
-		return body, nil
+	if len(body) > 0 {
+		curModel := gjson.Get(unsafe.String(unsafe.SliceData(body), len(body)), "model")
+		if curModel.Type == gjson.String && curModel.Str == model {
+			return body, nil
+		}
 	}
 
 	nextBody, err := sjson.SetBytes(body, "model", model)
@@ -489,6 +494,9 @@ func providerStreamTerminal(apiFormat llm.APIFormat, event *httpclient.StreamEve
 // raw events are stored on state.RawStreamCh for pass-through delivery.
 func captureRawProviderStream(outbound *PersistentOutboundTransformer, systemService *biz.SystemService) pipeline.Middleware {
 	return pipeline.OnRawStream("capture-raw-provider-stream", func(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+		if outbound.state != nil && outbound.state.DirectPassThroughStream {
+			return stream, nil
+		}
 		if !outbound.isPassThroughEnabled(ctx, systemService) {
 			return stream, nil
 		}
@@ -663,21 +671,25 @@ func applyPassThroughStream(outbound *PersistentOutboundTransformer, systemServi
 //
 //nolint:containedctx // Required so Next() can observe request cancellation.
 type passThroughChannelStream struct {
-	ctx      context.Context
-	ch       <-chan *httpclient.StreamEvent
-	current  *httpclient.StreamEvent
-	errRef   *error
-	cancel   context.CancelFunc
-	attempt  *passThroughAttempt
-	once     sync.Once
-	closeErr error
-	ctxDone  bool
+	ctx              context.Context
+	ch               <-chan *httpclient.StreamEvent
+	current          *httpclient.StreamEvent
+	errRef           *error
+	cancel           context.CancelFunc
+	attempt          *passThroughAttempt
+	once             sync.Once
+	closeErr         error
+	ctxDone          bool
+	closedByProducer bool
+	producerFinished bool
 }
 
 func (s *passThroughChannelStream) Next() bool {
 	if s.ctx == nil {
 		ev, ok := <-s.ch
 		if !ok {
+			s.closedByProducer = true
+
 			return false
 		}
 
@@ -695,6 +707,8 @@ func (s *passThroughChannelStream) Next() bool {
 	select {
 	case ev, ok := <-s.ch:
 		if !ok {
+			s.closedByProducer = true
+
 			return false
 		}
 
@@ -720,6 +734,7 @@ func (s *passThroughChannelStream) nextBuffered() bool {
 	select {
 	case ev, ok := <-s.ch:
 		if !ok {
+			s.closedByProducer = true
 			_ = s.Close()
 
 			return false
@@ -738,7 +753,7 @@ func (s *passThroughChannelStream) nextBuffered() bool {
 func (s *passThroughChannelStream) Current() *httpclient.StreamEvent { return s.current }
 
 func (s *passThroughChannelStream) Err() error {
-	if s.errRef != nil && *s.errRef != nil {
+	if s.errRef != nil && (s.closedByProducer || s.producerFinished) && *s.errRef != nil {
 		return *s.errRef
 	}
 	if s.ctxDone {
@@ -755,6 +770,7 @@ func (s *passThroughChannelStream) Close() error {
 	s.once.Do(func() {
 		if s.attempt != nil {
 			s.closeErr = s.attempt.stopAndWait()
+			s.producerFinished = true
 		} else if s.cancel != nil {
 			s.cancel()
 		}

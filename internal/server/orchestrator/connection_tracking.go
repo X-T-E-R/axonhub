@@ -125,7 +125,19 @@ func (m *channelLimiterMiddleware) OnOutboundLlmStream(ctx context.Context, stre
 		return stream, nil
 	}
 
-	return &channelLimiterStream{
+	return &channelLimiterStream[*llm.Response]{
+		Stream:  stream,
+		release: func() { m.releaseSlot(ctx, slot) },
+	}, nil
+}
+
+func (m *channelLimiterMiddleware) OnDirectPassThroughStream(ctx context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	slot := m.current.Load()
+	if slot == nil {
+		return stream, nil
+	}
+
+	return &channelLimiterStream[*httpclient.StreamEvent]{
 		Stream:  stream,
 		release: func() { m.releaseSlot(ctx, slot) },
 	}, nil
@@ -169,12 +181,12 @@ func (m *channelLimiterMiddleware) releaseSlot(ctx context.Context, slot *limite
 // channelLimiterStream wraps an outbound stream and routes Close to the
 // middleware's release path. Because release is sync.Once-guarded, double calls
 // from Close + OnOutboundRawError are safe.
-type channelLimiterStream struct {
-	streams.Stream[*llm.Response]
+type channelLimiterStream[T any] struct {
+	streams.Stream[T]
 	release func()
 }
 
-func (s *channelLimiterStream) Close() error {
+func (s *channelLimiterStream[T]) Close() error {
 	// Close the upstream stream/connection BEFORE releasing the limiter slot, so a
 	// queued waiter cannot be granted the slot (and dial a new upstream connection)
 	// while this request's connection is still open. defer guards the release so the
