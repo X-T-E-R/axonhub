@@ -181,6 +181,28 @@ func buildChannelKeyCacheAffinitySource(req *llm.Request) (channelKeyCacheAffini
 	return source, channelKeyCacheAffinityTierLikely
 }
 
+// appendBoundedBuilder appends text to sb without ever exceeding maxBytes,
+// capping before WriteString so a single huge block is never copied in full.
+func appendBoundedBuilder(sb *strings.Builder, text string, maxBytes int) bool {
+	rem := maxBytes - sb.Len()
+	if rem <= 0 {
+		return false
+	}
+	if sb.Len() > 0 {
+		if rem <= 1 {
+			return false
+		}
+		sb.WriteByte('\n')
+		rem--
+	}
+	if len(text) > rem {
+		sb.WriteString(text[:rem])
+		return false
+	}
+	sb.WriteString(text)
+	return sb.Len() < maxBytes
+}
+
 // buildShallowRawCacheAffinitySource derives a bounded likely-tier cache
 // affinity fingerprint directly from the raw JSON payload when the inbound
 // request was shallow-parsed without unmarshaling the full Messages/Tools AST.
@@ -209,13 +231,7 @@ func buildShallowRawCacheAffinitySource(source channelKeyCacheAffinitySource, ra
 			var sb strings.Builder
 			sys.ForEach(func(_, block gjson.Result) bool {
 				if t := block.Get("text"); t.Type == gjson.String && t.Str != "" {
-					if sb.Len() > 0 {
-						sb.WriteByte('\n')
-					}
-					sb.WriteString(t.Str)
-					if sb.Len() >= channelKeyCacheAffinityMaxFieldBytes {
-						return false
-					}
+					return appendBoundedBuilder(&sb, t.Str, channelKeyCacheAffinityMaxFieldBytes)
 				}
 				return true
 			})
@@ -230,11 +246,21 @@ func buildShallowRawCacheAffinitySource(source channelKeyCacheAffinitySource, ra
 		arrKey = "input"
 	}
 	if arr := gjson.Get(bodyStr, arrKey); arr.IsArray() {
-		count := 0
-		arr.ForEach(func(_, item gjson.Result) bool {
-			if count >= channelKeyCacheAffinityMaxMessages || remaining <= 0 {
-				return false
+		// Match cacheRelevantMessagePrefix: exclude a trailing mutable user/tool turn
+		// so multi-turn prefix affinity remains stable across consecutive turns.
+		items := arr.Array()
+		end := len(items)
+		if end > 0 {
+			lastRole := strings.ToLower(strings.TrimSpace(items[end-1].Get("role").Str))
+			if lastRole == "user" || lastRole == "tool" {
+				end--
 			}
+		}
+		if end > channelKeyCacheAffinityMaxMessages {
+			end = channelKeyCacheAffinityMaxMessages
+		}
+		for i := 0; i < end && remaining > 0; i++ {
+			item := items[i]
 			role := item.Get("role").Str
 			var text string
 			content := item.Get("content")
@@ -244,32 +270,37 @@ func buildShallowRawCacheAffinitySource(source channelKeyCacheAffinitySource, ra
 				var sb strings.Builder
 				content.ForEach(func(_, part gjson.Result) bool {
 					if t := part.Get("text"); t.Type == gjson.String && t.Str != "" {
-						if sb.Len() > 0 {
-							sb.WriteByte('\n')
-						}
-						sb.WriteString(t.Str)
-						if sb.Len() >= channelKeyCacheAffinityMaxFieldBytes {
-							return false
-						}
+						return appendBoundedBuilder(&sb, t.Str, channelKeyCacheAffinityMaxFieldBytes)
 					}
 					return true
 				})
 				text = sb.String()
 			}
 			appendRawMsg(role, text)
-			count++
-			return true
-		})
+		}
 	}
 
-	if tools := gjson.Get(bodyStr, "tools"); tools.Exists() && len(tools.Raw) > 0 {
-		rawTools := tools.Raw
-		if len(rawTools) > channelKeyCacheAffinityMaxFieldBytes {
-			rawTools = rawTools[:channelKeyCacheAffinityMaxFieldBytes]
+	fingerprintRawField := func(res gjson.Result) string {
+		if !res.Exists() || res.Type == gjson.Null || len(res.Raw) == 0 || remaining <= 0 {
+			return ""
 		}
-		stableBytes += len(rawTools)
-		source.ToolsFingerprint = fingerprintString(rawTools)
+		raw := res.Raw
+		bound := min(channelKeyCacheAffinityMaxFieldBytes, remaining)
+		if len(raw) > bound {
+			raw = raw[:bound]
+		}
+		remaining -= len(raw)
+		stableBytes += len(raw)
+		return fingerprintString(raw)
 	}
+
+	source.ToolsFingerprint = fingerprintRawField(gjson.Get(bodyStr, "tools"))
+	source.ToolChoiceFingerprint = fingerprintRawField(gjson.Get(bodyStr, "tool_choice"))
+	rf := gjson.Get(bodyStr, "response_format")
+	if !rf.Exists() && source.APIFormat == llm.APIFormatOpenAIResponse {
+		rf = gjson.Get(bodyStr, "text.format")
+	}
+	source.ResponseFormatFingerprint = fingerprintRawField(rf)
 
 	if stableBytes < channelKeyCacheAffinityMinLikelyBytes {
 		return channelKeyCacheAffinitySource{}, channelKeyCacheAffinityTierNone

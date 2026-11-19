@@ -172,21 +172,45 @@ type rawRateLimitTrackingStream struct {
 
 func (s *rawRateLimitTrackingStream) Next() bool { return s.stream.Next() }
 
+func (s *rawRateLimitTrackingStream) flushTokens(obs *rawStreamObserver) {
+	if obs == nil || s.tracker == nil || s.outbound == nil {
+		return
+	}
+	delta := obs.totalTokens - obs.reportedTotalTPM
+	if delta <= 0 {
+		return
+	}
+	if channel := s.outbound.GetCurrentChannel(); channel != nil {
+		s.tracker.AddTokens(channel.ID, delta)
+		obs.reportedTotalTPM = obs.totalTokens
+	}
+}
+
 func (s *rawRateLimitTrackingStream) Current() *httpclient.StreamEvent {
 	event := s.stream.Current()
 	if event == nil {
 		return nil
 	}
-	if _, totalTokens := extractRawStreamTokens(event); totalTokens > 0 {
-		if channel := s.outbound.GetCurrentChannel(); channel != nil {
-			s.tracker.AddTokens(channel.ID, totalTokens)
-		}
+	var state *PersistenceState
+	if s.outbound != nil {
+		state = s.outbound.state
+	}
+	obs := state.ensureRawStreamObserver()
+	obs.observe(event)
+	if obs.terminalSuccess {
+		s.flushTokens(obs)
 	}
 	return event
 }
 
-func (s *rawRateLimitTrackingStream) Close() error { return s.stream.Close() }
-func (s *rawRateLimitTrackingStream) Err() error   { return s.stream.Err() }
+func (s *rawRateLimitTrackingStream) Close() error {
+	err := s.stream.Close()
+	if s.outbound != nil {
+		s.flushTokens(s.outbound.state.ensureRawStreamObserver())
+	}
+	return err
+}
+func (s *rawRateLimitTrackingStream) Err() error { return s.stream.Err() }
 
 func (s *rateLimitTrackingStream) Close() error {
 	return s.stream.Close()

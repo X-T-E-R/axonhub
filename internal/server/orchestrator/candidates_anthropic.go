@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 
 	"github.com/samber/lo"
@@ -40,7 +39,7 @@ func (s *AnthropicNativeToolsSelector) Select(ctx context.Context, req *llm.Requ
 	// If request doesn't contain Anthropic native tools, return all candidates
 	hasNativeTools := anthropic.ContainsAnthropicNativeTools(req.Tools)
 	if !hasNativeTools && len(req.Tools) == 0 && req.RawRequest != nil && len(req.RawRequest.Body) > 0 {
-		hasNativeTools = bytes.Contains(req.RawRequest.Body, []byte(anthropic.ToolTypeWebSearch20250305))
+		hasNativeTools = anthropic.RawBodyContainsNativeTools(req.RawRequest.Body)
 	}
 	if !hasNativeTools {
 		return candidates, nil

@@ -140,6 +140,7 @@ func (m *modelCircuitBreakerTracker) OnDirectPassThroughStream(ctx context.Conte
 	return &rawProbeReleasingStream{
 		ctx:            ctx,
 		stream:         stream,
+		state:          m.outbound.state,
 		probeChannelID: m.probeChannelID,
 		probeModelID:   m.probeModelID,
 		release: func() {
@@ -222,6 +223,7 @@ func (s *probeReleasingStream) Close() error {
 type rawProbeReleasingStream struct {
 	ctx                 context.Context
 	stream              streams.Stream[*httpclient.StreamEvent]
+	state               *PersistenceState
 	release             func()
 	released            bool
 	recorded            bool
@@ -237,7 +239,9 @@ func (s *rawProbeReleasingStream) Current() *httpclient.StreamEvent {
 	if event == nil || s.modelCircuitBreaker == nil || s.recorded {
 		return event
 	}
-	if ct, _ := extractRawStreamTokens(event); ct > 0 {
+	obs := s.state.ensureRawStreamObserver()
+	obs.observe(event)
+	if obs.terminalSuccess && !obs.terminalFailed && obs.outputTokens > 0 {
 		s.modelCircuitBreaker.RecordSuccess(s.ctx, s.probeChannelID, s.probeModelID)
 		s.recorded = true
 	}

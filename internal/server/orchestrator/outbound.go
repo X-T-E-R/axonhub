@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/authz"
@@ -831,6 +830,13 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 	candidate := p.state.ChannelModelsCandidates[p.state.CurrentCandidateIndex]
 	entry := candidate.Models[p.state.CurrentModelIndex]
 	restoreBoundedReasoningRequest(p.state, llmRequest)
+	if p.state.OriginalRequestStream != nil {
+		origStream := *p.state.OriginalRequestStream
+		llmRequest.Stream = &origStream
+		if p.state.LlmRequest != nil {
+			p.state.LlmRequest.Stream = llmRequest.Stream
+		}
+	}
 
 	p.state.CurrentCandidate = candidate
 	p.state.resetStreamTerminalState()
@@ -844,35 +850,30 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 		log.String("api_format", candidate.APIFormat),
 	)
 
-	llmRequest.Model = entry.ActualModel
-
-	// Apply channel transform options to create a new request
-	llmRequest = applyTransformOptions(llmRequest, candidate.Channel.Settings)
-	llmRequest = filterResponseCustomToolMessagesForNonResponsesOutbound(llmRequest, p.wrapped)
-
-	if shouldForceStreamingForCandidate(candidate, llmRequest) {
-		streamPtr := lo.ToPtr(true)
-		llmRequest.Stream = streamPtr
-		if llmRequest.StreamOptions == nil {
-			llmRequest.StreamOptions = &llm.StreamOptions{}
-		}
-		llmRequest.StreamOptions.IncludeUsage = true
+	// Decide fast-path eligibility from canonical request + candidate config
+	// BEFORE applying attempt-local TransformOptions or forced streaming flags.
+	forceStream := shouldForceStreamingForCandidate(candidate, llmRequest)
+	if forceStream {
+		streamTrue := true
+		llmRequest.Stream = &streamTrue
 		if p.state != nil && p.state.LlmRequest != nil {
-			p.state.LlmRequest.Stream = streamPtr
-			if p.state.LlmRequest.StreamOptions == nil {
-				p.state.LlmRequest.StreamOptions = &llm.StreamOptions{}
-			}
-			p.state.LlmRequest.StreamOptions.IncludeUsage = true
+			p.state.LlmRequest.Stream = llmRequest.Stream
 		}
+	}
+	llmRequest.Model = entry.ActualModel
+	if p.state != nil && p.state.LlmRequest != nil {
+		p.state.LlmRequest.Model = entry.ActualModel
 	}
 
 	var (
 		httpRequest *httpclient.Request
 		err         error
 	)
-	if p.canUsePassThroughRequestFastPath(ctx, candidate, llmRequest) {
+	if !forceStream && p.canUsePassThroughRequestFastPath(ctx, candidate, llmRequest) {
 		if builder, ok := p.wrapped.(passThroughRequestBuilder); ok {
-			httpRequest, err = builder.BuildPassThroughRequest(ctx, llmRequest)
+			attemptReq := *llmRequest
+			attemptReq.Model = entry.ActualModel
+			httpRequest, err = builder.BuildPassThroughRequest(ctx, &attemptReq)
 			if err != nil {
 				restoreBoundedReasoningRequest(p.state, llmRequest)
 				contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
@@ -881,17 +882,34 @@ func (p *PersistentOutboundTransformer) TransformRequest(ctx context.Context, ll
 		}
 	}
 	if httpRequest == nil {
-		if _, matErr := p.state.EnsureFullLlmRequest(ctx); matErr != nil {
+		fullReq, matErr := p.state.EnsureFullLlmRequest(ctx)
+		if matErr != nil {
 			restoreBoundedReasoningRequest(p.state, llmRequest)
 			contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, matErr))
 			return nil, matErr
 		}
-		// Re-apply candidate-specific model & transform options after materialization.
-		llmRequest.Model = entry.ActualModel
-		llmRequest = applyTransformOptions(llmRequest, candidate.Channel.Settings)
-		llmRequest = filterResponseCustomToolMessagesForNonResponsesOutbound(llmRequest, p.wrapped)
+		if fullReq != nil {
+			llmRequest = fullReq
+		}
+		// Clone an attempt-local request AFTER materialization so TransformOptions,
+		// forced StreamOptions, and custom-tool filtering never mutate canonical
+		// state or copy an unmaterialized shallow request.
+		attemptReq := *llmRequest
+		attemptReq.Model = entry.ActualModel
+		if forceStream {
+			streamTrue := true
+			attemptReq.Stream = &streamTrue
+			var opts llm.StreamOptions
+			if attemptReq.StreamOptions != nil {
+				opts = *attemptReq.StreamOptions
+			}
+			opts.IncludeUsage = true
+			attemptReq.StreamOptions = &opts
+		}
+		attemptReqPtr := applyTransformOptions(&attemptReq, candidate.Channel.Settings)
+		attemptReqPtr = filterResponseCustomToolMessagesForNonResponsesOutbound(attemptReqPtr, p.wrapped)
 
-		httpRequest, err = p.wrapped.TransformRequest(ctx, llmRequest)
+		httpRequest, err = p.wrapped.TransformRequest(ctx, attemptReqPtr)
 		restoreBoundedReasoningRequest(p.state, llmRequest)
 		if err != nil {
 			contexts.FinishChannelCredentialAttempt(ctx, 0, true, requestAttemptCanceled(ctx, err))
@@ -936,7 +954,7 @@ func (p *PersistentOutboundTransformer) canUsePassThroughRequestFastPath(
 	if p == nil || p.state == nil || p.wrapped == nil || candidate == nil || candidate.Channel == nil || llmRequest == nil {
 		return false
 	}
-	if p.state.ReasoningBoundsActive || p.state.ReasoningBoundsEnforced {
+	if p.state.ReasoningBoundsActive || p.state.ReasoningBoundsEnforced || p.state.hasASTContentMutation() {
 		return false
 	}
 	if llmRequest.RawRequest == nil || len(llmRequest.RawRequest.Body) == 0 {

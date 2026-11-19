@@ -176,14 +176,18 @@ func TestIndexedCache_Set(t *testing.T) {
 
 func TestIndexedCache_SingleFlight(t *testing.T) {
 	var loadCount int32
+	started := make(chan struct{})
+	release := make(chan struct{})
 
 	cache := NewIndexedCache(IndexedOptions[string, *testItem]{
 		Name:            "test_singleflight",
 		KeyFunc:         func(v *testItem) string { return v.Key },
 		RefreshInterval: time.Hour,
 		LoadOneFunc: func(ctx context.Context, key string) (*testItem, error) {
-			atomic.AddInt32(&loadCount, 1)
-			time.Sleep(100 * time.Millisecond) // Simulate slow load
+			if atomic.AddInt32(&loadCount, 1) == 1 {
+				close(started)
+			}
+			<-release
 
 			return &testItem{Key: key, Value: "loaded"}, nil
 		},
@@ -193,16 +197,26 @@ func TestIndexedCache_SingleFlight(t *testing.T) {
 	})
 	defer cache.Stop()
 
-	// Concurrent loads for same key
-	done := make(chan bool)
-
-	for range 5 {
+	// Concurrent loads for same key: hold first flight open until peers enter singleflight.
+	done := make(chan struct{}, 5)
+	go func() {
+		_, _ = cache.Get(context.Background(), "key1")
+		done <- struct{}{}
+	}()
+	<-started
+	peerStarted := make(chan struct{}, 4)
+	for range 4 {
 		go func() {
-			cache.Get(context.Background(), "key1")
-
-			done <- true
+			peerStarted <- struct{}{}
+			_, _ = cache.Get(context.Background(), "key1")
+			done <- struct{}{}
 		}()
 	}
+	for range 4 {
+		<-peerStarted
+	}
+	timer := time.AfterFunc(25*time.Millisecond, func() { close(release) })
+	defer timer.Stop()
 
 	for range 5 {
 		<-done
@@ -272,16 +286,15 @@ func TestIndexedCache_IncrementalRefresh(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, cache.Len())
 
-	// Wait for periodic refresh
-	time.Sleep(150 * time.Millisecond)
-
-	// Should have incremental updates
-	v, ok := cache.GetCached("key1")
-	assert.True(t, ok)
-	assert.Equal(t, "v1-updated", v.Value)
-
-	_, ok = cache.GetCached("key2")
-	assert.True(t, ok)
+	// Wait deterministically for periodic refresh
+	require.Eventually(t, func() bool {
+		v, ok := cache.GetCached("key1")
+		if !ok || v.Value != "v1-updated" {
+			return false
+		}
+		_, ok2 := cache.GetCached("key2")
+		return ok2
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestIndexedCache_SoftDelete(t *testing.T) {
@@ -315,14 +328,15 @@ func TestIndexedCache_SoftDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, cache.Len())
 
-	// Wait for incremental refresh with deletion
-	time.Sleep(150 * time.Millisecond)
-
-	assert.Equal(t, 1, cache.Len())
-	_, ok := cache.GetCached("key1")
-	assert.False(t, ok)
-	_, ok = cache.GetCached("key2")
-	assert.True(t, ok)
+	// Wait deterministically for incremental refresh with deletion
+	require.Eventually(t, func() bool {
+		if cache.Len() != 1 {
+			return false
+		}
+		_, ok1 := cache.GetCached("key1")
+		_, ok2 := cache.GetCached("key2")
+		return !ok1 && ok2
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestIndexedCache_DeletedFuncOnLoadOne(t *testing.T) {
@@ -390,8 +404,10 @@ func TestIndexedCache_TTL(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "v1", v.Value)
 
-	// Wait for expiration
-	time.Sleep(150 * time.Millisecond)
+	// Expire entry deterministically without wall-clock sleep
+	cache.mu.Lock()
+	cache.index["key1"].expireAt = time.Now().Add(-time.Second)
+	cache.mu.Unlock()
 
 	// Should be expired
 	_, ok = cache.GetCached("key1")
@@ -433,8 +449,10 @@ func TestIndexedCache_TTLWithLoadOne(t *testing.T) {
 	assert.Equal(t, "loaded-key1", v.Value)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&loadCount))
 
-	// Wait for expiration
-	time.Sleep(150 * time.Millisecond)
+	// Expire entry deterministically without wall-clock sleep
+	cache.mu.Lock()
+	cache.index["key1"].expireAt = time.Now().Add(-time.Second)
+	cache.mu.Unlock()
 
 	// Get should trigger reload after expiration
 	v, err = cache.Get(context.Background(), "key1")
@@ -561,8 +579,12 @@ func TestIndexedCache_CleanupExpired(t *testing.T) {
 	cache.Set("key2", &testItem{Key: "key2", Value: "v2"})
 	assert.Equal(t, 2, cache.Len())
 
-	// Wait for expiration
-	time.Sleep(150 * time.Millisecond)
+	// Expire entries deterministically without wall-clock sleep
+	cache.mu.Lock()
+	past := time.Now().Add(-time.Second)
+	cache.index["key1"].expireAt = past
+	cache.index["key2"].expireAt = past
+	cache.mu.Unlock()
 
 	// Items should still be in map but expired
 	assert.Equal(t, 0, cache.Len()) // Len excludes expired items
@@ -588,11 +610,11 @@ func TestIndexedCache_NoTTL(t *testing.T) {
 	})
 	defer cache.Stop()
 
-	// Set without TTL
+	// Set without TTL -> expireAt must be zero (never expires)
 	cache.Set("key1", &testItem{Key: "key1", Value: "v1"})
-
-	// Should not expire
-	time.Sleep(50 * time.Millisecond)
+	cache.mu.RLock()
+	assert.True(t, cache.index["key1"].expireAt.IsZero())
+	cache.mu.RUnlock()
 
 	v, ok := cache.GetCached("key1")
 	assert.True(t, ok)
@@ -682,8 +704,12 @@ func TestIndexedCache_NegativeCacheWithTTL(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&loadCount))
 
-	// Wait for negative TTL expiration
-	time.Sleep(6 * time.Second)
+	// Expire negative entry deterministically (replacing fragile 6s wall-clock sleep)
+	cache.mu.Lock()
+	require.NotNil(t, cache.index["notfound"])
+	require.False(t, cache.index["notfound"].expireAt.IsZero())
+	cache.index["notfound"].expireAt = time.Now().Add(-time.Second)
+	cache.mu.Unlock()
 
 	// Third request - should reload after expiration
 	_, err = cache.Get(context.Background(), "notfound")

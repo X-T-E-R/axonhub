@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unsafe"
 
 	// Import bedrock package to register its decoder.
 	"github.com/samber/lo"
+	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/auth"
@@ -159,7 +161,7 @@ func (t *OutboundTransformer) BuildPassThroughRequest(
 	headers.Set("Accept", "application/json")
 	headers.Set("Anthropic-Version", "2023-06-01")
 
-	if t.config.Type == PlatformDirect && llmReq.RawRequest != nil && bytes.Contains(llmReq.RawRequest.Body, []byte(ToolTypeWebSearch20250305)) {
+	if t.config.Type == PlatformDirect && llmReq.RawRequest != nil && RawBodyContainsNativeTools(llmReq.RawRequest.Body) {
 		headers.Add("Anthropic-Beta", "web-search-2025-03-05")
 	}
 
@@ -186,6 +188,28 @@ func (t *OutboundTransformer) BuildPassThroughRequest(
 		Auth:      authConfig,
 		APIFormat: string(llm.APIFormatAnthropicMessage),
 	}, nil
+}
+
+// RawBodyContainsNativeTools inspects the top-level tools array in an Anthropic
+// JSON request body for native tool types (e.g. web_search_20250305), decoding
+// JSON string escapes while ignoring mentions inside message text.
+func RawBodyContainsNativeTools(body []byte) bool {
+	if len(body) == 0 || !bytes.Contains(body, []byte(`"tools"`)) {
+		return false
+	}
+	tools := gjson.Get(unsafe.String(unsafe.SliceData(body), len(body)), "tools")
+	if !tools.IsArray() {
+		return false
+	}
+	found := false
+	tools.ForEach(func(_, item gjson.Result) bool {
+		if item.Get("type").Str == ToolTypeWebSearch20250305 {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // TransformRequest transforms ChatCompletionRequest to Anthropic HTTP request.

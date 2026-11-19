@@ -18,7 +18,12 @@ type prependStream[T any] struct {
 func (s *prependStream[T]) Next() bool {
 	if s.prependIndex < len(s.prependItems) {
 		s.current = s.prependItems[s.prependIndex]
+		var zero T
+		s.prependItems[s.prependIndex] = zero
 		s.prependIndex++
+		if s.prependIndex >= len(s.prependItems) {
+			s.prependItems = nil
+		}
 
 		return true
 	}

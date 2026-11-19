@@ -428,12 +428,15 @@ func (svc *ChannelService) RecordPerformance(ctx context.Context, perf *Performa
 		svc.channelPerfMetricsLock.Unlock()
 	}
 
-	// Record success or failure
+	// Record success or failure under channelPerfMetricsLock so aggregatedMetrics
+	// updates (e.g. LastSelectedAt) do not race with IncrementChannelSelection.
+	svc.channelPerfMetricsLock.Lock()
 	if perf.Success {
 		cm.recordSuccess(slot, perf)
 	} else if !perf.Canceled {
 		cm.recordFailure(slot, perf)
 	}
+	svc.channelPerfMetricsLock.Unlock()
 
 	if log.DebugEnabled(ctx) {
 		keySuffix := ""

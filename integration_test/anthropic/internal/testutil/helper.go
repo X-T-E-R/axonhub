@@ -16,11 +16,17 @@ type TestHelper struct {
 	Client anthropic.Client
 }
 
-// NewTestHelper creates a new test helper with default configuration
+// NewTestHelper creates a new test helper with default configuration.
+// When TEST_AXONHUB_API_KEY is unset, it automatically starts a deterministic
+// in-process mock gateway server so tests execute self-contained with zero skips.
 func NewTestHelper(t *testing.T, name string) *TestHelper {
 	config := DefaultConfigWithPrefix(name)
+	if config.APIKey == "" {
+		config.APIKey = "test-inprocess-key"
+		config.BaseURL = StartMockServer(t)
+	}
 	if err := config.ValidateConfig(); err != nil {
-		t.Skipf("Skipping test due to configuration error: %v", err)
+		t.Fatalf("Invalid test configuration: %v", err)
 	}
 
 	client := config.NewClient()

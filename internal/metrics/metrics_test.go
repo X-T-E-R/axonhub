@@ -15,8 +15,8 @@ func TestRecordRetentionGCRunMakesSuccessfulZeroDeleteVisible(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
-	previous := Metrics
-	t.Cleanup(func() { Metrics = previous })
+	previous := currentMetrics.Load()
+	t.Cleanup(func() { currentMetrics.Store(previous) })
 	require.NoError(t, SetupMetrics(provider, "retention-gc-test"))
 
 	RecordRetentionGCRun(t.Context(), true, 0)

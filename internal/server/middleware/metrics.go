@@ -19,12 +19,14 @@ func WithMetrics() gin.HandlerFunc {
 		// Record metrics after request is processed
 		duration := time.Since(start).Seconds()
 
-		metrics.Metrics.RecordHTTPRequest(
-			c.Request.Context(),
-			c.Request.Method,
-			c.FullPath(),
-			c.Writer.Status(),
-			duration,
-		)
+		if m := metrics.Current(); m != nil {
+			m.RecordHTTPRequest(
+				c.Request.Context(),
+				c.Request.Method,
+				c.FullPath(),
+				c.Writer.Status(),
+				duration,
+			)
+		}
 	}
 }

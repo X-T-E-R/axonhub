@@ -103,11 +103,14 @@ func (m *streamObservationMeta) observe(event *httpclient.StreamEvent) {
 	if err != nil {
 		return
 	}
-	chunk := &httpclient.StreamEvent{Type: kind, Data: data}
-	if kind == "message_start" {
+	// Use the json.Unmarshal-owned *decodedType string instead of the zero-copy
+	// gjson substring so large raw SSE event buffers are never pinned.
+	ownedType := *decodedType
+	chunk := &httpclient.StreamEvent{Type: ownedType, Data: data}
+	if ownedType == "message_start" {
 		m.start = chunk
 	} else {
-		if kind == "message_delta" && m.final != nil {
+		if ownedType == "message_delta" && m.final != nil {
 			// Fold earlier usage updates into a small start message, using the
 			// existing merge rules. Platform conversion is applied only later
 			// by the selected outbound transformer, not to this raw message.

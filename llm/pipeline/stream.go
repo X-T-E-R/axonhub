@@ -1,13 +1,18 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
+
+	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -541,20 +546,22 @@ func (p *pipeline) directPassThroughStream(
 		return nil, fmt.Errorf("failed to apply direct pass-through stream middlewares: %w", err)
 	}
 
-	if firstEventTimeout > 0 || p.hasStreamRetryBudget() {
-		preReadSrc := outboundStream
-		outboundStream, err = preReadRawStream(ctx, outboundStream, firstEventGuard)
-		if err != nil {
-			preReadSrc.Close()
-			err = firstEventGuard.finishBeforeFirstEvent(err)
-			p.applyRawErrorResponseMiddlewares(ctx, err)
-			if !shouldWrapPreReadStreamError(err) {
-				return nil, err
-			}
-			return nil, WrapUpstreamError(err)
+	preReadSrc := outboundStream
+	outboundStream, err = preReadRawStream(
+		ctx,
+		llm.APIFormat(request.APIFormat),
+		outboundStream,
+		firstEventGuard,
+		p.hasStreamRetryBudget(),
+	)
+	if err != nil {
+		preReadSrc.Close()
+		err = firstEventGuard.finishBeforeFirstEvent(err)
+		p.applyRawErrorResponseMiddlewares(ctx, err)
+		if !shouldWrapPreReadStreamError(err) {
+			return nil, err
 		}
-	} else if firstEventGuard != nil {
-		firstEventGuard.stop()
+		return nil, WrapUpstreamError(err)
 	}
 
 	terminalErrorReporter := &terminalErrorReporter{
@@ -598,39 +605,238 @@ func (p *pipeline) directPassThroughStream(
 	return inboundStream, nil
 }
 
+type rawStreamEventClass uint8
+
+const (
+	rawEventPreamble rawStreamEventClass = iota
+	rawEventContent
+	rawEventTerminal
+	rawEventProviderError
+)
+
+// preReadRawStream mirrors preReadLlmStream for direct pass-through streams:
+// it buffers up to maxPreCommitRetryProbeEvents (16) preamble frames until
+// meaningful content or an official terminal arrives, classifies pre-content
+// provider error frames into typed *llm.ResponseError values, and turns
+// empty/pre-content-truncated streams into ErrEmptyResponse so OnOutboundRawError
+// and bounded multi-channel failover fire before committing downstream.
+// Caller owns closing rawStream on error.
 func preReadRawStream(
 	ctx context.Context,
+	apiFormat llm.APIFormat,
 	rawStream streams.Stream[*httpclient.StreamEvent],
 	firstEventGuard *firstEventTimeoutGuard,
+	preReadUntilContent bool,
 ) (streams.Stream[*httpclient.StreamEvent], error) {
-	hasNext := rawStream.Next()
-	if hasNext {
-		if firstEventGuard != nil && !firstEventGuard.acceptFirstEvent() {
-			rawStream.Close()
-			return nil, ErrStreamFirstEventTimeout
-		}
-		first := rawStream.Current()
-		return streams.PrependStream(rawStream, first), nil
+	probeLimit := 1
+	if preReadUntilContent {
+		probeLimit = maxPreCommitRetryProbeEvents
 	}
 
-	if firstEventGuard != nil {
-		firstEventGuard.completeFirstEventPhase()
-		if firstEventGuard.timedOut() {
-			rawStream.Close()
-			return nil, ErrStreamFirstEventTimeout
+	var buffered []*httpclient.StreamEvent
+
+	for i := 0; i < probeLimit; i++ {
+		hasNext := rawStream.Next()
+		if i == 0 && firstEventGuard != nil {
+			if hasNext {
+				if !firstEventGuard.acceptFirstEvent() {
+					return nil, ErrStreamFirstEventTimeout
+				}
+			} else {
+				firstEventGuard.completeFirstEventPhase()
+				if firstEventGuard.timedOut() {
+					return nil, ErrStreamFirstEventTimeout
+				}
+			}
+		}
+
+		if !hasNext {
+			if err := rawStream.Err(); err != nil {
+				return nil, err
+			}
+			if ctx.Err() != nil {
+				if firstEventGuard != nil {
+					firstEventGuard.cancelStream()
+				}
+				return nil, ctx.Err()
+			}
+			// Clean EOF with zero events or only preamble frames and no content/terminal.
+			return nil, ErrEmptyResponse
+		}
+
+		event := rawStream.Current()
+		class := classifyRawStreamEvent(apiFormat, event)
+		switch class {
+		case rawEventProviderError:
+			return nil, parseRawStreamProviderError(apiFormat, event)
+		case rawEventContent, rawEventTerminal:
+			buffered = append(buffered, event)
+			return streams.PrependStream(rawStream, buffered...), nil
+		default:
+			buffered = append(buffered, event)
+			if !preReadUntilContent {
+				return streams.PrependStream(rawStream, buffered...), nil
+			}
 		}
 	}
+
 	if err := rawStream.Err(); err != nil {
-		rawStream.Close()
 		return nil, err
 	}
-	if ctx.Err() != nil {
-		if firstEventGuard != nil {
-			firstEventGuard.cancelStream()
-		}
-		rawStream.Close()
-		return nil, ctx.Err()
+	if len(buffered) > 0 {
+		return streams.PrependStream(rawStream, buffered...), nil
+	}
+	return rawStream, nil
+}
+
+func classifyRawStreamEvent(apiFormat llm.APIFormat, event *httpclient.StreamEvent) rawStreamEventClass {
+	if event == nil || len(event.Data) == 0 {
+		return rawEventPreamble
+	}
+	data := bytes.TrimSpace(event.Data)
+	if len(data) == 0 {
+		return rawEventPreamble
+	}
+	if string(data) == "[DONE]" {
+		return rawEventTerminal
+	}
+	if event.Type == "error" {
+		return rawEventProviderError
+	}
+	if data[0] != '{' {
+		return rawEventPreamble
 	}
 
-	return rawStream, nil
+	s := unsafe.String(unsafe.SliceData(data), len(data))
+	evType := event.Type
+	if evType == "" {
+		evType = gjson.Get(s, "type").Str
+	}
+
+	if evType == "error" {
+		return rawEventProviderError
+	}
+	if bytes.Contains(data, []byte(`"error"`)) {
+		if errObj := gjson.Get(s, "error"); errObj.IsObject() || (errObj.Type == gjson.String && errObj.Str != "") {
+			return rawEventProviderError
+		}
+	}
+
+	switch apiFormat {
+	case llm.APIFormatAnthropicMessage:
+		switch evType {
+		case "message_stop":
+			return rawEventTerminal
+		case "message_delta":
+			if sr := gjson.Get(s, "delta.stop_reason"); sr.Type == gjson.String && sr.Str != "" {
+				return rawEventTerminal
+			}
+			return rawEventPreamble
+		case "content_block_start":
+			cbType := gjson.Get(s, "content_block.type").Str
+			switch cbType {
+			case "tool_use", "server_tool_use", "thinking", "redacted_thinking":
+				return rawEventContent
+			case "text":
+				if gjson.Get(s, "content_block.text").Str != "" {
+					return rawEventContent
+				}
+			}
+			return rawEventPreamble
+		case "content_block_delta":
+			d := gjson.Get(s, "delta")
+			if d.Get("text").Str != "" || d.Get("thinking").Str != "" || d.Get("partial_json").Str != "" || d.Get("signature").Str != "" {
+				return rawEventContent
+			}
+			return rawEventPreamble
+		default:
+			return rawEventPreamble
+		}
+
+	case llm.APIFormatOpenAIResponse:
+		switch evType {
+		case "response.completed", "response.failed", "response.incomplete", "response.cancelled":
+			return rawEventTerminal
+		case "response.output_text.delta",
+			"response.output_text.done",
+			"response.function_call_arguments.delta",
+			"response.function_call_arguments.done",
+			"response.reasoning_summary_text.delta",
+			"response.reasoning_text.delta",
+			"response.refusal.delta",
+			"response.output_item.done":
+			return rawEventContent
+		default:
+			return rawEventPreamble
+		}
+
+	case llm.APIFormatOpenAIChatCompletion:
+		choice0 := gjson.Get(s, "choices.0")
+		if !choice0.Exists() {
+			return rawEventPreamble
+		}
+		delta := choice0.Get("delta")
+		if delta.Get("content").Str != "" ||
+			delta.Get("reasoning_content").Str != "" ||
+			delta.Get("reasoning").Str != "" ||
+			delta.Get("refusal").Str != "" ||
+			(delta.Get("tool_calls").IsArray() && len(delta.Get("tool_calls").Array()) > 0) {
+			return rawEventContent
+		}
+		if fr := choice0.Get("finish_reason"); fr.Type == gjson.String && fr.Str != "" {
+			return rawEventTerminal
+		}
+		return rawEventPreamble
+	}
+
+	return rawEventContent
+}
+
+func parseRawStreamProviderError(apiFormat llm.APIFormat, event *httpclient.StreamEvent) *llm.ResponseError {
+	respErr := &llm.ResponseError{
+		APIFormat: apiFormat,
+		Detail: llm.ErrorDetail{
+			Message: "stream error",
+			Type:    "stream_error",
+		},
+	}
+	if event == nil || len(event.Data) == 0 {
+		return respErr
+	}
+
+	root := gjson.ParseBytes(event.Data)
+	candidate := root
+	if root.Get("event").Str == "error" {
+		if d := root.Get("data"); d.Exists() {
+			candidate = d
+		}
+	}
+	errObj := candidate.Get("error")
+	detail := llm.ErrorDetail{
+		Code:      strings.Clone(errObj.Get("code").String()),
+		Message:   strings.Clone(errObj.Get("message").String()),
+		Type:      strings.Clone(errObj.Get("type").String()),
+		Param:     strings.Clone(errObj.Get("param").String()),
+		RequestID: strings.Clone(candidate.Get("request_id").String()),
+	}
+	if detail.Message == "" {
+		detail.Message = strings.Clone(candidate.Get("message").String())
+	}
+	if detail.Code == "" {
+		detail.Code = strings.Clone(candidate.Get("code").String())
+	}
+	if detail.Param == "" {
+		detail.Param = strings.Clone(candidate.Get("param").String())
+	}
+	if detail.Message == "" && errObj.Exists() {
+		detail.Message = strings.Clone(errObj.String())
+	}
+	if detail.Message == "" {
+		detail.Message = "stream error"
+	}
+	if detail.Type == "" {
+		detail.Type = "stream_error"
+	}
+	respErr.Detail = detail
+	return respErr
 }

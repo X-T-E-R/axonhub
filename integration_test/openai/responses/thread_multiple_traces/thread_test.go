@@ -17,7 +17,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestSingleThreadMultipleTraces(t *testing.T) {
-	t.Skip("Test uses PreviousResponseID - temporarily skipped")
 	// Skip test if no API key is configured
 	helper := testutil.NewTestHelper(t, "TestSingleThreadMultipleTraces")
 
@@ -193,7 +192,6 @@ func TestSingleThreadMultipleTraces(t *testing.T) {
 }
 
 func TestSingleThreadTraceIsolation(t *testing.T) {
-	t.Skip("Test uses PreviousResponseID - temporarily skipped")
 	// Skip test if no API key is configured
 	helper := testutil.NewTestHelper(t, "TestSingleThreadTraceIsolation")
 

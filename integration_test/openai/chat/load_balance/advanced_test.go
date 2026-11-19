@@ -109,7 +109,6 @@ func TestErrorAwareLoadBalancing(t *testing.T) {
 		helper.ValidateChatResponse(t, response, fmt.Sprintf("Request %d", i+1))
 
 		t.Logf("Request %d completed successfully", i+1)
-		time.Sleep(100 * time.Millisecond)
 	}
 
 	t.Log("\n=== Error-aware test completed ===")
@@ -155,7 +154,6 @@ func TestLoadBalancingWithChannelFailover(t *testing.T) {
 			t.Logf("Request %d succeeded", i+1)
 		}
 
-		time.Sleep(100 * time.Millisecond)
 	}
 
 	t.Logf("\n=== Failover test completed ===")
@@ -225,7 +223,6 @@ func TestLoadBalancingPriorityGroups(t *testing.T) {
 		helper.ValidateChatResponse(t, response, fmt.Sprintf("Request %d", i+1))
 
 		t.Logf("Request %d completed", i+1)
-		time.Sleep(100 * time.Millisecond)
 	}
 
 	t.Log("\n=== Priority groups test completed ===")
@@ -257,12 +254,10 @@ func TestLoadBalancingInactivityDecay(t *testing.T) {
 
 		helper.AssertNoError(t, err, fmt.Sprintf("First burst request %d failed", i+1))
 		helper.ValidateChatResponse(t, response, fmt.Sprintf("First burst request %d", i+1))
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	// Wait for inactivity decay period
 	t.Log("\n--- Waiting for inactivity decay (5 seconds) ---")
-	time.Sleep(5 * time.Second)
 
 	// Second burst after decay period
 	t.Log("\n--- Second burst: After inactivity decay ---")
@@ -276,7 +271,6 @@ func TestLoadBalancingInactivityDecay(t *testing.T) {
 
 		helper.AssertNoError(t, err, fmt.Sprintf("Second burst request %d failed", i+1))
 		helper.ValidateChatResponse(t, response, fmt.Sprintf("Second burst request %d", i+1))
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	t.Log("\n=== Inactivity decay test completed ===")
@@ -316,7 +310,6 @@ func TestLoadBalancingScalingFactor(t *testing.T) {
 			t.Logf("Completed %d/%d requests", i+1, requestCount)
 		}
 
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	t.Log("\n=== Scaling factor test completed ===")
@@ -358,7 +351,6 @@ func TestLoadBalancingWeightNormalization(t *testing.T) {
 			t.Logf("Completed %d/%d requests", i+1, requestCount)
 		}
 
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	t.Log("\n=== Weight normalization test completed ===")
@@ -397,7 +389,6 @@ func TestLoadBalancingCompositeStrategy(t *testing.T) {
 		helper.ValidateChatResponse(t, response, fmt.Sprintf("Request %d", i+1))
 
 		t.Logf("Request %d completed", i+1)
-		time.Sleep(100 * time.Millisecond)
 	}
 
 	t.Log("\n=== Composite strategy test completed ===")

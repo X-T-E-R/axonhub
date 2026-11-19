@@ -14,7 +14,6 @@ import (
 const maxCachedDictDecoders = 16
 
 type dictDecoderEntry struct {
-	hash     [sha256.Size]byte
 	dec      *zstd.Decoder
 	lastUsed uint64
 	mu       sync.RWMutex
@@ -73,7 +72,6 @@ func getOrCreateDictDecoder(hash [sha256.Size]byte, dictionary []byte) (*dictDec
 	}
 	dictDecoderCache.clock++
 	entry := &dictDecoderEntry{
-		hash:     hash,
 		dec:      dec,
 		lastUsed: dictDecoderCache.clock,
 	}

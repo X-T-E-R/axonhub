@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/looplj/axonhub/openai_test/internal/testutil"
 	"github.com/openai/openai-go/v3"
@@ -34,7 +33,6 @@ func TestTraceBasedLoadBalancing(t *testing.T) {
 	t.Logf("Response: %s", firstResponse.Choices[0].Message.Content)
 
 	// Small delay to ensure metrics are recorded
-	time.Sleep(100 * time.Millisecond)
 
 	t.Log("=== Test 2: Second request in same trace (should prefer same channel) ===")
 
@@ -101,7 +99,6 @@ func TestTraceBasedLoadBalancing_MultipleTraces(t *testing.T) {
 		helper.ValidateChatResponse(t, response1, fmt.Sprintf("Trace %d request 1", i+1))
 		t.Logf("Trace %d request 1 completed", i+1)
 
-		time.Sleep(50 * time.Millisecond)
 
 		// Second request in this trace
 		response2, err := helper.CreateChatCompletionWithHeaders(ctx, openai.ChatCompletionNewParams{
@@ -151,7 +148,6 @@ func TestWeightBasedLoadBalancing(t *testing.T) {
 		}
 
 		// Small delay between requests
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	t.Log("\n=== Weight-based load balancing test completed ===")
@@ -275,7 +271,6 @@ func TestTraceAwareStrategyPriority(t *testing.T) {
 	helper.ValidateChatResponse(t, response1, "First request")
 	t.Log("First request completed - channel preference established")
 
-	time.Sleep(100 * time.Millisecond)
 
 	// Send multiple follow-up requests
 	for i := 2; i <= 5; i++ {
@@ -290,7 +285,6 @@ func TestTraceAwareStrategyPriority(t *testing.T) {
 		helper.ValidateChatResponse(t, response, fmt.Sprintf("Request %d", i))
 		t.Logf("Request %d completed successfully", i)
 
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	t.Log("\n=== TraceAwareStrategy priority test completed ===")
@@ -364,7 +358,6 @@ func TestLoadBalancingStrategyComposition(t *testing.T) {
 	helper1.ValidateChatResponse(t, response1, "No trace request")
 	t.Log("Expected: High weight channel selected (WeightRoundRobin + ErrorAware + Connection)")
 
-	time.Sleep(100 * time.Millisecond)
 
 	// Test scenario 2: With trace context (trace-aware selection)
 	t.Log("\n--- Scenario 2: With trace context ---")
@@ -382,7 +375,6 @@ func TestLoadBalancingStrategyComposition(t *testing.T) {
 	helper2.ValidateChatResponse(t, response2a, "First trace request")
 	t.Log("First request completed - channel preference established")
 
-	time.Sleep(100 * time.Millisecond)
 
 	// Second request should prefer same channel
 	response2b, err := helper2.CreateChatCompletionWithHeaders(ctx2, openai.ChatCompletionNewParams{

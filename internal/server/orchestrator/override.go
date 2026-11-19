@@ -246,7 +246,7 @@ func applyBodySet(
 	renderedValue := renderOverrideValue(ctx, op.Value, renderCtx)
 
 	if renderedValue == "__AXONHUB_CLEAR__" {
-		if !gjson.GetBytes(body, op.Path).Exists() {
+		if canSkipSjsonDelete(body, op.Path) {
 			return body, nil
 		}
 		return sjson.DeleteBytes(body, op.Path)
@@ -270,10 +270,21 @@ func applyBodySetIfAbsent(
 }
 
 func applyBodyDelete(body []byte, op objects.OverrideOperation) ([]byte, error) {
-	if !gjson.GetBytes(body, op.Path).Exists() {
+	if canSkipSjsonDelete(body, op.Path) {
 		return body, nil
 	}
 	return sjson.DeleteBytes(body, op.Path)
+}
+
+// canSkipSjsonDelete safely short-circuits sjson.DeleteBytes for simple dot-separated
+// paths where gjson and sjson share identical syntax and the key is genuinely absent
+// (not an explicit JSON null, escaped key, or query expression).
+func canSkipSjsonDelete(body []byte, path string) bool {
+	if path == "" || strings.ContainsAny(path, `\#?*|@:`) {
+		return false
+	}
+	res := gjson.GetBytes(body, path)
+	return !res.Exists() && res.Raw == ""
 }
 
 func applyBodyRename(body []byte, op objects.OverrideOperation) ([]byte, error) {

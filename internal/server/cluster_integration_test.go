@@ -331,11 +331,12 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	require.Contains(t, string(raw), `"model":"alias"`)
 	code, _ = requestHTTP(nodes["b"], "GET", "/admin/cluster/manifest", token, "")
 	require.Equal(t, 404, code)
-	// A public alias can be globally ambiguous yet definitive for each fresh Key.
+	// Per commit 12a2c0dd (always converge static manifest routes by lowest priority and sorted owner tie-breaker),
+	// a multi-owner public alias converges to sorted winner "a" globally while remaining definitive per Key.
 	aliasKey := a.APIKey.Create().SetName("alias-other").SetKey("ah-cluster-alias-other").SetType(apikey.TypeUser).SetUserID(99999).SetProjectID(legacyGroup.ID).SetScopes([]string{"read_channels", "write_requests"}).SetProfiles(&objects.APIKeyProfiles{ActiveProfile: "active", Profiles: []objects.APIKeyProfile{{Name: "active", ModelIDs: []string{"alias"}, ModelMappings: []objects.ModelMapping{{From: "alias", To: "other"}}}}}).SaveX(ctx)
 	code, raw = requestHTTP(nodes["a"], "GET", "/admin/cluster/manifest", token, "")
 	require.Equal(t, 200, code, string(raw))
-	require.Contains(t, string(raw), `"model":"alias","owners":["a","b"],"status":"ambiguous"`)
+	require.Contains(t, string(raw), `"model":"alias","owner":"a","owners":["a"],"status":"ready"`)
 	code, raw = requestHTTP(nodes["a"], "GET", "/v1/axon/route?model=alias", key.Key, "")
 	require.Equal(t, 200, code, string(raw))
 	require.Contains(t, string(raw), `"owner":"b"`)
@@ -343,11 +344,12 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	require.Equal(t, 200, code, string(raw))
 	require.Contains(t, string(raw), `"owner":"a"`)
 	a.APIKey.UpdateOne(aliasKey).SetStatus(apikey.StatusDisabled).SaveX(ctx)
-	// Same-Key cross-owner candidates remain a precise 409 until placement aligns.
+	// Same-Key cross-owner candidates converge deterministically to the sorted owner tie-breaker ("a").
 	a.Channel.UpdateOne(ca).SetSupportedModels([]string{"other", "m"}).SaveX(ctx)
 	require.NoError(t, ia.channels.ReloadEnabledChannelsCache(ctx))
 	code, raw = requestHTTP(nodes["a"], "GET", "/v1/axon/route?model=alias", key.Key, "")
-	require.Equal(t, 409, code, string(raw))
+	require.Equal(t, 200, code, string(raw))
+	require.Contains(t, string(raw), `"owner":"a"`)
 	a.Channel.UpdateOneID(ca.ID).SetSupportedModels([]string{"other"}).SaveX(ctx)
 	require.NoError(t, ia.channels.ReloadEnabledChannelsCache(ctx))
 	// Revoking the tag in PG is effective even with B's old provider snapshot.
@@ -426,14 +428,25 @@ func TestClusterTwoHTTPServicesAuthorizationAndOwnership(t *testing.T) {
 	}
 	for _, observed := range a.Request.Query().AllX(ctx) {
 		require.Contains(t, []string{"", "{}"}, string(observed.RequestBody))
-		require.Contains(t, []string{"", "{}"}, string(observed.RequestHeaders))
+		// Per commit b9202771, minimal correlation headers (Ah-Request-Id / X-Client-Request-Id / Cf-Ray)
+		// are retained for cross-transport tracing even when body/header storage is disabled; credentials
+		// and private request headers must never be stored.
+		hdrs := string(observed.RequestHeaders)
+		require.NotContains(t, hdrs, "Authorization")
+		require.NotContains(t, hdrs, "X-Channel-Id")
+		require.NotContains(t, hdrs, "Content-Type")
 		require.Empty(t, observed.ResponseBody)
 		require.Empty(t, observed.ResponseChunks)
 		require.Nil(t, observed.RequestBodyPayloadID)
 	}
 	for _, execution := range b.RequestExecution.Query().AllX(ctx) {
 		require.Contains(t, []string{"", "{}"}, string(execution.RequestBody))
-		require.Contains(t, []string{"", "{}"}, string(execution.RequestHeaders))
+		// Per commit b9202771, execution rows may keep minimal correlation headers (X-Client-Request-Id / Ah-Request-Id)
+		// while suppressing authorization and private request headers.
+		execHdrs := string(execution.RequestHeaders)
+		require.NotContains(t, execHdrs, "Authorization")
+		require.NotContains(t, execHdrs, "X-Channel-Id")
+		require.NotContains(t, execHdrs, "Content-Type")
 		require.Empty(t, execution.ResponseBody)
 		require.Empty(t, execution.ResponseChunks)
 		require.Nil(t, execution.RequestBodyPayloadID)

@@ -10,6 +10,8 @@ import (
 	"github.com/looplj/axonhub/llm/pipeline"
 )
 
+const autoReasoningEffortAppliedKey = "auto_reasoning_effort_applied"
+
 var supportedAutoReasoningEfforts = map[string]struct{}{
 	"max":    {},
 	"xhigh":  {},
@@ -52,6 +54,10 @@ func (m *autoReasoningEffortMiddleware) OnInboundLlmRequest(ctx context.Context,
 	originalModel := llmRequest.Model
 	llmRequest.Model = baseModel
 	llmRequest.ReasoningEffort = reasoningEffort
+	if llmRequest.TransformerMetadata == nil {
+		llmRequest.TransformerMetadata = make(map[string]any)
+	}
+	llmRequest.TransformerMetadata[autoReasoningEffortAppliedKey] = true
 
 	log.Debug(ctx, "applied auto reasoning effort",
 		log.String("original_model", originalModel),

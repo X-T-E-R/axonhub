@@ -558,10 +558,11 @@ func (p *PersistentInboundTransformer) TransformRequest(ctx context.Context, req
 	return llmRequest, nil
 }
 
-// tryShallowTransformRequest extracts scalar routing/policy fields using zero-copy
-// gjson for the three high-volume chat inbound formats, avoiding a multi-MB AST
-// unmarshal until a downstream stage actually needs Messages/Tools. Any missing
-// required field, invalid JSON, or special-case request falls back to the wrapped
+// tryShallowTransformRequest extracts scalar routing/policy fields in a single
+// top-level gjson scan for the three high-volume chat inbound formats, avoiding
+// a multi-MB AST unmarshal until a downstream stage actually needs Messages or
+// Tools. Any missing required field, invalid JSON, duplicate top-level key,
+// unsupported content-type, or special-case request falls back to the wrapped
 // transformer so validation behavior and error messages remain identical.
 func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient.Request) (*llm.Request, bool) {
 	if request == nil || len(request.Body) == 0 {
@@ -571,112 +572,323 @@ func tryShallowTransformRequest(wrapped transformer.Inbound, request *httpclient
 	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
 		return nil, false
 	}
-	// Preserve Claude Code billing-header stripping on non-passthrough paths.
-	if bytes.Contains(body, []byte("x-anthropic-billing-header:")) {
-		return nil, false
-	}
 	if !gjson.ValidBytes(body) {
 		return nil, false
 	}
 	s := unsafe.String(unsafe.SliceData(body), len(body))
 
+	var isAnthropic, isOpenAIChat, isOpenAIResponses bool
 	switch wrapped.(type) {
 	case *anthropic.InboundTransformer:
-		model := gjson.Get(s, "model")
-		if model.Type != gjson.String || model.Str == "" {
+		if !strings.Contains(strings.ToLower(request.Headers.Get("Content-Type")), "application/json") {
 			return nil, false
 		}
-		msgs := gjson.Get(s, "messages")
-		if !msgs.IsArray() || len(msgs.Array()) == 0 {
+		isAnthropic = true
+	case *openai.InboundTransformer:
+		if ct := request.Headers.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
 			return nil, false
 		}
-		maxTokens := gjson.Get(s, "max_tokens")
-		if maxTokens.Type != gjson.Number || maxTokens.Int() <= 0 {
+		isOpenAIChat = true
+	case *responses.InboundTransformer:
+		if strings.HasSuffix(request.Path, "/compact") || strings.Contains(request.URL, "/compact") {
 			return nil, false
 		}
+		if ct := request.Headers.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
+			return nil, false
+		}
+		isOpenAIResponses = true
+	default:
+		return nil, false
+	}
+
+	// Single top-level object scan: detects duplicate keys (which json.Unmarshal
+	// resolves last-wins while gjson.Get resolves first-wins) and extracts all
+	// routing/template scalars in one pass.
+	var (
+		seenKeys      = make(map[string]struct{}, 16)
+		hasDupKey     bool
+		fields        = make(map[string]gjson.Result, 16)
+		fallbackEarly bool
+	)
+	gjson.Parse(s).ForEach(func(k, v gjson.Result) bool {
+		key := k.Str
+		if _, exists := seenKeys[key]; exists {
+			hasDupKey = true
+			return false
+		}
+		seenKeys[key] = struct{}{}
+		fields[key] = v
+		return true
+	})
+	if hasDupKey || fallbackEarly {
+		return nil, false
+	}
+
+	model, ok := fields["model"]
+	if !ok || model.Type != gjson.String || model.Str == "" {
+		return nil, false
+	}
+
+	var streamPtr *bool
+	if st, ok := fields["stream"]; ok && st.Type != gjson.Null {
+		if st.Type != gjson.True && st.Type != gjson.False {
+			return nil, false
+		}
+		v := st.Bool()
+		streamPtr = &v
+	}
+
+	switch {
+	case isAnthropic:
+		msgs, ok := fields["messages"]
+		if !ok || !msgs.IsArray() || len(msgs.Array()) == 0 {
+			return nil, false
+		}
+		maxTokens, ok := fields["max_tokens"]
+		if !ok || maxTokens.Type != gjson.Number || maxTokens.Int() <= 0 || float64(maxTokens.Int()) != maxTokens.Float() {
+			return nil, false
+		}
+		// Validate system prompts (and detect billing header even if JSON-escaped).
+		if sys, ok := fields["system"]; ok && sys.Type != gjson.Null {
+			switch {
+			case sys.Type == gjson.String:
+				if strings.Contains(sys.Str, "x-anthropic-billing-header:") {
+					return nil, false
+				}
+			case sys.IsArray():
+				valid := true
+				sys.ForEach(func(_, item gjson.Result) bool {
+					if !item.IsObject() || item.Get("type").Str != "text" {
+						valid = false
+						return false
+					}
+					if strings.Contains(item.Get("text").Str, "x-anthropic-billing-header:") {
+						valid = false
+						return false
+					}
+					return true
+				})
+				if !valid {
+					return nil, false
+				}
+			default:
+				return nil, false
+			}
+		}
+		// Validate thinking configuration matching anthropic/inbound.go.
+		var reasoningBudget *int64
+		if thinking, ok := fields["thinking"]; ok && thinking.Type != gjson.Null {
+			if !thinking.IsObject() {
+				return nil, false
+			}
+			tType := thinking.Get("type")
+			if tType.Type != gjson.String {
+				return nil, false
+			}
+			switch tType.Str {
+			case "disabled":
+			case "enabled":
+				bt := thinking.Get("budget_tokens")
+				if bt.Type != gjson.Number || bt.Int() <= 0 {
+					return nil, false
+				}
+				b := bt.Int()
+				reasoningBudget = &b
+			case "adaptive":
+				if oc, ok := fields["output_config"]; ok && oc.IsObject() {
+					if eff := oc.Get("effort"); eff.Exists() && eff.Type != gjson.Null {
+						if eff.Type != gjson.String {
+							return nil, false
+						}
+						switch eff.Str {
+						case "", "low", "medium", "high", "xhigh", "max":
+						default:
+							return nil, false
+						}
+					}
+				}
+			default:
+				return nil, false
+			}
+		}
+		// Validate tool_choice matching anthropic/inbound.go.
+		if tc, ok := fields["tool_choice"]; ok && tc.Type != gjson.Null {
+			if !tc.IsObject() {
+				return nil, false
+			}
+			tcType := tc.Get("type")
+			if tcType.Type != gjson.String {
+				return nil, false
+			}
+			switch tcType.Str {
+			case "auto", "none", "any":
+			case "tool":
+				if name := tc.Get("name"); name.Type != gjson.String || name.Str == "" {
+					return nil, false
+				}
+			default:
+				return nil, false
+			}
+		}
+		var metadata map[string]string
+		if md, ok := fields["metadata"]; ok && md.Type != gjson.Null {
+			if !md.IsObject() {
+				return nil, false
+			}
+			uid := md.Get("user_id")
+			if uid.Exists() && uid.Type != gjson.Null && uid.Type != gjson.String {
+				return nil, false
+			}
+			metadata = map[string]string{
+				"user_id": strings.Clone(uid.Str),
+			}
+		}
+		mt := maxTokens.Int()
 		req := &llm.Request{
-			APIFormat:   llm.APIFormatAnthropicMessage,
-			RequestType: llm.RequestTypeChat,
-			Model:       strings.Clone(model.Str),
+			APIFormat:       llm.APIFormatAnthropicMessage,
+			RequestType:     llm.RequestTypeChat,
+			Model:           strings.Clone(model.Str),
+			MaxTokens:       &mt,
+			Stream:          streamPtr,
+			ReasoningBudget: reasoningBudget,
+			Metadata:        metadata,
 		}
-		if mt := maxTokens.Int(); mt > 0 {
-			req.MaxTokens = &mt
-		}
-		if st := gjson.Get(s, "stream"); st.Type == gjson.True || st.Type == gjson.False {
-			v := st.Bool()
-			req.Stream = &v
-		}
-		if eff := gjson.Get(s, "output_config.effort"); eff.Type == gjson.String && eff.Str != "" {
-			req.ReasoningEffort = strings.Clone(eff.Str)
-		}
-		if budget := gjson.Get(s, "thinking.budget_tokens"); budget.Type == gjson.Number && budget.Int() > 0 {
-			b := budget.Int()
-			req.ReasoningBudget = &b
+		if oc, ok := fields["output_config"]; ok && oc.IsObject() {
+			if eff := oc.Get("effort"); eff.Type == gjson.String && eff.Str != "" {
+				req.ReasoningEffort = strings.Clone(eff.Str)
+			}
 		}
 		return req, true
 
-	case *openai.InboundTransformer:
-		model := gjson.Get(s, "model")
-		if model.Type != gjson.String || model.Str == "" {
+	case isOpenAIChat:
+		msgs, ok := fields["messages"]
+		if !ok || !msgs.IsArray() || len(msgs.Array()) == 0 {
 			return nil, false
 		}
-		msgs := gjson.Get(s, "messages")
-		if !msgs.IsArray() || len(msgs.Array()) == 0 {
+		metadata, ok := extractShallowStringMap(fields["metadata"])
+		if !ok {
+			return nil, false
+		}
+		userPtr, ok := extractShallowOptionalString(fields["user"])
+		if !ok {
 			return nil, false
 		}
 		req := &llm.Request{
 			APIFormat:   llm.APIFormatOpenAIChatCompletion,
 			RequestType: llm.RequestTypeChat,
 			Model:       strings.Clone(model.Str),
+			Stream:      streamPtr,
+			Metadata:    metadata,
+			User:        userPtr,
 		}
-		if st := gjson.Get(s, "stream"); st.Type == gjson.True || st.Type == gjson.False {
-			v := st.Bool()
-			req.Stream = &v
+		if eff, ok := fields["reasoning_effort"]; ok && eff.Type != gjson.Null {
+			if eff.Type != gjson.String {
+				return nil, false
+			}
+			if eff.Str != "" {
+				req.ReasoningEffort = strings.Clone(eff.Str)
+			}
 		}
-		if eff := gjson.Get(s, "reasoning_effort"); eff.Type == gjson.String && eff.Str != "" {
-			req.ReasoningEffort = strings.Clone(eff.Str)
-		}
-		if pck := gjson.Get(s, "prompt_cache_key"); pck.Type == gjson.String && pck.Str != "" {
-			v := strings.Clone(pck.Str)
-			req.PromptCacheKey = &v
+		if pck, ok := fields["prompt_cache_key"]; ok && pck.Type != gjson.Null {
+			if pck.Type != gjson.String {
+				return nil, false
+			}
+			if pck.Str != "" {
+				v := strings.Clone(pck.Str)
+				req.PromptCacheKey = &v
+			}
 		}
 		return req, true
 
-	case *responses.InboundTransformer:
-		if strings.HasSuffix(request.Path, "/compact") || strings.Contains(request.URL, "/compact") {
+	case isOpenAIResponses:
+		if _, ok := fields["input"]; !ok {
 			return nil, false
 		}
-		model := gjson.Get(s, "model")
-		if model.Type != gjson.String || model.Str == "" {
+		metadata, ok := extractShallowStringMap(fields["metadata"])
+		if !ok {
 			return nil, false
 		}
-		if !gjson.Get(s, "input").Exists() {
+		userPtr, ok := extractShallowOptionalString(fields["user"])
+		if !ok {
 			return nil, false
 		}
 		req := &llm.Request{
 			APIFormat:   llm.APIFormatOpenAIResponse,
 			RequestType: llm.RequestTypeChat,
 			Model:       strings.Clone(model.Str),
+			Stream:      streamPtr,
+			Metadata:    metadata,
+			User:        userPtr,
 		}
-		if st := gjson.Get(s, "stream"); st.Type == gjson.True || st.Type == gjson.False {
-			v := st.Bool()
-			req.Stream = &v
+		if reasoning, ok := fields["reasoning"]; ok && reasoning.Type != gjson.Null {
+			if !reasoning.IsObject() {
+				return nil, false
+			}
+			if eff := reasoning.Get("effort"); eff.Exists() && eff.Type != gjson.Null {
+				if eff.Type != gjson.String {
+					return nil, false
+				}
+				if eff.Str != "" {
+					req.ReasoningEffort = strings.Clone(eff.Str)
+				}
+			}
 		}
-		if eff := gjson.Get(s, "reasoning.effort"); eff.Type == gjson.String && eff.Str != "" {
-			req.ReasoningEffort = strings.Clone(eff.Str)
+		if pck, ok := fields["prompt_cache_key"]; ok && pck.Type != gjson.Null {
+			if pck.Type != gjson.String {
+				return nil, false
+			}
+			if pck.Str != "" {
+				v := strings.Clone(pck.Str)
+				req.PromptCacheKey = &v
+			}
 		}
-		if pck := gjson.Get(s, "prompt_cache_key"); pck.Type == gjson.String && pck.Str != "" {
-			v := strings.Clone(pck.Str)
-			req.PromptCacheKey = &v
-		}
-		if prev := gjson.Get(s, "previous_response_id"); prev.Type == gjson.String && prev.Str != "" {
-			v := strings.Clone(prev.Str)
-			req.PreviousResponseID = &v
+		if prev, ok := fields["previous_response_id"]; ok && prev.Type != gjson.Null {
+			if prev.Type != gjson.String {
+				return nil, false
+			}
+			if prev.Str != "" {
+				v := strings.Clone(prev.Str)
+				req.PreviousResponseID = &v
+			}
 		}
 		return req, true
 	}
 
 	return nil, false
+}
+
+func extractShallowStringMap(res gjson.Result) (map[string]string, bool) {
+	if !res.Exists() || res.Type == gjson.Null {
+		return nil, true
+	}
+	if !res.IsObject() {
+		return nil, false
+	}
+	out := make(map[string]string)
+	valid := true
+	res.ForEach(func(k, v gjson.Result) bool {
+		if v.Type != gjson.String {
+			valid = false
+			return false
+		}
+		out[strings.Clone(k.Str)] = strings.Clone(v.Str)
+		return true
+	})
+	if !valid {
+		return nil, false
+	}
+	return out, true
+}
+
+func extractShallowOptionalString(res gjson.Result) (*string, bool) {
+	if !res.Exists() || res.Type == gjson.Null {
+		return nil, true
+	}
+	if res.Type != gjson.String {
+		return nil, false
+	}
+	v := strings.Clone(res.Str)
+	return &v, true
 }
 
 // WrapDirectPassThroughInboundStream wraps a raw pass-through stream with

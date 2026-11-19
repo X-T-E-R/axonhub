@@ -303,6 +303,7 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 	}
 
 	originalStream := llmRequest.Stream
+	originalStreamOptions := llmRequest.StreamOptions
 
 	var lastErr error
 
@@ -317,6 +318,7 @@ func (p *pipeline) Process(ctx context.Context, request *httpclient.Request) (*R
 		}
 		attemptsStarted++
 		llmRequest.Stream = originalStream
+		llmRequest.StreamOptions = originalStreamOptions
 
 		result, err := p.processRequest(ctx, llmRequest)
 		if err == nil {

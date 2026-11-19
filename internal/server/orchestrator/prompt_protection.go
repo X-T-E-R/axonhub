@@ -38,7 +38,19 @@ func protectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 			}
 		}
 
-		protected, err := inbound.state.PromptProtecter.Protect(ctx, llmRequest)
+		var (
+			protected *llm.Request
+			masked    bool
+			err       error
+		)
+		if withStatus, ok := inbound.state.PromptProtecter.(interface {
+			ProtectWithStatus(context.Context, *llm.Request) (*llm.Request, bool, error)
+		}); ok {
+			protected, masked, err = withStatus.ProtectWithStatus(ctx, llmRequest)
+		} else {
+			protected, err = inbound.state.PromptProtecter.Protect(ctx, llmRequest)
+			masked = err == nil && protected != nil && protected != llmRequest
+		}
 		if err != nil {
 			if errors.Is(err, biz.ErrPromptProtectionRejected) {
 				return nil, fmt.Errorf("%w: %s", transformer.ErrInvalidRequest, promptProtectionRejectedMessage)
@@ -47,6 +59,10 @@ func protectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 			log.Warn(ctx, "failed to protect prompts", log.Cause(err))
 
 			return llmRequest, nil
+		}
+
+		if masked {
+			inbound.state.ASTContentMutated = true
 		}
 
 		if protected == nil {

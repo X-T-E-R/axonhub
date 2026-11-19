@@ -63,10 +63,14 @@ func TestCache(t *testing.T) {
 
 func TestCache_SingleFlight(t *testing.T) {
 	var callCount int32
+	started := make(chan struct{})
+	release := make(chan struct{})
 
 	refreshFunc := func(ctx context.Context, current string, lastUpdate time.Time) (string, time.Time, bool, error) {
-		atomic.AddInt32(&callCount, 1)
-		time.Sleep(100 * time.Millisecond) // Simulate slow load
+		if atomic.AddInt32(&callCount, 1) == 1 {
+			close(started)
+		}
+		<-release
 
 		return "data", time.Now(), true, nil
 	}
@@ -78,16 +82,26 @@ func TestCache_SingleFlight(t *testing.T) {
 	})
 	defer cache.Stop()
 
-	// Concurrent loads
-	done := make(chan bool)
-
-	for range 5 {
+	// Concurrent loads: hold the first flight open briefly until peers enter singleflight.
+	done := make(chan struct{}, 5)
+	go func() {
+		_ = cache.Load(context.Background(), true)
+		done <- struct{}{}
+	}()
+	<-started
+	peerStarted := make(chan struct{}, 4)
+	for range 4 {
 		go func() {
+			peerStarted <- struct{}{}
 			_ = cache.Load(context.Background(), true)
-
-			done <- true
+			done <- struct{}{}
 		}()
 	}
+	for range 4 {
+		<-peerStarted
+	}
+	timer := time.AfterFunc(25*time.Millisecond, func() { close(release) })
+	defer timer.Stop()
 
 	for range 5 {
 		<-done
@@ -167,7 +181,7 @@ func TestCache_AsyncReload(t *testing.T) {
 		Name:            "test_async",
 		RefreshFunc:     refreshFunc,
 		RefreshInterval: time.Hour,
-		DebounceDelay:   100 * time.Millisecond, // Shorter debounce for faster test
+		DebounceDelay:   20 * time.Millisecond,
 	})
 	defer cache.Stop()
 
@@ -176,10 +190,12 @@ func TestCache_AsyncReload(t *testing.T) {
 		cache.TriggerAsyncReload()
 	}
 
-	// Wait for debounce and execution
-	time.Sleep(500 * time.Millisecond)
+	// Wait deterministically for debounced execution
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&callCount) > 0 && cache.GetData() == "async_data"
+	}, 2*time.Second, 5*time.Millisecond)
 
-	// Due to debounce and serial reloadMu, callCount should be small (likely 1 or 2)
+	// Due to debounce and serial reloadMu, callCount should be small (1 or 2)
 	count := atomic.LoadInt32(&callCount)
 	assert.True(t, count > 0 && count <= 2, "Expected 1 or 2 calls, got %d", count)
 	assert.Equal(t, "async_data", cache.GetData())
@@ -196,16 +212,13 @@ func TestCache_PeriodicRefresh(t *testing.T) {
 	cache := NewCache(Options[string]{
 		Name:            "test_periodic",
 		RefreshFunc:     refreshFunc,
-		RefreshInterval: 100 * time.Millisecond,
+		RefreshInterval: 20 * time.Millisecond,
 	})
 	defer cache.Stop()
 
-	// Wait for a few periodic refreshes
-	time.Sleep(350 * time.Millisecond)
-
-	count := atomic.LoadInt32(&callCount)
-	assert.True(t, count >= 2, "Expected at least 2 periodic refreshes, got %d", count)
-	assert.Equal(t, "periodic_data", cache.GetData())
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&callCount) >= 2 && cache.GetData() == "periodic_data"
+	}, 2*time.Second, 5*time.Millisecond)
 }
 
 func TestCache_OnSwap(t *testing.T) {
@@ -249,26 +262,28 @@ func TestCache_Stop(t *testing.T) {
 	cache := NewCache(Options[string]{
 		Name:            "test_stop",
 		RefreshFunc:     refreshFunc,
-		RefreshInterval: 50 * time.Millisecond,
+		RefreshInterval: 15 * time.Millisecond,
 	})
 
-	// Wait for some refreshes
-	time.Sleep(200 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&callCount) >= 2
+	}, 2*time.Second, 5*time.Millisecond)
 
-	// Stop the cache
+	// Stop the cache; verify count stops increasing
 	cache.Stop()
-
-	// Small delay to ensure any in-flight refresh completes
-	time.Sleep(100 * time.Millisecond)
-
-	countBefore := atomic.LoadInt32(&callCount)
-
-	// Wait and verify no more refreshes
-	time.Sleep(200 * time.Millisecond)
-
-	countAfter := atomic.LoadInt32(&callCount)
-
-	assert.Equal(t, countBefore, countAfter, "No refreshes should happen after Stop")
+	// Wait until any in-flight refresh settles, then verify stability across >3 refresh intervals.
+	var settled int32
+	require.Eventually(t, func() bool {
+		cur := atomic.LoadInt32(&callCount)
+		if cur == settled {
+			return true
+		}
+		settled = cur
+		return false
+	}, time.Second, 20*time.Millisecond)
+	require.Never(t, func() bool {
+		return atomic.LoadInt32(&callCount) != settled
+	}, 60*time.Millisecond, 10*time.Millisecond, "No refreshes should happen after Stop")
 }
 
 func TestCache_WatcherReload(t *testing.T) {

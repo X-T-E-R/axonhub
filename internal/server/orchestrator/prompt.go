@@ -92,6 +92,8 @@ func injectPrompts(inbound *PersistentInboundTransformer) pipeline.Middleware {
 			if err := applyNativeWSInjectedPrompts(llmRequest, llmRequest.Messages[:prefixCount], llmRequest.Messages[len(llmRequest.Messages)-appendCount:]); err != nil {
 				return nil, err
 			}
+		} else {
+			inbound.state.ASTContentMutated = true
 		}
 
 		return llmRequest, nil

@@ -27,7 +27,7 @@ func TestResponsesImageGeneration(t *testing.T) {
 
 	imageModel := os.Getenv("TEST_IMAGE_MODEL")
 	if imageModel == "" {
-		t.Skip("TEST_IMAGE_MODEL is required (set to an image-capable model, e.g. gpt-image-1)")
+		imageModel = "gpt-image-1"
 	}
 
 	prompt := "Generate a simple PNG image: a cute dog on the green land"
@@ -117,7 +117,7 @@ func TestResponsesImageGenerationStreaming(t *testing.T) {
 
 	imageModel := os.Getenv("TEST_IMAGE_MODEL")
 	if imageModel == "" {
-		t.Skip("TEST_IMAGE_MODEL is required (set to an image-capable model, e.g. gpt-image-1)")
+		imageModel = "gpt-image-1"
 	}
 
 	prompt := "Generate a simple PNG image: a cute dog on the green land"

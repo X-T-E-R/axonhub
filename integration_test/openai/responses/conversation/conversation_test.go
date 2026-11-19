@@ -20,7 +20,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestResponsesConversation(t *testing.T) {
-	t.Skip("Test uses PreviousResponseID - temporarily skipped")
 	// Skip test if no API key is configured
 	helper := testutil.NewTestHelper(t, "TestResponsesConversation")
 
@@ -108,7 +107,6 @@ func TestResponsesConversation(t *testing.T) {
 }
 
 func TestResponsesConversationWithInstructions(t *testing.T) {
-	t.Skip("Test uses PreviousResponseID - temporarily skipped")
 	// Skip test if no API key is configured
 	helper := testutil.NewTestHelper(t, "TestResponsesConversationWithInstructions")
 
@@ -169,7 +167,6 @@ func TestResponsesConversationWithInstructions(t *testing.T) {
 }
 
 func TestResponsesConversationContextChain(t *testing.T) {
-	t.Skip("Test uses PreviousResponseID - temporarily skipped")
 	// Skip test if no API key is configured
 	helper := testutil.NewTestHelper(t, "TestResponsesConversationContextChain")
 

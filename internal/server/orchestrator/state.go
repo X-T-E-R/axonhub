@@ -11,6 +11,7 @@ import (
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
+	"github.com/looplj/axonhub/llm/pipeline/cc"
 	"github.com/looplj/axonhub/llm/transformer"
 )
 
@@ -132,6 +133,14 @@ type PersistenceState struct {
 	// DirectPassThroughStream records whether the current streaming attempt bypasses
 	// LLM AST stream conversion and shadow drain goroutines.
 	DirectPassThroughStream bool
+	// rawStreamObs is shared across direct pass-through performance, TPM, and
+	// model circuit-breaker wrappers so each raw SSE frame is scanned once.
+	rawStreamObs *rawStreamObserver
+	// ASTContentMutated records whether an inbound policy middleware mutated the
+	// request content (e.g., prompt injection, prompt protection masking, billing
+	// header stripping, or auto reasoning effort), making the transformed AST the
+	// authoritative wire source instead of the unmutated raw inbound bytes.
+	ASTContentMutated bool
 
 	deferredFailureMu                 sync.Mutex
 	deferredStreamError               error
@@ -143,6 +152,27 @@ type PersistenceState struct {
 	semanticInterruptStarted          bool
 	lifecycleStarted                  time.Time
 	lifecycleSequence                 uint64
+}
+
+func (s *PersistenceState) hasASTContentMutation() bool {
+	if s == nil {
+		return false
+	}
+	if s.ASTContentMutated {
+		return true
+	}
+	if s.LlmRequest != nil && s.LlmRequest.TransformerMetadata != nil {
+		if _, ok := s.LlmRequest.TransformerMetadata[cc.BillingCCHKey]; ok {
+			return true
+		}
+		if _, ok := s.LlmRequest.TransformerMetadata[cc.BillingHeaderStrippedKey]; ok {
+			return true
+		}
+		if _, ok := s.LlmRequest.TransformerMetadata[autoReasoningEffortAppliedKey]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *PersistenceState) cyberPolicyObserved() bool {
@@ -289,6 +319,7 @@ func (s *PersistenceState) resetStreamTerminalState() {
 	s.deferredFailureMu.Lock()
 	s.StreamCompleted = false
 	s.DirectPassThroughStream = false
+	s.rawStreamObs = nil
 	s.providerTerminalStatus = streamTerminalNone
 	s.ProviderStreamResponse = nil
 	s.deferredStreamError = nil
@@ -449,6 +480,14 @@ func (s *PersistenceState) EnsureFullLlmRequest(ctx context.Context) (*llm.Reque
 		}
 		if s.LlmRequest.ChannelKeyAffinityID != "" {
 			fullReq.ChannelKeyAffinityID = s.LlmRequest.ChannelKeyAffinityID
+		}
+		if len(s.LlmRequest.TransformerMetadata) > 0 {
+			if fullReq.TransformerMetadata == nil {
+				fullReq.TransformerMetadata = make(map[string]any, len(s.LlmRequest.TransformerMetadata))
+			}
+			for k, v := range s.LlmRequest.TransformerMetadata {
+				fullReq.TransformerMetadata[k] = v
+			}
 		}
 		fullReq.RawRequest = s.RawRequest
 		*s.LlmRequest = *fullReq

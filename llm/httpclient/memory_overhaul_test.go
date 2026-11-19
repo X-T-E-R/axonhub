@@ -205,7 +205,146 @@ func TestResponseHeaderTimeoutAndDoStreamRequestClearing(t *testing.T) {
 	meta := rs.ResponseMetadata()
 	require.NotNil(t, meta)
 	require.Equal(t, http.StatusOK, meta.StatusCode)
-	require.Nil(t, meta.Request, "DoStream ResponseMetadata must not pin outbound Request")
+	require.NotNil(t, meta.Request, "DoStream ResponseMetadata preserves bodyless Request metadata")
+	require.Nil(t, meta.Request.Body, "DoStream ResponseMetadata must not pin outbound Request.Body")
 	require.Nil(t, meta.RawRequest, "DoStream ResponseMetadata must not pin net/http.Request")
-	require.Nil(t, meta.RawResponse.Request, "DoStream must clear RawResponse.Request")
+	// Verify GetBody on RawResponse.Request was atomically released without mutating http.Request.
+	if meta.RawResponse != nil && meta.RawResponse.Request != nil && meta.RawResponse.Request.GetBody != nil {
+		replayed, err := meta.RawResponse.Request.GetBody()
+		require.NoError(t, err)
+		n, _ := io.Copy(io.Discard, replayed)
+		_ = replayed.Close()
+		require.Zero(t, n, "released outboundBodyPayload must not retain request bytes after 2xx")
+	}
+}
+
+func TestRedirect307And308BodyReplay(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{"model":"claude-test","prompt":"redirect-replay-payload"}`)
+	for _, code := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			var received []byte
+			var hops int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hops++
+				body, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				if r.URL.Path == "/redirect" {
+					w.Header().Set("Location", "/final")
+					w.WriteHeader(code)
+					return
+				}
+				received = body
+				if r.Header.Get("Accept") == "text/event-stream" {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, "data: {\"ok\":true}\n\n")
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(body)
+			}))
+			defer srv.Close()
+
+			hc := NewHttpClient()
+			resp, err := hc.Do(context.Background(), &Request{
+				Method:      http.MethodPost,
+				URL:         srv.URL + "/redirect",
+				ContentType: "application/json",
+				Body:        payload,
+			})
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(t, payload, received)
+			require.Equal(t, payload, resp.Body)
+			require.Equal(t, 2, hops)
+
+			// Also verify DoStream follows 307/308 with full body replay.
+			received = nil
+			hops = 0
+			stream, err := hc.DoStream(context.Background(), &Request{
+				Method:      http.MethodPost,
+				URL:         srv.URL + "/redirect",
+				ContentType: "application/json",
+				Body:        payload,
+			})
+			require.NoError(t, err)
+			defer stream.Close()
+			require.True(t, stream.Next())
+			require.Equal(t, payload, received)
+			require.Equal(t, 2, hops)
+		})
+	}
+}
+
+func TestHTTP2EarlyResponseAndCancelRace(t *testing.T) {
+	t.Parallel()
+
+	// Real HTTP/2 server sending an immediate 429 or 200 SSE response while the
+	// client is still uploading a 4 MiB body, exercising concurrent Read/Close.
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/early-429":
+			// Respond >299 immediately without reading request body so HTTP/2 closes
+			// the upload body concurrently with client writeLoop.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":"rate_limited"}`)
+		case "/early-200-sse":
+			// Respond 200 immediately before draining upload body.
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			_, _ = io.WriteString(w, "data: {\"ok\":true}\n\n")
+		}
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+
+	largeBody := bytes.Repeat([]byte("a"), 4<<20)
+	hc := NewHttpClientWithClient(srv.Client())
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, err := hc.DoStream(context.Background(), &Request{
+				Method:      http.MethodPost,
+				URL:         srv.URL + "/early-429",
+				ContentType: "application/json",
+				Body:        largeBody,
+			})
+			require.Error(t, err)
+		}()
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			stream, err := hc.DoStream(ctx, &Request{
+				Method:      http.MethodPost,
+				URL:         srv.URL + "/early-200-sse",
+				ContentType: "application/json",
+				Body:        largeBody,
+			})
+			if err == nil {
+				cancel()
+				_ = stream.Close()
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestReadLimitedBodySizedTruncatedUnexpectedEOF(t *testing.T) {
+	t.Parallel()
+
+	_, err := readLimitedBodySized(bytes.NewReader([]byte("short")), httpRequestBodyReadLimit, 100)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+
+	_, err = readLimitedBodySized(bytes.NewReader(nil), httpRequestBodyReadLimit, 100)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }

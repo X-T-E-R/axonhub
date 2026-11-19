@@ -323,7 +323,7 @@ func TestThreadContextIsolation(t *testing.T) {
 	t.Logf("Testing thread context isolation")
 
 	// Thread 1: Discuss cooking
-	helper1 := testutil.CreateTestHelperWithNewTrace(t, helper.Config)
+	helper1 := testutil.NewTestHelper(t, "thread_isolation_1")
 	ctx1 := helper1.CreateTestContext()
 
 	var config1 *genai.GenerateContentConfig = &genai.GenerateContentConfig{Temperature: genai.Ptr[float32](0.7)}
@@ -337,7 +337,7 @@ func TestThreadContextIsolation(t *testing.T) {
 	t.Logf("Thread 1 (Cooking): %s", response1Text[:min(100, len(response1Text))])
 
 	// Thread 2: Discuss programming (should not have cooking context)
-	helper2 := testutil.CreateTestHelperWithNewTrace(t, helper.Config)
+	helper2 := testutil.NewTestHelper(t, "thread_isolation_2")
 	ctx2 := helper2.CreateTestContext()
 
 	var config2 *genai.GenerateContentConfig = &genai.GenerateContentConfig{Temperature: genai.Ptr[float32](0.7)}

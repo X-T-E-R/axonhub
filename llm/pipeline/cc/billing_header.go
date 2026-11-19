@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	billingHeaderPrefix = "x-anthropic-billing-header:"
-	BillingCCHKey       = "claudecode_billing_cch"
+	billingHeaderPrefix      = "x-anthropic-billing-header:"
+	BillingCCHKey            = "claudecode_billing_cch"
+	BillingHeaderStrippedKey = "claudecode_billing_cch_stripped"
 )
 
 // StripBillingHeaderCCH removes the random `cch=...;` suffix from Claude Code's
@@ -73,11 +74,12 @@ func StripBillingHeaderCCH() pipeline.Middleware {
 			return request, nil
 		}
 
-		if capturedCCH != "" {
-			if request.TransformerMetadata == nil {
-				request.TransformerMetadata = make(map[string]any)
-			}
+		if request.TransformerMetadata == nil {
+			request.TransformerMetadata = make(map[string]any)
+		}
+		request.TransformerMetadata[BillingHeaderStrippedKey] = true
 
+		if capturedCCH != "" {
 			if _, exists := request.TransformerMetadata[BillingCCHKey]; !exists {
 				request.TransformerMetadata[BillingCCHKey] = capturedCCH
 			}

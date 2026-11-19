@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 
@@ -36,12 +37,17 @@ type _Metrics struct {
 	RetentionGCRecords                   metric.Int64Counter
 }
 
-var Metrics *_Metrics
+var currentMetrics atomic.Pointer[_Metrics]
+
+// Current returns the currently configured metrics registry safely across goroutines.
+func Current() *_Metrics {
+	return currentMetrics.Load()
+}
 
 // SetupMetrics creates a new ServerMetrics instance.
 func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	meter := provider.Meter(name)
-	Metrics = &_Metrics{}
+	m := &_Metrics{}
 
 	// HTTP metrics
 	httpRequestCount, err := meter.Int64Counter(
@@ -53,7 +59,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create http_request_count counter: %w", err)
 	}
 
-	Metrics.HTTPRequestCount = httpRequestCount
+	m.HTTPRequestCount = httpRequestCount
 
 	httpRequestDuration, err := meter.Float64Histogram(
 		"http_request_duration_seconds",
@@ -64,7 +70,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create http_request_duration_seconds histogram: %w", err)
 	}
 
-	Metrics.HTTPRequestDuration = httpRequestDuration
+	m.HTTPRequestDuration = httpRequestDuration
 
 	// GraphQL metrics
 	graphQLRequestCount, err := meter.Int64Counter(
@@ -76,7 +82,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create graphql_request_count counter: %w", err)
 	}
 
-	Metrics.GraphQLRequestCount = graphQLRequestCount
+	m.GraphQLRequestCount = graphQLRequestCount
 
 	graphQLRequestDuration, err := meter.Float64Histogram(
 		"graphql_request_duration_seconds",
@@ -87,7 +93,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create graphql_request_duration_seconds histogram: %w", err)
 	}
 
-	Metrics.GraphQLRequestDuration = graphQLRequestDuration
+	m.GraphQLRequestDuration = graphQLRequestDuration
 
 	// Chat metrics
 	chatRequestCount, err := meter.Int64Counter(
@@ -99,7 +105,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create chat_request_count counter: %w", err)
 	}
 
-	Metrics.ChatRequestCount = chatRequestCount
+	m.ChatRequestCount = chatRequestCount
 
 	chatRequestDuration, err := meter.Float64Histogram(
 		"chat_request_duration_seconds",
@@ -110,7 +116,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create chat_request_duration_seconds histogram: %w", err)
 	}
 
-	Metrics.ChatRequestDuration = chatRequestDuration
+	m.ChatRequestDuration = chatRequestDuration
 
 	chatTokenCount, err := meter.Int64Counter(
 		"chat_token_count",
@@ -121,7 +127,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create chat_token_count counter: %w", err)
 	}
 
-	Metrics.ChatTokenCount = chatTokenCount
+	m.ChatTokenCount = chatTokenCount
 
 	chatSuccessCount, err := meter.Int64Counter(
 		"chat_success_count",
@@ -132,7 +138,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create chat_success_count counter: %w", err)
 	}
 
-	Metrics.ChatSuccessCount = chatSuccessCount
+	m.ChatSuccessCount = chatSuccessCount
 
 	chatFailureCount, err := meter.Int64Counter(
 		"chat_failure_count",
@@ -143,7 +149,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 		return fmt.Errorf("failed to create chat_failure_count counter: %w", err)
 	}
 
-	Metrics.ChatFailureCount = chatFailureCount
+	m.ChatFailureCount = chatFailureCount
 
 	managedAdmissionSkipped, err := meter.Int64Counter(
 		"managed_observability_admission_skipped_total",
@@ -153,7 +159,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create managed_observability_admission_skipped_total: %w", err)
 	}
-	Metrics.ManagedObservabilityAdmissionSkipped = managedAdmissionSkipped
+	m.ManagedObservabilityAdmissionSkipped = managedAdmissionSkipped
 	managedEvicted, err := meter.Int64Counter(
 		"managed_observability_evicted_total",
 		metric.WithDescription("Managed observability payloads evicted by capacity cleanup"),
@@ -162,7 +168,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create managed_observability_evicted_total: %w", err)
 	}
-	Metrics.ManagedObservabilityEvicted = managedEvicted
+	m.ManagedObservabilityEvicted = managedEvicted
 	managedFailures, err := meter.Int64Counter(
 		"managed_observability_failures_total",
 		metric.WithDescription("Managed observability owner, lock, admission, or cleanup failures"),
@@ -171,7 +177,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create managed_observability_failures_total: %w", err)
 	}
-	Metrics.ManagedObservabilityFailures = managedFailures
+	m.ManagedObservabilityFailures = managedFailures
 	managedChargedBytes, err := meter.Int64Gauge(
 		"managed_observability_charged_bytes",
 		metric.WithDescription("Latest conservative live-byte charge for managed observability payloads"),
@@ -180,7 +186,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create managed_observability_charged_bytes: %w", err)
 	}
-	Metrics.ManagedObservabilityChargedBytes = managedChargedBytes
+	m.ManagedObservabilityChargedBytes = managedChargedBytes
 
 	streamAggregationIncomplete, err := meter.Int64Counter(
 		"stream_evidence_aggregation_incomplete_total",
@@ -190,7 +196,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create stream_evidence_aggregation_incomplete_total: %w", err)
 	}
-	Metrics.StreamEvidenceAggregationIncomplete = streamAggregationIncomplete
+	m.StreamEvidenceAggregationIncomplete = streamAggregationIncomplete
 
 	retentionRuns, err := meter.Int64Counter(
 		"retention_gc_runs_total",
@@ -200,7 +206,7 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create retention_gc_runs_total: %w", err)
 	}
-	Metrics.RetentionGCRuns = retentionRuns
+	m.RetentionGCRuns = retentionRuns
 	retentionRecords, err := meter.Int64Counter(
 		"retention_gc_records_total",
 		metric.WithDescription("Retention GC record accounting by outcome"),
@@ -209,29 +215,33 @@ func SetupMetrics(provider *sdk.MeterProvider, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create retention_gc_records_total: %w", err)
 	}
-	Metrics.RetentionGCRecords = retentionRecords
+	m.RetentionGCRecords = retentionRecords
 
+	currentMetrics.Store(m)
 	return nil
 }
 
 func RecordStreamEvidenceAggregationIncomplete(ctx context.Context, apiFormat string) {
-	if Metrics == nil || Metrics.StreamEvidenceAggregationIncomplete == nil {
+	m := Current()
+	if m == nil || m.StreamEvidenceAggregationIncomplete == nil {
 		return
 	}
-	Metrics.StreamEvidenceAggregationIncomplete.Add(ctx, 1, metric.WithAttributes(attribute.String("api_format", apiFormat)))
+	m.StreamEvidenceAggregationIncomplete.Add(ctx, 1, metric.WithAttributes(attribute.String("api_format", apiFormat)))
 }
 
 func RecordRetentionGC(ctx context.Context, outcome string, count int) {
-	if Metrics == nil {
+	m := Current()
+	if m == nil {
 		return
 	}
-	if Metrics.RetentionGCRecords != nil && count > 0 {
-		Metrics.RetentionGCRecords.Add(ctx, int64(count), metric.WithAttributes(attribute.String("outcome", outcome)))
+	if m.RetentionGCRecords != nil && count > 0 {
+		m.RetentionGCRecords.Add(ctx, int64(count), metric.WithAttributes(attribute.String("outcome", outcome)))
 	}
 }
 
 func RecordRetentionGCRun(ctx context.Context, succeeded bool, deleted int) {
-	if Metrics == nil || Metrics.RetentionGCRuns == nil {
+	m := Current()
+	if m == nil || m.RetentionGCRuns == nil {
 		return
 	}
 	status := "error"
@@ -242,7 +252,7 @@ func RecordRetentionGCRun(ctx context.Context, succeeded bool, deleted int) {
 	if deleted == 0 {
 		deletionOutcome = "zero"
 	}
-	Metrics.RetentionGCRuns.Add(ctx, 1, metric.WithAttributes(
+	m.RetentionGCRuns.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("status", status),
 		attribute.String("deleted", deletionOutcome),
 	))
@@ -253,39 +263,45 @@ func RecordManagedObservabilityAdmissionSkipped(ctx context.Context, reason stri
 }
 
 func RecordManagedObservabilityAdmissionSkippedComponent(ctx context.Context, reason, component string) {
-	if Metrics == nil || Metrics.ManagedObservabilityAdmissionSkipped == nil {
+	m := Current()
+	if m == nil || m.ManagedObservabilityAdmissionSkipped == nil {
 		return
 	}
-	Metrics.ManagedObservabilityAdmissionSkipped.Add(ctx, 1, metric.WithAttributes(
+	m.ManagedObservabilityAdmissionSkipped.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reason", reason),
 		attribute.String("component", component),
 	))
 }
 
 func RecordManagedObservabilityFailure(ctx context.Context, component, reason string) {
-	if Metrics == nil || Metrics.ManagedObservabilityFailures == nil {
+	m := Current()
+	if m == nil || m.ManagedObservabilityFailures == nil {
 		return
 	}
-	Metrics.ManagedObservabilityFailures.Add(ctx, 1, metric.WithAttributes(
+	m.ManagedObservabilityFailures.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("component", component),
 		attribute.String("reason", reason),
 	))
 }
 
 func RecordManagedObservabilityCapacity(ctx context.Context, chargedBytes int64, evicted int) {
-	if Metrics == nil {
+	m := Current()
+	if m == nil {
 		return
 	}
-	if Metrics.ManagedObservabilityChargedBytes != nil {
-		Metrics.ManagedObservabilityChargedBytes.Record(ctx, chargedBytes)
+	if m.ManagedObservabilityChargedBytes != nil {
+		m.ManagedObservabilityChargedBytes.Record(ctx, chargedBytes)
 	}
-	if evicted > 0 && Metrics.ManagedObservabilityEvicted != nil {
-		Metrics.ManagedObservabilityEvicted.Add(ctx, int64(evicted))
+	if evicted > 0 && m.ManagedObservabilityEvicted != nil {
+		m.ManagedObservabilityEvicted.Add(ctx, int64(evicted))
 	}
 }
 
 // RecordHTTPRequest records HTTP request metrics.
 func (sm *_Metrics) RecordHTTPRequest(ctx context.Context, method, path string, statusCode int, duration float64) {
+	if sm == nil {
+		return
+	}
 	labels := []attribute.KeyValue{
 		attribute.String("method", method),
 		attribute.String("path", path),

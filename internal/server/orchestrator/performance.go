@@ -1,13 +1,9 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"time"
-	"unsafe"
-
-	"github.com/tidwall/gjson"
 
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/log"
@@ -256,45 +252,15 @@ func (s *recordPerformanceStream) Err() error {
 	return s.stream.Err()
 }
 
-// extractRawStreamTokens extracts completion and total token counts from a raw
-// provider SSE event (Anthropic, OpenAI Chat, OpenAI Responses) using a cheap
-// byte pre-filter so regular content deltas incur near-zero overhead.
-func extractRawStreamTokens(event *httpclient.StreamEvent) (completionTokens, totalTokens int64) {
-	if event == nil || len(event.Data) == 0 || !bytes.Contains(event.Data, []byte(`"usage"`)) {
-		return 0, 0
-	}
-	s := unsafe.String(unsafe.SliceData(event.Data), len(event.Data))
-	if u := gjson.Get(s, "usage"); u.IsObject() {
-		if ct := u.Get("completion_tokens").Int(); ct > 0 {
-			completionTokens = ct
-		} else if ot := u.Get("output_tokens").Int(); ot > 0 {
-			completionTokens = ot
-		}
-		if tt := u.Get("total_tokens").Int(); tt > 0 {
-			totalTokens = tt
-		} else if completionTokens > 0 {
-			totalTokens = u.Get("input_tokens").Int() + completionTokens
-		}
-		return completionTokens, totalTokens
-	}
-	if u := gjson.Get(s, "response.usage"); u.IsObject() {
-		completionTokens = u.Get("output_tokens").Int()
-		totalTokens = u.Get("total_tokens").Int()
-		if totalTokens == 0 && completionTokens > 0 {
-			totalTokens = u.Get("input_tokens").Int() + completionTokens
-		}
-		return completionTokens, totalTokens
-	}
-	return 0, 0
-}
-
 //nolint:containedctx // ctx is used for logging.
 type recordRawPerformanceStream struct {
-	ctx           context.Context
-	stream        streams.Stream[*httpclient.StreamEvent]
-	state         *PersistenceState
-	firstTokenSet bool
-	recorded      bool
+	ctx               context.Context
+	stream            streams.Stream[*httpclient.StreamEvent]
+	state             *PersistenceState
+	firstTokenSet     bool
+	reasoningStartSet bool
+	reasoningEndSet   bool
+	recorded          bool
 }
 
 func (s *recordRawPerformanceStream) Next() bool { return s.stream.Next() }
@@ -304,13 +270,35 @@ func (s *recordRawPerformanceStream) Current() *httpclient.StreamEvent {
 	if event == nil {
 		return nil
 	}
-	if !s.firstTokenSet && s.state != nil && s.state.Perf != nil {
-		s.state.Perf.MarkFirstToken()
-		s.firstTokenSet = true
+	obs := s.state.ensureRawStreamObserver()
+	obs.observe(event)
+
+	if s.state != nil && s.state.Perf != nil {
+		if obs.firstContentSeen && !s.firstTokenSet {
+			s.state.Perf.MarkFirstToken()
+			s.firstTokenSet = true
+		}
+		if obs.reasoningStarted && !s.reasoningStartSet {
+			s.state.Perf.MarkReasoningStart()
+			s.reasoningStartSet = true
+		}
+		if obs.reasoningEnded && s.reasoningStartSet && !s.reasoningEndSet {
+			s.state.Perf.MarkReasoningEnd()
+			s.reasoningEndSet = true
+		}
+		if obs.outputTokens > 0 {
+			s.state.Perf.CompletionTokens = obs.outputTokens
+		}
 	}
+	return event
+}
+
+func (s *recordRawPerformanceStream) Close() error {
+	err := s.stream.Close()
 	if !s.recorded && s.state != nil && s.state.Perf != nil {
-		if completionTokens, _ := extractRawStreamTokens(event); completionTokens > 0 {
-			s.state.Perf.CompletionTokens = completionTokens
+		obs := s.state.ensureRawStreamObserver()
+		if !obs.terminalFailed && s.stream.Err() == nil && obs.outputTokens > 0 {
+			s.state.Perf.CompletionTokens = obs.outputTokens
 			s.state.Perf.MarkSuccess()
 			if s.state.ChannelService != nil {
 				perfCopy := *s.state.Perf
@@ -319,11 +307,10 @@ func (s *recordRawPerformanceStream) Current() *httpclient.StreamEvent {
 			s.recorded = true
 		}
 	}
-	return event
+	return err
 }
 
-func (s *recordRawPerformanceStream) Close() error { return s.stream.Close() }
-func (s *recordRawPerformanceStream) Err() error   { return s.stream.Err() }
+func (s *recordRawPerformanceStream) Err() error { return s.stream.Err() }
 
 // ExtractErrorCode extracts HTTP error code from error.
 func ExtractErrorCode(err error) int {

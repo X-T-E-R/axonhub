@@ -327,7 +327,7 @@ func (hc *HttpClient) DoStream(ctx context.Context, request *Request) (streams.S
 		slog.DebugContext(ctx, "execute stream request", slog.Any("request", request))
 	}
 
-	rawReq, err := hc.BuildHttpRequest(ctx, request)
+	rawReq, payload, err := buildHttpRequestWithPayload(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build HTTP request: %w", err)
 	}
@@ -410,18 +410,25 @@ func (hc *HttpClient) DoStream(ctx context.Context, request *Request) (streams.S
 
 	stream := decoderFactory(ctx, rawResp.Body)
 
-	// Once upstream response headers have arrived, the outbound request body has
-	// already been transmitted. Sever references from rawReq/rawResp so multi-MB
-	// request buffers are not pinned for the duration of long SSE streams.
-	rawReq.Body = nil
-	rawReq.GetBody = nil
-	rawResp.Request = nil
+	// Once a 2xx streaming response header arrives, redirects and pre-response
+	// retries are over. Atomically release the GetBody payload holder so
+	// Transport's internal request clone cannot pin multi-MB request slices
+	// for the lifetime of the SSE stream, without mutating rawReq fields.
+	payload.Release()
+
+	var bodylessReq *Request
+	if request != nil {
+		reqCopy := *request
+		reqCopy.Body = nil
+		bodylessReq = &reqCopy
+	}
 
 	return newResponseStream(stream, &Response{
 		StatusCode:  rawResp.StatusCode,
 		Headers:     rawResp.Header,
 		Stream:      rawResp.Body,
 		RawResponse: rawResp,
+		Request:     bodylessReq,
 	}), nil
 }
 
@@ -459,8 +466,17 @@ func BuildHttpRequest(
 	ctx context.Context,
 	request *Request,
 ) (*http.Request, error) {
+	httpReq, _, err := buildHttpRequestWithPayload(ctx, request)
+	return httpReq, err
+}
+
+func buildHttpRequestWithPayload(
+	ctx context.Context,
+	request *Request,
+) (*http.Request, *outboundBodyPayload, error) {
 	var body io.Reader
 	var contentLength int64
+	var payload *outboundBodyPayload
 	if len(request.Body) > 0 {
 		contentType := request.ContentType
 		if contentType == "" {
@@ -471,21 +487,20 @@ func BuildHttpRequest(
 		if mediaType == "application/json" || (strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+json")) {
 			bodyBytes = jsonutil.NormalizeSurrogates(bodyBytes)
 		}
-		// Wrap in decodedBodyReader (io.ReadCloser) with explicit ContentLength
-		// instead of bytes.NewReader so net/http.NewRequestWithContext does not
-		// synthesize a GetBody closure pinning multi-MB request bodies on
-		// Transport's internal request clone for the lifetime of open SSE streams,
-		// and Transport's post-write Body.Close() releases the slice immediately.
-		body = &decodedBodyReader{data: bodyBytes}
+		payload = newOutboundBodyPayload(bodyBytes)
+		body = payload.NewReader()
 		contentLength = int64(len(bodyBytes))
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, request.Method, request.URL, body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if contentLength > 0 {
+	if payload != nil {
 		httpReq.ContentLength = contentLength
+		httpReq.GetBody = func() (io.ReadCloser, error) {
+			return payload.NewReader(), nil
+		}
 	}
 
 	httpReq.Header = ApplyClientRequestID(ctx, request.Headers)
@@ -510,7 +525,7 @@ func BuildHttpRequest(
 	if request.Auth != nil {
 		err = applyAuth(httpReq.Header, request.Auth)
 		if err != nil {
-			return nil, fmt.Errorf("failed to apply authentication: %w", err)
+			return nil, nil, fmt.Errorf("failed to apply authentication: %w", err)
 		}
 	}
 
@@ -522,7 +537,7 @@ func BuildHttpRequest(
 		httpReq.URL.RawQuery += request.Query.Encode()
 	}
 
-	return httpReq, nil
+	return httpReq, payload, nil
 }
 
 // BuildHttpRequest builds an HTTP request from Request.

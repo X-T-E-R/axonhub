@@ -126,9 +126,14 @@ func applyAxonHubFullPassThroughRequest(outbound *PersistentOutboundTransformer)
 			return nil, err
 		}
 
-		body, err := mergePassThroughRequestBody(rawReq.Body, llmReq.APIFormat, llmReq.Model)
-		if err != nil {
-			return nil, fmt.Errorf("merge axonhub full pass-through body: %w", err)
+		var body []byte
+		if outbound.state.hasASTContentMutation() && len(request.Body) > 0 {
+			body = request.Body
+		} else {
+			body, err = mergePassThroughRequestBody(rawReq.Body, llmReq.APIFormat, llmReq.Model)
+			if err != nil {
+				return nil, fmt.Errorf("merge axonhub full pass-through body: %w", err)
+			}
 		}
 
 		request.Method = rawReq.Method
@@ -244,6 +249,12 @@ func applyPassThroughRequestBody(outbound *PersistentOutboundTransformer, system
 		outbound.state.RawProviderRequest = request
 
 		if !outbound.isPassThroughEnabled(ctx, systemService) {
+			return request, nil
+		}
+		// Preserve authoritative transformed AST bytes when an inbound policy
+		// mutated request content (prompt injection, masking, billing header
+		// stripping, or auto reasoning effort).
+		if outbound.state.hasASTContentMutation() {
 			return request, nil
 		}
 

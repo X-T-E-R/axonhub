@@ -122,12 +122,7 @@ func (s *RequestService) ShouldStoreExecutionResponseBody(ctx context.Context, c
 	return s.shouldStoreExecutionResponseBody(ctx, nil, channel)
 }
 
-// ShouldStoreExecutionStreamChunks reports the effective provider stream-chunk
-// storage policy for an attempt before its execution row is available.
-func (s *RequestService) ShouldStoreExecutionStreamChunks(ctx context.Context, channel *Channel) bool {
-	return s.shouldStoreExecutionStreamChunks(ctx, nil, channel)
-}
-
+// ShouldStoreExecutionStreamChunks removed (unused).
 func (s *RequestService) shouldStoreExecutionStreamChunks(ctx context.Context, execution *ent.RequestExecution, channel *Channel) bool {
 	settings := s.getExecutionChannelSettings(ctx, execution, channel)
 	if settings != nil && settings.StoreExecutionStreamChunks != nil {

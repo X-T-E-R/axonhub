@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"os"
 	"testing"
+
+	"github.com/looplj/axonhub/openai_test/internal/testutil"
 )
 
 // ModelResponse represents the list models API response
@@ -62,7 +64,8 @@ func fetchModels(t *testing.T, query string) *ModelResponse {
 	apiKey := getAPIKey()
 
 	if apiKey == "" {
-		t.Skip("TEST_AXONHUB_API_KEY not set, skipping integration test")
+		apiKey = "test-inprocess-key"
+		baseURL = testutil.StartMockServer(t)
 	}
 
 	url := baseURL + "/models"

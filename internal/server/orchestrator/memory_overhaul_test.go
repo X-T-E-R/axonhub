@@ -180,3 +180,68 @@ func TestDirectPassThroughStreamDecisionAndZeroGoroutineBypass(t *testing.T) {
 	outbound.wrapped = oaiOut
 	require.False(t, outbound.ShouldDirectPassThroughStream(context.Background(), state.RawProviderRequest))
 }
+
+func TestStreamOptionsAttemptIsolationAcrossRetries(t *testing.T) {
+	t.Parallel()
+
+	streamFalse := false
+	oaiOut, err := openai.NewOutboundTransformer("https://api.openai.com", "sk-test")
+	require.NoError(t, err)
+
+	req := &llm.Request{
+		APIFormat: llm.APIFormatOpenAIChatCompletion,
+		Model:     "gpt-4o",
+		Stream:    &streamFalse,
+		Messages:  []llm.Message{{Role: "user", Content: llm.MessageContent{Content: new("hello")}}},
+	}
+
+	cand1 := &ChannelModelsCandidate{
+		Channel: &biz.Channel{
+			Channel: &ent.Channel{
+				ID:   1,
+				Name: "oai-force-stream",
+				Policies: objects.ChannelPolicies{
+					Stream: objects.CapabilityPolicyRequire,
+				},
+			},
+			Outbound: oaiOut,
+		},
+		Models: []biz.ChannelModelEntry{{RequestModel: "gpt-4o", ActualModel: "gpt-4o-attempt-1"}},
+	}
+	cand2 := &ChannelModelsCandidate{
+		Channel: &biz.Channel{
+			Channel: &ent.Channel{
+				ID:   2,
+				Name: "oai-normal",
+			},
+			Outbound: oaiOut,
+		},
+		Models: []biz.ChannelModelEntry{{RequestModel: "gpt-4o", ActualModel: "gpt-4o-attempt-2"}},
+	}
+
+	// Attempt 1: channel forces streaming (Policies.Stream = Require) -> must inject stream=true & include_usage=true
+	// without mutating the canonical req.Stream or req.StreamOptions.
+	state := &PersistenceState{
+		OriginalRequestStream:   &streamFalse,
+		LlmRequest:              req,
+		ChannelModelsCandidates: []*ChannelModelsCandidate{cand1, cand2},
+		CurrentCandidateIndex:   0,
+	}
+	outbound := &PersistentOutboundTransformer{wrapped: oaiOut, state: state}
+
+	raw1, err := outbound.TransformRequest(context.Background(), req)
+	require.NoError(t, err)
+	require.Contains(t, string(raw1.Body), `"stream":true`)
+	require.Contains(t, string(raw1.Body), `"include_usage":true`)
+	require.Nil(t, req.StreamOptions, "canonical request StreamOptions must not be mutated by attempt 1")
+
+	// Attempt 2: channel does NOT force streaming -> must restore OriginalRequestStream (false)
+	// and send stream=false without leaked stream_options.
+	state.CurrentCandidateIndex = 1
+	raw2, err := outbound.TransformRequest(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, req.Stream)
+	require.False(t, *req.Stream, "attempt 2 must restore OriginalRequestStream")
+	require.NotContains(t, string(raw2.Body), `"stream":true`)
+	require.NotContains(t, string(raw2.Body), `"include_usage":true`)
+}

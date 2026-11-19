@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/samber/lo"
@@ -27,8 +28,66 @@ const (
 
 var ErrHTTPRequestBodyTooLarge = errors.New("http request body exceeds size limit")
 
-// decodedBodyReader wraps an already-decoded request body so middleware and
-// ReadHTTPRequest can share or take ownership of the byte slice without
+// outboundBodyPayload holds an immutable outbound request payload behind an
+// atomic pointer so net/http's GetBody closure can replay the body across
+// 307/308 redirects and pre-response transport retries, yet DoStream can
+// release the multi-MB slice as soon as 2xx response headers arrive without
+// mutating any http.Request fields owned by http.Transport.
+type outboundBodyPayload struct {
+	data atomic.Pointer[[]byte]
+}
+
+func newOutboundBodyPayload(b []byte) *outboundBodyPayload {
+	p := &outboundBodyPayload{}
+	p.data.Store(&b)
+	return p
+}
+
+func (p *outboundBodyPayload) Release() {
+	if p != nil {
+		p.data.Store(nil)
+	}
+}
+
+func (p *outboundBodyPayload) NewReader() io.ReadCloser {
+	var b []byte
+	if ptr := p.data.Load(); ptr != nil {
+		b = *ptr
+	}
+	return &outboundBodyReader{data: b}
+}
+
+// outboundBodyReader implements io.ReadCloser for outbound HTTP uploads with
+// safe concurrent Read/Close semantics as required by net/http (e.g. HTTP/2
+// closing the request body on an early >299 response or cancellation while
+// still uploading).
+type outboundBodyReader struct {
+	mu     sync.Mutex
+	data   []byte
+	offset int
+}
+
+func (r *outboundBodyReader) Read(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.offset >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.offset:])
+	r.offset += n
+	return n, nil
+}
+
+func (r *outboundBodyReader) Close() error {
+	r.mu.Lock()
+	r.data = nil
+	r.offset = 0
+	r.mu.Unlock()
+	return nil
+}
+
+// decodedBodyReader wraps an already-decoded inbound request body so middleware
+// and ReadHTTPRequest can share or take ownership of the byte slice without
 // duplicating multi-MB payloads or keeping them pinned on http.Request.Body.
 type decodedBodyReader struct {
 	data   []byte
@@ -105,36 +164,42 @@ func putLimitedBodyBuf(buf *bytes.Buffer) {
 	limitedBodyBufPool.Put(buf)
 }
 
-func acquireGzipReader(r io.Reader) (*gzip.Reader, error) {
-	if v := gzipReaderPool.Get(); v != nil {
-		gr := v.(*gzip.Reader)
-		err, panicked := resetGzipReaderSafe(gr, r)
-		if !panicked {
-			if err != nil {
-				gzipReaderPool.Put(gr)
-				return nil, err
-			}
-			return gr, nil
-		}
+type pooledGzipReader struct {
+	br bytes.Reader
+	gr *gzip.Reader
+}
+
+func acquireGzipReader(body []byte) (*pooledGzipReader, error) {
+	p, ok := gzipReaderPool.Get().(*pooledGzipReader)
+	if !ok || p == nil {
+		p = &pooledGzipReader{}
 	}
-	return gzip.NewReader(r)
-}
-
-func resetGzipReaderSafe(gr *gzip.Reader, r io.Reader) (err error, panicked bool) {
-	defer func() {
-		if recover() != nil {
-			panicked = true
+	p.br.Reset(body)
+	if p.gr == nil {
+		gr, err := gzip.NewReader(&p.br)
+		if err != nil {
+			p.br.Reset(nil)
+			return nil, err
 		}
-	}()
-	return gr.Reset(r), false
+		p.gr = gr
+		return p, nil
+	}
+	if err := p.gr.Reset(&p.br); err != nil {
+		p.br.Reset(nil)
+		return nil, err
+	}
+	return p, nil
 }
 
-func releaseGzipReader(gr *gzip.Reader) {
-	if gr == nil {
+func releaseGzipReader(p *pooledGzipReader) {
+	if p == nil {
 		return
 	}
-	_ = gr.Close()
-	gzipReaderPool.Put(gr)
+	if p.gr != nil {
+		_ = p.gr.Close()
+	}
+	p.br.Reset(nil)
+	gzipReaderPool.Put(p)
 }
 
 func acquirePlainZstdDecoder() (*zstd.Decoder, error) {
@@ -152,18 +217,9 @@ func releasePlainZstdDecoder(dec *zstd.Decoder) {
 	if dec == nil {
 		return
 	}
-	if safeResetZstdDecoder(dec) {
+	if err := dec.Reset(nil); err == nil {
 		plainZstdDecoderPool.Put(dec)
 	}
-}
-
-func safeResetZstdDecoder(dec *zstd.Decoder) (ok bool) {
-	defer func() {
-		if recover() != nil {
-			ok = false
-		}
-	}()
-	return dec.Reset(nil) == nil
 }
 
 func ReadHTTPRequest(rawReq *http.Request) (*Request, error) {
@@ -260,13 +316,13 @@ func decodeRequestBodyWithLimit(body []byte, headers http.Header, limit int64) (
 		return body, nil
 
 	case "gzip", "x-gzip":
-		reader, err := acquireGzipReader(bytes.NewReader(body))
+		pooled, err := acquireGzipReader(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		defer releaseGzipReader(reader)
+		defer releaseGzipReader(pooled)
 
-		decoded, err := readLimitedBody(reader, limit)
+		decoded, err := readLimitedBody(pooled.gr, limit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decompress gzip body: %w", err)
 		}
@@ -369,11 +425,11 @@ func readLimitedBodySized(reader io.Reader, limit, contentLength int64) ([]byte,
 	// at EOF on multi-MB JSON payloads.
 	if contentLength > 0 && contentLength <= limit {
 		body := make([]byte, contentLength)
-		n, err := io.ReadFull(reader, body)
-		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
-			return body[:n], nil
-		}
+		_, err := io.ReadFull(reader, body)
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil, io.ErrUnexpectedEOF
+			}
 			return nil, err
 		}
 		var extra [1]byte

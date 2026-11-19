@@ -18,7 +18,6 @@ func TestMain(m *testing.M) {
 
 func TestSingleTraceMultipleCalls(t *testing.T) {
 	helper := testutil.NewTestHelper(t, "TestSingleTraceMultipleCalls")
-	t.Skip("Test uses PreviousResponseID - temporarily skipped")
 	// Skip test if no API key is configured
 
 	// Print headers for debugging
@@ -132,7 +131,6 @@ func TestSingleTraceMultipleCalls(t *testing.T) {
 
 func TestSingleTraceContextPreservation(t *testing.T) {
 	helper := testutil.NewTestHelper(t, "TestSingleTraceContextPreservation")
-	t.Skip("Test uses PreviousResponseID - temporarily skipped")
 	// Skip test if no API key is configured
 
 	ctx := helper.CreateTestContext()
