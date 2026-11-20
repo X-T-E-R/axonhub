@@ -18,7 +18,7 @@ env:
 jobs:
   build-backend:
     name: Build Backend
-    runs-on: ${{ fromJSON(github.repository_owner == 'X-T-E-R' && github.actor == 'X-T-E-R' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && '["self-hosted","ccp","cpu"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(github.repository_owner == 'X-T-E-R' && github.actor == 'X-T-E-R' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && '["self-hosted","ccp","cpu-hm"]' || '["ubuntu-latest"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,4 +73,6 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm build

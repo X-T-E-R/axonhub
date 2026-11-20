@@ -14,7 +14,7 @@ env:
   GO111MODULE: on
 jobs:
   lint:
-    runs-on: ${{ fromJSON(github.repository_owner == 'X-T-E-R' && github.actor == 'X-T-E-R' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && '["self-hosted","ccp","cpu"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(github.repository_owner == 'X-T-E-R' && github.actor == 'X-T-E-R' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && '["self-hosted","ccp","cpu-hm"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,7 +39,7 @@ jobs:
           working-directory: ./
 
           # Optional: golangci-lint command line arguments.
-          args: --timeout 10m --max-same-issues 50 --allow-parallel-runners
+          args: --timeout 20m --max-same-issues 50 --allow-parallel-runners
 
           # Optional: show only new issues if it's a pull request. The default value is `false`.
           # only-new-issues: true
