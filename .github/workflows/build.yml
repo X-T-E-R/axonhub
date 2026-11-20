@@ -57,6 +57,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 10
+          dest: ${{ runner.temp }}/setup-pnpm
           run_install: false
 
       - name: Set up Node.js
