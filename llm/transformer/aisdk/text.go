@@ -190,6 +190,24 @@ func (t *TextTransformer) TransformError(ctx context.Context, rawErr error) *htt
 		}
 	}
 
+	if httpclient.IsRequestBodyTooLarge(rawErr) {
+		body, marshalErr := json.Marshal(struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+		}{
+			Message: rawErr.Error(),
+			Type:    "request_body_too_large",
+		})
+		if marshalErr != nil {
+			body = []byte(`{"message":"http request body exceeds size limit","type":"request_body_too_large"}`)
+		}
+		return &httpclient.Error{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Status:     http.StatusText(http.StatusRequestEntityTooLarge),
+			Body:       body,
+		}
+	}
+
 	// Handle validation errors
 	if errors.Is(rawErr, transformer.ErrInvalidRequest) {
 		return &httpclient.Error{

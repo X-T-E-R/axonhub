@@ -1454,3 +1454,94 @@ func TestWithTrace_WritesResponseAliasesWhenTracePersistenceFails(t *testing.T) 
 	require.Equal(t, "client-trace-123", w.Header().Get("Ah-Trace-Id"))
 	require.Equal(t, "client-trace-123", w.Header().Get("X-Oneapi-Request-Id"))
 }
+
+func TestWithTrace_OversizedIdentityRequestBodyReturns413(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	oversized := bytes.Repeat([]byte("a"), (32<<20)+1)
+
+	tests := []struct {
+		name       string
+		path       string
+		encoding   string
+		config     tracing.Config
+		wrapMaxB   bool
+		maxBytesSz int64
+	}{
+		{
+			name:     "claude code trace with empty content-encoding",
+			path:     "/v1/messages",
+			encoding: "",
+			config: tracing.Config{
+				ClaudeCodeTraceEnabled: true,
+			},
+		},
+		{
+			name:     "claude code trace with identity content-encoding",
+			path:     "/v1/messages",
+			encoding: "identity",
+			config: tracing.Config{
+				ClaudeCodeTraceEnabled: true,
+			},
+		},
+		{
+			name:     "extra trace body fields with empty content-encoding",
+			path:     "/v1/chat/completions",
+			encoding: "",
+			config: tracing.Config{
+				ExtraTraceBodyFields: []string{"metadata.trace_id"},
+			},
+		},
+		{
+			name:     "extra trace body fields with identity content-encoding",
+			path:     "/v1/chat/completions",
+			encoding: "identity",
+			config: tracing.Config{
+				ExtraTraceBodyFields: []string{"metadata.trace_id"},
+			},
+		},
+		{
+			name:       "http.MaxBytesError maps to 413",
+			path:       "/v1/chat/completions",
+			encoding:   "",
+			config:     tracing.Config{ExtraTraceBodyFields: []string{"metadata.trace_id"}},
+			wrapMaxB:   true,
+			maxBytesSz: 16,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			router := gin.New()
+			if tc.wrapMaxB {
+				router.Use(func(c *gin.Context) {
+					c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, tc.maxBytesSz)
+					c.Next()
+				})
+			}
+			router.Use(WithDecodedRequestBody(), WithTrace(tc.config, nil))
+			called := false
+			router.POST(tc.path, func(c *gin.Context) {
+				called = true
+				c.Status(http.StatusOK)
+			})
+
+			body := oversized
+			if tc.wrapMaxB {
+				body = bytes.Repeat([]byte("b"), 64)
+			}
+			req := httptest.NewRequest(http.MethodPost, tc.path, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			if tc.encoding != "" {
+				req.Header.Set("Content-Encoding", tc.encoding)
+			}
+
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+			require.False(t, called)
+			require.Contains(t, w.Body.String(), "Request Entity Too Large")
+		})
+	}
+}

@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -2087,6 +2088,24 @@ func TestInboundTransformer_TransformError(t *testing.T) {
 				StatusCode: http.StatusInternalServerError,
 				Status:     "Internal Server Error",
 				Body:       []byte(`{"type":"error","error":{"message":"internal server error","type":""},"request_id":""}`),
+			},
+		},
+		{
+			name:   "wrapped ErrHTTPRequestBodyTooLarge maps to 413 request_too_large",
+			llmErr: fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge),
+			expected: &httpclient.Error{
+				StatusCode: http.StatusRequestEntityTooLarge,
+				Status:     http.StatusText(http.StatusRequestEntityTooLarge),
+				Body:       []byte(`{"type":"error","error":{"type":"request_too_large","message":"failed to read request body: http request body exceeds size limit"},"request_id":""}`),
+			},
+		},
+		{
+			name:   "MaxBytesError maps to 413 request_too_large",
+			llmErr: fmt.Errorf("failed to read request body: %w", &http.MaxBytesError{Limit: 32 << 20}),
+			expected: &httpclient.Error{
+				StatusCode: http.StatusRequestEntityTooLarge,
+				Status:     http.StatusText(http.StatusRequestEntityTooLarge),
+				Body:       []byte(`{"type":"error","error":{"type":"request_too_large","message":"failed to read request body: http: request body too large"},"request_id":""}`),
 			},
 		},
 	}

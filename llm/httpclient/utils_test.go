@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -491,4 +492,13 @@ func TestMergeHTTPHeaders_AcceptNotOverridden(t *testing.T) {
 	merged := MergeHTTPHeaders(dest, src)
 	assert.Equal(t, "*/*", merged.Get("Accept"))
 	assert.Equal(t, "client-value", merged.Get("X-Custom"))
+}
+
+func TestIsRequestBodyTooLarge(t *testing.T) {
+	require.False(t, IsRequestBodyTooLarge(nil))
+	require.False(t, IsRequestBodyTooLarge(errors.New("some other error")))
+	require.True(t, IsRequestBodyTooLarge(ErrHTTPRequestBodyTooLarge))
+	require.True(t, IsRequestBodyTooLarge(fmt.Errorf("failed to read request body: %w", ErrHTTPRequestBodyTooLarge)))
+	require.True(t, IsRequestBodyTooLarge(&http.MaxBytesError{Limit: 1024}))
+	require.True(t, IsRequestBodyTooLarge(fmt.Errorf("failed to read request body: %w", &http.MaxBytesError{Limit: 1024})))
 }

@@ -112,6 +112,14 @@ func (handlers *AnthropicHandlers) CreateMessage(c *gin.Context) {
 func (handlers *AnthropicHandlers) CountTokens(c *gin.Context) {
 	genericReq, err := httpclient.ReadHTTPRequest(c.Request)
 	if err != nil {
+		if httpclient.IsRequestBodyTooLarge(err) {
+			writeAnthropicThreadError(c, &anthropicThreadError{
+				status:  http.StatusRequestEntityTooLarge,
+				errType: "request_too_large",
+				message: err.Error(),
+			})
+			return
+		}
 		writeAnthropicThreadError(c, newAnthropicThreadInvalidRequestError("Failed to read request body."))
 		return
 	}

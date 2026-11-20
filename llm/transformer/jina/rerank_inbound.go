@@ -148,6 +148,24 @@ func (t *RerankInboundTransformer) TransformError(
 		}
 	}
 
+	if httpclient.IsRequestBodyTooLarge(err) {
+		body, marshalErr := json.Marshal(map[string]any{
+			"error": llm.ErrorDetail{
+				Message: err.Error(),
+				Type:    "invalid_request_error",
+				Code:    "request_body_too_large",
+			},
+		})
+		if marshalErr != nil {
+			body = []byte(`{"error":{"message":"http request body exceeds size limit","type":"invalid_request_error","code":"request_body_too_large"}}`)
+		}
+		return &httpclient.Error{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Status:     http.StatusText(http.StatusRequestEntityTooLarge),
+			Body:       body,
+		}
+	}
+
 	// Try to extract ResponseError if possible
 	var respErr *llm.ResponseError
 	if errors.As(err, &respErr) {

@@ -28,6 +28,19 @@ const (
 
 var ErrHTTPRequestBodyTooLarge = errors.New("http request body exceeds size limit")
 
+// IsRequestBodyTooLarge reports whether err indicates that an HTTP request body
+// exceeded a configured size limit (ErrHTTPRequestBodyTooLarge or *http.MaxBytesError).
+func IsRequestBodyTooLarge(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrHTTPRequestBodyTooLarge) {
+		return true
+	}
+	_, ok := errors.AsType[*http.MaxBytesError](err)
+	return ok
+}
+
 // outboundBodyPayload holds an immutable outbound request payload behind an
 // atomic pointer so net/http's GetBody closure can replay the body across
 // 307/308 redirects and pre-response transport retries, yet DoStream can

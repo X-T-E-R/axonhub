@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -775,6 +776,22 @@ func TestInboundTransformer_TransformError(t *testing.T) {
 				Body:       []byte(`{"error":{"message":"An unexpected error occurred","type":"unexpected_error"}}`),
 			},
 		},
+		{
+			name: "wrapped ErrHTTPRequestBodyTooLarge maps to 413 request_body_too_large",
+			err:  fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge),
+			expectedError: &httpclient.Error{
+				StatusCode: http.StatusRequestEntityTooLarge,
+				Body:       []byte(`{"error":{"message":"failed to read request body: http request body exceeds size limit","type":"invalid_request_error","code":"request_body_too_large"}}`),
+			},
+		},
+		{
+			name: "MaxBytesError maps to 413 request_body_too_large",
+			err:  fmt.Errorf("failed to read request body: %w", &http.MaxBytesError{Limit: 32 << 20}),
+			expectedError: &httpclient.Error{
+				StatusCode: http.StatusRequestEntityTooLarge,
+				Body:       []byte(`{"error":{"message":"failed to read request body: http: request body too large","type":"invalid_request_error","code":"request_body_too_large"}}`),
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -788,6 +805,29 @@ func TestInboundTransformer_TransformError(t *testing.T) {
 			require.JSONEq(t, string(tt.expectedError.Body), string(httpErr.Body))
 		})
 	}
+
+	t.Run("delegating openai inbound transformers map body too large to 413", func(t *testing.T) {
+		rawErr := fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge)
+		delegators := []struct {
+			name string
+			fn   func(context.Context, error) *httpclient.Error
+		}{
+			{"audio_speech", NewSpeechInboundTransformer().TransformError},
+			{"audio_transcription", NewTranscriptionInboundTransformer().TransformError},
+			{"image_generation", NewImageGenerationInboundTransformer().TransformError},
+			{"completion", NewCompletionInboundTransformer().TransformError},
+			{"embedding", NewEmbeddingInboundTransformer().TransformError},
+			{"moderation", NewModerationInboundTransformer().TransformError},
+			{"video", NewVideoInboundTransformer().TransformError},
+		}
+		for _, d := range delegators {
+			t.Run(d.name, func(t *testing.T) {
+				httpErr := d.fn(context.Background(), rawErr)
+				require.Equal(t, http.StatusRequestEntityTooLarge, httpErr.StatusCode)
+				require.JSONEq(t, `{"error":{"message":"failed to read request body: http request body exceeds size limit","type":"invalid_request_error","code":"request_body_too_large"}}`, string(httpErr.Body))
+			})
+		}
+	})
 }
 
 func TestMessageFromLLM_WithAnnotations(t *testing.T) {

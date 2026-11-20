@@ -170,6 +170,22 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 		}
 	}
 
+	// Handle request body size limit errors
+	if httpclient.IsRequestBodyTooLarge(rawErr) {
+		return &httpclient.Error{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Status:     http.StatusText(http.StatusRequestEntityTooLarge),
+			Body: xjson.MustMarshal(
+				&AnthropicError{
+					Type:       "error",
+					StatusCode: http.StatusRequestEntityTooLarge,
+					RequestID:  "",
+					Error:      ErrorDetail{Type: "request_too_large", Message: rawErr.Error()},
+				},
+			),
+		}
+	}
+
 	// Handle validation errors
 	if errors.Is(rawErr, transformer.ErrInvalidRequest) {
 		return &httpclient.Error{

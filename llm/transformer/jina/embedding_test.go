@@ -3,6 +3,7 @@ package jina
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -649,6 +650,40 @@ func TestOutboundTransformer_URLBuilding_Embedding(t *testing.T) {
 			httpReq, err := transformer.TransformRequest(context.Background(), llmReq)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedURL, httpReq.URL)
+		})
+	}
+}
+
+func TestInboundTransformers_TransformError_RequestBodyTooLarge(t *testing.T) {
+	errs := []struct {
+		name string
+		err  error
+		body string
+	}{
+		{
+			name: "wrapped ErrHTTPRequestBodyTooLarge",
+			err:  fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge),
+			body: `{"error":{"message":"failed to read request body: http request body exceeds size limit","type":"invalid_request_error","code":"request_body_too_large"}}`,
+		},
+		{
+			name: "MaxBytesError",
+			err:  &http.MaxBytesError{Limit: 32 << 20},
+			body: `{"error":{"message":"http: request body too large","type":"invalid_request_error","code":"request_body_too_large"}}`,
+		},
+	}
+
+	for _, tc := range errs {
+		t.Run("rerank/"+tc.name, func(t *testing.T) {
+			res := NewRerankInboundTransformer().TransformError(context.Background(), tc.err)
+			require.NotNil(t, res)
+			require.Equal(t, http.StatusRequestEntityTooLarge, res.StatusCode)
+			require.JSONEq(t, tc.body, string(res.Body))
+		})
+		t.Run("embedding/"+tc.name, func(t *testing.T) {
+			res := NewEmbeddingInboundTransformer().TransformError(context.Background(), tc.err)
+			require.NotNil(t, res)
+			require.Equal(t, http.StatusRequestEntityTooLarge, res.StatusCode)
+			require.JSONEq(t, tc.body, string(res.Body))
 		})
 	}
 }

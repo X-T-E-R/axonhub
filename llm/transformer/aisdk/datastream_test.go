@@ -3,6 +3,7 @@ package aisdk
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -395,6 +396,18 @@ func TestDataStreamTransformer_TransformError(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"message":"bad request","type":"invalid_request"}`,
 		},
+		{
+			name:           "wrapped ErrHTTPRequestBodyTooLarge",
+			input:          fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge),
+			expectedStatus: http.StatusRequestEntityTooLarge,
+			expectedBody:   `{"message":"failed to read request body: http request body exceeds size limit","type":"request_body_too_large"}`,
+		},
+		{
+			name:           "MaxBytesError",
+			input:          &http.MaxBytesError{Limit: 32 << 20},
+			expectedStatus: http.StatusRequestEntityTooLarge,
+			expectedBody:   `{"message":"http: request body too large","type":"request_body_too_large"}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -405,4 +418,12 @@ func TestDataStreamTransformer_TransformError(t *testing.T) {
 			require.JSONEq(t, tt.expectedBody, string(result.Body))
 		})
 	}
+
+	t.Run("text transformer maps body too large to 413", func(t *testing.T) {
+		textTrans := NewTextTransformer()
+		result := textTrans.TransformError(ctx, fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge))
+		require.NotNil(t, result)
+		require.Equal(t, http.StatusRequestEntityTooLarge, result.StatusCode)
+		require.JSONEq(t, `{"message":"failed to read request body: http request body exceeds size limit","type":"request_body_too_large"}`, string(result.Body))
+	})
 }

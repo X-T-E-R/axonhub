@@ -142,6 +142,21 @@ func (t *InboundTransformer) TransformError(ctx context.Context, rawErr error) *
 		}
 	}
 
+	// Handle request body size limit errors
+	if httpclient.IsRequestBodyTooLarge(rawErr) {
+		return &httpclient.Error{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Status:     http.StatusText(http.StatusRequestEntityTooLarge),
+			Body: xjson.MustMarshal(&GeminiError{
+				Error: ErrorDetail{
+					Code:    http.StatusRequestEntityTooLarge,
+					Message: rawErr.Error(),
+					Status:  mapHTTPStatusToGeminiStatus(http.StatusRequestEntityTooLarge),
+				},
+			}),
+		}
+	}
+
 	// Handle validation errors
 	if errors.Is(rawErr, transformer.ErrInvalidRequest) || errors.Is(rawErr, transformer.ErrInvalidModel) {
 		return &httpclient.Error{
@@ -288,7 +303,7 @@ func mergeGeminiErrorDetails(detail llm.ErrorDetail, geminiCode int, geminiStatu
 // mapHTTPStatusToGeminiStatus maps HTTP status codes to Gemini status strings.
 func mapHTTPStatusToGeminiStatus(statusCode int) string {
 	switch statusCode {
-	case http.StatusBadRequest:
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge:
 		return "INVALID_ARGUMENT"
 	case http.StatusUnauthorized:
 		return "UNAUTHENTICATED"

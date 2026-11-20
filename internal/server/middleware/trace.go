@@ -86,7 +86,7 @@ func WithTrace(config tracing.Config, traceService *biz.TraceService) gin.Handle
 
 			traceID, err = tryExtractTraceIDFromClaudeCodeRequest(c, config)
 			if err != nil {
-				AbortWithError(c, http.StatusBadRequest, err)
+				AbortWithError(c, requestBodyReadErrorStatus(err), err)
 				return
 			}
 		}
@@ -100,7 +100,7 @@ func WithTrace(config tracing.Config, traceService *biz.TraceService) gin.Handle
 
 			traceID, err = tryGetTraceIDFromBody(c, config)
 			if err != nil {
-				AbortWithError(c, http.StatusBadRequest, err)
+				AbortWithError(c, requestBodyReadErrorStatus(err), err)
 				return
 			}
 		}
@@ -171,6 +171,13 @@ func WithTrace(config tracing.Config, traceService *biz.TraceService) gin.Handle
 
 		c.Next()
 	}
+}
+
+func requestBodyReadErrorStatus(err error) int {
+	if httpclient.IsRequestBodyTooLarge(err) {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
 }
 
 // tryExtractTraceIDFromClaudeCodeRequest attempts to extract a trace ID from a Claude Code request.

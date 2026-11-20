@@ -75,7 +75,7 @@ func WithDecodedRequestBody(transports ...*RequestBodyTransport) gin.HandlerFunc
 		if err != nil {
 			status, code := http.StatusBadRequest, "request_decode_failed"
 			switch {
-			case errors.Is(err, httpclient.ErrHTTPRequestBodyTooLarge):
+			case httpclient.IsRequestBodyTooLarge(err):
 				status, code = http.StatusRequestEntityTooLarge, "request_body_too_large"
 			case errors.Is(err, httpclient.ErrRequestDictionaryMissing):
 				status, code = http.StatusPreconditionFailed, "request_dictionary_missing"

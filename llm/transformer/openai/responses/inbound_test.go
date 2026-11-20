@@ -3,6 +3,7 @@ package responses
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -1384,6 +1385,22 @@ func TestInboundTransformer_TransformError(t *testing.T) {
 				require.Contains(t, string(result.Body), "rate_limit_error")
 			},
 		},
+		{
+			name: "wrapped ErrHTTPRequestBodyTooLarge maps to 413",
+			err:  fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge),
+			validate: func(t *testing.T, result *httpclient.Error) {
+				require.Equal(t, http.StatusRequestEntityTooLarge, result.StatusCode)
+				require.JSONEq(t, `{"error":{"message":"failed to read request body: http request body exceeds size limit","type":"invalid_request_error","code":"request_body_too_large"}}`, string(result.Body))
+			},
+		},
+		{
+			name: "MaxBytesError maps to 413",
+			err:  &http.MaxBytesError{Limit: 32 << 20},
+			validate: func(t *testing.T, result *httpclient.Error) {
+				require.Equal(t, http.StatusRequestEntityTooLarge, result.StatusCode)
+				require.JSONEq(t, `{"error":{"message":"http: request body too large","type":"invalid_request_error","code":"request_body_too_large"}}`, string(result.Body))
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1396,6 +1413,13 @@ func TestInboundTransformer_TransformError(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("compact inbound delegates body too large to 413", func(t *testing.T) {
+		compact := NewCompactInboundTransformer()
+		result := compact.TransformError(context.Background(), fmt.Errorf("failed to read request body: %w", httpclient.ErrHTTPRequestBodyTooLarge))
+		require.Equal(t, http.StatusRequestEntityTooLarge, result.StatusCode)
+		require.JSONEq(t, `{"error":{"message":"failed to read request body: http request body exceeds size limit","type":"invalid_request_error","code":"request_body_too_large"}}`, string(result.Body))
+	})
 }
 
 func TestConvertToolChoiceToLLM(t *testing.T) {

@@ -240,12 +240,16 @@ func (handlers *PlaygroundHandlers) ChatCompletion(c *gin.Context) {
 	genericReq, err := httpclient.ReadHTTPRequest(c.Request)
 	if err != nil {
 		log.Error(ctx, "Error reading HTTP request", log.Cause(err))
-		c.JSON(http.StatusBadRequest, PlaygroundResponseError{
+		status := http.StatusBadRequest
+		if httpclient.IsRequestBodyTooLarge(err) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		c.JSON(status, PlaygroundResponseError{
 			Error: struct {
 				Code    int    `json:"code,omitempty"`
 				Message string `json:"message"`
 			}{
-				Code:    http.StatusBadRequest,
+				Code:    status,
 				Message: err.Error(),
 			},
 		})
