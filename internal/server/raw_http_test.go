@@ -283,7 +283,30 @@ func TestRawHTTPAuthorizationIsolationAndRevocation(t *testing.T) {
 	f.db.APIKey.UpdateOne(key).SetScopes([]string{"write_requests"}).SaveX(f.ctx)
 	f.db.Channel.UpdateOneID(id).SetStatus(channel.StatusDisabled).SaveX(f.ctx)
 	status, _, _ = f.post(t, path, "opaque", key.Key, nil)
-	require.Equal(t, 403, status)
+	require.Equal(t, http.StatusServiceUnavailable, status)
+	// Unauthorized callers must still receive 403 even while the channel is disabled,
+	// so disabled status cannot be enumerated across authorization boundaries.
+	f.db.APIKey.UpdateOne(key).SetProfiles(&objects.APIKeyProfiles{
+		ActiveProfile: "narrow",
+		Profiles:      []objects.APIKeyProfile{{Name: "narrow", ChannelIDs: []int{f.channels[0].ID}}},
+	}).SaveX(f.ctx)
+	status, _, _ = f.post(t, path, "opaque", key.Key, nil)
+	require.Equal(t, http.StatusForbidden, status)
+	f.db.APIKey.UpdateOne(key).SetProfiles(&objects.APIKeyProfiles{
+		ActiveProfile: "narrow",
+		Profiles:      []objects.APIKeyProfile{{Name: "narrow", ModelIDs: []string{"other"}}},
+	}).SaveX(f.ctx)
+	status, _, _ = f.post(t, path, "opaque", key.Key, nil)
+	require.Equal(t, http.StatusForbidden, status)
+	f.db.APIKey.UpdateOne(key).SetProfiles(&objects.APIKeyProfiles{}).SetScopes([]string{"read_channels"}).SaveX(f.ctx)
+	status, _, _ = f.post(t, path, "opaque", key.Key, nil)
+	require.Equal(t, http.StatusForbidden, status)
+	f.db.APIKey.UpdateOne(key).SetScopes([]string{"write_requests"}).SaveX(f.ctx)
+	// Non-existent and non-raw channel IDs remain 403 for non-enumeration parity.
+	status, _, _ = f.post(t, "/raw/999999/search", "opaque", key.Key, nil)
+	require.Equal(t, http.StatusForbidden, status)
+	status, _, _ = f.post(t, fmt.Sprintf("/raw/%d/search", f.channels[0].ID), "opaque", key.Key, nil)
+	require.Equal(t, http.StatusForbidden, status)
 	require.EqualValues(t, 1, calls.Load())
 }
 

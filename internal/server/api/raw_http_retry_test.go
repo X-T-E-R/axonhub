@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
@@ -23,6 +24,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/enttest"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/looplj/axonhub/internal/server/middleware"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -203,7 +205,7 @@ func TestRawHTTPRetryWithReverseProxyAndInformationalResponse(t *testing.T) {
 }
 
 func TestRawHTTPRetryableStatusMatrixAndThreeAttemptLimit(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests, 432, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests, 432, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			var calls atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -401,4 +403,183 @@ func TestRawHTTPRetryNetworkErrorBeforeHeaders(t *testing.T) {
 	require.NotEqual(t, keys[0], keys[1])
 	require.Equal(t, []byte("retryable body"), bodies[0])
 	require.Equal(t, bodies[0], bodies[1])
+}
+
+func TestRawHTTPTarget4xxDoesNotRetryOrTriggerFailurePolicy(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusUnprocessableEntity} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				_, err := io.Copy(io.Discard, r.Body)
+				require.NoError(t, err)
+				w.Header().Set("X-Upstream-Status", fmt.Sprint(status))
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte("target-level error"))
+			}))
+			defer upstream.Close()
+
+			fixture := newRawHTTPRetryFixture(t, upstream, []string{"key-1", "key-2", "key-3"}, false)
+			ctx := authz.WithTestBypass(ent.NewContext(t.Context(), fixture.db))
+			require.NoError(t, fixture.channels.SystemService.SetRetryPolicy(ctx, &biz.RetryPolicy{
+				Enabled: true,
+				AutoDisableChannel: biz.AutoDisableChannel{
+					Enabled: true,
+					Statuses: []biz.AutoDisableChannelStatus{
+						{Status: http.StatusUnauthorized, Times: 1},
+						{Status: http.StatusPaymentRequired, Times: 1},
+						{Status: http.StatusForbidden, Times: 1},
+						{Status: status, Times: 1},
+					},
+				},
+			}))
+
+			proxy := httptest.NewServer(fixture.handler(nil))
+			defer proxy.Close()
+
+			resp, _ := rawHTTPRetryRequest(t, rawHTTPRetryClient(t), proxy.URL, fixture.channel.ID, strings.NewReader("opaque"), 6)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+
+			require.Equal(t, status, resp.StatusCode)
+			require.Equal(t, fmt.Sprint(status), resp.Header.Get("X-Upstream-Status"))
+			require.Equal(t, "target-level error", string(body))
+			require.EqualValues(t, 1, calls.Load(), "target-level 4xx must not fan out across alternate keys")
+
+			saved := fixture.db.Channel.GetX(ctx, fixture.channel.ID)
+			require.Equal(t, channel.StatusEnabled, saved.Status)
+			require.Empty(t, saved.DisabledAPIKeys)
+		})
+	}
+}
+
+func TestRawHTTPTruncated403BodyReportsBadGatewayNot403(t *testing.T) {
+	t.Run("403 policy does not fire", func(t *testing.T) {
+		var calls atomic.Int32
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.Header().Set("Content-Length", "100")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte("partial"))
+		}))
+		defer upstream.Close()
+
+		fixture := newRawHTTPRetryFixture(t, upstream, []string{"key-1", "key-2"}, false)
+		ctx := authz.WithTestBypass(ent.NewContext(t.Context(), fixture.db))
+		require.NoError(t, fixture.channels.SystemService.SetRetryPolicy(ctx, &biz.RetryPolicy{
+			Enabled: true,
+			AutoDisableChannel: biz.AutoDisableChannel{
+				Enabled: true,
+				Statuses: []biz.AutoDisableChannelStatus{
+					{Status: http.StatusForbidden, Times: 1},
+				},
+			},
+		}))
+
+		proxy := httptest.NewServer(fixture.handler(nil))
+		defer proxy.Close()
+
+		resp, _ := rawHTTPRetryRequest(t, rawHTTPRetryClient(t), proxy.URL, fixture.channel.ID, strings.NewReader("opaque"), 6)
+		_, readErr := io.ReadAll(resp.Body)
+		require.Error(t, readErr)
+		_ = resp.Body.Close()
+
+		require.Equal(t, http.StatusForbidden, resp.StatusCode)
+		require.EqualValues(t, 1, calls.Load())
+		saved := fixture.db.Channel.GetX(ctx, fixture.channel.ID)
+		require.Equal(t, channel.StatusEnabled, saved.Status)
+		require.Empty(t, saved.DisabledAPIKeys, "truncated 403 stream must report 502 transport failure, not 403")
+	})
+
+	t.Run("502 policy fires for attempted key", func(t *testing.T) {
+		var calls atomic.Int32
+		var seenMu sync.Mutex
+		var seenKey string
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			seenMu.Lock()
+			seenKey = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			seenMu.Unlock()
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.Header().Set("Content-Length", "100")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte("partial"))
+		}))
+		defer upstream.Close()
+
+		fixture := newRawHTTPRetryFixture(t, upstream, []string{"key-1", "key-2"}, false)
+		ctx := authz.WithTestBypass(ent.NewContext(t.Context(), fixture.db))
+		require.NoError(t, fixture.channels.SystemService.SetRetryPolicy(ctx, &biz.RetryPolicy{
+			Enabled: true,
+			AutoDisableChannel: biz.AutoDisableChannel{
+				Enabled: true,
+				Statuses: []biz.AutoDisableChannelStatus{
+					{Status: http.StatusBadGateway, Times: 1},
+				},
+			},
+		}))
+
+		proxy := httptest.NewServer(fixture.handler(nil))
+		defer proxy.Close()
+
+		resp, _ := rawHTTPRetryRequest(t, rawHTTPRetryClient(t), proxy.URL, fixture.channel.ID, strings.NewReader("opaque"), 6)
+		_, readErr := io.ReadAll(resp.Body)
+		require.Error(t, readErr)
+		_ = resp.Body.Close()
+
+		require.Equal(t, http.StatusForbidden, resp.StatusCode)
+		require.EqualValues(t, 1, calls.Load())
+		seenMu.Lock()
+		attemptedKey := seenKey
+		seenMu.Unlock()
+		require.NotEmpty(t, attemptedKey)
+
+		saved := fixture.db.Channel.GetX(ctx, fixture.channel.ID)
+		require.Equal(t, channel.StatusEnabled, saved.Status)
+		require.Len(t, saved.DisabledAPIKeys, 1)
+		require.Equal(t, attemptedKey, saved.DisabledAPIKeys[0].Key)
+		require.Equal(t, http.StatusBadGateway, saved.DisabledAPIKeys[0].ErrorCode)
+	})
+}
+
+func TestRawHTTPProxyLookupDBErrorReturns503WhileNotFoundReturns403(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := enttest.NewEntClient(t, "sqlite3", "file:raw-http-db-err-"+uuid.NewString()+"?mode=memory&_fk=1")
+	channels := biz.NewChannelServiceForTest(db)
+	t.Cleanup(func() {
+		channels.Stop()
+		_ = db.Close()
+	})
+
+	handler := NewRawHTTPHandlers(RawHTTPHandlersParams{ChannelService: channels, Ent: db})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		ctx := ent.NewContext(authz.WithTestBypass(c.Request.Context()), db)
+		ctx = contexts.WithAPIKey(ctx, &ent.APIKey{ID: 1, ProjectID: 1, Scopes: []string{string(scopes.ScopeWriteRequests)}})
+		c.Request = c.Request.WithContext(ctx)
+	})
+	router.Any("/raw/:channelID/*path", handler.Proxy)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Missing channel row -> 403 Forbidden (non-enumeration parity).
+	res, err := server.Client().Post(server.URL+"/raw/999/search", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+	require.NoError(t, res.Body.Close())
+	require.Equal(t, http.StatusForbidden, res.StatusCode)
+	require.Contains(t, string(body), "raw HTTP channel unavailable")
+
+	// Non-NotFound DB error -> 503 Service Unavailable.
+	require.NoError(t, db.Close())
+	res, err = server.Client().Post(server.URL+"/raw/999/search", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	body, err = io.ReadAll(res.Body)
+	require.NoError(t, err)
+	require.NoError(t, res.Body.Close())
+	require.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
+	require.Contains(t, string(body), "raw HTTP channel unavailable")
 }

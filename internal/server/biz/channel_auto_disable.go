@@ -280,11 +280,12 @@ func (svc *ChannelService) ApplyRequestFailurePolicy(ctx context.Context, perf *
 		return perf.FailurePolicyRoutingChanged
 	}
 
+	policyCtx := authz.WithSystemBypass(ctx, "channel-request-failure-policy")
 	policy := &RetryPolicy{}
 	if svc.SystemService != nil {
-		policy = svc.SystemService.RetryPolicyOrDefault(ctx)
+		policy = svc.SystemService.RetryPolicyOrDefault(policyCtx)
 	}
-	perf.FailurePolicyRoutingChanged = svc.handleRequestFailurePolicy(authz.WithSystemBypass(ctx, "channel-request-failure-policy"), perf, policy)
+	perf.FailurePolicyRoutingChanged = svc.handleRequestFailurePolicy(policyCtx, perf, policy)
 	perf.FailurePolicyHandled = true
 
 	return perf.FailurePolicyRoutingChanged

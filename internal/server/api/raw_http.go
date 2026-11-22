@@ -16,6 +16,7 @@ import (
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
+	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/ent/request"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
@@ -53,10 +54,20 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 		JSONError(c, 404, errors.New("raw HTTP channel unavailable"))
 		return
 	}
-	// The only bypass is retrieval of a fixed channel; both authorization upper
-	// bounds are checked before its address or credentials are used.
+	// The only bypass is retrieval of a fixed channel; channel kind and both
+	// authorization upper bounds are checked before status, address, or
+	// credentials are inspected so unauthorized callers cannot probe whether a
+	// forbidden channel is enabled or disabled.
 	row, err := h.channels.ResolveRawHTTPChannel(authz.WithSystemBypass(ctx, "raw-http-channel-lookup"), id)
-	if err != nil || !biz.KeyAllowsChannel(key, id, row.Tags) {
+	if err != nil {
+		if ent.IsNotFound(err) {
+			JSONError(c, http.StatusForbidden, errors.New("raw HTTP channel unavailable"))
+			return
+		}
+		JSONError(c, http.StatusServiceUnavailable, errors.New("raw HTTP channel unavailable"))
+		return
+	}
+	if !biz.IsRawHTTPChannel(row) || !biz.KeyAllowsChannel(key, id, row.Tags) {
 		JSONError(c, http.StatusForbidden, errors.New("raw HTTP channel unavailable"))
 		return
 	}
@@ -71,6 +82,10 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, errors.New("invalid raw HTTP path"))
 		return
 	}
+	if row.Status != channel.StatusEnabled {
+		JSONError(c, http.StatusServiceUnavailable, errors.New("raw HTTP channel unavailable"))
+		return
+	}
 	ch, err := h.channels.OpenRawHTTPChannel(ctx, row)
 	if err != nil {
 		var ownerErr *biz.ExecutionOwnerError
@@ -79,7 +94,7 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "execution_owner_mismatch", "message": "Raw HTTP channel does not execute on this node."}, "execution": "not_executed"})
 			return
 		}
-		JSONError(c, http.StatusForbidden, errors.New("raw HTTP channel unavailable"))
+		JSONError(c, http.StatusServiceUnavailable, errors.New("raw HTTP channel unavailable"))
 		return
 	}
 	base, _ := url.Parse(ch.BaseURL) // validated when the current channel is loaded

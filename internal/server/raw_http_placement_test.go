@@ -165,7 +165,9 @@ func TestRawHTTPClusterOwnerPlacementAndDataNode(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, manifest.RawChannels, "disabled raw routes disappear without a channel-cache reload")
 	status, _, _ = do(owner, f.key.Key)
-	require.Equal(t, 403, status)
+	require.Equal(t, http.StatusServiceUnavailable, status)
+	status, _, _ = do(owner, f.blockedKey.Key)
+	require.Equal(t, http.StatusForbidden, status)
 	require.EqualValues(t, 3, calls.Load())
 	require.Zero(t, f.db.UsageLog.Query().CountX(f.ctx))
 }

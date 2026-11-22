@@ -20,7 +20,7 @@ import (
 )
 
 func IsRawHTTPChannel(c *ent.Channel) bool {
-	return c.Settings != nil && c.Settings.RawHTTP != nil && c.Settings.RawHTTP.Enabled
+	return c != nil && c.Settings != nil && c.Settings.RawHTTP != nil && c.Settings.RawHTTP.Enabled
 }
 
 // ValidateRawHTTPChannel validates configuration, never the provider payload.
@@ -111,24 +111,22 @@ func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) strin
 	return state.provider.Get(ctx)
 }
 
-// ResolveRawHTTPChannel reads the current row so disabled channels and changed
-// authorization/configuration take effect without waiting for a channel cache.
-// The caller must authorize both the channel and logical resource before use.
+// ResolveRawHTTPChannel reads the current channel row from primary so disabled
+// channels and changed authorization/configuration take effect without waiting
+// for a channel cache. The caller must verify IsRawHTTPChannel, channel/resource
+// authorization, and channel status before use so disabled status is never
+// disclosed to unauthorized callers.
 func (svc *ChannelService) ResolveRawHTTPChannel(ctx context.Context, id int) (*ent.Channel, error) {
-	row, err := observationPrimaryClient(svc.db).Channel.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if row.Status != channel.StatusEnabled || !IsRawHTTPChannel(row) {
-		return nil, fmt.Errorf("raw HTTP channel unavailable")
-	}
-	return row, nil
+	return observationPrimaryClient(svc.db).Channel.Get(ctx, id)
 }
 
 // OpenRawHTTPChannel checks committed placement for an authorized row before
 // building its transport. A stale Worker or provider cache cannot execute it
 // on the former owner; existing upstream streams keep their original snapshot.
 func (svc *ChannelService) OpenRawHTTPChannel(ctx context.Context, row *ent.Channel) (*Channel, error) {
+	if row == nil || !IsRawHTTPChannel(row) || row.Status != channel.StatusEnabled {
+		return nil, fmt.Errorf("raw HTTP channel unavailable")
+	}
 	if svc.node.Enabled {
 		_, state, err := readChannelPlacement(ctx, svc.db)
 		if err != nil {

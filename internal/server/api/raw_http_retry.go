@@ -157,7 +157,7 @@ func (t *rawHTTPRetryTransport) RoundTrip(req *http.Request) (*http.Response, er
 				finish: func(readErr error) {
 					failed := rawHTTPFailureStatus(resp.StatusCode) || (readErr != nil && readErr != io.EOF)
 					finishStatus := resp.StatusCode
-					if failed && finishStatus < 400 {
+					if failed && !rawHTTPFailureStatus(resp.StatusCode) {
 						finishStatus = http.StatusBadGateway
 					}
 					t.finishAttempt(ctx, key, finishStatus, failed, ctx.Err() != nil, attemptStarted)
@@ -243,14 +243,26 @@ func setRawHTTPAuth(header http.Header, authType, authHeader, key string) {
 	header.Set(authHeader, key)
 }
 
+// rawHTTPFailureStatus identifies upstream statuses that indicate credential,
+// quota, rate-limit, or upstream service health failures. Other 4xx responses
+// (such as 400, 403, 404, 422) on opaque Raw HTTP endpoints are normal
+// resource/application outcomes and must not penalize or disable upstream keys.
 func rawHTTPFailureStatus(status int) bool {
-	return status >= 400
+	if status >= http.StatusInternalServerError {
+		return true
+	}
+	switch status {
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests, 432:
+		return true
+	default:
+		return false
+	}
 }
 
 func retryableRawHTTPStatus(status int) bool {
 	switch status {
-	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests,
-		432, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests, 432,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
 		return false
