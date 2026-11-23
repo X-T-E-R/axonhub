@@ -3,6 +3,7 @@ package biz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -210,6 +211,9 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 		if _, _, ok := channelBalanceProbeSpecForChannel(&chForCheck); !ok {
 			return svc.recordMonitoringSkippedChannel(ctx, rule, ch, "channel does not have a supported balance probe", now)
 		}
+		if isChannelSharedWallet(&chForCheck) && len(targets) > 1 {
+			targets = targets[:1]
+		}
 	}
 
 	results := make([]ChannelKeyHealthCheckResult, len(targets))
@@ -231,7 +235,7 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 		}
 		group.Go(func() error {
 			if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe {
-				results[index] = svc.runChannelKeyBalanceProbe(groupCtx, &chForCheck, targetKey.RawKey, objects.ChannelKeyHealthCheckTriggerScheduled)
+				results[index] = svc.runChannelBalanceProbeViaCoordinator(groupCtx, &chForCheck, targetKey.RawKey, objects.ChannelKeyHealthCheckTriggerScheduled, false)
 				return nil
 			}
 
@@ -250,13 +254,72 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 		return svc.recordMonitoringSkippedChannel(ctx, rule, ch, ErrRawHTTPBuiltinTestUnsupported.Error(), now)
 	}
 	failed := 0
+	nonBalanceCount := 0
+	nonBalanceFailed := 0
 	for i := range targets {
+		isBalance := failurePolicySourceIsBalanceProbe(results[i].Source) || rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe
 		if !results[i].Success {
 			failed++
 		}
+		if !isBalance {
+			nonBalanceCount++
+			if !results[i].Success {
+				nonBalanceFailed++
+			}
+		}
 	}
-	allCheckedKeysFailed := len(targets) > 0 && failed == len(targets)
+	allCheckedKeysFailed := nonBalanceCount > 0 && nonBalanceFailed == nonBalanceCount
 	results = svc.applyMonitoringRuleProfiles(ctx, rule, ch, settings, targets, results, now, allCheckedKeysFailed)
+	if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe {
+		var sharedUpd *ChannelKeyHealthCheckResult
+		var keyUpds []quotaKeyProbeUpdate
+		for i, target := range targets {
+			if target.RawKey == "" {
+				if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
+					Rule:      rule,
+					Channel:   ch,
+					Target:    target,
+					Result:    results[i],
+					Trigger:   objects.ChannelKeyHealthCheckTriggerScheduled,
+					Skipped:   true,
+					CheckedAt: now,
+				}); err != nil {
+					return channelKeyHealthCheckChannelResult{}, err
+				}
+				continue
+			}
+			if isChannelSharedWallet(ch) {
+				cp := results[i]
+				sharedUpd = &cp
+			} else {
+				keyUpds = append(keyUpds, quotaKeyProbeUpdate{
+					RawKey: target.RawKey,
+					KeyID:  objects.ChannelAPIKeyFingerprint(target.RawKey),
+					Result: results[i],
+				})
+			}
+			if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
+				Rule:      rule,
+				Channel:   ch,
+				Target:    target,
+				Result:    results[i],
+				Trigger:   objects.ChannelKeyHealthCheckTriggerScheduled,
+				CheckedAt: now,
+			}); err != nil {
+				return channelKeyHealthCheckChannelResult{}, err
+			}
+		}
+		if sharedUpd != nil || len(keyUpds) > 0 {
+			if err := svc.persistQuotaProbeUpdates(ctx, ch, probeConfigFingerprint(ch), sharedUpd, keyUpds, now); err != nil && !errors.Is(err, errQuotaProbeStaleFence) {
+				return channelKeyHealthCheckChannelResult{}, fmt.Errorf("failed to persist monitoring quota probe: %w", err)
+			}
+		}
+		if failed > 0 || monitoringResultsHaveRoutingAction(results) {
+			svc.asyncReloadChannels()
+		}
+		return channelKeyHealthCheckChannelResult{CheckedKeys: len(targets), FailedKeys: failed}, nil
+	}
+
 	for i, target := range targets {
 		if target.RawKey == "" {
 			if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
@@ -272,7 +335,12 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 			}
 			continue
 		}
-		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, target.RawKey, results[i], now, objects.ChannelKeyHealthCheckTriggerScheduled, rule.Schedule.HistoryLimit)
+		if failurePolicySourceIsBalanceProbe(results[i].Source) {
+			nextProbeAt := nextQuotaProbeTimeForResult(ch, results[i], existingKeyProbeFailureCount(settings.KeyHealthCheck.KeyMetadata, target.RawKey), now)
+			settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyBalanceProbeMetadata(settings.KeyHealthCheck.KeyMetadata, target.RawKey, results[i], now, nextProbeAt)
+		} else {
+			settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, target.RawKey, results[i], now, objects.ChannelKeyHealthCheckTriggerScheduled, rule.Schedule.HistoryLimit)
+		}
 		if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
 			Rule:      rule,
 			Channel:   ch,
@@ -350,10 +418,18 @@ func (svc *ChannelService) applyMonitoringRuleProfiles(
 		}
 		source := next[i].Source
 		if source == "" {
-			source = objects.FailurePolicyEventSourceScheduledHealthCheck
-			if !next[i].Success {
-				source = objects.FailurePolicyEventSourceScheduledHealthCheckFailure
+			if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe {
+				source = balanceProbeEventSource(objects.ChannelKeyHealthCheckTriggerScheduled, next[i].ObservationValid)
+			} else {
+				source = objects.FailurePolicyEventSourceScheduledHealthCheck
+				if !next[i].Success {
+					source = objects.FailurePolicyEventSourceScheduledHealthCheckFailure
+				}
 			}
+		}
+		isBalanceProbe := failurePolicySourceIsBalanceProbe(source)
+		if isBalanceProbe && (!next[i].ObservationValid || next[i].BalanceSnapshot == nil || !next[i].BalanceSnapshot.Success) {
+			continue
 		}
 		event := failurePolicyEvent{
 			Source:               source,
@@ -363,13 +439,14 @@ func (svc *ChannelService) applyMonitoringRuleProfiles(
 			StatusCode:           next[i].StatusCode,
 			FailureCount:         failureCount,
 			Success:              next[i].Success,
+			ObservationValid:     next[i].ObservationValid,
 			KeyStatus:            target.Status,
 			Available:            next[i].Available,
 			Balance:              next[i].Balance,
 			Currency:             next[i].Currency,
 			BalanceSnapshot:      next[i].BalanceSnapshot,
 			Reason:               next[i].Reason,
-			AllCheckedKeysFailed: allCheckedKeysFailed,
+			AllCheckedKeysFailed: !isBalanceProbe && allCheckedKeysFailed,
 			CheckedAt:            now,
 		}
 		matches := evaluateFailurePolicyProfiles(rule.KeyProfiles, event)
@@ -391,7 +468,7 @@ func (svc *ChannelService) applyMonitoringRuleProfiles(
 		}
 	}
 
-	if allCheckedKeysFailed && len(rule.ChannelProfiles) > 0 {
+	if allCheckedKeysFailed && len(rule.ChannelProfiles) > 0 && rule.ProbeType != MonitoringProbeTypeChannelBalanceProbe {
 		source := objects.FailurePolicyEventSourceScheduledHealthCheckFailure
 		if i := firstFailedMonitoringResult(next); i >= 0 && next[i].Source != "" {
 			source = next[i].Source

@@ -38,6 +38,12 @@ type ChannelAPIKeyInventoryItem struct {
 	Balance             any
 	Currency            string
 	BalanceSnapshot     *objects.ChannelKeyBalanceSnapshot
+	LastProbeAt         *time.Time
+	LastProbeStatus     string
+	LastProbeError      string
+	NextProbeAt         *time.Time
+	ProbeFailureCount   int
+	SharedWallet        bool
 	Policy              *objects.ChannelCredentialPolicy
 	EffectiveProxyName  string
 	EffectiveExitIP     string
@@ -109,6 +115,35 @@ func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID
 		}
 		if meta, ok := metadata[id]; ok {
 			mergeInventoryMetadata(item, meta)
+		}
+		if isChannelSharedWallet(ch) {
+			item.SharedWallet = true
+			if ch.Settings != nil && ch.Settings.KeyHealthCheck != nil {
+				hc := ch.Settings.KeyHealthCheck
+				if hc.SharedBalanceSnapshot != nil {
+					item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(hc.SharedBalanceSnapshot)
+					if item.BalanceSnapshot.PrimaryBalance != nil {
+						item.Balance = item.BalanceSnapshot.PrimaryBalance.Amount
+						item.Currency = item.BalanceSnapshot.PrimaryBalance.Currency
+					}
+					item.Available = item.BalanceSnapshot.Available
+				}
+				if hc.SharedProbeAt != nil {
+					t := *hc.SharedProbeAt
+					item.LastProbeAt = &t
+				}
+				if hc.SharedProbeStatus != "" {
+					item.LastProbeStatus = hc.SharedProbeStatus
+				}
+				if hc.SharedProbeError != "" {
+					item.LastProbeError = hc.SharedProbeError
+				}
+				if hc.SharedNextProbeAt != nil {
+					t := *hc.SharedNextProbeAt
+					item.NextProbeAt = &t
+				}
+				item.ProbeFailureCount = hc.SharedProbeFailureCount
+			}
 		}
 		if dk, ok := disabled[key]; ok && item.Reason == "" {
 			item.LastCheckedAt = &dk.DisabledAt
@@ -838,6 +873,11 @@ func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.Chann
 	item.Balance = meta.Balance
 	item.Currency = meta.Currency
 	item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(meta.BalanceSnapshot)
+	item.LastProbeAt = meta.LastProbeAt
+	item.LastProbeStatus = meta.LastProbeStatus
+	item.LastProbeError = meta.LastProbeError
+	item.NextProbeAt = meta.NextProbeAt
+	item.ProbeFailureCount = meta.ProbeFailureCount
 	item.Available = meta.Available
 	item.StatusCode = meta.StatusCode
 	item.MatchedPolicy = meta.MatchedPolicy
@@ -1080,6 +1120,18 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		}
 		next.FailurePolicy = &failurePolicy
 	}
+	if settings.SessionAffinity != nil {
+		sa := *settings.SessionAffinity
+		if settings.SessionAffinity.TTLSeconds != nil {
+			v := *settings.SessionAffinity.TTLSeconds
+			sa.TTLSeconds = &v
+		}
+		sa.Anchors = slices.Clone(settings.SessionAffinity.Anchors)
+		next.SessionAffinity = &sa
+	}
+	if settings.IDRewriteRules != nil {
+		next.IDRewriteRules = slices.Clone(settings.IDRewriteRules)
+	}
 	if settings.KeyHealthCheck != nil {
 		health := *settings.KeyHealthCheck
 		health.Rules = slices.Clone(settings.KeyHealthCheck.Rules)
@@ -1099,6 +1151,15 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		health.History = slices.Clone(settings.KeyHealthCheck.History)
 		for i := range health.History {
 			health.History[i].BalanceSnapshot = cloneChannelKeyBalanceSnapshot(settings.KeyHealthCheck.History[i].BalanceSnapshot)
+		}
+		health.SharedBalanceSnapshot = cloneChannelKeyBalanceSnapshot(settings.KeyHealthCheck.SharedBalanceSnapshot)
+		if settings.KeyHealthCheck.SharedProbeAt != nil {
+			t := *settings.KeyHealthCheck.SharedProbeAt
+			health.SharedProbeAt = &t
+		}
+		if settings.KeyHealthCheck.SharedNextProbeAt != nil {
+			t := *settings.KeyHealthCheck.SharedNextProbeAt
+			health.SharedNextProbeAt = &t
 		}
 		next.KeyHealthCheck = &health
 	}
@@ -1134,6 +1195,17 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 		if next.CredentialPolicies == nil {
 			next.CredentialPolicies = currentRuntime.CredentialPolicies
 		}
+		if next.BalanceProbe == nil {
+			next.BalanceProbe = currentRuntime.BalanceProbe
+		} else if currentRuntime.BalanceProbe != nil && next.BalanceProbe.ProbeAPIKeyCiphertext == "" {
+			next.BalanceProbe.ProbeAPIKeyCiphertext = currentRuntime.BalanceProbe.ProbeAPIKeyCiphertext
+		}
+		if next.SessionAffinity == nil {
+			next.SessionAffinity = currentRuntime.SessionAffinity
+		}
+		if next.IDRewriteRules == nil {
+			next.IDRewriteRules = currentRuntime.IDRewriteRules
+		}
 		if next.FailurePolicy != nil && currentRuntime.FailurePolicy != nil {
 			preserveFailurePolicyProfileAllowReplay(next.FailurePolicy.KeyProfiles, currentRuntime.FailurePolicy.KeyProfiles)
 			preserveFailurePolicyProfileAllowReplay(next.FailurePolicy.ChannelProfiles, currentRuntime.FailurePolicy.ChannelProfiles)
@@ -1142,14 +1214,26 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	var keyMetadata []objects.ChannelKeyMetadata
 	var archivedKeys []objects.ChannelArchivedAPIKey
 	var history []objects.ChannelKeyHealthCheckHistoryEntry
+	var sharedSnapshot *objects.ChannelKeyBalanceSnapshot
+	var sharedProbeAt *time.Time
+	var sharedProbeStatus string
+	var sharedProbeError string
+	var sharedNextProbeAt *time.Time
+	var sharedProbeFailureCount int
 	if currentRuntime != nil && currentRuntime.KeyHealthCheck != nil {
 		keyMetadata = currentRuntime.KeyHealthCheck.KeyMetadata
 		archivedKeys = currentRuntime.KeyHealthCheck.ArchivedKeys
 		history = currentRuntime.KeyHealthCheck.History
+		sharedSnapshot = currentRuntime.KeyHealthCheck.SharedBalanceSnapshot
+		sharedProbeAt = currentRuntime.KeyHealthCheck.SharedProbeAt
+		sharedProbeStatus = currentRuntime.KeyHealthCheck.SharedProbeStatus
+		sharedProbeError = currentRuntime.KeyHealthCheck.SharedProbeError
+		sharedNextProbeAt = currentRuntime.KeyHealthCheck.SharedNextProbeAt
+		sharedProbeFailureCount = currentRuntime.KeyHealthCheck.SharedProbeFailureCount
 	}
 
 	if next.KeyHealthCheck == nil {
-		if len(keyMetadata) == 0 && len(archivedKeys) == 0 && len(history) == 0 {
+		if len(keyMetadata) == 0 && len(archivedKeys) == 0 && len(history) == 0 && sharedSnapshot == nil && sharedProbeAt == nil && sharedProbeStatus == "" {
 			return next
 		}
 
@@ -1159,6 +1243,12 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	next.KeyHealthCheck.KeyMetadata = keyMetadata
 	next.KeyHealthCheck.ArchivedKeys = archivedKeys
 	next.KeyHealthCheck.History = history
+	next.KeyHealthCheck.SharedBalanceSnapshot = sharedSnapshot
+	next.KeyHealthCheck.SharedProbeAt = sharedProbeAt
+	next.KeyHealthCheck.SharedProbeStatus = sharedProbeStatus
+	next.KeyHealthCheck.SharedProbeError = sharedProbeError
+	next.KeyHealthCheck.SharedNextProbeAt = sharedNextProbeAt
+	next.KeyHealthCheck.SharedProbeFailureCount = sharedProbeFailureCount
 
 	return next
 }

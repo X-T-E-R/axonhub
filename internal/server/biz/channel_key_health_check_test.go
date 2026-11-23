@@ -221,12 +221,26 @@ func TestRunHTTPChannelKeyHealthCheck_DeepSeekDefaultRuleUsesBalanceEndpoint(t *
 		},
 	}
 
-	rules := defaultChannelKeyHealthCheckRules(ch.Type)
-	require.Len(t, rules, 1)
-	require.Equal(t, objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL, rules[0].HTTP.URLMode)
+	// DeepSeek balance endpoint must NOT be injected as a default inference health-check rule
+	// (billing probe errors are strictly isolated from inference key health).
+	defaultRules := defaultChannelKeyHealthCheckRules(ch.Type)
+	require.Len(t, defaultRules, 1)
+	require.Equal(t, objects.ChannelKeyHealthCheckRuleTypeBuiltinTest, defaultRules[0].Type)
 
-	rules[0].HTTP.URL = "https://api.deepseek.com/user/balance"
-	result := svc.runChannelKeyHealthCheckRule(context.Background(), ch, testKey, rules[0])
+	// Explicit balance probe preset for DeepSeek still uses /user/balance and parses balance.
+	spec, ok := channelBalanceProbePresetByID(objects.ChannelBalanceProbePresetDeepSeek)
+	require.True(t, ok)
+	httpRule := spec.HTTP
+	enabled := true
+	rule := objects.ChannelKeyHealthCheckRule{
+		ID:      "deepseek-balance",
+		Name:    spec.Name,
+		Type:    objects.ChannelKeyHealthCheckRuleTypeHTTP,
+		Enabled: &enabled,
+		HTTP:    &httpRule,
+	}
+	require.Equal(t, objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL, rule.HTTP.URLMode)
+	result := svc.runChannelKeyHealthCheckRule(context.Background(), ch, testKey, rule, objects.ChannelKeyHealthCheckTriggerManual)
 
 	require.True(t, result.Success, result.Reason)
 	require.Equal(t, "/user/balance", gotPath)

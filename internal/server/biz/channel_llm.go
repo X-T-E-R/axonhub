@@ -179,6 +179,14 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 	entries := ch.GetModelEntries()
 	headers := ch.GetHeaderOverrideOperations()
 	params := ch.GetBodyOverrideOperations()
+	if c.Settings != nil {
+		if c.Settings.SessionAffinity != nil {
+			ch.compiledSessionAffinity, _ = CompileChannelSessionAffinity(c.Settings.SessionAffinity)
+		}
+		if len(c.Settings.IDRewriteRules) > 0 {
+			ch.compiledIDRewrite, _ = CompileChannelIDRewriteRules(c.Settings.IDRewriteRules)
+		}
+	}
 
 	if log.DebugEnabled(context.Background()) {
 		log.Debug(context.Background(), "pre cached settings",
@@ -201,6 +209,10 @@ func buildChannel(c *ent.Channel, httpClient *httpclient.HttpClient) *Channel {
 func getAPIKeyProvider(ch *Channel) auth.APIKeyProvider {
 	if ch.apiKeyOverride != "" {
 		return &forcedChannelKeyProvider{channel: ch, key: ch.apiKeyOverride}
+	}
+
+	if compiled := ch.CompiledSessionAffinity(); compiled != nil && compiled.Enabled {
+		return NewSessionAffinityKeyProvider(ch, compiled)
 	}
 
 	strategy := channelKeySelectionForProvider(ch).StrategyOrDefault()
@@ -578,6 +590,10 @@ func (svc *ChannelService) buildChannelOnOwner(c *ent.Channel, apiKeyOverride ..
 	ch := buildChannel(c, httpClient)
 	ch.credentialRuntime = &svc.credentialRuntime
 	ch.credentialEgress = svc
+	if svc.sessionAffinity == nil {
+		svc.sessionAffinity = NewSessionAffinityStore()
+	}
+	ch.sessionAffinityStore = svc.sessionAffinity
 	httpClient = svc.oauthCredentialHTTPClient(c, httpClient)
 	if len(apiKeyOverride) > 0 {
 		ch.apiKeyOverride = apiKeyOverride[0]

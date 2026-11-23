@@ -304,6 +304,7 @@ func (processor *ChatCompletionOrchestrator) process(
 		injectPrompts(inbound),
 		protectPrompts(inbound),
 		applyChannelKeyCacheAffinity(),
+		captureSessionAffinityIngress(inbound),
 		selectCandidates(inbound, processor.quotaProvider, processor.SystemService),
 		// Response pass-through middlewares run before persistRequest so the raw provider
 		// response is saved when pass-through is enabled.
@@ -344,6 +345,7 @@ func (processor *ChatCompletionOrchestrator) process(
 		// This allows override headers to modify the User-Agent if configured.
 		applyUserAgentPassThrough(outbound, processor.SystemService),
 		applyOverrideRequestHeaders(outbound),
+		applySessionAffinityAndIDRewrite(outbound),
 		pipeline.OnRawRequest("client-request-correlation", func(ctx context.Context, req *httpclient.Request) (*httpclient.Request, error) {
 			req.Headers = httpclient.ApplyClientRequestID(ctx, req.Headers)
 			return req, nil

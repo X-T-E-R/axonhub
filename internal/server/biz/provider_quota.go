@@ -11,6 +11,7 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/fx"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
@@ -328,6 +329,7 @@ type ProviderQuotaService struct {
 
 	mu         sync.Mutex
 	quotaCache sync.Map
+	flight     singleflight.Group
 }
 
 func NewProviderQuotaService(params ProviderQuotaServiceParams) *ProviderQuotaService {
@@ -473,13 +475,18 @@ func (svc *ProviderQuotaService) getCheckInterval() time.Duration {
 }
 
 func (svc *ProviderQuotaService) loadQuotaCache(ctx context.Context) {
-	records, err := svc.db.ProviderQuotaStatus.Query().All(ctx)
+	records, err := svc.db.ProviderQuotaStatus.Query().WithChannel().All(ctx)
 	if err != nil {
 		log.Error(ctx, "Failed to load quota cache from DB", log.Cause(err))
 		return
 	}
 
 	for _, r := range records {
+		// Single-writer authority: ignore stale provider_quota_status rows for
+		// channels owned by the per-key ChannelBalanceProbe path.
+		if r.Edges.Channel != nil && ChannelUsesPerKeyQuotaAuthority(r.Edges.Channel) {
+			continue
+		}
 		svc.quotaCache.Store(r.ChannelID, &QuotaChannelStatus{
 			Status: r.Status,
 			Ready:  r.Ready,
@@ -488,6 +495,67 @@ func (svc *ProviderQuotaService) loadQuotaCache(ctx context.Context) {
 	}
 
 	log.Debug(ctx, "Loaded quota cache from DB", log.Int("records", len(records)))
+}
+
+func (svc *ProviderQuotaService) GetCachedProviderQuotaStatus(ctx context.Context, channelID int) *ent.ProviderQuotaStatus {
+	if svc == nil || svc.db == nil {
+		return nil
+	}
+	row, err := svc.db.ProviderQuotaStatus.Query().Where(providerquotastatus.ChannelIDEQ(channelID)).Only(ctx)
+	if err != nil {
+		return nil
+	}
+	return row
+}
+
+// RefreshSingleChannel refreshes one channel-scoped provider quota via singleflight.
+// It NEVER redeems Codex reset credits (ResetChannelQuotaNow remains explicit).
+func (svc *ProviderQuotaService) RefreshSingleChannel(ctx context.Context, ch *ent.Channel) (RefreshChannelQuotaStatus, string, *ent.ProviderQuotaStatus, *time.Time) {
+	if svc == nil || ch == nil {
+		return RefreshChannelQuotaStatusUnsupported, "provider quota service unavailable", nil, nil
+	}
+	if ChannelUsesPerKeyQuotaAuthority(ch) {
+		return RefreshChannelQuotaStatusUnsupported, "channel uses per-key quota authority", nil, nil
+	}
+	providerType := svc.getProviderType(ch)
+	if providerType == "" || !hasCredentialsForProvider(ch) {
+		return RefreshChannelQuotaStatusUnsupported, "channel does not support provider quota refresh", nil, nil
+	}
+	checker, ok := svc.checkers[providerType]
+	if !ok {
+		return RefreshChannelQuotaStatusUnsupported, "no provider quota checker registered", nil, nil
+	}
+
+	key := fmt.Sprintf("pqs:%d", ch.ID)
+	val, err, _ := svc.flight.Do(key, func() (any, error) {
+		if !svc.node.Owns(ch.ID) {
+			return nil, fmt.Errorf("channel %d is not owned by this node", ch.ID)
+		}
+		now := time.Now().UTC()
+		quotaData, checkErr := checker.CheckQuota(ctx, ch)
+		if !svc.node.Owns(ch.ID) {
+			return nil, fmt.Errorf("channel %d ownership changed before write", ch.ID)
+		}
+		if checkErr != nil {
+			svc.saveQuotaError(ctx, ch, providerType, checkErr, now)
+			return nil, checkErr
+		}
+		if saveErr := svc.saveQuotaStatus(ctx, ch.ID, providerType, quotaData, now); saveErr != nil {
+			return nil, saveErr
+		}
+		return svc.GetCachedProviderQuotaStatus(ctx, ch.ID), nil
+	})
+	if err != nil {
+		row := svc.GetCachedProviderQuotaStatus(ctx, ch.ID)
+		var retryAt *time.Time
+		if row != nil && !row.NextCheckAt.IsZero() {
+			t := row.NextCheckAt
+			retryAt = &t
+		}
+		return RefreshChannelQuotaStatusError, err.Error(), row, retryAt
+	}
+	row, _ := val.(*ent.ProviderQuotaStatus)
+	return RefreshChannelQuotaStatusUpdated, "", row, nil
 }
 
 func (svc *ProviderQuotaService) GetQuotaStatus(channelID int) *QuotaChannelStatus {
@@ -638,6 +706,12 @@ func (svc *ProviderQuotaService) checkChannelQuota(ctx context.Context, ch *ent.
 	if !svc.node.Owns(ch.ID) {
 		return
 	}
+	if ChannelUsesPerKeyQuotaAuthority(ch) {
+		// Single-writer authority: skip API-key pools owned by ChannelBalanceProbe
+		// and evict any stale legacy cache entry.
+		svc.quotaCache.Delete(ch.ID)
+		return
+	}
 	providerType := svc.getProviderType(ch)
 	if providerType == "" {
 		return
@@ -657,27 +731,38 @@ func (svc *ProviderQuotaService) checkChannelQuota(ctx context.Context, ch *ent.
 		return
 	}
 
-	// Make quota check request
-	quotaData, err := checker.CheckQuota(ctx, ch)
-	if err != nil {
-		log.Error(ctx, "Quota check failed",
+	// Coalesce polling and manual refreshes through one singleflight + ownership fence.
+	key := fmt.Sprintf("pqs:%d", ch.ID)
+	_, _, _ = svc.flight.Do(key, func() (any, error) {
+		if !svc.node.Owns(ch.ID) {
+			return nil, nil
+		}
+		quotaData, err := checker.CheckQuota(ctx, ch)
+		if !svc.node.Owns(ch.ID) {
+			return nil, nil
+		}
+		if err != nil {
+			log.Error(ctx, "Quota check failed",
+				log.Int("channel_id", ch.ID),
+				log.String("channel_name", ch.Name),
+				log.String("provider", providerType),
+				log.Cause(err))
+
+			svc.saveQuotaError(ctx, ch, providerType, err, now)
+			return nil, err
+		}
+
+		if saveErr := svc.saveQuotaStatus(ctx, ch.ID, providerType, quotaData, now); saveErr != nil {
+			return nil, saveErr
+		}
+
+		log.Debug(ctx, "Updated quota status",
 			log.Int("channel_id", ch.ID),
-			log.String("channel_name", ch.Name),
 			log.String("provider", providerType),
-			log.Cause(err))
-
-		svc.saveQuotaError(ctx, ch, providerType, err, now)
-		return
-	}
-
-	// Save quota status
-	svc.saveQuotaStatus(ctx, ch.ID, providerType, quotaData, now)
-
-	log.Debug(ctx, "Updated quota status",
-		log.Int("channel_id", ch.ID),
-		log.String("provider", providerType),
-		log.String("status", quotaData.Status),
-		log.Bool("ready", quotaData.Ready))
+			log.String("status", quotaData.Status),
+			log.Bool("ready", quotaData.Ready))
+		return svc.GetCachedProviderQuotaStatus(ctx, ch.ID), nil
+	})
 }
 
 func (svc *ProviderQuotaService) saveQuotaStatus(
@@ -686,7 +771,7 @@ func (svc *ProviderQuotaService) saveQuotaStatus(
 	providerType string,
 	quotaData provider_quota.QuotaData,
 	now time.Time,
-) {
+) error {
 	nextCheck := now.Add(svc.nextCheckIntervalForStatus(providerquotastatus.Status(quotaData.Status)))
 	pt := providerquotastatus.ProviderType(providerType)
 
@@ -715,10 +800,11 @@ func (svc *ProviderQuotaService) saveQuotaStatus(
 		log.Error(ctx, "Failed to save quota status",
 			log.Int("channel_id", channelID),
 			log.Cause(err))
-		return
+		return err
 	}
 
 	svc.updateQuotaCache(channelID, providerquotastatus.Status(quotaData.Status), quotaData.Ready, quotaData.Limits)
+	return nil
 }
 
 func (svc *ProviderQuotaService) saveQuotaError(
@@ -730,8 +816,14 @@ func (svc *ProviderQuotaService) saveQuotaError(
 ) {
 	pt := providerquotastatus.ProviderType(providerType)
 
-	if ch.Edges.ProviderQuotaStatus != nil {
-		existing := ch.Edges.ProviderQuotaStatus
+	existing := ch.Edges.ProviderQuotaStatus
+	if existing == nil && svc.db != nil {
+		if row, err := svc.db.ProviderQuotaStatus.Query().Where(providerquotastatus.ChannelIDEQ(ch.ID)).Only(ctx); err == nil {
+			existing = row
+		}
+	}
+
+	if existing != nil {
 
 		existingData := existing.QuotaData
 		if existingData == nil {

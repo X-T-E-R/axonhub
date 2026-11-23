@@ -72,25 +72,28 @@ type ChannelKeyHealthCheckBuiltinResult struct {
 }
 
 type ChannelKeyHealthCheckResult struct {
-	Unsupported     bool
-	Success         bool
-	Reason          string
-	Balance         any
-	Currency        string
-	BalanceSnapshot *objects.ChannelKeyBalanceSnapshot
-	Available       *bool
-	Rule            string
-	StatusCode      int
-	RequestMethod   string
-	RequestPath     string
-	ErrorTag        string
-	ErrorCode       string
-	ErrorType       string
-	Source          objects.FailurePolicyEventSource
-	MatchedPolicy   string
-	Action          string
-	NextCheckAt     *time.Time
-	BackoffAttempt  int
+	Unsupported      bool
+	Success          bool
+	ObservationValid bool
+	ProbeStatus      string
+	RetryAfter       *time.Time
+	Reason           string
+	Balance          any
+	Currency         string
+	BalanceSnapshot  *objects.ChannelKeyBalanceSnapshot
+	Available        *bool
+	Rule             string
+	StatusCode       int
+	RequestMethod    string
+	RequestPath      string
+	ErrorTag         string
+	ErrorCode        string
+	ErrorType        string
+	Source           objects.FailurePolicyEventSource
+	MatchedPolicy    string
+	Action           string
+	NextCheckAt      *time.Time
+	BackoffAttempt   int
 }
 
 func (svc *ChannelService) SetChannelKeyHealthCheckTester(tester ChannelKeyHealthCheckTester) {
@@ -113,15 +116,22 @@ func (svc *ChannelService) RunDueChannelKeyHealthChecks(ctx context.Context, now
 		return err
 	}
 
+	probeUpdated, probeFailed, probeErr := svc.runDueQuotaBalanceProbes(ctx, now)
+	if probeErr != nil {
+		log.Warn(ctx, "scheduled quota balance probe pass returned error", log.Cause(probeErr))
+	}
+
 	channels, err := svc.dueChannelKeyHealthCheckChannels(ctx, now)
 	if err != nil {
 		return err
 	}
 	if len(channels) == 0 {
-		if monitoringChecked > 0 || monitoringFailed > 0 {
+		if monitoringChecked > 0 || monitoringFailed > 0 || probeUpdated > 0 || probeFailed > 0 {
 			log.Info(ctx, "channel key monitoring task completed",
 				log.Int("checked_keys", monitoringChecked),
 				log.Int("failed_keys", monitoringFailed),
+				log.Int("quota_probe_updated", probeUpdated),
+				log.Int("quota_probe_failed", probeFailed),
 			)
 		}
 
@@ -418,16 +428,30 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 		return channelKeyHealthCheckChannelResult{}, nil
 	}
 	failed := 0
+	nonBalanceCount := 0
+	nonBalanceFailed := 0
 	for i := range targetKeys {
 		result := results[i]
+		isBalance := failurePolicySourceIsBalanceProbe(result.Source)
 		if !result.Success {
 			failed++
 		}
+		if !isBalance {
+			nonBalanceCount++
+			if !result.Success {
+				nonBalanceFailed++
+			}
+		}
 	}
-	allCheckedKeysFailed := len(targetKeys) > 0 && failed == len(targetKeys)
+	allCheckedKeysFailed := nonBalanceCount > 0 && nonBalanceFailed == nonBalanceCount
 	results = svc.applyFailurePolicyToHealthCheckResults(ctx, ch, settings, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerScheduled, allCheckedKeysFailed)
 	for i, key := range targetKeys {
-		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerScheduled, settings.KeyHealthCheck.HistoryLimitOrDefault())
+		if failurePolicySourceIsBalanceProbe(results[i].Source) {
+			nextProbeAt := nextQuotaProbeTimeForResult(ch, results[i], existingKeyProbeFailureCount(settings.KeyHealthCheck.KeyMetadata, key), now)
+			settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyBalanceProbeMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, nextProbeAt)
+		} else {
+			settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerScheduled, settings.KeyHealthCheck.HistoryLimitOrDefault())
+		}
 		if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
 			Channel: ch,
 			Target: monitoringTargetKey{
@@ -461,6 +485,10 @@ func (svc *ChannelService) runChannelKeyHealthCheckForChannel(ctx context.Contex
 }
 
 func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent.Channel, key string) ChannelKeyHealthCheckResult {
+	return svc.checkChannelAPIKeyHealthWithTrigger(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerScheduled)
+}
+
+func (svc *ChannelService) checkChannelAPIKeyHealthWithTrigger(ctx context.Context, ch *ent.Channel, key string, trigger objects.ChannelKeyHealthCheckTrigger) ChannelKeyHealthCheckResult {
 	rules := ch.Settings.KeyHealthCheck.Rules
 	if len(rules) == 0 {
 		if IsRawHTTPChannel(ch) {
@@ -476,7 +504,7 @@ func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent
 			continue
 		}
 
-		result := svc.runChannelKeyHealthCheckRule(ctx, ch, key, rule)
+		result := svc.runChannelKeyHealthCheckRule(ctx, ch, key, rule, trigger)
 		if result.Unsupported {
 			continue
 		}
@@ -488,8 +516,11 @@ func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent
 		}
 	}
 
-	if !checked && IsRawHTTPChannel(ch) {
-		return ChannelKeyHealthCheckResult{Unsupported: true, Reason: ErrRawHTTPBuiltinTestUnsupported.Error()}
+	if !checked {
+		if IsRawHTTPChannel(ch) {
+			return ChannelKeyHealthCheckResult{Unsupported: true, Reason: ErrRawHTTPBuiltinTestUnsupported.Error()}
+		}
+		return ChannelKeyHealthCheckResult{Unsupported: true, Reason: "no applicable health check rules executed"}
 	}
 	if merged.Reason == "" {
 		merged.Reason = "ok"
@@ -499,22 +530,7 @@ func (svc *ChannelService) checkChannelAPIKeyHealth(ctx context.Context, ch *ent
 	return merged
 }
 
-func defaultChannelKeyHealthCheckRules(channelType channel.Type) []objects.ChannelKeyHealthCheckRule {
-	if channelType == channel.TypeDeepseek {
-		return []objects.ChannelKeyHealthCheckRule{{
-			ID:   "deepseek-balance",
-			Name: "DeepSeek balance",
-			Type: objects.ChannelKeyHealthCheckRuleTypeHTTP,
-			HTTP: &objects.ChannelKeyHealthCheckHTTPRule{
-				Method:           objects.ChannelKeyHealthCheckHTTPMethodGet,
-				URLMode:          objects.ChannelKeyHealthCheckHTTPURLModeAbsoluteURL,
-				URL:              "https://api.deepseek.com/user/balance",
-				ExpectedStatuses: []int{http.StatusOK},
-				PassWhen:         "json.is_available == true",
-			},
-		}}
-	}
-
+func defaultChannelKeyHealthCheckRules(_ channel.Type) []objects.ChannelKeyHealthCheckRule {
 	return []objects.ChannelKeyHealthCheckRule{{
 		ID:   "builtin-key-test",
 		Name: "Built-in key test",
@@ -525,7 +541,7 @@ func defaultChannelKeyHealthCheckRules(channelType channel.Type) []objects.Chann
 	}}
 }
 
-func (svc *ChannelService) runChannelKeyHealthCheckRule(ctx context.Context, ch *ent.Channel, key string, rule objects.ChannelKeyHealthCheckRule) ChannelKeyHealthCheckResult {
+func (svc *ChannelService) runChannelKeyHealthCheckRule(ctx context.Context, ch *ent.Channel, key string, rule objects.ChannelKeyHealthCheckRule, trigger objects.ChannelKeyHealthCheckTrigger) ChannelKeyHealthCheckResult {
 	switch rule.Type {
 	case objects.ChannelKeyHealthCheckRuleTypeBuiltinTest:
 		return svc.runBuiltinChannelKeyHealthCheck(ctx, ch, key)
@@ -536,7 +552,7 @@ func (svc *ChannelService) runChannelKeyHealthCheckRule(ctx context.Context, ch 
 
 		return svc.runHTTPChannelKeyHealthCheck(ctx, ch, key, *rule.HTTP)
 	case objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe:
-		return svc.runChannelKeyBalanceProbe(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual)
+		return svc.runChannelBalanceProbeViaCoordinator(ctx, ch, key, trigger, trigger == objects.ChannelKeyHealthCheckTriggerManual)
 	default:
 		return ChannelKeyHealthCheckResult{Success: false, Reason: fmt.Sprintf("unsupported rule type %q", rule.Type)}
 	}
@@ -1121,9 +1137,96 @@ func mergeChannelKeyHealthCheckResult(current, next ChannelKeyHealthCheckResult)
 	if next.Source != "" {
 		current.Source = next.Source
 	}
+	if next.ProbeStatus != "" {
+		current.ProbeStatus = next.ProbeStatus
+	}
+	if next.RetryAfter != nil {
+		current.RetryAfter = next.RetryAfter
+	}
+	current.ObservationValid = next.ObservationValid
 	current.Success = next.Success
 
 	return current
+}
+
+func existingKeyProbeFailureCount(metadata []objects.ChannelKeyMetadata, key string) int {
+	id := objects.ChannelAPIKeyFingerprint(key)
+	for _, m := range metadata {
+		if m.ID == id {
+			return m.ProbeFailureCount
+		}
+	}
+	return 0
+}
+
+// upsertChannelKeyBalanceProbeMetadata updates ONLY quota/probe fields on key
+// metadata. It strictly isolates billing probe attempts from inference health
+// (LastCheckedAt, Success, FailureCount, NextCheckAt, BackoffAttempt, Reason)
+// and preserves the last valid balance snapshot on any probe error.
+func upsertChannelKeyBalanceProbeMetadata(
+	metadata []objects.ChannelKeyMetadata,
+	key string,
+	result ChannelKeyHealthCheckResult,
+	now time.Time,
+	nextProbeAt *time.Time,
+) []objects.ChannelKeyMetadata {
+	id := objects.ChannelAPIKeyFingerprint(key)
+	next := slices.Clone(metadata)
+	for i := range next {
+		if next[i].ID != id {
+			continue
+		}
+		next[i] = updateChannelKeyBalanceProbeMetadata(next[i], key, result, now, nextProbeAt)
+		return next
+	}
+	return append(next, updateChannelKeyBalanceProbeMetadata(objects.ChannelKeyMetadata{ID: id}, key, result, now, nextProbeAt))
+}
+
+func updateChannelKeyBalanceProbeMetadata(
+	meta objects.ChannelKeyMetadata,
+	key string,
+	result ChannelKeyHealthCheckResult,
+	now time.Time,
+	nextProbeAt *time.Time,
+) objects.ChannelKeyMetadata {
+	meta.ID = objects.ChannelAPIKeyFingerprint(key)
+	meta.MaskedKey = objects.MaskChannelAPIKey(key)
+	if meta.Status == "" {
+		meta.Status = objects.ChannelKeyStatusActive
+	}
+	probeAt := now
+	meta.LastProbeAt = &probeAt
+	meta.NextProbeAt = nextProbeAt
+	if result.ObservationValid && result.BalanceSnapshot != nil && result.BalanceSnapshot.Success {
+		meta.LastProbeStatus = "ok"
+		meta.LastProbeError = ""
+		meta.ProbeFailureCount = 0
+		meta.Balance = result.Balance
+		meta.Currency = result.Currency
+		meta.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(result.BalanceSnapshot)
+		meta.Available = result.Available
+		if result.MatchedPolicy != "" {
+			meta.MatchedPolicy = result.MatchedPolicy
+		}
+		if result.Action != "" {
+			meta.Action = result.Action
+		}
+		return meta
+	}
+	// Probe failed or unsupported: record diagnostics only; preserve existing
+	// valid balance snapshot, manual snapshot, and all inference health fields.
+	status := result.ProbeStatus
+	if status == "" {
+		if result.Unsupported {
+			status = "unsupported"
+		} else {
+			status = "error"
+		}
+	}
+	meta.LastProbeStatus = status
+	meta.LastProbeError = result.Reason
+	meta.ProbeFailureCount++
+	return meta
 }
 
 func upsertChannelKeyHealthCheckMetadata(metadata []objects.ChannelKeyMetadata, key string, result ChannelKeyHealthCheckResult, now time.Time, trigger objects.ChannelKeyHealthCheckTrigger, historyLimit int) []objects.ChannelKeyMetadata {
@@ -1268,7 +1371,7 @@ func applyLegacyChannelKeyHealthCheckPolicySummary(
 	metadataByID := channelKeyMetadataByID(health.KeyMetadata)
 	next := slices.Clone(results)
 	for i, key := range keys {
-		if i >= len(next) || next[i].Success {
+		if i >= len(next) || next[i].Success || failurePolicySourceIsBalanceProbe(next[i].Source) {
 			continue
 		}
 
@@ -1627,13 +1730,22 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	}
 	now := time.Now()
 	failed := 0
+	nonBalanceCount := 0
+	nonBalanceFailed := 0
 	for i := range targetKeys {
 		result := results[i]
+		isBalance := failurePolicySourceIsBalanceProbe(result.Source)
 		if !result.Success {
 			failed++
 		}
+		if !isBalance {
+			nonBalanceCount++
+			if !result.Success {
+				nonBalanceFailed++
+			}
+		}
 	}
-	allCheckedKeysFailed := len(targetKeys) > 0 && failed == len(targetKeys)
+	allCheckedKeysFailed := nonBalanceCount > 0 && nonBalanceFailed == nonBalanceCount
 	results = svc.applyFailurePolicyToHealthCheckResults(ctx, ch, settings, targetKeys, results, now, objects.ChannelKeyHealthCheckTriggerManual, allCheckedKeysFailed)
 	for i, key := range targetKeys {
 		keyID := objects.ChannelAPIKeyFingerprint(key)
@@ -1641,7 +1753,12 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 		if targetStatus == "" {
 			targetStatus = objects.ChannelKeyStatusActive
 		}
-		settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerManual, settings.KeyHealthCheck.HistoryLimitOrDefault())
+		if failurePolicySourceIsBalanceProbe(results[i].Source) {
+			nextProbeAt := nextQuotaProbeTimeForResult(ch, results[i], existingKeyProbeFailureCount(settings.KeyHealthCheck.KeyMetadata, key), now)
+			settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyBalanceProbeMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, nextProbeAt)
+		} else {
+			settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyHealthCheckMetadata(settings.KeyHealthCheck.KeyMetadata, key, results[i], now, objects.ChannelKeyHealthCheckTriggerManual, settings.KeyHealthCheck.HistoryLimitOrDefault())
+		}
 		if err := svc.appendMonitoringEvent(ctx, monitoringEventInput{
 			Channel: ch,
 			Target: monitoringTargetKey{
@@ -1695,15 +1812,15 @@ func (svc *ChannelService) runManualChannelAPIKeyCheck(
 ) ChannelKeyHealthCheckResult {
 	switch mode {
 	case objects.ChannelAPIKeyHealthCheckModeBalanceProbe:
-		return svc.runChannelKeyBalanceProbe(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual)
+		return svc.runChannelBalanceProbeViaCoordinator(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual, true)
 	case objects.ChannelAPIKeyHealthCheckModeRealRequest:
 		return svc.runBuiltinChannelKeyHealthCheck(ctx, ch, key)
 	default:
 		if hasBalanceProbe {
-			return svc.runChannelKeyBalanceProbe(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual)
+			return svc.runChannelBalanceProbeViaCoordinator(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual, true)
 		}
 
-		return svc.checkChannelAPIKeyHealth(ctx, ch, key)
+		return svc.checkChannelAPIKeyHealthWithTrigger(ctx, ch, key, objects.ChannelKeyHealthCheckTriggerManual)
 	}
 }
 

@@ -133,10 +133,14 @@ func (c *Channel) credentialCandidatesWithExcluded(ctx context.Context, excluded
 		id := objects.ChannelAPIKeyFingerprint(key)
 		candidate := credentialCandidate{key: key, id: id, policy: c.Settings.CredentialPolicy(id)}
 		if c.Settings != nil && c.Settings.KeyHealthCheck != nil {
-			for _, meta := range c.Settings.KeyHealthCheck.KeyMetadata {
-				if meta.ID == id {
-					candidate.snapshot = meta.BalanceSnapshot
-					break
+			if c.Settings.BalanceProbe != nil && c.Settings.BalanceProbe.SharedWallet && c.Settings.KeyHealthCheck.SharedBalanceSnapshot != nil {
+				candidate.snapshot = c.Settings.KeyHealthCheck.SharedBalanceSnapshot
+			} else {
+				for _, meta := range c.Settings.KeyHealthCheck.KeyMetadata {
+					if meta.ID == id {
+						candidate.snapshot = meta.BalanceSnapshot
+						break
+					}
 				}
 			}
 		}
@@ -222,10 +226,8 @@ func credentialSmartScore(c credentialCandidate, now time.Time) float64 {
 	}
 	quota := 0.5
 	if c.snapshot != nil {
-		if c.snapshot.UsageRatio != nil {
-			quota = 1 - *c.snapshot.UsageRatio
-		} else if c.snapshot.Remaining != nil && c.snapshot.Limit != nil && *c.snapshot.Limit > 0 {
-			quota = *c.snapshot.Remaining / *c.snapshot.Limit
+		if worst, ok := c.snapshot.WorstUsageRatioAt(now); ok {
+			quota = 1 - worst
 		} else if c.snapshot.Remaining != nil && c.policy.ManualQuotaLimit != nil && *c.policy.ManualQuotaLimit > 0 {
 			quota = *c.snapshot.Remaining / *c.policy.ManualQuotaLimit
 		}

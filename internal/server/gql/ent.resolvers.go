@@ -13,6 +13,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/server/biz"
 	"github.com/samber/lo"
 )
 
@@ -81,8 +82,12 @@ func (r *channelResolver) Policies(ctx context.Context, obj *ent.Channel) (*obje
 }
 
 // ProviderQuotaStatus is the resolver for the providerQuotaStatus field.
-// It returns null (not an error) when no quota status exists for the channel.
+// It returns null (not an error) when no quota status exists for the channel
+// or when the channel is owned by per-key quota authority.
 func (r *channelResolver) ProviderQuotaStatus(ctx context.Context, obj *ent.Channel) (*ent.ProviderQuotaStatus, error) {
+	if biz.ChannelUsesPerKeyQuotaAuthority(obj) {
+		return nil, nil
+	}
 	pqs, err := obj.ProviderQuotaStatus(ctx)
 	if ent.IsNotFound(err) {
 		return nil, nil
@@ -349,10 +354,23 @@ func (r *queryResolver) Channels(ctx context.Context, after *entgql.Cursor[int],
 		orderBy.Field = ent.DefaultChannelOrder.Field
 	}
 
-	return r.client.Channel.Query().Paginate(ctx, after, first, before, last,
+	conn, err := r.client.Channel.Query().Paginate(ctx, after, first, before, last,
 		ent.WithChannelOrder(orderBy),
 		ent.WithChannelFilter(where.Filter),
 	)
+	if err != nil {
+		return nil, err
+	}
+	if conn != nil && len(conn.Edges) > 0 && r.channelService != nil {
+		nodes := make([]*ent.Channel, 0, len(conn.Edges))
+		for _, edge := range conn.Edges {
+			if edge != nil && edge.Node != nil {
+				nodes = append(nodes, edge.Node)
+			}
+		}
+		r.channelService.PreloadChannelQuotaOverviewIntoContext(ctx, nodes)
+	}
+	return conn, nil
 }
 
 // ChannelKeyMonitoringEvents is the resolver for the channelKeyMonitoringEvents field.

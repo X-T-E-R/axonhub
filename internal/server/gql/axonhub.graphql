@@ -240,6 +240,8 @@ type ChannelSettings {
   keyHealthCheck: ChannelKeyHealthCheck
   balanceProbe: ChannelBalanceProbe
   failurePolicy: ChannelFailurePolicy
+  sessionAffinity: ChannelSessionAffinity
+  idRewriteRules: [ChannelIDRewriteRule!]
 }
 
 type ChannelSSEKeepAlive {
@@ -383,7 +385,80 @@ enum ChannelBalanceProbePreset {
   kimi_code_usages
   exa_team_credits
   firecrawl_credits
+  command_code_billing
+  step_plan_usage
+  newapi_token_usage
+  openai_billing_usage
+  sub2_usage
   custom
+}
+
+enum ChannelSecretWriteOp {
+  preserve
+  set
+  clear
+}
+
+enum ChannelContinuationGuard {
+  strict_replay
+  off
+}
+
+type ChannelSessionAffinity {
+  enabled: Boolean!
+  ttlSeconds: Int
+  anchors: [String!]
+  continuationGuard: ChannelContinuationGuard
+}
+
+input ChannelSessionAffinityInput {
+  enabled: Boolean!
+  ttlSeconds: Int
+  anchors: [String!]
+  continuationGuard: ChannelContinuationGuard
+}
+
+enum ChannelIDRewriteOp {
+  derive
+  delete
+}
+
+enum ChannelIDRewriteWhen {
+  always
+  on_key_switch
+}
+
+enum ChannelIDRewriteFormat {
+  hex32
+  hex64
+  prefix_hex8
+  prefix_hex16
+  uuid_v8
+  uuid_v5
+  anthropic_user_id
+}
+
+enum ChannelIDRewriteIfMissing {
+  skip
+  generate
+}
+
+type ChannelIDRewriteRule {
+  target: String!
+  op: ChannelIDRewriteOp!
+  when: ChannelIDRewriteWhen
+  format: ChannelIDRewriteFormat
+  prefix: String
+  ifMissing: ChannelIDRewriteIfMissing
+}
+
+input ChannelIDRewriteRuleInput {
+  target: String!
+  op: ChannelIDRewriteOp!
+  when: ChannelIDRewriteWhen
+  format: ChannelIDRewriteFormat
+  prefix: String
+  ifMissing: ChannelIDRewriteIfMissing
 }
 
 enum ChannelBalancePrimarySelection {
@@ -415,6 +490,12 @@ type ChannelKeyHealthCheck {
   keyMetadata: [ChannelKeyMetadata!]
   archivedKeys: [ChannelArchivedAPIKey!]
   history: [ChannelKeyHealthCheckHistoryEntry!]
+  sharedBalanceSnapshot: ChannelKeyBalanceSnapshot
+  sharedProbeAt: Time
+  sharedProbeStatus: String
+  sharedProbeError: String
+  sharedNextProbeAt: Time
+  sharedProbeFailureCount: Int
 }
 
 type FailurePolicy {
@@ -510,6 +591,8 @@ type ChannelBalanceProbe {
   primarySelection: ChannelBalancePrimarySelection
   includeStatuses: [ChannelKeyStatus!]
   timeoutMs: Int
+  sharedWallet: Boolean
+  hasProbeAPIKey: Boolean! @goField(forceResolver: true)
   http: ChannelKeyHealthCheckHTTPRule
 }
 
@@ -522,6 +605,9 @@ input ChannelBalanceProbeInput {
   primarySelection: ChannelBalancePrimarySelection
   includeStatuses: [ChannelKeyStatus!]
   timeoutMs: Int
+  sharedWallet: Boolean
+  probeAPIKeyOp: ChannelSecretWriteOp
+  probeAPIKey: String
   http: ChannelKeyHealthCheckHTTPRuleInput
 }
 
@@ -662,6 +748,11 @@ type ChannelKeyMetadata {
   balance: JSONRawMessage
   currency: String
   balanceSnapshot: ChannelKeyBalanceSnapshot
+  lastProbeAt: Time
+  lastProbeStatus: String
+  lastProbeError: String
+  nextProbeAt: Time
+  probeFailureCount: Int
   available: Boolean
   statusCode: Int
   matchedPolicy: String
@@ -682,6 +773,11 @@ input ChannelKeyMetadataInput {
   balance: JSONRawMessageInput
   currency: String
   balanceSnapshot: ChannelKeyBalanceSnapshotInput
+  lastProbeAt: Time
+  lastProbeStatus: String
+  lastProbeError: String
+  nextProbeAt: Time
+  probeFailureCount: Int
   available: Boolean
   statusCode: Int
   matchedPolicy: String
@@ -753,6 +849,28 @@ input ChannelArchivedAPIKeyInput {
   available: Boolean
 }
 
+type ChannelQuotaWindow {
+  key: String!
+  label: String!
+  used: Float
+  limit: Float
+  remaining: Float
+  usageRatio: Float
+  unit: String
+  resetAt: Time
+}
+
+input ChannelQuotaWindowInput {
+  key: String!
+  label: String!
+  used: Float
+  limit: Float
+  remaining: Float
+  usageRatio: Float
+  unit: String
+  resetAt: Time
+}
+
 type ChannelKeyBalanceSnapshot {
   used: Float
   limit: Float
@@ -760,14 +878,21 @@ type ChannelKeyBalanceSnapshot {
   usageRatio: Float
   resetAt: Time
   provider: String
+  source: String
   checkedAt: Time!
   success: Boolean!
   available: Boolean
   statusCode: Int
   accountStatus: String
   accountId: String
+  planName: String
+  unlimited: Boolean
+  freeTier: Boolean
+  walletScope: String
+  walletId: String
   primaryBalance: BalanceAmount
   components: [BalanceAmount!]
+  windows: [ChannelQuotaWindow!]
   rawSummary: JSONRawMessage
 }
 
@@ -778,14 +903,21 @@ input ChannelKeyBalanceSnapshotInput {
   usageRatio: Float
   resetAt: Time
   provider: String
+  source: String
   checkedAt: Time!
   success: Boolean!
   available: Boolean
   statusCode: Int
   accountStatus: String
   accountId: String
+  planName: String
+  unlimited: Boolean
+  freeTier: Boolean
+  walletScope: String
+  walletId: String
   primaryBalance: BalanceAmountInput
   components: [BalanceAmountInput!]
+  windows: [ChannelQuotaWindowInput!]
   rawSummary: JSONRawMessageInput
 }
 
@@ -823,6 +955,12 @@ type ChannelAPIKeyInventoryItem {
   balance: JSONRawMessage
   currency: String
   balanceSnapshot: ChannelKeyBalanceSnapshot
+  lastProbeAt: Time
+  lastProbeStatus: String
+  lastProbeError: String
+  nextProbeAt: Time
+  probeFailureCount: Int
+  sharedWallet: Boolean!
   available: Boolean
   statusCode: Int
   matchedPolicy: String
@@ -889,6 +1027,8 @@ input ChannelSettingsInput {
   keyHealthCheck: ChannelKeyHealthCheckInput
   balanceProbe: ChannelBalanceProbeInput
   failurePolicy: ChannelFailurePolicyInput
+  sessionAffinity: ChannelSessionAffinityInput
+  idRewriteRules: [ChannelIDRewriteRuleInput!]
 }
 
 input ChannelRateLimitInput {
@@ -1383,6 +1523,76 @@ extend type Channel {
   has no MaxConcurrent configured (no admission control).
   """
   liveLimiterStats: ChannelLimiterStats @goField(forceResolver: true)
+
+  """
+  Unified, zero-N+1 quota projection covering both per-key balance probes and
+  channel-scoped provider quota snapshots without issuing upstream HTTP calls.
+  """
+  quotaOverview: ChannelQuotaOverview @goField(forceResolver: true)
+}
+
+enum ChannelQuotaState {
+  available
+  warning
+  exhausted
+  free_tier
+  unlimited
+  unknown
+  error
+  unsupported
+}
+
+type ChannelQuotaCounts {
+  total: Int!
+  active: Int!
+  freshKnown: Int!
+  exhausted: Int!
+  unknown: Int!
+}
+
+type ChannelQuotaProbeDiagnostic {
+  status: String!
+  error: String
+  lastProbeAt: Time
+  nextProbeAt: Time
+}
+
+type ChannelQuotaOverview {
+  counts: ChannelQuotaCounts!
+  state: ChannelQuotaState!
+  windows: [ChannelQuotaWindow!]!
+  walletBalance: BalanceAmount
+  walletLimit: Float
+  walletUsed: Float
+  walletRemaining: Float
+  walletUnit: String
+  planName: String
+  unlimited: Boolean!
+  freeTier: Boolean!
+  sharedWallet: Boolean!
+  walletScope: String
+  walletId: String
+  nextResetAt: Time
+  checkedAt: Time
+  source: String!
+  canRefresh: Boolean!
+  probeDiagnostic: ChannelQuotaProbeDiagnostic
+}
+
+enum RefreshChannelQuotaStatus {
+  updated
+  deferred
+  unsupported
+  error
+}
+
+type RefreshChannelQuotaPayload {
+  status: RefreshChannelQuotaStatus!
+  message: String
+  updatedKeys: Int!
+  deferredKeys: Int!
+  retryAt: Time
+  quotaOverview: ChannelQuotaOverview
 }
 
 """
@@ -1630,6 +1840,10 @@ type Mutation {
     keyIDs: [String!]
     mode: ChannelAPIKeyHealthCheckMode
   ): [ChannelAPIKeyInventoryItem!]!
+  refreshChannelQuota(
+    channelID: ID!
+    keyIDs: [String!]
+  ): RefreshChannelQuotaPayload!
 
   createAPIKey(input: CreateAPIKeyInput!): APIKey!
   updateAPIKey(id: ID!, input: UpdateAPIKeyInput!): APIKey!

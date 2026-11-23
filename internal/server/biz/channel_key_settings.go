@@ -35,6 +35,12 @@ func ValidateChannelKeySettings(settings *objects.ChannelSettings) error {
 	if err := ValidateChannelBalanceProbe(settings.BalanceProbe); err != nil {
 		return err
 	}
+	if err := ValidateChannelSessionAffinity(settings.SessionAffinity); err != nil {
+		return err
+	}
+	if err := ValidateChannelIDRewriteRules(settings.IDRewriteRules); err != nil {
+		return err
+	}
 
 	return ValidateChannelKeyHealthCheck(settings.KeyHealthCheck)
 }
@@ -213,6 +219,25 @@ func ValidateChannelBalanceProbe(probe *objects.ChannelBalanceProbe) error {
 				return fmt.Errorf("balance probe preset %q is experimental and requires explicit opt-in", probe.Preset)
 			}
 		}
+	}
+	if probe.Preset == objects.ChannelBalanceProbePresetExa && probe.HTTP != nil {
+		return fmt.Errorf("exa_team_credits does not allow custom HTTP overrides")
+	}
+	if probe.Script != nil && (probe.Preset == objects.ChannelBalanceProbePresetExa || probe.HasProbeAPIKey() || probe.ProbeAPIKeyOp == objects.ChannelSecretWriteOpSet) {
+		return fmt.Errorf("balance probe scripts cannot be combined with exa_team_credits or admin probeAPIKey")
+	}
+	switch probe.ProbeAPIKeyOp {
+	case "", objects.ChannelSecretWriteOpPreserve:
+		if strings.TrimSpace(probe.ProbeAPIKey) != "" {
+			return fmt.Errorf("probeAPIKeyOp must be set to 'set' when providing probeAPIKey")
+		}
+	case objects.ChannelSecretWriteOpClear:
+	case objects.ChannelSecretWriteOpSet:
+		if isMaskedSecretPlaceholder(probe.ProbeAPIKey) {
+			return errProbeAPIKeyInvalidPlaceholder
+		}
+	default:
+		return fmt.Errorf("unsupported probeAPIKeyOp %q", probe.ProbeAPIKeyOp)
 	}
 	if probe.HTTP != nil {
 		if err := validateChannelKeyHealthCheckHTTPRule(*probe.HTTP); err != nil {

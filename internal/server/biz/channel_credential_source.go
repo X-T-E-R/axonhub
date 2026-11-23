@@ -166,9 +166,18 @@ func withEffectiveCredentials(ch, source *ent.Channel) *ent.Channel {
 	}
 	if source.Settings != nil {
 		settings.CredentialPolicies = source.Settings.CredentialPolicies
+		if source.Settings.BalanceProbe != nil {
+			settings.BalanceProbe = source.Settings.BalanceProbe
+		}
 		if source.Settings.KeyHealthCheck != nil {
 			health.KeyMetadata = source.Settings.KeyHealthCheck.KeyMetadata
 			health.ArchivedKeys = source.Settings.KeyHealthCheck.ArchivedKeys
+			health.SharedBalanceSnapshot = source.Settings.KeyHealthCheck.SharedBalanceSnapshot
+			health.SharedProbeAt = source.Settings.KeyHealthCheck.SharedProbeAt
+			health.SharedProbeStatus = source.Settings.KeyHealthCheck.SharedProbeStatus
+			health.SharedProbeError = source.Settings.KeyHealthCheck.SharedProbeError
+			health.SharedNextProbeAt = source.Settings.KeyHealthCheck.SharedNextProbeAt
+			health.SharedProbeFailureCount = source.Settings.KeyHealthCheck.SharedProbeFailureCount
 		}
 	}
 	settings.KeyHealthCheck = &health

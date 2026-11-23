@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/looplj/axonhub/internal/authz"
 	"github.com/looplj/axonhub/internal/ent"
@@ -199,11 +200,11 @@ func (svc *ChannelService) populateCredentialInventory(ctx context.Context, ch *
 	if item.BalanceSnapshot != nil {
 		snapshot := item.BalanceSnapshot
 		item.QuotaResetAt = snapshot.ResetAt
-		if snapshot.UsageRatio != nil {
-			ratio := 1 - *snapshot.UsageRatio
+		if worst, ok := snapshot.WorstUsageRatioAt(time.Now()); ok {
+			ratio := max(0.0, min(1.0, 1-worst))
 			item.QuotaRemainingRatio = &ratio
-		} else if policy.ManualQuotaLimit != nil && snapshot.Remaining != nil {
-			ratio := max(0, min(1, *snapshot.Remaining / *policy.ManualQuotaLimit))
+		} else if policy.ManualQuotaLimit != nil && snapshot.Remaining != nil && *policy.ManualQuotaLimit > 0 {
+			ratio := max(0.0, min(1.0, *snapshot.Remaining / *policy.ManualQuotaLimit))
 			item.QuotaRemainingRatio = &ratio
 		}
 	}

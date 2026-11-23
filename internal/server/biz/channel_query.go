@@ -75,6 +75,7 @@ func (svc *ChannelService) QueryChannels(ctx context.Context, input QueryChannel
 		}
 		if !paginate {
 			// Keep the unpaginated model search contract for existing callers.
+			svc.PreloadChannelQuotaOverviewIntoContext(ctx, matching)
 			return svc.buildConnectionInMemory(matching, input.OrderBy), nil
 		}
 		ids := make([]int, 0, len(matching))
@@ -89,6 +90,13 @@ func (svc *ChannelService) QueryChannels(ctx context.Context, input QueryChannel
 		return nil, err
 	}
 	normalizeChannelConnectionSettingsForRead(conn)
+	preloadChannels := make([]*ent.Channel, 0, len(conn.Edges))
+	for _, edge := range conn.Edges {
+		if edge != nil && edge.Node != nil {
+			preloadChannels = append(preloadChannels, edge.Node)
+		}
+	}
+	svc.PreloadChannelQuotaOverviewIntoContext(ctx, preloadChannels)
 	return conn, nil
 }
 

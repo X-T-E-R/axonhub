@@ -655,6 +655,13 @@ func (svc *BackupService) restoreChannels(ctx context.Context, db *ent.Client, c
 				if err := biz.ValidateChannelCredentialBindings(ctx, db, existing.ID, settings); err != nil {
 					return fmt.Errorf("restore channel %s: %w", chData.Name, err)
 				}
+				// Preserve an existing encrypted probeAPIKey when restoring a backup that
+				// predates ProbeAPIKeyCiphertext and targets the same balance probe preset.
+				if existing.Settings != nil && existing.Settings.BalanceProbe != nil && existing.Settings.BalanceProbe.HasProbeAPIKey() &&
+					settings != nil && settings.BalanceProbe != nil && !settings.BalanceProbe.HasProbeAPIKey() &&
+					settings.BalanceProbe.Preset == existing.Settings.BalanceProbe.Preset {
+					settings.BalanceProbe.ProbeAPIKeyCiphertext = existing.Settings.BalanceProbe.ProbeAPIKeyCiphertext
+				}
 				update := db.Channel.UpdateOneID(existing.ID).
 					SetNillableBaseURL(baseURL).
 					SetStatus(chData.Status).

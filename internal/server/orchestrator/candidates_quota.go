@@ -54,6 +54,12 @@ func (s *ProviderQuotaSelector) Select(ctx context.Context, req *llm.Request) ([
 	limitType := provider_quota.RequestModality(req.Image != nil)
 
 	filtered := lo.Filter(candidates, func(c *ChannelModelsCandidate, _ int) bool {
+		// Single-writer authority: per-key API pools (e.g. Ch 51 Kimi 3 keys) are
+		// governed by per-key ChannelBalanceProbe snapshots, never by stale
+		// channel-wide provider_quota_status rows.
+		if c != nil && c.Channel != nil && biz.ChannelUsesPerKeyQuotaAuthority(c.Channel.Channel) {
+			return true
+		}
 		quotaStatus := s.provider.GetQuotaStatus(c.Channel.ID)
 
 		if quotaStatus == nil {

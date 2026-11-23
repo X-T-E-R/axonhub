@@ -94,6 +94,48 @@ func normalizeChannelBalanceCapacity(snapshot *objects.ChannelKeyBalanceSnapshot
 		snapshot.UsageRatio = lo.ToPtr(ratio)
 	}
 
+	if len(snapshot.Windows) > 0 {
+		for i := range snapshot.Windows {
+			w := &snapshot.Windows[i]
+			if !finiteBalanceValue(w.Used) {
+				w.Used = nil
+			}
+			if !finiteBalanceValue(w.Limit) {
+				w.Limit = nil
+			}
+			if !finiteBalanceValue(w.Remaining) {
+				w.Remaining = nil
+			}
+			if !finiteBalanceValue(w.UsageRatio) {
+				w.UsageRatio = nil
+			}
+			if w.Limit != nil && *w.Limit > 0 && w.UsageRatio == nil {
+				if w.Used != nil {
+					r := max(0.0, min(1.0, *w.Used / *w.Limit))
+					w.UsageRatio = lo.ToPtr(r)
+				} else if w.Remaining != nil {
+					r := max(0.0, min(1.0, 1-(*w.Remaining / *w.Limit)))
+					w.UsageRatio = lo.ToPtr(r)
+				}
+			}
+			if w.UsageRatio != nil {
+				r := max(0.0, min(1.0, *w.UsageRatio))
+				w.UsageRatio = lo.ToPtr(r)
+			}
+		}
+	}
+
+	if snapshot.Unlimited != nil && *snapshot.Unlimited {
+		snapshot.Available = lo.ToPtr(true)
+		return
+	}
+	if snapshot.FreeTier != nil && *snapshot.FreeTier {
+		if len(snapshot.Windows) == 0 && snapshot.Available == nil {
+			snapshot.Available = lo.ToPtr(true)
+		}
+		return
+	}
+
 	if snapshot.Limit != nil && *snapshot.Limit > 0 && snapshot.Remaining != nil {
 		available := *snapshot.Remaining > 0
 		if snapshot.Available == nil || !available {

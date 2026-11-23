@@ -29,6 +29,7 @@ type failurePolicyEvent struct {
 	RecoveryGen          uint64
 	FailureCount         int
 	Success              bool
+	ObservationValid     bool
 	KeyStatus            objects.ChannelKeyStatus
 	Available            *bool
 	Balance              any
@@ -274,6 +275,58 @@ func evaluateFailurePolicyProfiles(profiles []objects.FailurePolicyProfile, even
 	return evaluateFailurePolicyProfilesWithOptions(profiles, event, false, false)
 }
 
+func balanceProbeConditionHasOtherPredicates(c objects.ChannelKeyHealthCheckPolicyCondition) bool {
+	return c.MinFailureCount != nil ||
+		c.Success != nil ||
+		len(c.StatusCodes) > 0 ||
+		c.Available != nil ||
+		strings.TrimSpace(c.ReasonContains) != "" ||
+		c.AllCheckedKeysFailed != nil ||
+		len(c.KeyStatuses) > 0 ||
+		strings.TrimSpace(c.Expr) != ""
+}
+
+// balanceProbePolicyProfileQualifies enforces the strict isolation invariant:
+// quota/balance probe errors NEVER trigger failure policies; ONLY a new,
+// successful, schema-valid balance observation may match a profile that
+// explicitly declares the balance probe source AND carries a required,
+// non-bypassable numeric balance predicate (balanceLTE / balanceGTE).
+func balanceProbePolicyProfileQualifies(profile objects.FailurePolicyProfile, event failurePolicyEvent) bool {
+	if event.Source != objects.FailurePolicyEventSourceScheduledBalanceProbe &&
+		event.Source != objects.FailurePolicyEventSourceManualBalanceProbe {
+		return false
+	}
+	if !event.Success {
+		return false
+	}
+	if event.BalanceSnapshot != nil && (!event.BalanceSnapshot.Success || !event.ObservationValid) {
+		return false
+	}
+	if len(profile.Sources) == 0 || !slices.Contains(profile.Sources, event.Source) {
+		return false
+	}
+	hasBalancePredicate := profile.Conditions.BalanceLTE != nil || profile.Conditions.BalanceGTE != nil
+	if !hasBalancePredicate {
+		return false
+	}
+	if normalizeFailurePolicyConditionCombiner(profile.ConditionCombiner) != objects.FailurePolicyConditionCombinerAnd &&
+		balanceProbeConditionHasOtherPredicates(profile.Conditions) {
+		// An OR combiner with non-balance predicates could bypass the required balance predicate.
+		return false
+	}
+	balance, ok := channelKeyHealthCheckNumericBalance(event.Balance)
+	if !ok {
+		return false
+	}
+	if profile.Conditions.BalanceLTE != nil && balance > *profile.Conditions.BalanceLTE {
+		return false
+	}
+	if profile.Conditions.BalanceGTE != nil && balance < *profile.Conditions.BalanceGTE {
+		return false
+	}
+	return true
+}
+
 func evaluateFailurePolicyProfilesWithOptions(
 	profiles []objects.FailurePolicyProfile,
 	event failurePolicyEvent,
@@ -288,7 +341,11 @@ func evaluateFailurePolicyProfilesWithOptions(
 		if len(profile.Actions) == 0 {
 			continue
 		}
-		if len(profile.Sources) == 0 {
+		if failurePolicySourceIsBalanceProbe(event.Source) {
+			if !balanceProbePolicyProfileQualifies(profile, event) {
+				continue
+			}
+		} else if len(profile.Sources) == 0 {
 			if event.Source == objects.FailurePolicyEventSourceManualHealthCheckFailure {
 				continue
 			}
@@ -961,19 +1018,27 @@ func (svc *ChannelService) applyFailurePolicyToHealthCheckResults(
 			continue
 		}
 		source := failurePolicyEventSourceForResult(next[i], trigger)
-		if next[i].Success && !failurePolicySourceIsBalanceProbe(source) {
+		isBalanceProbe := failurePolicySourceIsBalanceProbe(source)
+		if isBalanceProbe {
+			// Probe failures never trigger inference failure policies; only valid
+			// observations may match an explicitly qualified balance rule.
+			if !next[i].ObservationValid || next[i].BalanceSnapshot == nil || !next[i].BalanceSnapshot.Success {
+				continue
+			}
+			if source == objects.FailurePolicyEventSourceManualBalanceProbeFailure {
+				source = objects.FailurePolicyEventSourceManualBalanceProbe
+			}
+			if source == objects.FailurePolicyEventSourceScheduledBalanceProbeFailure {
+				source = objects.FailurePolicyEventSourceScheduledBalanceProbe
+			}
+		} else if next[i].Success {
 			continue
+		} else {
+			failedIndexes = append(failedIndexes, i)
 		}
-		if next[i].Success && source == objects.FailurePolicyEventSourceManualBalanceProbeFailure {
-			source = objects.FailurePolicyEventSourceManualBalanceProbe
-		}
-		if next[i].Success && source == objects.FailurePolicyEventSourceScheduledBalanceProbeFailure {
-			source = objects.FailurePolicyEventSourceScheduledBalanceProbe
-		}
-		failedIndexes = append(failedIndexes, i)
 		meta := metadataByID[objects.ChannelAPIKeyFingerprint(key)]
 		failureCount := meta.FailureCount
-		if !next[i].Success {
+		if !isBalanceProbe && !next[i].Success {
 			failureCount++
 		}
 		event := failurePolicyEvent{
@@ -983,12 +1048,14 @@ func (svc *ChannelService) applyFailurePolicyToHealthCheckResults(
 			Key:                  key,
 			StatusCode:           next[i].StatusCode,
 			FailureCount:         failureCount,
+			Success:              next[i].Success,
+			ObservationValid:     next[i].ObservationValid,
 			Available:            next[i].Available,
 			Balance:              next[i].Balance,
 			Currency:             next[i].Currency,
 			BalanceSnapshot:      next[i].BalanceSnapshot,
 			Reason:               next[i].Reason,
-			AllCheckedKeysFailed: allCheckedKeysFailed,
+			AllCheckedKeysFailed: !isBalanceProbe && allCheckedKeysFailed,
 			CheckedAt:            now,
 		}
 		matches := evaluateFailurePolicyProfiles(effective.KeyProfiles, event)
@@ -1012,7 +1079,7 @@ func (svc *ChannelService) applyFailurePolicyToHealthCheckResults(
 	if len(failedIndexes) > 0 {
 		source = failurePolicyEventSourceForResult(next[failedIndexes[0]], trigger)
 	}
-	if allCheckedKeysFailed && len(failedIndexes) > 0 {
+	if allCheckedKeysFailed && len(failedIndexes) > 0 && !failurePolicySourceIsBalanceProbe(source) {
 		event := failurePolicyEvent{
 			Source:               source,
 			Target:               objects.FailurePolicyTargetChannel,

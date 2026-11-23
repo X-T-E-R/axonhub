@@ -1309,6 +1309,9 @@ func (p *PersistentOutboundTransformer) CanRetry(err error) bool {
 	}
 
 	if p.state.FailurePolicyRoutingChanged {
+		if isCredentialFailoverStatus(statusCode) && p.state.CurrentCandidate.Channel.RoutableCredentialCount() >= 2 {
+			_ = p.excludeFailedCredential(err)
+		}
 		return true
 	}
 

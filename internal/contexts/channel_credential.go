@@ -3,9 +3,120 @@ package contexts
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"github.com/looplj/axonhub/llm/httpclient"
 )
+
+const (
+	SessionStateOwnershipSame      = "same"
+	SessionStateOwnershipDifferent = "different"
+	SessionStateOwnershipUnknown   = "unknown"
+)
+
+// SessionAffinityRequest holds the immutable original ingress request snapshot
+// used across attempts for anchor extraction, continuation gating, and idRewriteRules.
+type SessionAffinityRequest struct {
+	ProjectID          int
+	RouteKind          string
+	RawHeaders         http.Header
+	RawBody            []byte
+	WeakAnchorHint     string
+	PreviousResponseID string
+}
+
+// SessionAffinityDecision holds the per-attempt credential binding decision.
+type SessionAffinityDecision struct {
+	AffinityKey        string
+	AnchorSource       string
+	AnchorValue        string
+	SelectedKeyID      string
+	PreviousBoundKeyID string
+	PreviousOwnerKeyID string
+	StateOwnership     string
+	ObservedRev        uint64
+	Switched           bool
+	BusyOverflow       bool
+	RebindOnSuccess    bool
+
+	confirmOnce     sync.Once
+	onSuccess       func(responseID string)
+	onResponseOwner func(responseID string)
+}
+
+func (d *SessionAffinityDecision) SetOnSuccess(fn func(responseID string)) {
+	if d == nil {
+		return
+	}
+	d.onSuccess = fn
+}
+
+func (d *SessionAffinityDecision) SetOnResponseOwner(fn func(responseID string)) {
+	if d == nil {
+		return
+	}
+	d.onResponseOwner = fn
+}
+
+func (d *SessionAffinityDecision) ConfirmSuccess(responseID string) {
+	if d == nil {
+		return
+	}
+	d.confirmOnce.Do(func() {
+		if d.onSuccess != nil {
+			d.onSuccess(responseID)
+		}
+	})
+}
+
+func (d *SessionAffinityDecision) RecordResponseOwner(responseID string) {
+	if d == nil || responseID == "" {
+		return
+	}
+	if d.onResponseOwner != nil {
+		d.onResponseOwner(responseID)
+	}
+}
+
+func WithSessionAffinityRequest(ctx context.Context, req *SessionAffinityRequest) context.Context {
+	c := getContainer(ctx)
+	c.mu.Lock()
+	c.sessionAffinityRequest = req
+	c.mu.Unlock()
+	return withContainer(ctx, c)
+}
+
+func GetSessionAffinityRequest(ctx context.Context) (*SessionAffinityRequest, bool) {
+	c := getContainer(ctx)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sessionAffinityRequest, c.sessionAffinityRequest != nil
+}
+
+func WithSessionAffinityDecision(ctx context.Context, dec *SessionAffinityDecision) context.Context {
+	c := getContainer(ctx)
+	c.mu.Lock()
+	c.sessionAffinityDecision = dec
+	c.mu.Unlock()
+	return withContainer(ctx, c)
+}
+
+func GetSessionAffinityDecision(ctx context.Context) (*SessionAffinityDecision, bool) {
+	c := getContainer(ctx)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sessionAffinityDecision, c.sessionAffinityDecision != nil
+}
+
+func ConfirmSessionAffinitySuccess(ctx context.Context, responseID string) {
+	c := getContainer(ctx)
+	c.mu.RLock()
+	dec := c.sessionAffinityDecision
+	c.mu.RUnlock()
+	if dec != nil {
+		dec.ConfirmSuccess(responseID)
+	}
+}
 
 type channelCredentialAttempt struct {
 	client *httpclient.HttpClient
@@ -74,6 +185,7 @@ func ResetChannelCredentialAttempt(ctx context.Context) {
 	c.mu.Lock()
 	c.ChannelAPIKey = nil
 	c.credentialAttempt = channelCredentialAttempt{}
+	c.sessionAffinityDecision = nil
 	c.mu.Unlock()
 }
 

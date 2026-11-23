@@ -295,6 +295,60 @@ models:
   ChannelBalanceProbePreset:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelBalanceProbePreset
+  ChannelSecretWriteOp:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelSecretWriteOp
+  ChannelContinuationGuard:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelContinuationGuard
+  ChannelSessionAffinity:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelSessionAffinity
+  ChannelSessionAffinityInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelSessionAffinity
+  ChannelIDRewriteOp:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelIDRewriteOp
+  ChannelIDRewriteWhen:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelIDRewriteWhen
+  ChannelIDRewriteFormat:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelIDRewriteFormat
+  ChannelIDRewriteIfMissing:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelIDRewriteIfMissing
+  ChannelIDRewriteRule:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelIDRewriteRule
+  ChannelIDRewriteRuleInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelIDRewriteRule
+  ChannelQuotaWindow:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelQuotaWindow
+  ChannelQuotaWindowInput:
+    model:
+      - github.com/looplj/axonhub/internal/objects.ChannelQuotaWindow
+  ChannelQuotaState:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelQuotaState
+  ChannelQuotaCounts:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelQuotaCounts
+  ChannelQuotaProbeDiagnostic:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelQuotaProbeDiagnostic
+  ChannelQuotaOverview:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.ChannelQuotaOverview
+  RefreshChannelQuotaStatus:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.RefreshChannelQuotaStatus
+  RefreshChannelQuotaPayload:
+    model:
+      - github.com/looplj/axonhub/internal/server/biz.RefreshChannelQuotaPayload
   ChannelBalancePrimarySelection:
     model:
       - github.com/looplj/axonhub/internal/objects.ChannelBalancePrimarySelection

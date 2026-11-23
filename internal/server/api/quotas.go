@@ -55,6 +55,8 @@ type QuotaExposureChannel struct {
 	Type            string                 `json:"type"`
 	Resources       []string               `json:"resources,omitempty"`
 	RoutingStrategy string                 `json:"routing_strategy,omitempty"`
+	SharedWallet    bool                   `json:"shared_wallet,omitempty"`
+	WalletID        string                 `json:"wallet_id,omitempty"`
 	KeyCounts       QuotaExposureKeyCounts `json:"key_counts"`
 	QuotaSummary    QuotaSummaryByCurrency `json:"quota_summary"`
 	Keys            []*QuotaExposureKey    `json:"keys"`
@@ -76,21 +78,25 @@ type QuotaSummaryByCurrency struct {
 }
 
 type QuotaExposureKey struct {
-	ID         string                   `json:"id"`
-	Name       string                   `json:"name,omitempty"`
-	MaskedKey  string                   `json:"masked_key"`
-	Status     string                   `json:"status"`
-	Available  *bool                    `json:"available,omitempty"`
-	Priority   int                      `json:"priority"`
-	Weight     int                      `json:"weight"`
-	Remaining  *float64                 `json:"remaining,omitempty"`
-	Used       *float64                 `json:"used,omitempty"`
-	Limit      *float64                 `json:"limit,omitempty"`
-	UsageRatio *float64                 `json:"usage_ratio,omitempty"`
-	Currency   string                   `json:"currency,omitempty"`
-	ResetAt    *time.Time               `json:"reset_at,omitempty"`
-	CheckedAt  *time.Time               `json:"checked_at,omitempty"`
-	Components []QuotaExposureComponent `json:"components,omitempty"`
+	ID         string                       `json:"id"`
+	Name       string                       `json:"name,omitempty"`
+	MaskedKey  string                       `json:"masked_key"`
+	Status     string                       `json:"status"`
+	Available  *bool                        `json:"available,omitempty"`
+	Priority   int                          `json:"priority"`
+	Weight     int                          `json:"weight"`
+	Remaining  *float64                     `json:"remaining,omitempty"`
+	Used       *float64                     `json:"used,omitempty"`
+	Limit      *float64                     `json:"limit,omitempty"`
+	UsageRatio *float64                     `json:"usage_ratio,omitempty"`
+	Currency   string                       `json:"currency,omitempty"`
+	Unlimited  bool                         `json:"unlimited,omitempty"`
+	FreeTier   bool                         `json:"free_tier,omitempty"`
+	WalletID   string                       `json:"wallet_id,omitempty"`
+	ResetAt    *time.Time                   `json:"reset_at,omitempty"`
+	CheckedAt  *time.Time                   `json:"checked_at,omitempty"`
+	Windows    []objects.ChannelQuotaWindow `json:"windows,omitempty"`
+	Components []QuotaExposureComponent     `json:"components,omitempty"`
 }
 
 type QuotaExposureComponent struct {
@@ -167,24 +173,64 @@ func (handlers *OpenAIHandlers) attachOpenAIModelQuota(ctx context.Context, mode
 		Channels: make([]*QuotaExposureChannel, 0, len(response.Data)),
 	}
 	currencies := map[string]struct{}{}
+	seenWallets := map[string]struct{}{}
 	var totalRemaining float64
-	var haveRemaining bool
-	for _, channel := range response.Data {
-		if channel == nil {
+	var haveRemaining, unclassified bool
+	for _, chEntry := range response.Data {
+		if chEntry == nil {
 			continue
 		}
-		quota.Channels = append(quota.Channels, channel)
-		quota.TotalKeys += channel.KeyCounts.Total
-		quota.ActiveKeys += channel.KeyCounts.Active
-		if channel.QuotaSummary.Currency != "" {
-			currencies[channel.QuotaSummary.Currency] = struct{}{}
+		quota.Channels = append(quota.Channels, chEntry)
+		quota.TotalKeys += chEntry.KeyCounts.Total
+		quota.ActiveKeys += chEntry.KeyCounts.Active
+		if chEntry.SharedWallet && chEntry.WalletID != "" {
+			if _, seen := seenWallets[chEntry.WalletID]; seen {
+				continue
+			}
+			seenWallets[chEntry.WalletID] = struct{}{}
+			if chEntry.QuotaSummary.Currency == "%" {
+				continue
+			}
+			if chEntry.QuotaSummary.Currency != "" {
+				currencies[chEntry.QuotaSummary.Currency] = struct{}{}
+			}
+			if chEntry.QuotaSummary.TotalRemaining != nil {
+				if chEntry.QuotaSummary.Currency == "" {
+					unclassified = true
+				} else {
+					totalRemaining += *chEntry.QuotaSummary.TotalRemaining
+					haveRemaining = true
+				}
+			}
+			continue
 		}
-		if channel.QuotaSummary.TotalRemaining != nil {
-			totalRemaining += *channel.QuotaSummary.TotalRemaining
-			haveRemaining = true
+		for _, k := range chEntry.Keys {
+			if k == nil || k.Unlimited || k.FreeTier {
+				continue
+			}
+			if k.WalletID != "" {
+				if _, seen := seenWallets[k.WalletID]; seen {
+					continue
+				}
+				seenWallets[k.WalletID] = struct{}{}
+			}
+			if k.Currency == "%" {
+				continue
+			}
+			if k.Currency != "" {
+				currencies[k.Currency] = struct{}{}
+			}
+			if k.Remaining != nil {
+				if k.Currency == "" {
+					unclassified = true
+				} else {
+					totalRemaining += *k.Remaining
+					haveRemaining = true
+				}
+			}
 		}
 	}
-	if len(currencies) == 1 {
+	if len(currencies) == 1 && !unclassified {
 		for currency := range currencies {
 			quota.Currency = currency
 		}
@@ -319,12 +365,19 @@ func buildQuotaExposureChannel(ch *biz.Channel, items []*biz.ChannelAPIKeyInvent
 	}
 
 	currencies := map[string]struct{}{}
+	seenWallets := map[string]struct{}{}
 	var totalRemaining, totalUsed, totalLimit float64
 	var haveRemaining, haveUsed, haveLimit, unclassifiedAmount bool
 	for _, item := range items {
 		key := buildQuotaExposureKey(ch, item, now)
 		if key == nil {
 			continue
+		}
+		if item.SharedWallet {
+			result.SharedWallet = true
+			if result.WalletID == "" && key.WalletID != "" {
+				result.WalletID = key.WalletID
+			}
 		}
 		result.Keys = append(result.Keys, key)
 		result.KeyCounts.Total++
@@ -339,6 +392,23 @@ func buildQuotaExposureChannel(ch *biz.Channel, items []*biz.ChannelAPIKeyInvent
 		}
 		if key.CheckedAt != nil {
 			result.QuotaSummary.CheckedKeys++
+		}
+		// Never sum unlimited sentinels, free-tier placeholders, or rolling percentages.
+		if key.Unlimited || key.FreeTier || key.Currency == "%" {
+			continue
+		}
+		// Skip unobserved members before marking the canonical wallet seen so an
+		// unprobed first key never hides a valid observation on a later key.
+		if key.Remaining == nil && key.Used == nil && key.Limit == nil {
+			continue
+		}
+		// Deduplicate balance amounts by canonical wallet identity so SharedWallet
+		// pools never multiply their balance by N keys.
+		if key.WalletID != "" {
+			if _, seen := seenWallets[key.WalletID]; seen {
+				continue
+			}
+			seenWallets[key.WalletID] = struct{}{}
 		}
 		if key.Currency != "" {
 			currencies[key.Currency] = struct{}{}
@@ -413,13 +483,34 @@ func buildQuotaExposureKey(ch *biz.Channel, item *biz.ChannelAPIKeyInventoryItem
 	}
 
 	remaining, used, limit, ratio, currency := quotaValues(snapshot, item.Currency)
+	if snapshot != nil {
+		if worst, ok := snapshot.WorstUsageRatioAt(now); ok {
+			ratio = floatPtr(clampQuotaRatio(worst))
+		}
+	}
 	checkedAt := item.LastCheckedAt
 	resetAt := (*time.Time)(nil)
+	unlimited := false
+	freeTier := false
+	var windows []objects.ChannelQuotaWindow
 	if snapshot != nil {
 		if !snapshot.CheckedAt.IsZero() {
 			checkedAt = &snapshot.CheckedAt
 		}
 		resetAt = snapshot.ResetAt
+		if snapshot.Unlimited != nil && *snapshot.Unlimited {
+			unlimited = true
+		}
+		if snapshot.FreeTier != nil && *snapshot.FreeTier {
+			freeTier = true
+		}
+		if len(snapshot.Windows) > 0 {
+			windows = append([]objects.ChannelQuotaWindow(nil), snapshot.Windows...)
+		}
+	}
+	walletID := ""
+	if ch != nil && ch.Channel != nil {
+		walletID = biz.QuotaCanonicalWalletID(ch.Channel, id, snapshot)
 	}
 	return &QuotaExposureKey{
 		ID:         id,
@@ -434,8 +525,12 @@ func buildQuotaExposureKey(ch *biz.Channel, item *biz.ChannelAPIKeyInventoryItem
 		Limit:      limit,
 		UsageRatio: ratio,
 		Currency:   currency,
+		Unlimited:  unlimited,
+		FreeTier:   freeTier,
+		WalletID:   walletID,
 		ResetAt:    resetAt,
 		CheckedAt:  checkedAt,
+		Windows:    windows,
 		Components: quotaComponents(snapshot),
 	}
 }
@@ -613,7 +708,7 @@ func containsQuotaSecret(value string, secrets []string) bool {
 func sanitizeQuotaCurrency(value string) string {
 	value = strings.ToUpper(strings.TrimSpace(value))
 	switch value {
-	case "USD", "CNY", "EUR", "GBP", "JPY", "KRW", "CAD", "AUD", "CHF", "CREDITS", "TOKENS", "REQUESTS", "NANO":
+	case "USD", "CNY", "EUR", "GBP", "JPY", "KRW", "CAD", "AUD", "CHF", "CREDITS", "TOKENS", "REQUESTS", "NANO", "%":
 		return value
 	default:
 		return ""

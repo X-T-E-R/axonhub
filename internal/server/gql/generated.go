@@ -71,6 +71,7 @@ type ResolverRoot interface {
 	Channel() ChannelResolver
 	ChannelAPIKeyInventoryItem() ChannelAPIKeyInventoryItemResolver
 	ChannelArchivedAPIKey() ChannelArchivedAPIKeyResolver
+	ChannelBalanceProbe() ChannelBalanceProbeResolver
 	ChannelKeyBalanceSnapshot() ChannelKeyBalanceSnapshotResolver
 	ChannelKeyHealthCheckHistoryEntry() ChannelKeyHealthCheckHistoryEntryResolver
 	ChannelKeyMetadata() ChannelKeyMetadataResolver
@@ -372,6 +373,7 @@ type ComplexityRoot struct {
 		OrderingWeight          func(childComplexity int) int
 		Policies                func(childComplexity int) int
 		ProviderQuotaStatus     func(childComplexity int) int
+		QuotaOverview           func(childComplexity int) int
 		Remark                  func(childComplexity int) int
 		Requests                func(childComplexity int, after *entgql.Cursor[int], first *int, before *entgql.Cursor[int], last *int, orderBy *ent.RequestOrder, where *ent.RequestWhereInput) int
 		Settings                func(childComplexity int) int
@@ -397,14 +399,20 @@ type ComplexityRoot struct {
 		ID                  func(childComplexity int) int
 		InFlight            func(childComplexity int) int
 		LastCheckedAt       func(childComplexity int) int
+		LastProbeAt         func(childComplexity int) int
+		LastProbeError      func(childComplexity int) int
+		LastProbeStatus     func(childComplexity int) int
 		MaskedKey           func(childComplexity int) int
 		MatchedPolicy       func(childComplexity int) int
 		NextCheckAt         func(childComplexity int) int
+		NextProbeAt         func(childComplexity int) int
 		Policy              func(childComplexity int) int
+		ProbeFailureCount   func(childComplexity int) int
 		QuotaRemainingRatio func(childComplexity int) int
 		QuotaResetAt        func(childComplexity int) int
 		RawKey              func(childComplexity int) int
 		Reason              func(childComplexity int) int
+		SharedWallet        func(childComplexity int) int
 		Status              func(childComplexity int) int
 		StatusCode          func(childComplexity int) int
 		Success             func(childComplexity int) int
@@ -431,11 +439,13 @@ type ComplexityRoot struct {
 		Enabled           func(childComplexity int) int
 		Experimental      func(childComplexity int) int
 		HTTP              func(childComplexity int) int
+		HasProbeAPIKey    func(childComplexity int) int
 		IncludeStatuses   func(childComplexity int) int
 		PreferredCurrency func(childComplexity int) int
 		Preset            func(childComplexity int) int
 		PrimarySelection  func(childComplexity int) int
 		Script            func(childComplexity int) int
+		SharedWallet      func(childComplexity int) int
 		TimeoutMs         func(childComplexity int) int
 	}
 
@@ -496,36 +506,58 @@ type ComplexityRoot struct {
 		Mode            func(childComplexity int) int
 	}
 
+	ChannelIDRewriteRule struct {
+		Format    func(childComplexity int) int
+		IfMissing func(childComplexity int) int
+		Op        func(childComplexity int) int
+		Prefix    func(childComplexity int) int
+		Target    func(childComplexity int) int
+		When      func(childComplexity int) int
+	}
+
 	ChannelKeyBalanceSnapshot struct {
 		AccountID      func(childComplexity int) int
 		AccountStatus  func(childComplexity int) int
 		Available      func(childComplexity int) int
 		CheckedAt      func(childComplexity int) int
 		Components     func(childComplexity int) int
+		FreeTier       func(childComplexity int) int
 		Limit          func(childComplexity int) int
+		PlanName       func(childComplexity int) int
 		PrimaryBalance func(childComplexity int) int
 		Provider       func(childComplexity int) int
 		RawSummary     func(childComplexity int) int
 		Remaining      func(childComplexity int) int
 		ResetAt        func(childComplexity int) int
+		Source         func(childComplexity int) int
 		StatusCode     func(childComplexity int) int
 		Success        func(childComplexity int) int
+		Unlimited      func(childComplexity int) int
 		UsageRatio     func(childComplexity int) int
 		Used           func(childComplexity int) int
+		WalletID       func(childComplexity int) int
+		WalletScope    func(childComplexity int) int
+		Windows        func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheck struct {
-		ArchivedKeys     func(childComplexity int) int
-		Enabled          func(childComplexity int) int
-		FailureAction    func(childComplexity int) int
-		FailureThreshold func(childComplexity int) int
-		History          func(childComplexity int) int
-		HistoryLimit     func(childComplexity int) int
-		IncludeDisabled  func(childComplexity int) int
-		IntervalMinutes  func(childComplexity int) int
-		KeyMetadata      func(childComplexity int) int
-		Policies         func(childComplexity int) int
-		Rules            func(childComplexity int) int
+		ArchivedKeys            func(childComplexity int) int
+		Enabled                 func(childComplexity int) int
+		FailureAction           func(childComplexity int) int
+		FailureThreshold        func(childComplexity int) int
+		History                 func(childComplexity int) int
+		HistoryLimit            func(childComplexity int) int
+		IncludeDisabled         func(childComplexity int) int
+		IntervalMinutes         func(childComplexity int) int
+		KeyMetadata             func(childComplexity int) int
+		Policies                func(childComplexity int) int
+		Rules                   func(childComplexity int) int
+		SharedBalanceSnapshot   func(childComplexity int) int
+		SharedNextProbeAt       func(childComplexity int) int
+		SharedProbeAt           func(childComplexity int) int
+		SharedProbeError        func(childComplexity int) int
+		SharedProbeFailureCount func(childComplexity int) int
+		SharedProbeStatus       func(childComplexity int) int
 	}
 
 	ChannelKeyHealthCheckBackoff struct {
@@ -610,23 +642,28 @@ type ComplexityRoot struct {
 	}
 
 	ChannelKeyMetadata struct {
-		Action          func(childComplexity int) int
-		Available       func(childComplexity int) int
-		BackoffAttempt  func(childComplexity int) int
-		Balance         func(childComplexity int) int
-		BalanceSnapshot func(childComplexity int) int
-		Currency        func(childComplexity int) int
-		FailureCount    func(childComplexity int) int
-		History         func(childComplexity int) int
-		ID              func(childComplexity int) int
-		LastCheckedAt   func(childComplexity int) int
-		MaskedKey       func(childComplexity int) int
-		MatchedPolicy   func(childComplexity int) int
-		NextCheckAt     func(childComplexity int) int
-		Reason          func(childComplexity int) int
-		Status          func(childComplexity int) int
-		StatusCode      func(childComplexity int) int
-		Success         func(childComplexity int) int
+		Action            func(childComplexity int) int
+		Available         func(childComplexity int) int
+		BackoffAttempt    func(childComplexity int) int
+		Balance           func(childComplexity int) int
+		BalanceSnapshot   func(childComplexity int) int
+		Currency          func(childComplexity int) int
+		FailureCount      func(childComplexity int) int
+		History           func(childComplexity int) int
+		ID                func(childComplexity int) int
+		LastCheckedAt     func(childComplexity int) int
+		LastProbeAt       func(childComplexity int) int
+		LastProbeError    func(childComplexity int) int
+		LastProbeStatus   func(childComplexity int) int
+		MaskedKey         func(childComplexity int) int
+		MatchedPolicy     func(childComplexity int) int
+		NextCheckAt       func(childComplexity int) int
+		NextProbeAt       func(childComplexity int) int
+		ProbeFailureCount func(childComplexity int) int
+		Reason            func(childComplexity int) int
+		Status            func(childComplexity int) int
+		StatusCode        func(childComplexity int) int
+		Success           func(childComplexity int) int
 	}
 
 	ChannelKeyMonitoringEvent struct {
@@ -826,6 +863,54 @@ type ComplexityRoot struct {
 		OpencodeGo func(childComplexity int) int
 	}
 
+	ChannelQuotaCounts struct {
+		Active     func(childComplexity int) int
+		Exhausted  func(childComplexity int) int
+		FreshKnown func(childComplexity int) int
+		Total      func(childComplexity int) int
+		Unknown    func(childComplexity int) int
+	}
+
+	ChannelQuotaOverview struct {
+		CanRefresh      func(childComplexity int) int
+		CheckedAt       func(childComplexity int) int
+		Counts          func(childComplexity int) int
+		FreeTier        func(childComplexity int) int
+		NextResetAt     func(childComplexity int) int
+		PlanName        func(childComplexity int) int
+		ProbeDiagnostic func(childComplexity int) int
+		SharedWallet    func(childComplexity int) int
+		Source          func(childComplexity int) int
+		State           func(childComplexity int) int
+		Unlimited       func(childComplexity int) int
+		WalletBalance   func(childComplexity int) int
+		WalletID        func(childComplexity int) int
+		WalletLimit     func(childComplexity int) int
+		WalletRemaining func(childComplexity int) int
+		WalletScope     func(childComplexity int) int
+		WalletUnit      func(childComplexity int) int
+		WalletUsed      func(childComplexity int) int
+		Windows         func(childComplexity int) int
+	}
+
+	ChannelQuotaProbeDiagnostic struct {
+		Error       func(childComplexity int) int
+		LastProbeAt func(childComplexity int) int
+		NextProbeAt func(childComplexity int) int
+		Status      func(childComplexity int) int
+	}
+
+	ChannelQuotaWindow struct {
+		Key        func(childComplexity int) int
+		Label      func(childComplexity int) int
+		Limit      func(childComplexity int) int
+		Remaining  func(childComplexity int) int
+		ResetAt    func(childComplexity int) int
+		Unit       func(childComplexity int) int
+		UsageRatio func(childComplexity int) int
+		Used       func(childComplexity int) int
+	}
+
 	ChannelRateLimit struct {
 		MaxConcurrent  func(childComplexity int) int
 		QueueSize      func(childComplexity int) int
@@ -851,6 +936,13 @@ type ComplexityRoot struct {
 		IntervalSeconds func(childComplexity int) int
 	}
 
+	ChannelSessionAffinity struct {
+		Anchors           func(childComplexity int) int
+		ContinuationGuard func(childComplexity int) int
+		Enabled           func(childComplexity int) int
+		TTLSeconds        func(childComplexity int) int
+	}
+
 	ChannelSettings struct {
 		AutoTrimedModelPrefixes    func(childComplexity int) int
 		BalanceProbe               func(childComplexity int) int
@@ -864,6 +956,7 @@ type ComplexityRoot struct {
 		HeaderOverrideOperations   func(childComplexity int) int
 		HideMappedModels           func(childComplexity int) int
 		HideOriginalModels         func(childComplexity int) int
+		IDRewriteRules             func(childComplexity int) int
 		KeyHealthCheck             func(childComplexity int) int
 		KeySelection               func(childComplexity int) int
 		LowercaseModelID           func(childComplexity int) int
@@ -877,6 +970,7 @@ type ComplexityRoot struct {
 		RetryableErrorPatterns     func(childComplexity int) int
 		RetryableStatusCodes       func(childComplexity int) int
 		SSEKeepAlive               func(childComplexity int) int
+		SessionAffinity            func(childComplexity int) int
 		StoreExecutionRequestBody  func(childComplexity int) int
 		StoreExecutionResponseBody func(childComplexity int) int
 		StoreExecutionStreamChunks func(childComplexity int) int
@@ -1365,6 +1459,7 @@ type ComplexityRoot struct {
 		LoadAPIKeyProfileTemplate            func(childComplexity int, input LoadAPIKeyProfileTemplateInput) int
 		PreviewPromptProtectionRule          func(childComplexity int, input PromptProtectionRulePreviewInput) int
 		ProbeOutboundProxy                   func(childComplexity int, id objects.GUID) int
+		RefreshChannelQuota                  func(childComplexity int, channelID objects.GUID, keyIDs []string) int
 		RemoveUserFromProject                func(childComplexity int, input RemoveUserFromProjectInput) int
 		ResetChannelQuotaNow                 func(childComplexity int, channelID objects.GUID) int
 		Restore                              func(childComplexity int, file graphql.Upload, input backup.RestoreOptions) int
@@ -1832,6 +1927,15 @@ type ComplexityRoot struct {
 	ReasoningEffortMapping struct {
 		From func(childComplexity int) int
 		To   func(childComplexity int) int
+	}
+
+	RefreshChannelQuotaPayload struct {
+		DeferredKeys  func(childComplexity int) int
+		Message       func(childComplexity int) int
+		QuotaOverview func(childComplexity int) int
+		RetryAt       func(childComplexity int) int
+		Status        func(childComplexity int) int
+		UpdatedKeys   func(childComplexity int) int
 	}
 
 	RegexAssociation struct {
@@ -2575,6 +2679,7 @@ type ChannelResolver interface {
 	Credentials(ctx context.Context, obj *ent.Channel) (*objects.ChannelCredentials, error)
 	DisabledAPIKeys(ctx context.Context, obj *ent.Channel) ([]*objects.DisabledAPIKey, error)
 	LiveLimiterStats(ctx context.Context, obj *ent.Channel) (*ChannelLimiterStats, error)
+	QuotaOverview(ctx context.Context, obj *ent.Channel) (*biz.ChannelQuotaOverview, error)
 }
 type ChannelAPIKeyInventoryItemResolver interface {
 	RawKey(ctx context.Context, obj *biz.ChannelAPIKeyInventoryItem) (*string, error)
@@ -2583,6 +2688,9 @@ type ChannelAPIKeyInventoryItemResolver interface {
 }
 type ChannelArchivedAPIKeyResolver interface {
 	Balance(ctx context.Context, obj *objects.ChannelArchivedAPIKey) (objects.JSONRawMessage, error)
+}
+type ChannelBalanceProbeResolver interface {
+	HasProbeAPIKey(ctx context.Context, obj *objects.ChannelBalanceProbe) (bool, error)
 }
 type ChannelKeyBalanceSnapshotResolver interface {
 	RawSummary(ctx context.Context, obj *objects.ChannelKeyBalanceSnapshot) (objects.JSONRawMessage, error)
@@ -2669,6 +2777,7 @@ type MutationResolver interface {
 	ArchiveChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string, reason *string) (bool, error)
 	RestoreChannelAPIKey(ctx context.Context, channelID objects.GUID, keyID string) (bool, error)
 	RunChannelAPIKeyHealthCheck(ctx context.Context, channelID objects.GUID, keyIDs []string, mode *objects.ChannelAPIKeyHealthCheckMode) ([]*biz.ChannelAPIKeyInventoryItem, error)
+	RefreshChannelQuota(ctx context.Context, channelID objects.GUID, keyIDs []string) (*biz.RefreshChannelQuotaPayload, error)
 	CreateAPIKey(ctx context.Context, input ent.CreateAPIKeyInput) (*ent.APIKey, error)
 	UpdateAPIKey(ctx context.Context, id objects.GUID, input ent.UpdateAPIKeyInput) (*ent.APIKey, error)
 	UpdateAPIKeyStatus(ctx context.Context, id objects.GUID, status apikey.Status) (*ent.APIKey, error)
@@ -4042,6 +4151,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Channel.ProviderQuotaStatus(childComplexity), true
+	case "Channel.quotaOverview":
+		if e.complexity.Channel.QuotaOverview == nil {
+			break
+		}
+
+		return e.complexity.Channel.QuotaOverview(childComplexity), true
 	case "Channel.remark":
 		if e.complexity.Channel.Remark == nil {
 			break
@@ -4185,6 +4300,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.LastCheckedAt(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.lastProbeAt":
+		if e.complexity.ChannelAPIKeyInventoryItem.LastProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.LastProbeAt(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.lastProbeError":
+		if e.complexity.ChannelAPIKeyInventoryItem.LastProbeError == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.LastProbeError(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.lastProbeStatus":
+		if e.complexity.ChannelAPIKeyInventoryItem.LastProbeStatus == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.LastProbeStatus(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.maskedKey":
 		if e.complexity.ChannelAPIKeyInventoryItem.MaskedKey == nil {
 			break
@@ -4203,12 +4336,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.NextCheckAt(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.nextProbeAt":
+		if e.complexity.ChannelAPIKeyInventoryItem.NextProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.NextProbeAt(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.policy":
 		if e.complexity.ChannelAPIKeyInventoryItem.Policy == nil {
 			break
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.Policy(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.probeFailureCount":
+		if e.complexity.ChannelAPIKeyInventoryItem.ProbeFailureCount == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.ProbeFailureCount(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.quotaRemainingRatio":
 		if e.complexity.ChannelAPIKeyInventoryItem.QuotaRemainingRatio == nil {
 			break
@@ -4233,6 +4378,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelAPIKeyInventoryItem.Reason(childComplexity), true
+	case "ChannelAPIKeyInventoryItem.sharedWallet":
+		if e.complexity.ChannelAPIKeyInventoryItem.SharedWallet == nil {
+			break
+		}
+
+		return e.complexity.ChannelAPIKeyInventoryItem.SharedWallet(childComplexity), true
 	case "ChannelAPIKeyInventoryItem.status":
 		if e.complexity.ChannelAPIKeyInventoryItem.Status == nil {
 			break
@@ -4338,6 +4489,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelBalanceProbe.HTTP(childComplexity), true
+	case "ChannelBalanceProbe.hasProbeAPIKey":
+		if e.complexity.ChannelBalanceProbe.HasProbeAPIKey == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.HasProbeAPIKey(childComplexity), true
 	case "ChannelBalanceProbe.includeStatuses":
 		if e.complexity.ChannelBalanceProbe.IncludeStatuses == nil {
 			break
@@ -4368,6 +4525,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelBalanceProbe.Script(childComplexity), true
+	case "ChannelBalanceProbe.sharedWallet":
+		if e.complexity.ChannelBalanceProbe.SharedWallet == nil {
+			break
+		}
+
+		return e.complexity.ChannelBalanceProbe.SharedWallet(childComplexity), true
 	case "ChannelBalanceProbe.timeoutMs":
 		if e.complexity.ChannelBalanceProbe.TimeoutMs == nil {
 			break
@@ -4581,6 +4744,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelFailurePolicy.Mode(childComplexity), true
 
+	case "ChannelIDRewriteRule.format":
+		if e.complexity.ChannelIDRewriteRule.Format == nil {
+			break
+		}
+
+		return e.complexity.ChannelIDRewriteRule.Format(childComplexity), true
+	case "ChannelIDRewriteRule.ifMissing":
+		if e.complexity.ChannelIDRewriteRule.IfMissing == nil {
+			break
+		}
+
+		return e.complexity.ChannelIDRewriteRule.IfMissing(childComplexity), true
+	case "ChannelIDRewriteRule.op":
+		if e.complexity.ChannelIDRewriteRule.Op == nil {
+			break
+		}
+
+		return e.complexity.ChannelIDRewriteRule.Op(childComplexity), true
+	case "ChannelIDRewriteRule.prefix":
+		if e.complexity.ChannelIDRewriteRule.Prefix == nil {
+			break
+		}
+
+		return e.complexity.ChannelIDRewriteRule.Prefix(childComplexity), true
+	case "ChannelIDRewriteRule.target":
+		if e.complexity.ChannelIDRewriteRule.Target == nil {
+			break
+		}
+
+		return e.complexity.ChannelIDRewriteRule.Target(childComplexity), true
+	case "ChannelIDRewriteRule.when":
+		if e.complexity.ChannelIDRewriteRule.When == nil {
+			break
+		}
+
+		return e.complexity.ChannelIDRewriteRule.When(childComplexity), true
+
 	case "ChannelKeyBalanceSnapshot.accountId":
 		if e.complexity.ChannelKeyBalanceSnapshot.AccountID == nil {
 			break
@@ -4611,12 +4811,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.Components(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.freeTier":
+		if e.complexity.ChannelKeyBalanceSnapshot.FreeTier == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.FreeTier(childComplexity), true
 	case "ChannelKeyBalanceSnapshot.limit":
 		if e.complexity.ChannelKeyBalanceSnapshot.Limit == nil {
 			break
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.Limit(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.planName":
+		if e.complexity.ChannelKeyBalanceSnapshot.PlanName == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.PlanName(childComplexity), true
 	case "ChannelKeyBalanceSnapshot.primaryBalance":
 		if e.complexity.ChannelKeyBalanceSnapshot.PrimaryBalance == nil {
 			break
@@ -4647,6 +4859,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.ResetAt(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.source":
+		if e.complexity.ChannelKeyBalanceSnapshot.Source == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Source(childComplexity), true
 	case "ChannelKeyBalanceSnapshot.statusCode":
 		if e.complexity.ChannelKeyBalanceSnapshot.StatusCode == nil {
 			break
@@ -4659,6 +4877,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.Success(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.unlimited":
+		if e.complexity.ChannelKeyBalanceSnapshot.Unlimited == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Unlimited(childComplexity), true
 	case "ChannelKeyBalanceSnapshot.usageRatio":
 		if e.complexity.ChannelKeyBalanceSnapshot.UsageRatio == nil {
 			break
@@ -4671,6 +4895,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyBalanceSnapshot.Used(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.walletId":
+		if e.complexity.ChannelKeyBalanceSnapshot.WalletID == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.WalletID(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.walletScope":
+		if e.complexity.ChannelKeyBalanceSnapshot.WalletScope == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.WalletScope(childComplexity), true
+	case "ChannelKeyBalanceSnapshot.windows":
+		if e.complexity.ChannelKeyBalanceSnapshot.Windows == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyBalanceSnapshot.Windows(childComplexity), true
 
 	case "ChannelKeyHealthCheck.archivedKeys":
 		if e.complexity.ChannelKeyHealthCheck.ArchivedKeys == nil {
@@ -4738,6 +4980,42 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyHealthCheck.Rules(childComplexity), true
+	case "ChannelKeyHealthCheck.sharedBalanceSnapshot":
+		if e.complexity.ChannelKeyHealthCheck.SharedBalanceSnapshot == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.SharedBalanceSnapshot(childComplexity), true
+	case "ChannelKeyHealthCheck.sharedNextProbeAt":
+		if e.complexity.ChannelKeyHealthCheck.SharedNextProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.SharedNextProbeAt(childComplexity), true
+	case "ChannelKeyHealthCheck.sharedProbeAt":
+		if e.complexity.ChannelKeyHealthCheck.SharedProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.SharedProbeAt(childComplexity), true
+	case "ChannelKeyHealthCheck.sharedProbeError":
+		if e.complexity.ChannelKeyHealthCheck.SharedProbeError == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.SharedProbeError(childComplexity), true
+	case "ChannelKeyHealthCheck.sharedProbeFailureCount":
+		if e.complexity.ChannelKeyHealthCheck.SharedProbeFailureCount == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.SharedProbeFailureCount(childComplexity), true
+	case "ChannelKeyHealthCheck.sharedProbeStatus":
+		if e.complexity.ChannelKeyHealthCheck.SharedProbeStatus == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyHealthCheck.SharedProbeStatus(childComplexity), true
 
 	case "ChannelKeyHealthCheckBackoff.intervalMinutes":
 		if e.complexity.ChannelKeyHealthCheckBackoff.IntervalMinutes == nil {
@@ -5132,6 +5410,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyMetadata.LastCheckedAt(childComplexity), true
+	case "ChannelKeyMetadata.lastProbeAt":
+		if e.complexity.ChannelKeyMetadata.LastProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.LastProbeAt(childComplexity), true
+	case "ChannelKeyMetadata.lastProbeError":
+		if e.complexity.ChannelKeyMetadata.LastProbeError == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.LastProbeError(childComplexity), true
+	case "ChannelKeyMetadata.lastProbeStatus":
+		if e.complexity.ChannelKeyMetadata.LastProbeStatus == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.LastProbeStatus(childComplexity), true
 	case "ChannelKeyMetadata.maskedKey":
 		if e.complexity.ChannelKeyMetadata.MaskedKey == nil {
 			break
@@ -5150,6 +5446,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelKeyMetadata.NextCheckAt(childComplexity), true
+	case "ChannelKeyMetadata.nextProbeAt":
+		if e.complexity.ChannelKeyMetadata.NextProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.NextProbeAt(childComplexity), true
+	case "ChannelKeyMetadata.probeFailureCount":
+		if e.complexity.ChannelKeyMetadata.ProbeFailureCount == nil {
+			break
+		}
+
+		return e.complexity.ChannelKeyMetadata.ProbeFailureCount(childComplexity), true
 	case "ChannelKeyMetadata.reason":
 		if e.complexity.ChannelKeyMetadata.Reason == nil {
 			break
@@ -5932,6 +6240,226 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelProviderQuotaSettings.OpencodeGo(childComplexity), true
 
+	case "ChannelQuotaCounts.active":
+		if e.complexity.ChannelQuotaCounts.Active == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaCounts.Active(childComplexity), true
+	case "ChannelQuotaCounts.exhausted":
+		if e.complexity.ChannelQuotaCounts.Exhausted == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaCounts.Exhausted(childComplexity), true
+	case "ChannelQuotaCounts.freshKnown":
+		if e.complexity.ChannelQuotaCounts.FreshKnown == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaCounts.FreshKnown(childComplexity), true
+	case "ChannelQuotaCounts.total":
+		if e.complexity.ChannelQuotaCounts.Total == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaCounts.Total(childComplexity), true
+	case "ChannelQuotaCounts.unknown":
+		if e.complexity.ChannelQuotaCounts.Unknown == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaCounts.Unknown(childComplexity), true
+
+	case "ChannelQuotaOverview.canRefresh":
+		if e.complexity.ChannelQuotaOverview.CanRefresh == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.CanRefresh(childComplexity), true
+	case "ChannelQuotaOverview.checkedAt":
+		if e.complexity.ChannelQuotaOverview.CheckedAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.CheckedAt(childComplexity), true
+	case "ChannelQuotaOverview.counts":
+		if e.complexity.ChannelQuotaOverview.Counts == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.Counts(childComplexity), true
+	case "ChannelQuotaOverview.freeTier":
+		if e.complexity.ChannelQuotaOverview.FreeTier == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.FreeTier(childComplexity), true
+	case "ChannelQuotaOverview.nextResetAt":
+		if e.complexity.ChannelQuotaOverview.NextResetAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.NextResetAt(childComplexity), true
+	case "ChannelQuotaOverview.planName":
+		if e.complexity.ChannelQuotaOverview.PlanName == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.PlanName(childComplexity), true
+	case "ChannelQuotaOverview.probeDiagnostic":
+		if e.complexity.ChannelQuotaOverview.ProbeDiagnostic == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.ProbeDiagnostic(childComplexity), true
+	case "ChannelQuotaOverview.sharedWallet":
+		if e.complexity.ChannelQuotaOverview.SharedWallet == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.SharedWallet(childComplexity), true
+	case "ChannelQuotaOverview.source":
+		if e.complexity.ChannelQuotaOverview.Source == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.Source(childComplexity), true
+	case "ChannelQuotaOverview.state":
+		if e.complexity.ChannelQuotaOverview.State == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.State(childComplexity), true
+	case "ChannelQuotaOverview.unlimited":
+		if e.complexity.ChannelQuotaOverview.Unlimited == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.Unlimited(childComplexity), true
+	case "ChannelQuotaOverview.walletBalance":
+		if e.complexity.ChannelQuotaOverview.WalletBalance == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.WalletBalance(childComplexity), true
+	case "ChannelQuotaOverview.walletId":
+		if e.complexity.ChannelQuotaOverview.WalletID == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.WalletID(childComplexity), true
+	case "ChannelQuotaOverview.walletLimit":
+		if e.complexity.ChannelQuotaOverview.WalletLimit == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.WalletLimit(childComplexity), true
+	case "ChannelQuotaOverview.walletRemaining":
+		if e.complexity.ChannelQuotaOverview.WalletRemaining == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.WalletRemaining(childComplexity), true
+	case "ChannelQuotaOverview.walletScope":
+		if e.complexity.ChannelQuotaOverview.WalletScope == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.WalletScope(childComplexity), true
+	case "ChannelQuotaOverview.walletUnit":
+		if e.complexity.ChannelQuotaOverview.WalletUnit == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.WalletUnit(childComplexity), true
+	case "ChannelQuotaOverview.walletUsed":
+		if e.complexity.ChannelQuotaOverview.WalletUsed == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.WalletUsed(childComplexity), true
+	case "ChannelQuotaOverview.windows":
+		if e.complexity.ChannelQuotaOverview.Windows == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaOverview.Windows(childComplexity), true
+
+	case "ChannelQuotaProbeDiagnostic.error":
+		if e.complexity.ChannelQuotaProbeDiagnostic.Error == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaProbeDiagnostic.Error(childComplexity), true
+	case "ChannelQuotaProbeDiagnostic.lastProbeAt":
+		if e.complexity.ChannelQuotaProbeDiagnostic.LastProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaProbeDiagnostic.LastProbeAt(childComplexity), true
+	case "ChannelQuotaProbeDiagnostic.nextProbeAt":
+		if e.complexity.ChannelQuotaProbeDiagnostic.NextProbeAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaProbeDiagnostic.NextProbeAt(childComplexity), true
+	case "ChannelQuotaProbeDiagnostic.status":
+		if e.complexity.ChannelQuotaProbeDiagnostic.Status == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaProbeDiagnostic.Status(childComplexity), true
+
+	case "ChannelQuotaWindow.key":
+		if e.complexity.ChannelQuotaWindow.Key == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.Key(childComplexity), true
+	case "ChannelQuotaWindow.label":
+		if e.complexity.ChannelQuotaWindow.Label == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.Label(childComplexity), true
+	case "ChannelQuotaWindow.limit":
+		if e.complexity.ChannelQuotaWindow.Limit == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.Limit(childComplexity), true
+	case "ChannelQuotaWindow.remaining":
+		if e.complexity.ChannelQuotaWindow.Remaining == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.Remaining(childComplexity), true
+	case "ChannelQuotaWindow.resetAt":
+		if e.complexity.ChannelQuotaWindow.ResetAt == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.ResetAt(childComplexity), true
+	case "ChannelQuotaWindow.unit":
+		if e.complexity.ChannelQuotaWindow.Unit == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.Unit(childComplexity), true
+	case "ChannelQuotaWindow.usageRatio":
+		if e.complexity.ChannelQuotaWindow.UsageRatio == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.UsageRatio(childComplexity), true
+	case "ChannelQuotaWindow.used":
+		if e.complexity.ChannelQuotaWindow.Used == nil {
+			break
+		}
+
+		return e.complexity.ChannelQuotaWindow.Used(childComplexity), true
+
 	case "ChannelRateLimit.maxConcurrent":
 		if e.complexity.ChannelRateLimit.MaxConcurrent == nil {
 			break
@@ -6014,6 +6542,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ChannelSSEKeepAlive.IntervalSeconds(childComplexity), true
 
+	case "ChannelSessionAffinity.anchors":
+		if e.complexity.ChannelSessionAffinity.Anchors == nil {
+			break
+		}
+
+		return e.complexity.ChannelSessionAffinity.Anchors(childComplexity), true
+	case "ChannelSessionAffinity.continuationGuard":
+		if e.complexity.ChannelSessionAffinity.ContinuationGuard == nil {
+			break
+		}
+
+		return e.complexity.ChannelSessionAffinity.ContinuationGuard(childComplexity), true
+	case "ChannelSessionAffinity.enabled":
+		if e.complexity.ChannelSessionAffinity.Enabled == nil {
+			break
+		}
+
+		return e.complexity.ChannelSessionAffinity.Enabled(childComplexity), true
+	case "ChannelSessionAffinity.ttlSeconds":
+		if e.complexity.ChannelSessionAffinity.TTLSeconds == nil {
+			break
+		}
+
+		return e.complexity.ChannelSessionAffinity.TTLSeconds(childComplexity), true
+
 	case "ChannelSettings.autoTrimedModelPrefixes":
 		if e.complexity.ChannelSettings.AutoTrimedModelPrefixes == nil {
 			break
@@ -6086,6 +6639,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.HideOriginalModels(childComplexity), true
+	case "ChannelSettings.idRewriteRules":
+		if e.complexity.ChannelSettings.IDRewriteRules == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.IDRewriteRules(childComplexity), true
 	case "ChannelSettings.keyHealthCheck":
 		if e.complexity.ChannelSettings.KeyHealthCheck == nil {
 			break
@@ -6164,6 +6723,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ChannelSettings.SSEKeepAlive(childComplexity), true
+	case "ChannelSettings.sessionAffinity":
+		if e.complexity.ChannelSettings.SessionAffinity == nil {
+			break
+		}
+
+		return e.complexity.ChannelSettings.SessionAffinity(childComplexity), true
 	case "ChannelSettings.storeExecutionRequestBody":
 		if e.complexity.ChannelSettings.StoreExecutionRequestBody == nil {
 			break
@@ -8410,6 +8975,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.ProbeOutboundProxy(childComplexity, args["id"].(objects.GUID)), true
+	case "Mutation.refreshChannelQuota":
+		if e.complexity.Mutation.RefreshChannelQuota == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_refreshChannelQuota_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.RefreshChannelQuota(childComplexity, args["channelID"].(objects.GUID), args["keyIDs"].([]string)), true
 	case "Mutation.removeUserFromProject":
 		if e.complexity.Mutation.RemoveUserFromProject == nil {
 			break
@@ -11140,6 +11716,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ReasoningEffortMapping.To(childComplexity), true
+
+	case "RefreshChannelQuotaPayload.deferredKeys":
+		if e.complexity.RefreshChannelQuotaPayload.DeferredKeys == nil {
+			break
+		}
+
+		return e.complexity.RefreshChannelQuotaPayload.DeferredKeys(childComplexity), true
+	case "RefreshChannelQuotaPayload.message":
+		if e.complexity.RefreshChannelQuotaPayload.Message == nil {
+			break
+		}
+
+		return e.complexity.RefreshChannelQuotaPayload.Message(childComplexity), true
+	case "RefreshChannelQuotaPayload.quotaOverview":
+		if e.complexity.RefreshChannelQuotaPayload.QuotaOverview == nil {
+			break
+		}
+
+		return e.complexity.RefreshChannelQuotaPayload.QuotaOverview(childComplexity), true
+	case "RefreshChannelQuotaPayload.retryAt":
+		if e.complexity.RefreshChannelQuotaPayload.RetryAt == nil {
+			break
+		}
+
+		return e.complexity.RefreshChannelQuotaPayload.RetryAt(childComplexity), true
+	case "RefreshChannelQuotaPayload.status":
+		if e.complexity.RefreshChannelQuotaPayload.Status == nil {
+			break
+		}
+
+		return e.complexity.RefreshChannelQuotaPayload.Status(childComplexity), true
+	case "RefreshChannelQuotaPayload.updatedKeys":
+		if e.complexity.RefreshChannelQuotaPayload.UpdatedKeys == nil {
+			break
+		}
+
+		return e.complexity.RefreshChannelQuotaPayload.UpdatedKeys(childComplexity), true
 
 	case "RegexAssociation.exclude":
 		if e.complexity.RegexAssociation.Exclude == nil {
@@ -14038,6 +14651,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputChannelCredentialsInput,
 		ec.unmarshalInputChannelEndpointInput,
 		ec.unmarshalInputChannelFailurePolicyInput,
+		ec.unmarshalInputChannelIDRewriteRuleInput,
 		ec.unmarshalInputChannelKeyBalanceSnapshotInput,
 		ec.unmarshalInputChannelKeyHealthCheckBackoffInput,
 		ec.unmarshalInputChannelKeyHealthCheckBuiltinInput,
@@ -14065,10 +14679,12 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputChannelPoliciesInput,
 		ec.unmarshalInputChannelProbeWhereInput,
 		ec.unmarshalInputChannelProviderQuotaSettingsInput,
+		ec.unmarshalInputChannelQuotaWindowInput,
 		ec.unmarshalInputChannelRateLimitInput,
 		ec.unmarshalInputChannelRawHTTPInput,
 		ec.unmarshalInputChannelRegexAssociationInput,
 		ec.unmarshalInputChannelSSEKeepAliveInput,
+		ec.unmarshalInputChannelSessionAffinityInput,
 		ec.unmarshalInputChannelSettingsInput,
 		ec.unmarshalInputChannelTagsModelAssociationInput,
 		ec.unmarshalInputChannelTagsRegexAssociationInput,
@@ -15437,6 +16053,22 @@ func (ec *executionContext) field_Mutation_probeOutboundProxy_args(ctx context.C
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_refreshChannelQuota_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "channelID", ec.unmarshalNID2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐGUID)
+	if err != nil {
+		return nil, err
+	}
+	args["channelID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "keyIDs", ec.unmarshalOString2ᚕstringᚄ)
+	if err != nil {
+		return nil, err
+	}
+	args["keyIDs"] = arg1
 	return args, nil
 }
 
@@ -21320,6 +21952,8 @@ func (ec *executionContext) fieldContext_ApplyChannelOverrideTemplatePayload_cha
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -22500,6 +23134,8 @@ func (ec *executionContext) fieldContext_BulkImportChannelsResult_channels(_ con
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -22653,6 +23289,8 @@ func (ec *executionContext) fieldContext_BulkUpdateChannelOrderingResult_channel
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -23160,6 +23798,10 @@ func (ec *executionContext) fieldContext_Channel_settings(_ context.Context, fie
 				return ec.fieldContext_ChannelSettings_balanceProbe(ctx, field)
 			case "failurePolicy":
 				return ec.fieldContext_ChannelSettings_failurePolicy(ctx, field)
+			case "sessionAffinity":
+				return ec.fieldContext_ChannelSettings_sessionAffinity(ctx, field)
+			case "idRewriteRules":
+				return ec.fieldContext_ChannelSettings_idRewriteRules(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelSettings", field.Name)
 		},
@@ -23860,6 +24502,75 @@ func (ec *executionContext) fieldContext_Channel_liveLimiterStats(_ context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Channel_quotaOverview(ctx context.Context, field graphql.CollectedField, obj *ent.Channel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Channel_quotaOverview,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Channel().QuotaOverview(ctx, obj)
+		},
+		nil,
+		ec.marshalOChannelQuotaOverview2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaOverview,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Channel_quotaOverview(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Channel",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "counts":
+				return ec.fieldContext_ChannelQuotaOverview_counts(ctx, field)
+			case "state":
+				return ec.fieldContext_ChannelQuotaOverview_state(ctx, field)
+			case "windows":
+				return ec.fieldContext_ChannelQuotaOverview_windows(ctx, field)
+			case "walletBalance":
+				return ec.fieldContext_ChannelQuotaOverview_walletBalance(ctx, field)
+			case "walletLimit":
+				return ec.fieldContext_ChannelQuotaOverview_walletLimit(ctx, field)
+			case "walletUsed":
+				return ec.fieldContext_ChannelQuotaOverview_walletUsed(ctx, field)
+			case "walletRemaining":
+				return ec.fieldContext_ChannelQuotaOverview_walletRemaining(ctx, field)
+			case "walletUnit":
+				return ec.fieldContext_ChannelQuotaOverview_walletUnit(ctx, field)
+			case "planName":
+				return ec.fieldContext_ChannelQuotaOverview_planName(ctx, field)
+			case "unlimited":
+				return ec.fieldContext_ChannelQuotaOverview_unlimited(ctx, field)
+			case "freeTier":
+				return ec.fieldContext_ChannelQuotaOverview_freeTier(ctx, field)
+			case "sharedWallet":
+				return ec.fieldContext_ChannelQuotaOverview_sharedWallet(ctx, field)
+			case "walletScope":
+				return ec.fieldContext_ChannelQuotaOverview_walletScope(ctx, field)
+			case "walletId":
+				return ec.fieldContext_ChannelQuotaOverview_walletId(ctx, field)
+			case "nextResetAt":
+				return ec.fieldContext_ChannelQuotaOverview_nextResetAt(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelQuotaOverview_checkedAt(ctx, field)
+			case "source":
+				return ec.fieldContext_ChannelQuotaOverview_source(ctx, field)
+			case "canRefresh":
+				return ec.fieldContext_ChannelQuotaOverview_canRefresh(ctx, field)
+			case "probeDiagnostic":
+				return ec.fieldContext_ChannelQuotaOverview_probeDiagnostic(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelQuotaOverview", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelAPIKeyInventoryItem_id(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24386,6 +25097,8 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_balanceSnaps
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "source":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_source(ctx, field)
 			case "checkedAt":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
 			case "success":
@@ -24398,14 +25111,200 @@ func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_balanceSnaps
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
 			case "accountId":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "planName":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_planName(ctx, field)
+			case "unlimited":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_unlimited(ctx, field)
+			case "freeTier":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_freeTier(ctx, field)
+			case "walletScope":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletScope(ctx, field)
+			case "walletId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletId(ctx, field)
 			case "primaryBalance":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
 			case "components":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "windows":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_windows(ctx, field)
 			case "rawSummary":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyBalanceSnapshot", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_lastProbeAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LastProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_lastProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_lastProbeStatus(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeStatus,
+		func(ctx context.Context) (any, error) {
+			return obj.LastProbeStatus, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_lastProbeStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_lastProbeError(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeError,
+		func(ctx context.Context) (any, error) {
+			return obj.LastProbeError, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_lastProbeError(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_nextProbeAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_nextProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.NextProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_nextProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_probeFailureCount(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_probeFailureCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ProbeFailureCount, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_probeFailureCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelAPIKeyInventoryItem_sharedWallet(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelAPIKeyInventoryItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelAPIKeyInventoryItem_sharedWallet,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedWallet, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelAPIKeyInventoryItem_sharedWallet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelAPIKeyInventoryItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -24943,6 +25842,8 @@ func (ec *executionContext) fieldContext_ChannelArchivedAPIKey_balanceSnapshot(_
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "source":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_source(ctx, field)
 			case "checkedAt":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
 			case "success":
@@ -24955,10 +25856,22 @@ func (ec *executionContext) fieldContext_ChannelArchivedAPIKey_balanceSnapshot(_
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
 			case "accountId":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "planName":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_planName(ctx, field)
+			case "unlimited":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_unlimited(ctx, field)
+			case "freeTier":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_freeTier(ctx, field)
+			case "walletScope":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletScope(ctx, field)
+			case "walletId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletId(ctx, field)
 			case "primaryBalance":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
 			case "components":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "windows":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_windows(ctx, field)
 			case "rawSummary":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
 			}
@@ -25232,6 +26145,64 @@ func (ec *executionContext) fieldContext_ChannelBalanceProbe_timeoutMs(_ context
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_sharedWallet(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_sharedWallet,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedWallet, nil
+		},
+		nil,
+		ec.marshalOBoolean2bool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_sharedWallet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelBalanceProbe_hasProbeAPIKey(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelBalanceProbe) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelBalanceProbe_hasProbeAPIKey,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ChannelBalanceProbe().HasProbeAPIKey(ctx, obj)
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelBalanceProbe_hasProbeAPIKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelBalanceProbe",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -26062,6 +27033,8 @@ func (ec *executionContext) fieldContext_ChannelEdge_node(_ context.Context, fie
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -26391,6 +27364,180 @@ func (ec *executionContext) fieldContext_ChannelFailurePolicy_channelProfiles(_ 
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelIDRewriteRule_target(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelIDRewriteRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelIDRewriteRule_target,
+		func(ctx context.Context) (any, error) {
+			return obj.Target, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelIDRewriteRule_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelIDRewriteRule",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelIDRewriteRule_op(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelIDRewriteRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelIDRewriteRule_op,
+		func(ctx context.Context) (any, error) {
+			return obj.Op, nil
+		},
+		nil,
+		ec.marshalNChannelIDRewriteOp2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteOp,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelIDRewriteRule_op(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelIDRewriteRule",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelIDRewriteOp does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelIDRewriteRule_when(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelIDRewriteRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelIDRewriteRule_when,
+		func(ctx context.Context) (any, error) {
+			return obj.When, nil
+		},
+		nil,
+		ec.marshalOChannelIDRewriteWhen2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteWhen,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelIDRewriteRule_when(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelIDRewriteRule",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelIDRewriteWhen does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelIDRewriteRule_format(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelIDRewriteRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelIDRewriteRule_format,
+		func(ctx context.Context) (any, error) {
+			return obj.Format, nil
+		},
+		nil,
+		ec.marshalOChannelIDRewriteFormat2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteFormat,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelIDRewriteRule_format(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelIDRewriteRule",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelIDRewriteFormat does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelIDRewriteRule_prefix(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelIDRewriteRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelIDRewriteRule_prefix,
+		func(ctx context.Context) (any, error) {
+			return obj.Prefix, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelIDRewriteRule_prefix(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelIDRewriteRule",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelIDRewriteRule_ifMissing(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelIDRewriteRule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelIDRewriteRule_ifMissing,
+		func(ctx context.Context) (any, error) {
+			return obj.IfMissing, nil
+		},
+		nil,
+		ec.marshalOChannelIDRewriteIfMissing2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteIfMissing,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelIDRewriteRule_ifMissing(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelIDRewriteRule",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelIDRewriteIfMissing does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyBalanceSnapshot_used(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -26553,6 +27700,35 @@ func (ec *executionContext) _ChannelKeyBalanceSnapshot_provider(ctx context.Cont
 }
 
 func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_provider(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_source(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_source,
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelKeyBalanceSnapshot",
 		Field:      field,
@@ -26739,6 +27915,151 @@ func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_accountId(_ c
 	return fc, nil
 }
 
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_planName(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_planName,
+		func(ctx context.Context) (any, error) {
+			return obj.PlanName, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_planName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_unlimited(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_unlimited,
+		func(ctx context.Context) (any, error) {
+			return obj.Unlimited, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_unlimited(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_freeTier(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_freeTier,
+		func(ctx context.Context) (any, error) {
+			return obj.FreeTier, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_freeTier(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_walletScope(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_walletScope,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletScope, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_walletScope(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_walletId(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_walletId,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletID, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_walletId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ChannelKeyBalanceSnapshot_primaryBalance(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -26816,6 +28137,53 @@ func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_components(_ 
 				return ec.fieldContext_BalanceAmount_expiresAt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BalanceAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyBalanceSnapshot_windows(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyBalanceSnapshot) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyBalanceSnapshot_windows,
+		func(ctx context.Context) (any, error) {
+			return obj.Windows, nil
+		},
+		nil,
+		ec.marshalOChannelQuotaWindow2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindowᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyBalanceSnapshot_windows(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyBalanceSnapshot",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "key":
+				return ec.fieldContext_ChannelQuotaWindow_key(ctx, field)
+			case "label":
+				return ec.fieldContext_ChannelQuotaWindow_label(ctx, field)
+			case "used":
+				return ec.fieldContext_ChannelQuotaWindow_used(ctx, field)
+			case "limit":
+				return ec.fieldContext_ChannelQuotaWindow_limit(ctx, field)
+			case "remaining":
+				return ec.fieldContext_ChannelQuotaWindow_remaining(ctx, field)
+			case "usageRatio":
+				return ec.fieldContext_ChannelQuotaWindow_usageRatio(ctx, field)
+			case "unit":
+				return ec.fieldContext_ChannelQuotaWindow_unit(ctx, field)
+			case "resetAt":
+				return ec.fieldContext_ChannelQuotaWindow_resetAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelQuotaWindow", field.Name)
 		},
 	}
 	return fc, nil
@@ -27152,6 +28520,16 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_keyMetadata(_ con
 				return ec.fieldContext_ChannelKeyMetadata_currency(ctx, field)
 			case "balanceSnapshot":
 				return ec.fieldContext_ChannelKeyMetadata_balanceSnapshot(ctx, field)
+			case "lastProbeAt":
+				return ec.fieldContext_ChannelKeyMetadata_lastProbeAt(ctx, field)
+			case "lastProbeStatus":
+				return ec.fieldContext_ChannelKeyMetadata_lastProbeStatus(ctx, field)
+			case "lastProbeError":
+				return ec.fieldContext_ChannelKeyMetadata_lastProbeError(ctx, field)
+			case "nextProbeAt":
+				return ec.fieldContext_ChannelKeyMetadata_nextProbeAt(ctx, field)
+			case "probeFailureCount":
+				return ec.fieldContext_ChannelKeyMetadata_probeFailureCount(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelKeyMetadata_available(ctx, field)
 			case "statusCode":
@@ -27280,6 +28658,226 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_history(_ context
 				return ec.fieldContext_ChannelKeyHealthCheckHistoryEntry_backoffAttempt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheckHistoryEntry", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheck_sharedBalanceSnapshot(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_sharedBalanceSnapshot,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedBalanceSnapshot, nil
+		},
+		nil,
+		ec.marshalOChannelKeyBalanceSnapshot2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyBalanceSnapshot,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_sharedBalanceSnapshot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "used":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_used(ctx, field)
+			case "limit":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_limit(ctx, field)
+			case "remaining":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_remaining(ctx, field)
+			case "usageRatio":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_usageRatio(ctx, field)
+			case "resetAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
+			case "provider":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "source":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_source(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
+			case "success":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_success(ctx, field)
+			case "available":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_available(ctx, field)
+			case "statusCode":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_statusCode(ctx, field)
+			case "accountStatus":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
+			case "accountId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "planName":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_planName(ctx, field)
+			case "unlimited":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_unlimited(ctx, field)
+			case "freeTier":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_freeTier(ctx, field)
+			case "walletScope":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletScope(ctx, field)
+			case "walletId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletId(ctx, field)
+			case "primaryBalance":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
+			case "components":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "windows":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_windows(ctx, field)
+			case "rawSummary":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyBalanceSnapshot", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheck_sharedProbeAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_sharedProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_sharedProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheck_sharedProbeStatus(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_sharedProbeStatus,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedProbeStatus, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_sharedProbeStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheck_sharedProbeError(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_sharedProbeError,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedProbeError, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_sharedProbeError(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheck_sharedNextProbeAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_sharedNextProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedNextProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_sharedNextProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyHealthCheck_sharedProbeFailureCount(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyHealthCheck) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyHealthCheck_sharedProbeFailureCount,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedProbeFailureCount, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyHealthCheck_sharedProbeFailureCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyHealthCheck",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -27913,6 +29511,8 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_balan
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "source":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_source(ctx, field)
 			case "checkedAt":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
 			case "success":
@@ -27925,10 +29525,22 @@ func (ec *executionContext) fieldContext_ChannelKeyHealthCheckHistoryEntry_balan
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
 			case "accountId":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "planName":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_planName(ctx, field)
+			case "unlimited":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_unlimited(ctx, field)
+			case "freeTier":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_freeTier(ctx, field)
+			case "walletScope":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletScope(ctx, field)
+			case "walletId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletId(ctx, field)
 			case "primaryBalance":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
 			case "components":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "windows":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_windows(ctx, field)
 			case "rawSummary":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
 			}
@@ -29254,6 +30866,8 @@ func (ec *executionContext) fieldContext_ChannelKeyMetadata_balanceSnapshot(_ co
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_resetAt(ctx, field)
 			case "provider":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_provider(ctx, field)
+			case "source":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_source(ctx, field)
 			case "checkedAt":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_checkedAt(ctx, field)
 			case "success":
@@ -29266,14 +30880,171 @@ func (ec *executionContext) fieldContext_ChannelKeyMetadata_balanceSnapshot(_ co
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountStatus(ctx, field)
 			case "accountId":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_accountId(ctx, field)
+			case "planName":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_planName(ctx, field)
+			case "unlimited":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_unlimited(ctx, field)
+			case "freeTier":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_freeTier(ctx, field)
+			case "walletScope":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletScope(ctx, field)
+			case "walletId":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_walletId(ctx, field)
 			case "primaryBalance":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_primaryBalance(ctx, field)
 			case "components":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_components(ctx, field)
+			case "windows":
+				return ec.fieldContext_ChannelKeyBalanceSnapshot_windows(ctx, field)
 			case "rawSummary":
 				return ec.fieldContext_ChannelKeyBalanceSnapshot_rawSummary(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyBalanceSnapshot", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_lastProbeAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_lastProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LastProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_lastProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_lastProbeStatus(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_lastProbeStatus,
+		func(ctx context.Context) (any, error) {
+			return obj.LastProbeStatus, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_lastProbeStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_lastProbeError(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_lastProbeError,
+		func(ctx context.Context) (any, error) {
+			return obj.LastProbeError, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_lastProbeError(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_nextProbeAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_nextProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.NextProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_nextProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelKeyMetadata_probeFailureCount(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelKeyMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelKeyMetadata_probeFailureCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ProbeFailureCount, nil
+		},
+		nil,
+		ec.marshalOInt2int,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelKeyMetadata_probeFailureCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelKeyMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -30298,6 +32069,8 @@ func (ec *executionContext) fieldContext_ChannelKeyMonitoringEvent_channel(_ con
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -31277,6 +33050,8 @@ func (ec *executionContext) fieldContext_ChannelModelPrice_channel(_ context.Con
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -33279,6 +35054,8 @@ func (ec *executionContext) fieldContext_ChannelProbe_channel(_ context.Context,
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -33589,6 +35366,1102 @@ func (ec *executionContext) fieldContext_ChannelProviderQuotaSettings_opencodeGo
 				return ec.fieldContext_OpenCodeGoQuotaSettings_authCookie(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type OpenCodeGoQuotaSettings", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaCounts_total(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaCounts) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaCounts_total,
+		func(ctx context.Context) (any, error) {
+			return obj.Total, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaCounts_total(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaCounts",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaCounts_active(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaCounts) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaCounts_active,
+		func(ctx context.Context) (any, error) {
+			return obj.Active, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaCounts_active(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaCounts",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaCounts_freshKnown(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaCounts) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaCounts_freshKnown,
+		func(ctx context.Context) (any, error) {
+			return obj.FreshKnown, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaCounts_freshKnown(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaCounts",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaCounts_exhausted(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaCounts) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaCounts_exhausted,
+		func(ctx context.Context) (any, error) {
+			return obj.Exhausted, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaCounts_exhausted(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaCounts",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaCounts_unknown(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaCounts) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaCounts_unknown,
+		func(ctx context.Context) (any, error) {
+			return obj.Unknown, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaCounts_unknown(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaCounts",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_counts(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_counts,
+		func(ctx context.Context) (any, error) {
+			return obj.Counts, nil
+		},
+		nil,
+		ec.marshalNChannelQuotaCounts2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaCounts,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_counts(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "total":
+				return ec.fieldContext_ChannelQuotaCounts_total(ctx, field)
+			case "active":
+				return ec.fieldContext_ChannelQuotaCounts_active(ctx, field)
+			case "freshKnown":
+				return ec.fieldContext_ChannelQuotaCounts_freshKnown(ctx, field)
+			case "exhausted":
+				return ec.fieldContext_ChannelQuotaCounts_exhausted(ctx, field)
+			case "unknown":
+				return ec.fieldContext_ChannelQuotaCounts_unknown(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelQuotaCounts", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_state(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_state,
+		func(ctx context.Context) (any, error) {
+			return obj.State, nil
+		},
+		nil,
+		ec.marshalNChannelQuotaState2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaState,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_state(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelQuotaState does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_windows(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_windows,
+		func(ctx context.Context) (any, error) {
+			return obj.Windows, nil
+		},
+		nil,
+		ec.marshalNChannelQuotaWindow2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindowᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_windows(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "key":
+				return ec.fieldContext_ChannelQuotaWindow_key(ctx, field)
+			case "label":
+				return ec.fieldContext_ChannelQuotaWindow_label(ctx, field)
+			case "used":
+				return ec.fieldContext_ChannelQuotaWindow_used(ctx, field)
+			case "limit":
+				return ec.fieldContext_ChannelQuotaWindow_limit(ctx, field)
+			case "remaining":
+				return ec.fieldContext_ChannelQuotaWindow_remaining(ctx, field)
+			case "usageRatio":
+				return ec.fieldContext_ChannelQuotaWindow_usageRatio(ctx, field)
+			case "unit":
+				return ec.fieldContext_ChannelQuotaWindow_unit(ctx, field)
+			case "resetAt":
+				return ec.fieldContext_ChannelQuotaWindow_resetAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelQuotaWindow", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_walletBalance(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_walletBalance,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletBalance, nil
+		},
+		nil,
+		ec.marshalOBalanceAmount2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_walletBalance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "amount":
+				return ec.fieldContext_BalanceAmount_amount(ctx, field)
+			case "currency":
+				return ec.fieldContext_BalanceAmount_currency(ctx, field)
+			case "kind":
+				return ec.fieldContext_BalanceAmount_kind(ctx, field)
+			case "label":
+				return ec.fieldContext_BalanceAmount_label(ctx, field)
+			case "expiresAt":
+				return ec.fieldContext_BalanceAmount_expiresAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BalanceAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_walletLimit(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_walletLimit,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletLimit, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_walletLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_walletUsed(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_walletUsed,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletUsed, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_walletUsed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_walletRemaining(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_walletRemaining,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletRemaining, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_walletRemaining(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_walletUnit(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_walletUnit,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletUnit, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_walletUnit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_planName(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_planName,
+		func(ctx context.Context) (any, error) {
+			return obj.PlanName, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_planName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_unlimited(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_unlimited,
+		func(ctx context.Context) (any, error) {
+			return obj.Unlimited, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_unlimited(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_freeTier(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_freeTier,
+		func(ctx context.Context) (any, error) {
+			return obj.FreeTier, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_freeTier(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_sharedWallet(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_sharedWallet,
+		func(ctx context.Context) (any, error) {
+			return obj.SharedWallet, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_sharedWallet(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_walletScope(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_walletScope,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletScope, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_walletScope(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_walletId(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_walletId,
+		func(ctx context.Context) (any, error) {
+			return obj.WalletID, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_walletId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_nextResetAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_nextResetAt,
+		func(ctx context.Context) (any, error) {
+			return obj.NextResetAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_nextResetAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_checkedAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_checkedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CheckedAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_checkedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_source(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_source,
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_canRefresh(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_canRefresh,
+		func(ctx context.Context) (any, error) {
+			return obj.CanRefresh, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_canRefresh(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaOverview_probeDiagnostic(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaOverview) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaOverview_probeDiagnostic,
+		func(ctx context.Context) (any, error) {
+			return obj.ProbeDiagnostic, nil
+		},
+		nil,
+		ec.marshalOChannelQuotaProbeDiagnostic2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaProbeDiagnostic,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaOverview_probeDiagnostic(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaOverview",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "status":
+				return ec.fieldContext_ChannelQuotaProbeDiagnostic_status(ctx, field)
+			case "error":
+				return ec.fieldContext_ChannelQuotaProbeDiagnostic_error(ctx, field)
+			case "lastProbeAt":
+				return ec.fieldContext_ChannelQuotaProbeDiagnostic_lastProbeAt(ctx, field)
+			case "nextProbeAt":
+				return ec.fieldContext_ChannelQuotaProbeDiagnostic_nextProbeAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelQuotaProbeDiagnostic", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaProbeDiagnostic_status(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaProbeDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaProbeDiagnostic_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaProbeDiagnostic_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaProbeDiagnostic",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaProbeDiagnostic_error(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaProbeDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaProbeDiagnostic_error,
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaProbeDiagnostic_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaProbeDiagnostic",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaProbeDiagnostic_lastProbeAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaProbeDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaProbeDiagnostic_lastProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LastProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaProbeDiagnostic_lastProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaProbeDiagnostic",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaProbeDiagnostic_nextProbeAt(ctx context.Context, field graphql.CollectedField, obj *biz.ChannelQuotaProbeDiagnostic) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaProbeDiagnostic_nextProbeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.NextProbeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaProbeDiagnostic_nextProbeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaProbeDiagnostic",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_key(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_key,
+		func(ctx context.Context) (any, error) {
+			return obj.Key, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_key(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_label(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_label,
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_used(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_used,
+		func(ctx context.Context) (any, error) {
+			return obj.Used, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_used(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_limit(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_limit,
+		func(ctx context.Context) (any, error) {
+			return obj.Limit, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_remaining(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_remaining,
+		func(ctx context.Context) (any, error) {
+			return obj.Remaining, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_remaining(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_usageRatio(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_usageRatio,
+		func(ctx context.Context) (any, error) {
+			return obj.UsageRatio, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_usageRatio(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_unit(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_unit,
+		func(ctx context.Context) (any, error) {
+			return obj.Unit, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_unit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelQuotaWindow_resetAt(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelQuotaWindow) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelQuotaWindow_resetAt,
+		func(ctx context.Context) (any, error) {
+			return obj.ResetAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelQuotaWindow_resetAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelQuotaWindow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
 		},
 	}
 	return fc, nil
@@ -33966,6 +36839,122 @@ func (ec *executionContext) fieldContext_ChannelSSEKeepAlive_intervalSeconds(_ c
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSessionAffinity_enabled(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSessionAffinity) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSessionAffinity_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSessionAffinity_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSessionAffinity",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSessionAffinity_ttlSeconds(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSessionAffinity) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSessionAffinity_ttlSeconds,
+		func(ctx context.Context) (any, error) {
+			return obj.TTLSeconds, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSessionAffinity_ttlSeconds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSessionAffinity",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSessionAffinity_anchors(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSessionAffinity) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSessionAffinity_anchors,
+		func(ctx context.Context) (any, error) {
+			return obj.Anchors, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSessionAffinity_anchors(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSessionAffinity",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSessionAffinity_continuationGuard(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSessionAffinity) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSessionAffinity_continuationGuard,
+		func(ctx context.Context) (any, error) {
+			return obj.ContinuationGuard, nil
+		},
+		nil,
+		ec.marshalOChannelContinuationGuard2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelContinuationGuard,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSessionAffinity_continuationGuard(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSessionAffinity",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ChannelContinuationGuard does not have child fields")
 		},
 	}
 	return fc, nil
@@ -34913,6 +37902,18 @@ func (ec *executionContext) fieldContext_ChannelSettings_keyHealthCheck(_ contex
 				return ec.fieldContext_ChannelKeyHealthCheck_archivedKeys(ctx, field)
 			case "history":
 				return ec.fieldContext_ChannelKeyHealthCheck_history(ctx, field)
+			case "sharedBalanceSnapshot":
+				return ec.fieldContext_ChannelKeyHealthCheck_sharedBalanceSnapshot(ctx, field)
+			case "sharedProbeAt":
+				return ec.fieldContext_ChannelKeyHealthCheck_sharedProbeAt(ctx, field)
+			case "sharedProbeStatus":
+				return ec.fieldContext_ChannelKeyHealthCheck_sharedProbeStatus(ctx, field)
+			case "sharedProbeError":
+				return ec.fieldContext_ChannelKeyHealthCheck_sharedProbeError(ctx, field)
+			case "sharedNextProbeAt":
+				return ec.fieldContext_ChannelKeyHealthCheck_sharedNextProbeAt(ctx, field)
+			case "sharedProbeFailureCount":
+				return ec.fieldContext_ChannelKeyHealthCheck_sharedProbeFailureCount(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelKeyHealthCheck", field.Name)
 		},
@@ -34960,6 +37961,10 @@ func (ec *executionContext) fieldContext_ChannelSettings_balanceProbe(_ context.
 				return ec.fieldContext_ChannelBalanceProbe_includeStatuses(ctx, field)
 			case "timeoutMs":
 				return ec.fieldContext_ChannelBalanceProbe_timeoutMs(ctx, field)
+			case "sharedWallet":
+				return ec.fieldContext_ChannelBalanceProbe_sharedWallet(ctx, field)
+			case "hasProbeAPIKey":
+				return ec.fieldContext_ChannelBalanceProbe_hasProbeAPIKey(ctx, field)
 			case "http":
 				return ec.fieldContext_ChannelBalanceProbe_http(ctx, field)
 			}
@@ -35001,6 +38006,88 @@ func (ec *executionContext) fieldContext_ChannelSettings_failurePolicy(_ context
 				return ec.fieldContext_ChannelFailurePolicy_channelProfiles(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelFailurePolicy", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_sessionAffinity(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_sessionAffinity,
+		func(ctx context.Context) (any, error) {
+			return obj.SessionAffinity, nil
+		},
+		nil,
+		ec.marshalOChannelSessionAffinity2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSessionAffinity,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_sessionAffinity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_ChannelSessionAffinity_enabled(ctx, field)
+			case "ttlSeconds":
+				return ec.fieldContext_ChannelSessionAffinity_ttlSeconds(ctx, field)
+			case "anchors":
+				return ec.fieldContext_ChannelSessionAffinity_anchors(ctx, field)
+			case "continuationGuard":
+				return ec.fieldContext_ChannelSessionAffinity_continuationGuard(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelSessionAffinity", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSettings_idRewriteRules(ctx context.Context, field graphql.CollectedField, obj *objects.ChannelSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSettings_idRewriteRules,
+		func(ctx context.Context) (any, error) {
+			return obj.IDRewriteRules, nil
+		},
+		nil,
+		ec.marshalOChannelIDRewriteRule2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRuleᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSettings_idRewriteRules(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "target":
+				return ec.fieldContext_ChannelIDRewriteRule_target(ctx, field)
+			case "op":
+				return ec.fieldContext_ChannelIDRewriteRule_op(ctx, field)
+			case "when":
+				return ec.fieldContext_ChannelIDRewriteRule_when(ctx, field)
+			case "format":
+				return ec.fieldContext_ChannelIDRewriteRule_format(ctx, field)
+			case "prefix":
+				return ec.fieldContext_ChannelIDRewriteRule_prefix(ctx, field)
+			case "ifMissing":
+				return ec.fieldContext_ChannelIDRewriteRule_ifMissing(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelIDRewriteRule", field.Name)
 		},
 	}
 	return fc, nil
@@ -35732,6 +38819,8 @@ func (ec *executionContext) fieldContext_ClearChannelOverrideTemplatesPayload_ch
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -40655,6 +43744,8 @@ func (ec *executionContext) fieldContext_ModelChannelConnection_channel(_ contex
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -42836,6 +45927,18 @@ func (ec *executionContext) fieldContext_Mutation_upsertChannelCredentialPolicy(
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
 			case "balanceSnapshot":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field)
+			case "lastProbeAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeAt(ctx, field)
+			case "lastProbeStatus":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeStatus(ctx, field)
+			case "lastProbeError":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeError(ctx, field)
+			case "nextProbeAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_nextProbeAt(ctx, field)
+			case "probeFailureCount":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_probeFailureCount(ctx, field)
+			case "sharedWallet":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_sharedWallet(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
 			case "statusCode":
@@ -42957,6 +46060,8 @@ func (ec *executionContext) fieldContext_Mutation_createChannel(ctx context.Cont
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -43064,6 +46169,8 @@ func (ec *executionContext) fieldContext_Mutation_duplicateChannel(ctx context.C
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -43171,6 +46278,8 @@ func (ec *executionContext) fieldContext_Mutation_bulkCreateChannels(ctx context
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -43278,6 +46387,8 @@ func (ec *executionContext) fieldContext_Mutation_updateChannel(ctx context.Cont
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -43385,6 +46496,8 @@ func (ec *executionContext) fieldContext_Mutation_saveChannelEndpoints(ctx conte
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -43492,6 +46605,8 @@ func (ec *executionContext) fieldContext_Mutation_updateChannelStatus(ctx contex
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -44455,6 +47570,18 @@ func (ec *executionContext) fieldContext_Mutation_runChannelAPIKeyHealthCheck(ct
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
 			case "balanceSnapshot":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field)
+			case "lastProbeAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeAt(ctx, field)
+			case "lastProbeStatus":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeStatus(ctx, field)
+			case "lastProbeError":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeError(ctx, field)
+			case "nextProbeAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_nextProbeAt(ctx, field)
+			case "probeFailureCount":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_probeFailureCount(ctx, field)
+			case "sharedWallet":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_sharedWallet(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
 			case "statusCode":
@@ -44481,6 +47608,61 @@ func (ec *executionContext) fieldContext_Mutation_runChannelAPIKeyHealthCheck(ct
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_runChannelAPIKeyHealthCheck_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_refreshChannelQuota(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_refreshChannelQuota,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().RefreshChannelQuota(ctx, fc.Args["channelID"].(objects.GUID), fc.Args["keyIDs"].([]string))
+		},
+		nil,
+		ec.marshalNRefreshChannelQuotaPayload2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRefreshChannelQuotaPayload,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_refreshChannelQuota(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "status":
+				return ec.fieldContext_RefreshChannelQuotaPayload_status(ctx, field)
+			case "message":
+				return ec.fieldContext_RefreshChannelQuotaPayload_message(ctx, field)
+			case "updatedKeys":
+				return ec.fieldContext_RefreshChannelQuotaPayload_updatedKeys(ctx, field)
+			case "deferredKeys":
+				return ec.fieldContext_RefreshChannelQuotaPayload_deferredKeys(ctx, field)
+			case "retryAt":
+				return ec.fieldContext_RefreshChannelQuotaPayload_retryAt(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_RefreshChannelQuotaPayload_quotaOverview(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RefreshChannelQuotaPayload", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_refreshChannelQuota_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -55545,6 +58727,8 @@ func (ec *executionContext) fieldContext_ProviderQuotaStatus_channel(_ context.C
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -56991,6 +60175,18 @@ func (ec *executionContext) fieldContext_Query_channelAPIKeyInventory(ctx contex
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_currency(ctx, field)
 			case "balanceSnapshot":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field)
+			case "lastProbeAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeAt(ctx, field)
+			case "lastProbeStatus":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeStatus(ctx, field)
+			case "lastProbeError":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_lastProbeError(ctx, field)
+			case "nextProbeAt":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_nextProbeAt(ctx, field)
+			case "probeFailureCount":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_probeFailureCount(ctx, field)
+			case "sharedWallet":
+				return ec.fieldContext_ChannelAPIKeyInventoryItem_sharedWallet(ctx, field)
 			case "available":
 				return ec.fieldContext_ChannelAPIKeyInventoryItem_available(ctx, field)
 			case "statusCode":
@@ -57112,6 +60308,8 @@ func (ec *executionContext) fieldContext_Query_allChannelSummarys(ctx context.Co
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -60203,6 +63401,220 @@ func (ec *executionContext) fieldContext_ReasoningEffortMapping_to(_ context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _RefreshChannelQuotaPayload_status(ctx context.Context, field graphql.CollectedField, obj *biz.RefreshChannelQuotaPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RefreshChannelQuotaPayload_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalNRefreshChannelQuotaStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRefreshChannelQuotaStatus,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RefreshChannelQuotaPayload_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RefreshChannelQuotaPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type RefreshChannelQuotaStatus does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RefreshChannelQuotaPayload_message(ctx context.Context, field graphql.CollectedField, obj *biz.RefreshChannelQuotaPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RefreshChannelQuotaPayload_message,
+		func(ctx context.Context) (any, error) {
+			return obj.Message, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_RefreshChannelQuotaPayload_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RefreshChannelQuotaPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RefreshChannelQuotaPayload_updatedKeys(ctx context.Context, field graphql.CollectedField, obj *biz.RefreshChannelQuotaPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RefreshChannelQuotaPayload_updatedKeys,
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedKeys, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RefreshChannelQuotaPayload_updatedKeys(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RefreshChannelQuotaPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RefreshChannelQuotaPayload_deferredKeys(ctx context.Context, field graphql.CollectedField, obj *biz.RefreshChannelQuotaPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RefreshChannelQuotaPayload_deferredKeys,
+		func(ctx context.Context) (any, error) {
+			return obj.DeferredKeys, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_RefreshChannelQuotaPayload_deferredKeys(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RefreshChannelQuotaPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RefreshChannelQuotaPayload_retryAt(ctx context.Context, field graphql.CollectedField, obj *biz.RefreshChannelQuotaPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RefreshChannelQuotaPayload_retryAt,
+		func(ctx context.Context) (any, error) {
+			return obj.RetryAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_RefreshChannelQuotaPayload_retryAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RefreshChannelQuotaPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RefreshChannelQuotaPayload_quotaOverview(ctx context.Context, field graphql.CollectedField, obj *biz.RefreshChannelQuotaPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_RefreshChannelQuotaPayload_quotaOverview,
+		func(ctx context.Context) (any, error) {
+			return obj.QuotaOverview, nil
+		},
+		nil,
+		ec.marshalOChannelQuotaOverview2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaOverview,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_RefreshChannelQuotaPayload_quotaOverview(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RefreshChannelQuotaPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "counts":
+				return ec.fieldContext_ChannelQuotaOverview_counts(ctx, field)
+			case "state":
+				return ec.fieldContext_ChannelQuotaOverview_state(ctx, field)
+			case "windows":
+				return ec.fieldContext_ChannelQuotaOverview_windows(ctx, field)
+			case "walletBalance":
+				return ec.fieldContext_ChannelQuotaOverview_walletBalance(ctx, field)
+			case "walletLimit":
+				return ec.fieldContext_ChannelQuotaOverview_walletLimit(ctx, field)
+			case "walletUsed":
+				return ec.fieldContext_ChannelQuotaOverview_walletUsed(ctx, field)
+			case "walletRemaining":
+				return ec.fieldContext_ChannelQuotaOverview_walletRemaining(ctx, field)
+			case "walletUnit":
+				return ec.fieldContext_ChannelQuotaOverview_walletUnit(ctx, field)
+			case "planName":
+				return ec.fieldContext_ChannelQuotaOverview_planName(ctx, field)
+			case "unlimited":
+				return ec.fieldContext_ChannelQuotaOverview_unlimited(ctx, field)
+			case "freeTier":
+				return ec.fieldContext_ChannelQuotaOverview_freeTier(ctx, field)
+			case "sharedWallet":
+				return ec.fieldContext_ChannelQuotaOverview_sharedWallet(ctx, field)
+			case "walletScope":
+				return ec.fieldContext_ChannelQuotaOverview_walletScope(ctx, field)
+			case "walletId":
+				return ec.fieldContext_ChannelQuotaOverview_walletId(ctx, field)
+			case "nextResetAt":
+				return ec.fieldContext_ChannelQuotaOverview_nextResetAt(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_ChannelQuotaOverview_checkedAt(ctx, field)
+			case "source":
+				return ec.fieldContext_ChannelQuotaOverview_source(ctx, field)
+			case "canRefresh":
+				return ec.fieldContext_ChannelQuotaOverview_canRefresh(ctx, field)
+			case "probeDiagnostic":
+				return ec.fieldContext_ChannelQuotaOverview_probeDiagnostic(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ChannelQuotaOverview", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _RegexAssociation_pattern(ctx context.Context, field graphql.CollectedField, obj *objects.RegexAssociation) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -61752,6 +65164,8 @@ func (ec *executionContext) fieldContext_Request_channel(_ context.Context, fiel
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -62992,6 +66406,8 @@ func (ec *executionContext) fieldContext_RequestExecution_channel(_ context.Cont
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -70909,6 +74325,8 @@ func (ec *executionContext) fieldContext_UnassociatedChannel_channel(_ context.C
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -71996,6 +75414,8 @@ func (ec *executionContext) fieldContext_UsageLog_channel(_ context.Context, fie
 				return ec.fieldContext_Channel_disabledAPIKeys(ctx, field)
 			case "liveLimiterStats":
 				return ec.fieldContext_Channel_liveLimiterStats(ctx, field)
+			case "quotaOverview":
+				return ec.fieldContext_Channel_quotaOverview(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Channel", field.Name)
 		},
@@ -78919,7 +82339,7 @@ func (ec *executionContext) unmarshalInputChannelBalanceProbeInput(ctx context.C
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"script", "enabled", "preset", "experimental", "preferredCurrency", "primarySelection", "includeStatuses", "timeoutMs", "http"}
+	fieldsInOrder := [...]string{"script", "enabled", "preset", "experimental", "preferredCurrency", "primarySelection", "includeStatuses", "timeoutMs", "sharedWallet", "probeAPIKeyOp", "probeAPIKey", "http"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -78982,6 +82402,27 @@ func (ec *executionContext) unmarshalInputChannelBalanceProbeInput(ctx context.C
 				return it, err
 			}
 			it.TimeoutMs = data
+		case "sharedWallet":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sharedWallet"))
+			data, err := ec.unmarshalOBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SharedWallet = data
+		case "probeAPIKeyOp":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("probeAPIKeyOp"))
+			data, err := ec.unmarshalOChannelSecretWriteOp2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSecretWriteOp(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProbeAPIKeyOp = data
+		case "probeAPIKey":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("probeAPIKey"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProbeAPIKey = data
 		case "http":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("http"))
 			data, err := ec.unmarshalOChannelKeyHealthCheckHTTPRuleInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHTTPRule(ctx, v)
@@ -79277,6 +82718,68 @@ func (ec *executionContext) unmarshalInputChannelFailurePolicyInput(ctx context.
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputChannelIDRewriteRuleInput(ctx context.Context, obj any) (objects.ChannelIDRewriteRule, error) {
+	var it objects.ChannelIDRewriteRule
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"target", "op", "when", "format", "prefix", "ifMissing"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "target":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("target"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Target = data
+		case "op":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("op"))
+			data, err := ec.unmarshalNChannelIDRewriteOp2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteOp(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Op = data
+		case "when":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("when"))
+			data, err := ec.unmarshalOChannelIDRewriteWhen2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteWhen(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.When = data
+		case "format":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("format"))
+			data, err := ec.unmarshalOChannelIDRewriteFormat2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteFormat(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Format = data
+		case "prefix":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("prefix"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Prefix = data
+		case "ifMissing":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("ifMissing"))
+			data, err := ec.unmarshalOChannelIDRewriteIfMissing2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteIfMissing(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.IfMissing = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputChannelKeyBalanceSnapshotInput(ctx context.Context, obj any) (objects.ChannelKeyBalanceSnapshot, error) {
 	var it objects.ChannelKeyBalanceSnapshot
 	asMap := map[string]any{}
@@ -79284,7 +82787,7 @@ func (ec *executionContext) unmarshalInputChannelKeyBalanceSnapshotInput(ctx con
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"used", "limit", "remaining", "usageRatio", "resetAt", "provider", "checkedAt", "success", "available", "statusCode", "accountStatus", "accountId", "primaryBalance", "components", "rawSummary"}
+	fieldsInOrder := [...]string{"used", "limit", "remaining", "usageRatio", "resetAt", "provider", "source", "checkedAt", "success", "available", "statusCode", "accountStatus", "accountId", "planName", "unlimited", "freeTier", "walletScope", "walletId", "primaryBalance", "components", "windows", "rawSummary"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -79333,6 +82836,13 @@ func (ec *executionContext) unmarshalInputChannelKeyBalanceSnapshotInput(ctx con
 				return it, err
 			}
 			it.Provider = data
+		case "source":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Source = data
 		case "checkedAt":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("checkedAt"))
 			data, err := ec.unmarshalNTime2timeᚐTime(ctx, v)
@@ -79375,6 +82885,41 @@ func (ec *executionContext) unmarshalInputChannelKeyBalanceSnapshotInput(ctx con
 				return it, err
 			}
 			it.AccountID = data
+		case "planName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("planName"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PlanName = data
+		case "unlimited":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("unlimited"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Unlimited = data
+		case "freeTier":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("freeTier"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FreeTier = data
+		case "walletScope":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("walletScope"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.WalletScope = data
+		case "walletId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("walletId"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.WalletID = data
 		case "primaryBalance":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("primaryBalance"))
 			data, err := ec.unmarshalOBalanceAmountInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐBalanceAmount(ctx, v)
@@ -79389,6 +82934,13 @@ func (ec *executionContext) unmarshalInputChannelKeyBalanceSnapshotInput(ctx con
 				return it, err
 			}
 			it.Components = data
+		case "windows":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("windows"))
+			data, err := ec.unmarshalOChannelQuotaWindowInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindowᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Windows = data
 		case "rawSummary":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rawSummary"))
 			data, err := ec.unmarshalOJSONRawMessageInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐJSONRawMessage(ctx, v)
@@ -80068,7 +83620,7 @@ func (ec *executionContext) unmarshalInputChannelKeyMetadataInput(ctx context.Co
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"id", "maskedKey", "status", "lastCheckedAt", "success", "failureCount", "reason", "balance", "currency", "balanceSnapshot", "available", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt", "history"}
+	fieldsInOrder := [...]string{"id", "maskedKey", "status", "lastCheckedAt", "success", "failureCount", "reason", "balance", "currency", "balanceSnapshot", "lastProbeAt", "lastProbeStatus", "lastProbeError", "nextProbeAt", "probeFailureCount", "available", "statusCode", "matchedPolicy", "action", "nextCheckAt", "backoffAttempt", "history"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -80147,6 +83699,41 @@ func (ec *executionContext) unmarshalInputChannelKeyMetadataInput(ctx context.Co
 				return it, err
 			}
 			it.BalanceSnapshot = data
+		case "lastProbeAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("lastProbeAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LastProbeAt = data
+		case "lastProbeStatus":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("lastProbeStatus"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LastProbeStatus = data
+		case "lastProbeError":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("lastProbeError"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LastProbeError = data
+		case "nextProbeAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("nextProbeAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NextProbeAt = data
+		case "probeFailureCount":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("probeFailureCount"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ProbeFailureCount = data
 		case "available":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("available"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -84735,6 +88322,82 @@ func (ec *executionContext) unmarshalInputChannelProviderQuotaSettingsInput(ctx 
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputChannelQuotaWindowInput(ctx context.Context, obj any) (objects.ChannelQuotaWindow, error) {
+	var it objects.ChannelQuotaWindow
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"key", "label", "used", "limit", "remaining", "usageRatio", "unit", "resetAt"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "key":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("key"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Key = data
+		case "label":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("label"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Label = data
+		case "used":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("used"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Used = data
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
+		case "remaining":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("remaining"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Remaining = data
+		case "usageRatio":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("usageRatio"))
+			data, err := ec.unmarshalOFloat2ᚖfloat64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UsageRatio = data
+		case "unit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("unit"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Unit = data
+		case "resetAt":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("resetAt"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ResetAt = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputChannelRateLimitInput(ctx context.Context, obj any) (objects.ChannelRateLimit, error) {
 	var it objects.ChannelRateLimit
 	asMap := map[string]any{}
@@ -84906,6 +88569,54 @@ func (ec *executionContext) unmarshalInputChannelSSEKeepAliveInput(ctx context.C
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputChannelSessionAffinityInput(ctx context.Context, obj any) (objects.ChannelSessionAffinity, error) {
+	var it objects.ChannelSessionAffinity
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"enabled", "ttlSeconds", "anchors", "continuationGuard"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		case "ttlSeconds":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("ttlSeconds"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TTLSeconds = data
+		case "anchors":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("anchors"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Anchors = data
+		case "continuationGuard":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("continuationGuard"))
+			data, err := ec.unmarshalOChannelContinuationGuard2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelContinuationGuard(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ContinuationGuard = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Context, obj any) (objects.ChannelSettings, error) {
 	var it objects.ChannelSettings
 	asMap := map[string]any{}
@@ -84913,7 +88624,7 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"credentialSourceChannelId", "rawHTTP", "credentialPolicies", "extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy"}
+	fieldsInOrder := [...]string{"credentialSourceChannelId", "rawHTTP", "credentialPolicies", "extraModelPrefix", "modelMappings", "autoTrimedModelPrefixes", "hideOriginalModels", "hideMappedModels", "lowercaseModelId", "proxy", "transformOptions", "headerOverrideOperations", "bodyOverrideOperations", "passThroughUserAgent", "passThroughBody", "disableRetries", "fullPassThrough", "storeExecutionRequestBody", "storeExecutionResponseBody", "storeExecutionStreamChunks", "sseKeepAlive", "rateLimit", "retryableStatusCodes", "retryableErrorPatterns", "providerQuota", "keySelection", "keyHealthCheck", "balanceProbe", "failurePolicy", "sessionAffinity", "idRewriteRules"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -85123,6 +88834,20 @@ func (ec *executionContext) unmarshalInputChannelSettingsInput(ctx context.Conte
 				return it, err
 			}
 			it.FailurePolicy = data
+		case "sessionAffinity":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionAffinity"))
+			data, err := ec.unmarshalOChannelSessionAffinityInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSessionAffinity(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SessionAffinity = data
+		case "idRewriteRules":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("idRewriteRules"))
+			data, err := ec.unmarshalOChannelIDRewriteRuleInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRuleᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.IDRewriteRules = data
 		}
 	}
 
@@ -109813,6 +113538,39 @@ func (ec *executionContext) _Channel(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "quotaOverview":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Channel_quotaOverview(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -109955,6 +113713,21 @@ func (ec *executionContext) _ChannelAPIKeyInventoryItem(ctx context.Context, sel
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_currency(ctx, field, obj)
 		case "balanceSnapshot":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_balanceSnapshot(ctx, field, obj)
+		case "lastProbeAt":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_lastProbeAt(ctx, field, obj)
+		case "lastProbeStatus":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_lastProbeStatus(ctx, field, obj)
+		case "lastProbeError":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_lastProbeError(ctx, field, obj)
+		case "nextProbeAt":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_nextProbeAt(ctx, field, obj)
+		case "probeFailureCount":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_probeFailureCount(ctx, field, obj)
+		case "sharedWallet":
+			out.Values[i] = ec._ChannelAPIKeyInventoryItem_sharedWallet(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "available":
 			out.Values[i] = ec._ChannelAPIKeyInventoryItem_available(ctx, field, obj)
 		case "statusCode":
@@ -110143,6 +113916,44 @@ func (ec *executionContext) _ChannelBalanceProbe(ctx context.Context, sel ast.Se
 			out.Values[i] = ec._ChannelBalanceProbe_includeStatuses(ctx, field, obj)
 		case "timeoutMs":
 			out.Values[i] = ec._ChannelBalanceProbe_timeoutMs(ctx, field, obj)
+		case "sharedWallet":
+			out.Values[i] = ec._ChannelBalanceProbe_sharedWallet(ctx, field, obj)
+		case "hasProbeAPIKey":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ChannelBalanceProbe_hasProbeAPIKey(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "http":
 			out.Values[i] = ec._ChannelBalanceProbe_http(ctx, field, obj)
 		default:
@@ -110533,6 +114344,58 @@ func (ec *executionContext) _ChannelFailurePolicy(ctx context.Context, sel ast.S
 	return out
 }
 
+var channelIDRewriteRuleImplementors = []string{"ChannelIDRewriteRule"}
+
+func (ec *executionContext) _ChannelIDRewriteRule(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelIDRewriteRule) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelIDRewriteRuleImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelIDRewriteRule")
+		case "target":
+			out.Values[i] = ec._ChannelIDRewriteRule_target(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "op":
+			out.Values[i] = ec._ChannelIDRewriteRule_op(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "when":
+			out.Values[i] = ec._ChannelIDRewriteRule_when(ctx, field, obj)
+		case "format":
+			out.Values[i] = ec._ChannelIDRewriteRule_format(ctx, field, obj)
+		case "prefix":
+			out.Values[i] = ec._ChannelIDRewriteRule_prefix(ctx, field, obj)
+		case "ifMissing":
+			out.Values[i] = ec._ChannelIDRewriteRule_ifMissing(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var channelKeyBalanceSnapshotImplementors = []string{"ChannelKeyBalanceSnapshot"}
 
 func (ec *executionContext) _ChannelKeyBalanceSnapshot(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelKeyBalanceSnapshot) graphql.Marshaler {
@@ -110556,6 +114419,8 @@ func (ec *executionContext) _ChannelKeyBalanceSnapshot(ctx context.Context, sel 
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_resetAt(ctx, field, obj)
 		case "provider":
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_provider(ctx, field, obj)
+		case "source":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_source(ctx, field, obj)
 		case "checkedAt":
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_checkedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -110574,10 +114439,22 @@ func (ec *executionContext) _ChannelKeyBalanceSnapshot(ctx context.Context, sel 
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_accountStatus(ctx, field, obj)
 		case "accountId":
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_accountId(ctx, field, obj)
+		case "planName":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_planName(ctx, field, obj)
+		case "unlimited":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_unlimited(ctx, field, obj)
+		case "freeTier":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_freeTier(ctx, field, obj)
+		case "walletScope":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_walletScope(ctx, field, obj)
+		case "walletId":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_walletId(ctx, field, obj)
 		case "primaryBalance":
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_primaryBalance(ctx, field, obj)
 		case "components":
 			out.Values[i] = ec._ChannelKeyBalanceSnapshot_components(ctx, field, obj)
+		case "windows":
+			out.Values[i] = ec._ChannelKeyBalanceSnapshot_windows(ctx, field, obj)
 		case "rawSummary":
 			field := field
 
@@ -110667,6 +114544,18 @@ func (ec *executionContext) _ChannelKeyHealthCheck(ctx context.Context, sel ast.
 			out.Values[i] = ec._ChannelKeyHealthCheck_archivedKeys(ctx, field, obj)
 		case "history":
 			out.Values[i] = ec._ChannelKeyHealthCheck_history(ctx, field, obj)
+		case "sharedBalanceSnapshot":
+			out.Values[i] = ec._ChannelKeyHealthCheck_sharedBalanceSnapshot(ctx, field, obj)
+		case "sharedProbeAt":
+			out.Values[i] = ec._ChannelKeyHealthCheck_sharedProbeAt(ctx, field, obj)
+		case "sharedProbeStatus":
+			out.Values[i] = ec._ChannelKeyHealthCheck_sharedProbeStatus(ctx, field, obj)
+		case "sharedProbeError":
+			out.Values[i] = ec._ChannelKeyHealthCheck_sharedProbeError(ctx, field, obj)
+		case "sharedNextProbeAt":
+			out.Values[i] = ec._ChannelKeyHealthCheck_sharedNextProbeAt(ctx, field, obj)
+		case "sharedProbeFailureCount":
+			out.Values[i] = ec._ChannelKeyHealthCheck_sharedProbeFailureCount(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -111224,6 +115113,16 @@ func (ec *executionContext) _ChannelKeyMetadata(ctx context.Context, sel ast.Sel
 			out.Values[i] = ec._ChannelKeyMetadata_currency(ctx, field, obj)
 		case "balanceSnapshot":
 			out.Values[i] = ec._ChannelKeyMetadata_balanceSnapshot(ctx, field, obj)
+		case "lastProbeAt":
+			out.Values[i] = ec._ChannelKeyMetadata_lastProbeAt(ctx, field, obj)
+		case "lastProbeStatus":
+			out.Values[i] = ec._ChannelKeyMetadata_lastProbeStatus(ctx, field, obj)
+		case "lastProbeError":
+			out.Values[i] = ec._ChannelKeyMetadata_lastProbeError(ctx, field, obj)
+		case "nextProbeAt":
+			out.Values[i] = ec._ChannelKeyMetadata_nextProbeAt(ctx, field, obj)
+		case "probeFailureCount":
+			out.Values[i] = ec._ChannelKeyMetadata_probeFailureCount(ctx, field, obj)
 		case "available":
 			out.Values[i] = ec._ChannelKeyMetadata_available(ctx, field, obj)
 		case "statusCode":
@@ -113166,6 +117065,262 @@ func (ec *executionContext) _ChannelProviderQuotaSettings(ctx context.Context, s
 	return out
 }
 
+var channelQuotaCountsImplementors = []string{"ChannelQuotaCounts"}
+
+func (ec *executionContext) _ChannelQuotaCounts(ctx context.Context, sel ast.SelectionSet, obj *biz.ChannelQuotaCounts) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelQuotaCountsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelQuotaCounts")
+		case "total":
+			out.Values[i] = ec._ChannelQuotaCounts_total(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "active":
+			out.Values[i] = ec._ChannelQuotaCounts_active(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "freshKnown":
+			out.Values[i] = ec._ChannelQuotaCounts_freshKnown(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "exhausted":
+			out.Values[i] = ec._ChannelQuotaCounts_exhausted(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "unknown":
+			out.Values[i] = ec._ChannelQuotaCounts_unknown(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelQuotaOverviewImplementors = []string{"ChannelQuotaOverview"}
+
+func (ec *executionContext) _ChannelQuotaOverview(ctx context.Context, sel ast.SelectionSet, obj *biz.ChannelQuotaOverview) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelQuotaOverviewImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelQuotaOverview")
+		case "counts":
+			out.Values[i] = ec._ChannelQuotaOverview_counts(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "state":
+			out.Values[i] = ec._ChannelQuotaOverview_state(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "windows":
+			out.Values[i] = ec._ChannelQuotaOverview_windows(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "walletBalance":
+			out.Values[i] = ec._ChannelQuotaOverview_walletBalance(ctx, field, obj)
+		case "walletLimit":
+			out.Values[i] = ec._ChannelQuotaOverview_walletLimit(ctx, field, obj)
+		case "walletUsed":
+			out.Values[i] = ec._ChannelQuotaOverview_walletUsed(ctx, field, obj)
+		case "walletRemaining":
+			out.Values[i] = ec._ChannelQuotaOverview_walletRemaining(ctx, field, obj)
+		case "walletUnit":
+			out.Values[i] = ec._ChannelQuotaOverview_walletUnit(ctx, field, obj)
+		case "planName":
+			out.Values[i] = ec._ChannelQuotaOverview_planName(ctx, field, obj)
+		case "unlimited":
+			out.Values[i] = ec._ChannelQuotaOverview_unlimited(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "freeTier":
+			out.Values[i] = ec._ChannelQuotaOverview_freeTier(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sharedWallet":
+			out.Values[i] = ec._ChannelQuotaOverview_sharedWallet(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "walletScope":
+			out.Values[i] = ec._ChannelQuotaOverview_walletScope(ctx, field, obj)
+		case "walletId":
+			out.Values[i] = ec._ChannelQuotaOverview_walletId(ctx, field, obj)
+		case "nextResetAt":
+			out.Values[i] = ec._ChannelQuotaOverview_nextResetAt(ctx, field, obj)
+		case "checkedAt":
+			out.Values[i] = ec._ChannelQuotaOverview_checkedAt(ctx, field, obj)
+		case "source":
+			out.Values[i] = ec._ChannelQuotaOverview_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "canRefresh":
+			out.Values[i] = ec._ChannelQuotaOverview_canRefresh(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "probeDiagnostic":
+			out.Values[i] = ec._ChannelQuotaOverview_probeDiagnostic(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelQuotaProbeDiagnosticImplementors = []string{"ChannelQuotaProbeDiagnostic"}
+
+func (ec *executionContext) _ChannelQuotaProbeDiagnostic(ctx context.Context, sel ast.SelectionSet, obj *biz.ChannelQuotaProbeDiagnostic) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelQuotaProbeDiagnosticImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelQuotaProbeDiagnostic")
+		case "status":
+			out.Values[i] = ec._ChannelQuotaProbeDiagnostic_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._ChannelQuotaProbeDiagnostic_error(ctx, field, obj)
+		case "lastProbeAt":
+			out.Values[i] = ec._ChannelQuotaProbeDiagnostic_lastProbeAt(ctx, field, obj)
+		case "nextProbeAt":
+			out.Values[i] = ec._ChannelQuotaProbeDiagnostic_nextProbeAt(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var channelQuotaWindowImplementors = []string{"ChannelQuotaWindow"}
+
+func (ec *executionContext) _ChannelQuotaWindow(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelQuotaWindow) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelQuotaWindowImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelQuotaWindow")
+		case "key":
+			out.Values[i] = ec._ChannelQuotaWindow_key(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._ChannelQuotaWindow_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "used":
+			out.Values[i] = ec._ChannelQuotaWindow_used(ctx, field, obj)
+		case "limit":
+			out.Values[i] = ec._ChannelQuotaWindow_limit(ctx, field, obj)
+		case "remaining":
+			out.Values[i] = ec._ChannelQuotaWindow_remaining(ctx, field, obj)
+		case "usageRatio":
+			out.Values[i] = ec._ChannelQuotaWindow_usageRatio(ctx, field, obj)
+		case "unit":
+			out.Values[i] = ec._ChannelQuotaWindow_unit(ctx, field, obj)
+		case "resetAt":
+			out.Values[i] = ec._ChannelQuotaWindow_resetAt(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var channelRateLimitImplementors = []string{"ChannelRateLimit"}
 
 func (ec *executionContext) _ChannelRateLimit(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelRateLimit) graphql.Marshaler {
@@ -113343,6 +117498,51 @@ func (ec *executionContext) _ChannelSSEKeepAlive(ctx context.Context, sel ast.Se
 	return out
 }
 
+var channelSessionAffinityImplementors = []string{"ChannelSessionAffinity"}
+
+func (ec *executionContext) _ChannelSessionAffinity(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelSessionAffinity) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, channelSessionAffinityImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ChannelSessionAffinity")
+		case "enabled":
+			out.Values[i] = ec._ChannelSessionAffinity_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ttlSeconds":
+			out.Values[i] = ec._ChannelSessionAffinity_ttlSeconds(ctx, field, obj)
+		case "anchors":
+			out.Values[i] = ec._ChannelSessionAffinity_anchors(ctx, field, obj)
+		case "continuationGuard":
+			out.Values[i] = ec._ChannelSessionAffinity_continuationGuard(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var channelSettingsImplementors = []string{"ChannelSettings"}
 
 func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.SelectionSet, obj *objects.ChannelSettings) graphql.Marshaler {
@@ -113480,6 +117680,10 @@ func (ec *executionContext) _ChannelSettings(ctx context.Context, sel ast.Select
 			out.Values[i] = ec._ChannelSettings_balanceProbe(ctx, field, obj)
 		case "failurePolicy":
 			out.Values[i] = ec._ChannelSettings_failurePolicy(ctx, field, obj)
+		case "sessionAffinity":
+			out.Values[i] = ec._ChannelSettings_sessionAffinity(ctx, field, obj)
+		case "idRewriteRules":
+			out.Values[i] = ec._ChannelSettings_idRewriteRules(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -116936,6 +121140,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "runChannelAPIKeyHealthCheck":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_runChannelAPIKeyHealthCheck(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "refreshChannelQuota":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_refreshChannelQuota(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -122438,6 +126649,61 @@ func (ec *executionContext) _ReasoningEffortMapping(ctx context.Context, sel ast
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var refreshChannelQuotaPayloadImplementors = []string{"RefreshChannelQuotaPayload"}
+
+func (ec *executionContext) _RefreshChannelQuotaPayload(ctx context.Context, sel ast.SelectionSet, obj *biz.RefreshChannelQuotaPayload) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, refreshChannelQuotaPayloadImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RefreshChannelQuotaPayload")
+		case "status":
+			out.Values[i] = ec._RefreshChannelQuotaPayload_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "message":
+			out.Values[i] = ec._RefreshChannelQuotaPayload_message(ctx, field, obj)
+		case "updatedKeys":
+			out.Values[i] = ec._RefreshChannelQuotaPayload_updatedKeys(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deferredKeys":
+			out.Values[i] = ec._RefreshChannelQuotaPayload_deferredKeys(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "retryAt":
+			out.Values[i] = ec._RefreshChannelQuotaPayload_retryAt(ctx, field, obj)
+		case "quotaOverview":
+			out.Values[i] = ec._RefreshChannelQuotaPayload_quotaOverview(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -131259,6 +135525,32 @@ func (ec *executionContext) marshalNChannelExecutionInventory2ᚖgithubᚗcomᚋ
 	return ec._ChannelExecutionInventory(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNChannelIDRewriteOp2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteOp(ctx context.Context, v any) (objects.ChannelIDRewriteOp, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelIDRewriteOp(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChannelIDRewriteOp2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteOp(ctx context.Context, sel ast.SelectionSet, v objects.ChannelIDRewriteOp) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNChannelIDRewriteRule2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRule(ctx context.Context, sel ast.SelectionSet, v objects.ChannelIDRewriteRule) graphql.Marshaler {
+	return ec._ChannelIDRewriteRule(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNChannelIDRewriteRuleInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRule(ctx context.Context, v any) (objects.ChannelIDRewriteRule, error) {
+	res, err := ec.unmarshalInputChannelIDRewriteRuleInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNChannelKeyHealthCheckHistoryEntry2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelKeyHealthCheckHistoryEntry(ctx context.Context, sel ast.SelectionSet, v objects.ChannelKeyHealthCheckHistoryEntry) graphql.Marshaler {
 	return ec._ChannelKeyHealthCheckHistoryEntry(ctx, sel, &v)
 }
@@ -132000,6 +136292,80 @@ func (ec *executionContext) marshalNChannelProbeSetting2githubᚗcomᚋloopljᚋ
 func (ec *executionContext) unmarshalNChannelProbeWhereInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚐChannelProbeWhereInput(ctx context.Context, v any) (*ent.ChannelProbeWhereInput, error) {
 	res, err := ec.unmarshalInputChannelProbeWhereInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChannelQuotaCounts2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaCounts(ctx context.Context, sel ast.SelectionSet, v biz.ChannelQuotaCounts) graphql.Marshaler {
+	return ec._ChannelQuotaCounts(ctx, sel, &v)
+}
+
+func (ec *executionContext) unmarshalNChannelQuotaState2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaState(ctx context.Context, v any) (biz.ChannelQuotaState, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.ChannelQuotaState(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNChannelQuotaState2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaState(ctx context.Context, sel ast.SelectionSet, v biz.ChannelQuotaState) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNChannelQuotaWindow2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindow(ctx context.Context, sel ast.SelectionSet, v objects.ChannelQuotaWindow) graphql.Marshaler {
+	return ec._ChannelQuotaWindow(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNChannelQuotaWindow2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindowᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelQuotaWindow) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNChannelQuotaWindow2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindow(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNChannelQuotaWindowInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindow(ctx context.Context, v any) (objects.ChannelQuotaWindow, error) {
+	res, err := ec.unmarshalInputChannelQuotaWindowInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNChannelStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋentᚋchannelᚐStatus(ctx context.Context, v any) (channel.Status, error) {
@@ -135285,6 +139651,37 @@ func (ec *executionContext) unmarshalNReasoningEffortMappingInput2githubᚗcom�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalNRefreshChannelQuotaPayload2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRefreshChannelQuotaPayload(ctx context.Context, sel ast.SelectionSet, v biz.RefreshChannelQuotaPayload) graphql.Marshaler {
+	return ec._RefreshChannelQuotaPayload(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNRefreshChannelQuotaPayload2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRefreshChannelQuotaPayload(ctx context.Context, sel ast.SelectionSet, v *biz.RefreshChannelQuotaPayload) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RefreshChannelQuotaPayload(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNRefreshChannelQuotaStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRefreshChannelQuotaStatus(ctx context.Context, v any) (biz.RefreshChannelQuotaStatus, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := biz.RefreshChannelQuotaStatus(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRefreshChannelQuotaStatus2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐRefreshChannelQuotaStatus(ctx context.Context, sel ast.SelectionSet, v biz.RefreshChannelQuotaStatus) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
 func (ec *executionContext) marshalNRegistrationGroup2ᚕᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐRegistrationGroupᚄ(ctx context.Context, sel ast.SelectionSet, v []*objects.RegistrationGroup) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -138386,6 +142783,19 @@ func (ec *executionContext) marshalOChannelBalanceProbeScriptMode2githubᚗcom�
 	return res
 }
 
+func (ec *executionContext) unmarshalOChannelContinuationGuard2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelContinuationGuard(ctx context.Context, v any) (objects.ChannelContinuationGuard, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelContinuationGuard(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelContinuationGuard2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelContinuationGuard(ctx context.Context, sel ast.SelectionSet, v objects.ChannelContinuationGuard) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
 func (ec *executionContext) marshalOChannelCredentialPolicy2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelCredentialPolicyᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelCredentialPolicy) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -138608,6 +143018,110 @@ func (ec *executionContext) unmarshalOChannelFailurePolicyMode2githubᚗcomᚋlo
 }
 
 func (ec *executionContext) marshalOChannelFailurePolicyMode2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelFailurePolicyMode(ctx context.Context, sel ast.SelectionSet, v objects.ChannelFailurePolicyMode) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) unmarshalOChannelIDRewriteFormat2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteFormat(ctx context.Context, v any) (objects.ChannelIDRewriteFormat, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelIDRewriteFormat(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelIDRewriteFormat2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteFormat(ctx context.Context, sel ast.SelectionSet, v objects.ChannelIDRewriteFormat) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) unmarshalOChannelIDRewriteIfMissing2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteIfMissing(ctx context.Context, v any) (objects.ChannelIDRewriteIfMissing, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelIDRewriteIfMissing(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelIDRewriteIfMissing2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteIfMissing(ctx context.Context, sel ast.SelectionSet, v objects.ChannelIDRewriteIfMissing) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) marshalOChannelIDRewriteRule2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRuleᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelIDRewriteRule) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNChannelIDRewriteRule2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRule(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOChannelIDRewriteRuleInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRuleᚄ(ctx context.Context, v any) ([]objects.ChannelIDRewriteRule, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.ChannelIDRewriteRule, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNChannelIDRewriteRuleInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteRule(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalOChannelIDRewriteWhen2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteWhen(ctx context.Context, v any) (objects.ChannelIDRewriteWhen, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelIDRewriteWhen(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelIDRewriteWhen2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelIDRewriteWhen(ctx context.Context, sel ast.SelectionSet, v objects.ChannelIDRewriteWhen) graphql.Marshaler {
 	_ = sel
 	_ = ctx
 	res := graphql.MarshalString(string(v))
@@ -139870,6 +144384,85 @@ func (ec *executionContext) unmarshalOChannelProviderQuotaSettingsInput2ᚖgithu
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalOChannelQuotaOverview2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaOverview(ctx context.Context, sel ast.SelectionSet, v *biz.ChannelQuotaOverview) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelQuotaOverview(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOChannelQuotaProbeDiagnostic2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋserverᚋbizᚐChannelQuotaProbeDiagnostic(ctx context.Context, sel ast.SelectionSet, v *biz.ChannelQuotaProbeDiagnostic) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelQuotaProbeDiagnostic(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOChannelQuotaWindow2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindowᚄ(ctx context.Context, sel ast.SelectionSet, v []objects.ChannelQuotaWindow) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNChannelQuotaWindow2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindow(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalOChannelQuotaWindowInput2ᚕgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindowᚄ(ctx context.Context, v any) ([]objects.ChannelQuotaWindow, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]objects.ChannelQuotaWindow, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNChannelQuotaWindowInput2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelQuotaWindow(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
 func (ec *executionContext) marshalOChannelRateLimit2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelRateLimit(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelRateLimit) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -139927,6 +144520,34 @@ func (ec *executionContext) unmarshalOChannelSSEKeepAliveInput2ᚖgithubᚗcom�
 		return nil, nil
 	}
 	res, err := ec.unmarshalInputChannelSSEKeepAliveInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOChannelSecretWriteOp2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSecretWriteOp(ctx context.Context, v any) (objects.ChannelSecretWriteOp, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := objects.ChannelSecretWriteOp(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOChannelSecretWriteOp2githubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSecretWriteOp(ctx context.Context, sel ast.SelectionSet, v objects.ChannelSecretWriteOp) graphql.Marshaler {
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(string(v))
+	return res
+}
+
+func (ec *executionContext) marshalOChannelSessionAffinity2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSessionAffinity(ctx context.Context, sel ast.SelectionSet, v *objects.ChannelSessionAffinity) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ChannelSessionAffinity(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOChannelSessionAffinityInput2ᚖgithubᚗcomᚋloopljᚋaxonhubᚋinternalᚋobjectsᚐChannelSessionAffinity(ctx context.Context, v any) (*objects.ChannelSessionAffinity, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputChannelSessionAffinityInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 

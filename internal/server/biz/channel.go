@@ -99,6 +99,49 @@ type Channel struct {
 	credentialRuntime         *credentialRuntime
 	credentialEgress          *ChannelService
 	credentialSourceUpdatedAt time.Time
+	sessionAffinityStore      *SessionAffinityStore
+	compiledSessionAffinity   *CompiledSessionAffinity
+	compiledIDRewrite         *CompiledIDRewritePlan
+}
+
+func (c *Channel) SessionAffinityStore() *SessionAffinityStore {
+	if c == nil {
+		return nil
+	}
+	if c.sessionAffinityStore == nil {
+		c.sessionAffinityStore = NewSessionAffinityStore()
+	}
+	return c.sessionAffinityStore
+}
+
+func (c *Channel) CompiledSessionAffinity() *CompiledSessionAffinity {
+	if c == nil {
+		return nil
+	}
+	if c.compiledSessionAffinity != nil {
+		return c.compiledSessionAffinity
+	}
+	if c.Settings != nil && c.Settings.SessionAffinity != nil {
+		compiled, _ := CompileChannelSessionAffinity(c.Settings.SessionAffinity)
+		c.compiledSessionAffinity = compiled
+		return compiled
+	}
+	return nil
+}
+
+func (c *Channel) CompiledIDRewritePlan() *CompiledIDRewritePlan {
+	if c == nil {
+		return nil
+	}
+	if c.compiledIDRewrite != nil {
+		return c.compiledIDRewrite
+	}
+	if c.Settings != nil && len(c.Settings.IDRewriteRules) > 0 {
+		compiled, _ := CompileChannelIDRewriteRules(c.Settings.IDRewriteRules)
+		c.compiledIDRewrite = compiled
+		return compiled
+	}
+	return nil
 }
 
 type ChannelServiceParams struct {
@@ -121,6 +164,7 @@ func NewChannelService(params ChannelServiceParams) *ChannelService {
 		SystemService:      params.SystemService,
 		WebhookNotifier:    params.WebhookNotifier,
 		httpClient:         params.HttpClient,
+		sessionAffinity:    NewSessionAffinityStore(),
 		channelPerfMetrics: make(map[int]*channelMetrics),
 		channelErrorCounts: make(map[int]map[int]int),
 		apiKeyErrorCounts:  make(map[int]map[string]map[int]int),
@@ -178,6 +222,10 @@ type ChannelService struct {
 
 	httpClient        *httpclient.HttpClient
 	credentialRuntime credentialRuntime
+	sessionAffinity   *SessionAffinityStore
+	quotaProbeCoord   quotaProbeCoordinator
+	idRewriteSecretMu sync.RWMutex
+	idRewriteSecret   []byte
 	oauthRefresh      singleflight.Group
 	transportPool     UpstreamTransportPool
 	outboundProxies   outboundProxySnapshot
@@ -667,6 +715,9 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 		if err := validateChannelKeyHealthCheckURLsForBaseURL(lo.FromPtr(input.BaseURL), settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
 		}
+		if err := svc.applyBalanceProbeSecretWrite(ctx, nil, settings); err != nil {
+			return nil, fmt.Errorf("invalid balance probe secret: %w", err)
+		}
 	}
 
 	if input.Endpoints != nil {
@@ -913,6 +964,13 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 		}
 		if err := validateChannelKeyHealthCheckURLsForBaseURL(baseURL, settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
+		}
+		var currentSettings *objects.ChannelSettings
+		if current != nil {
+			currentSettings = current.Settings
+		}
+		if err := svc.applyBalanceProbeSecretWrite(ctx, currentSettings, settings); err != nil {
+			return nil, fmt.Errorf("invalid balance probe secret: %w", err)
 		}
 	}
 

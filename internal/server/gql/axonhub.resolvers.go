@@ -122,6 +122,11 @@ func (r *channelResolver) LiveLimiterStats(ctx context.Context, obj *ent.Channel
 	}, nil
 }
 
+// QuotaOverview is the resolver for the quotaOverview field.
+func (r *channelResolver) QuotaOverview(ctx context.Context, obj *ent.Channel) (*biz.ChannelQuotaOverview, error) {
+	return r.channelService.ResolveChannelQuotaOverview(ctx, obj, r.providerQuotaService), nil
+}
+
 // RawKey is the resolver for the rawKey field.
 func (r *channelAPIKeyInventoryItemResolver) RawKey(ctx context.Context, obj *biz.ChannelAPIKeyInventoryItem) (*string, error) {
 	if !scopes.UserHasScope(ctx, scopes.ScopeWriteChannels) || obj == nil || obj.RawKey == "" {
@@ -139,6 +144,11 @@ func (r *channelAPIKeyInventoryItemResolver) Balance(ctx context.Context, obj *b
 // Balance is the resolver for the balance field.
 func (r *channelArchivedAPIKeyResolver) Balance(ctx context.Context, obj *objects.ChannelArchivedAPIKey) (objects.JSONRawMessage, error) {
 	return marshalChannelKeyBalance(obj.Balance)
+}
+
+// HasProbeAPIKey is the resolver for the hasProbeAPIKey field.
+func (r *channelBalanceProbeResolver) HasProbeAPIKey(ctx context.Context, obj *objects.ChannelBalanceProbe) (bool, error) {
+	return obj.HasProbeAPIKey(), nil
 }
 
 // RawSummary is the resolver for the rawSummary field.
@@ -523,6 +533,15 @@ func (r *mutationResolver) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	}
 
 	return r.channelService.RunChannelAPIKeyHealthCheck(ctx, channelID.ID, keyIDs, *mode)
+}
+
+// RefreshChannelQuota is the resolver for the refreshChannelQuota field.
+func (r *mutationResolver) RefreshChannelQuota(ctx context.Context, channelID objects.GUID, keyIDs []string) (*biz.RefreshChannelQuotaPayload, error) {
+	if !scopes.UserHasScope(ctx, scopes.ScopeWriteChannels) {
+		return nil, fmt.Errorf("permission denied: requires write:channels scope")
+	}
+
+	return r.channelService.RefreshChannelQuota(ctx, channelID.ID, keyIDs, r.providerQuotaService)
 }
 
 // CreateAPIKey is the resolver for the createAPIKey field.
@@ -939,6 +958,7 @@ func (r *queryResolver) AllChannelSummarys(ctx context.Context, includeArchived 
 
 	projectID, ok := contexts.GetProjectID(ctx)
 	if !ok || projectID == 0 {
+		r.channelService.PreloadChannelQuotaOverviewIntoContext(ctx, channels)
 		return channels, nil
 	}
 
@@ -949,7 +969,9 @@ func (r *queryResolver) AllChannelSummarys(ctx context.Context, includeArchived 
 
 	projectProfile := proj.GetActiveProfile()
 
-	return filterChannelsByProjectProfile(channels, projectProfile), nil
+	filtered := filterChannelsByProjectProfile(channels, projectProfile)
+	r.channelService.PreloadChannelQuotaOverviewIntoContext(ctx, filtered)
+	return filtered, nil
 }
 
 // AllChannelTags is the resolver for the allChannelTags field.
@@ -1215,6 +1237,11 @@ func (r *Resolver) ChannelArchivedAPIKey() ChannelArchivedAPIKeyResolver {
 	return &channelArchivedAPIKeyResolver{r}
 }
 
+// ChannelBalanceProbe returns ChannelBalanceProbeResolver implementation.
+func (r *Resolver) ChannelBalanceProbe() ChannelBalanceProbeResolver {
+	return &channelBalanceProbeResolver{r}
+}
+
 // ChannelKeyBalanceSnapshot returns ChannelKeyBalanceSnapshotResolver implementation.
 func (r *Resolver) ChannelKeyBalanceSnapshot() ChannelKeyBalanceSnapshotResolver {
 	return &channelKeyBalanceSnapshotResolver{r}
@@ -1267,6 +1294,7 @@ func (r *Resolver) ChannelKeyMetadataInput() ChannelKeyMetadataInputResolver {
 
 type channelAPIKeyInventoryItemResolver struct{ *Resolver }
 type channelArchivedAPIKeyResolver struct{ *Resolver }
+type channelBalanceProbeResolver struct{ *Resolver }
 type channelKeyBalanceSnapshotResolver struct{ *Resolver }
 type channelKeyHealthCheckHistoryEntryResolver struct{ *Resolver }
 type channelKeyMetadataResolver struct{ *Resolver }

@@ -107,6 +107,30 @@ func (h *ClusterHandlers) ChannelTest(c *gin.Context) {
 	c.JSON(200, value)
 }
 
+func (h *ClusterHandlers) ChannelQuotaRefresh(c *gin.Context) {
+	if err := authz.RequireScope(c.Request.Context(), scopes.ScopeWriteChannels); err != nil {
+		JSONError(c, http.StatusForbidden, err)
+		return
+	}
+	var input biz.OwnerChannelQuotaRefreshRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+	if err := c.ShouldBindJSON(&input); err != nil {
+		JSONError(c, http.StatusBadRequest, err)
+		return
+	}
+	if !h.channels.OwnsChannel(input.ChannelID) {
+		JSONError(c, http.StatusConflict, h.channels.ChannelOwnerError(input.ChannelID))
+		return
+	}
+	value, err := h.channels.RefreshChannelQuota(c.Request.Context(), input.ChannelID, input.KeyIDs, h.quota)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, value)
+}
+
 func (h *ClusterHandlers) ChannelHealth(c *gin.Context) {
 	var input biz.OwnerChannelHealthRequest
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
@@ -140,7 +164,7 @@ func DataNodeRoutes(node cluster.Config) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if path == "/health" || path == "/__axon/admin/placement/prepare" || path == "/__axon/admin/placement/readback" || path == "/__portway/capabilities" || path == "/__axon/admin/channel-quota-reset" || path == "/__axon/openapi/channel-quota-reset" || path == "/__axon/admin/channel-test" || path == "/__axon/admin/channel-health" || path == "/__axon/openapi/channel-test" || path == "/__axon/openapi/channel-health" || path == "/__axon/admin/playground/chat" || path == "/__axon/admin/channel-models" || path == "/__axon/admin/channel-sync" || path == "/__axon/openapi/channel-models" || path == "/__axon/openapi/channel-sync" || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/jina/") || strings.HasPrefix(path, "/doubao/") || strings.HasPrefix(path, "/gemini/") || strings.HasPrefix(path, "/anthropic/") {
+		if path == "/health" || path == "/__axon/admin/placement/prepare" || path == "/__axon/admin/placement/readback" || path == "/__portway/capabilities" || path == "/__axon/admin/channel-quota-reset" || path == "/__axon/openapi/channel-quota-reset" || path == "/__axon/admin/channel-quota-refresh" || path == "/__axon/openapi/channel-quota-refresh" || path == "/__axon/admin/channel-test" || path == "/__axon/admin/channel-health" || path == "/__axon/openapi/channel-test" || path == "/__axon/openapi/channel-health" || path == "/__axon/admin/playground/chat" || path == "/__axon/admin/channel-models" || path == "/__axon/admin/channel-sync" || path == "/__axon/openapi/channel-models" || path == "/__axon/openapi/channel-sync" || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/jina/") || strings.HasPrefix(path, "/doubao/") || strings.HasPrefix(path, "/gemini/") || strings.HasPrefix(path, "/anthropic/") {
 			c.Next()
 			return
 		}
