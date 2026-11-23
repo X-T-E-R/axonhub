@@ -215,6 +215,11 @@ type ChannelService struct {
 	apiKeyErrorCounts     map[int]map[string]map[int]int
 	apiKeyErrorCountsLock sync.Mutex
 
+	// credentialRecoveryMu fences administrative key recovery (Lock) against
+	// request-time key failure mutations (RLock) so pre-recovery failures cannot
+	// commit after EnableAPIKey resets counters and runtime state.
+	credentialRecoveryMu sync.RWMutex
+
 	modelSyncMu sync.Mutex
 
 	lastModelSyncExecutionTime time.Time
@@ -1094,9 +1099,13 @@ func (svc *ChannelService) asyncReloadChannels() {
 // reloadChannelsAfterCommit waits for a caller-owned Ent transaction, including
 // the GraphQL Transactioner, before publishing the channel cache refresh.
 func (svc *ChannelService) reloadChannelsAfterCommit(ctx context.Context) {
+	svc.afterCommit(ctx, svc.asyncReloadChannels)
+}
+
+func (svc *ChannelService) afterCommit(ctx context.Context, fn func()) {
 	tx := ent.TxFromContext(ctx)
 	if tx == nil {
-		svc.asyncReloadChannels()
+		fn()
 
 		return
 	}
@@ -1107,7 +1116,7 @@ func (svc *ChannelService) reloadChannelsAfterCommit(ctx context.Context) {
 				return err
 			}
 
-			svc.asyncReloadChannels()
+			fn()
 
 			return nil
 		})

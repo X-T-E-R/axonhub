@@ -107,17 +107,22 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 	started := time.Now()
 	status := request.StatusFailed
 	stream := false
+	var initialAttempt *biz.RawHTTPCredentialAttempt
+	var retryTransport *rawHTTPRetryTransport
 	defer func() {
 		canceled := ctx.Err() != nil
-		contexts.FinishChannelCredentialAttempt(ctx, 0, false, true)
-		if canceled {
+		if retryTransport != nil {
+			retryTransport.FinishActiveAttempt()
+		}
+		initialAttempt.Finish(0, biz.CredentialAttemptCanceled)
+		if canceled && (retryTransport == nil || retryTransport.ObservedFailureStatus() == 0) {
 			status = request.StatusCanceled
 		}
 		h.observe(context.WithoutCancel(ctx), key, id, raw.Resource, c.ClientIP(), status, stream, time.Since(started), httpclient.CorrelationHeaders(c.Request.Header))
 	}()
 
-	upstreamKey := h.channels.RawHTTPAPIKey(ctx, ch)
-	if upstreamKey == "" {
+	initialAttempt = h.channels.ReserveRawHTTPCredential(ctx, ch, nil, true)
+	if initialAttempt == nil || initialAttempt.Key == "" {
 		JSONError(c, http.StatusServiceUnavailable, errors.New("raw HTTP channel has no eligible credentials"))
 		return
 	}
@@ -126,13 +131,15 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
-	retryTransport := &rawHTTPRetryTransport{
+	retryTransport = &rawHTTPRetryTransport{
 		channels:       h.channels,
 		channel:        ch,
 		defaultClient:  ch.HTTPClient,
 		authType:       raw.AuthType,
 		authHeader:     raw.AuthHeader,
-		initialKey:     upstreamKey,
+		rawPath:        decoded,
+		initialKey:     initialAttempt.Key,
+		initialAttempt: initialAttempt,
 		maxAttempts:    maxAttempts,
 		disableRetries: ch.Settings != nil && ch.Settings.DisableRetries,
 	}
@@ -154,7 +161,7 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 			}
 			p.Out.Header.Del("Ah-Request-Id")
 			p.Out.Header.Set(httpclient.ClientRequestIDHeader, c.Request.Header.Get(httpclient.ClientRequestIDHeader))
-			setRawHTTPAuth(p.Out.Header, raw.AuthType, raw.AuthHeader, upstreamKey)
+			setRawHTTPAuth(p.Out.Header, raw.AuthType, raw.AuthHeader, initialAttempt.Key)
 		},
 		ModifyResponse: func(r *http.Response) error {
 			stream = strings.HasPrefix(r.Header.Get("Content-Type"), "text/event-stream")
@@ -172,10 +179,27 @@ func (h *RawHTTPHandlers) Proxy(c *gin.Context) {
 			http.Error(w, "upstream connection failed", http.StatusBadGateway)
 		},
 	}
-	proxy.ServeHTTP(c.Writer, c.Request)
+	proxy.ServeHTTP(&rawHTTPInformationalWriter{ResponseWriter: c.Writer}, c.Request)
 	if c.Writer.Status() < 400 {
 		status = request.StatusCompleted
 	}
+}
+
+// rawHTTPInformationalWriter forwards 1xx informational headers directly to the
+// unwrapped http.ResponseWriter because Gin's ResponseWriter defers WriteHeader
+// until body write and would otherwise overwrite 103 with the final status.
+type rawHTTPInformationalWriter struct {
+	gin.ResponseWriter
+}
+
+func (w *rawHTTPInformationalWriter) WriteHeader(code int) {
+	if code >= 100 && code <= 199 {
+		if unwrapped, ok := w.ResponseWriter.(interface{ Unwrap() http.ResponseWriter }); ok && unwrapped.Unwrap() != nil {
+			unwrapped.Unwrap().WriteHeader(code)
+			return
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
 }
 
 // Use the existing request inventory, storing only metadata. Unknown usage has

@@ -81,6 +81,11 @@ type ChannelKeyHealthCheckResult struct {
 	Available       *bool
 	Rule            string
 	StatusCode      int
+	RequestMethod   string
+	RequestPath     string
+	ErrorTag        string
+	ErrorCode       string
+	ErrorType       string
 	Source          objects.FailurePolicyEventSource
 	MatchedPolicy   string
 	Action          string
@@ -1436,6 +1441,11 @@ func buildChannelKeyHealthCheckPolicyEnv(
 		"failureCount":         failureCount,
 		"status":               result.StatusCode,
 		"reason":               result.Reason,
+		"method":               result.RequestMethod,
+		"path":                 result.RequestPath,
+		"errorTag":             result.ErrorTag,
+		"errorCode":            result.ErrorCode,
+		"errorType":            result.ErrorType,
 		"balance":              normalizeChannelKeyHealthCheckBalance(result.Balance),
 		"currency":             result.Currency,
 		"available":            available,

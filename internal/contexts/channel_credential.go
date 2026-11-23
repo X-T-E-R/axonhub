@@ -51,6 +51,23 @@ func FinishChannelCredentialAttempt(ctx context.Context, status int, failed, can
 	}
 }
 
+// TakeChannelCredentialAttempt atomically transfers ownership of the current
+// context-bound attempt callback and egress client so the caller can bind them
+// to an immutable attempt handle independent of later retries.
+func TakeChannelCredentialAttempt(ctx context.Context) (string, *httpclient.HttpClient, func(int, bool, bool)) {
+	c := getContainer(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := ""
+	if c.ChannelAPIKey != nil {
+		key = *c.ChannelAPIKey
+	}
+	client := c.credentialAttempt.client
+	finish := c.credentialAttempt.finish
+	c.credentialAttempt.finish = nil
+	return key, client, finish
+}
+
 func ResetChannelCredentialAttempt(ctx context.Context) {
 	FinishChannelCredentialAttempt(ctx, 0, false, true)
 	c := getContainer(ctx)

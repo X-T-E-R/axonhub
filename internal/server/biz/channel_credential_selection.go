@@ -4,7 +4,9 @@ import (
 	"context"
 	"math"
 	"math/rand/v2"
+	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/looplj/axonhub/internal/contexts"
@@ -12,6 +14,87 @@ import (
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
+
+// RawHTTPCredentialAttempt represents one atomically reserved credential and
+// egress lease for a single upstream attempt. Its identity and release callback
+// are immutable and independent of later retries on the same request.
+type RawHTTPCredentialAttempt struct {
+	ChannelID         int
+	CredentialOwnerID int
+	Key               string
+	KeyID             string
+	StartedAt         time.Time
+	HasRecoveryGen    bool
+	RecoveryGen       uint64
+	EgressClient      *httpclient.HttpClient
+	RawTransport      *http.Transport
+
+	releaseOnce sync.Once
+	release     func(status int, outcome CredentialAttemptOutcome)
+}
+
+// NewLegacyRawHTTPCredentialAttempt wraps an already-selected context attempt
+// (such as test callers using RawHTTPAPIKey before constructing the transport)
+// into an immutable attempt handle.
+func NewLegacyRawHTTPCredentialAttempt(
+	channelID int,
+	credentialOwnerID int,
+	key string,
+	client *httpclient.HttpClient,
+	finish func(status int, failed, canceled bool),
+) *RawHTTPCredentialAttempt {
+	var rawTransport *http.Transport
+	if client != nil && client.GetNativeClient() != nil {
+		if tr, ok := client.GetNativeClient().Transport.(*http.Transport); ok {
+			rawTransport = tr
+		}
+	}
+	var release func(int, CredentialAttemptOutcome)
+	if finish != nil {
+		release = func(status int, outcome CredentialAttemptOutcome) {
+			switch outcome {
+			case CredentialAttemptCanceled, CredentialAttemptNeutral:
+				finish(status, false, true)
+			case CredentialAttemptFailure:
+				finish(status, true, false)
+			default:
+				finish(status, false, false)
+			}
+		}
+	}
+	return &RawHTTPCredentialAttempt{
+		ChannelID:         channelID,
+		CredentialOwnerID: credentialOwnerID,
+		Key:               key,
+		KeyID:             objects.ChannelAPIKeyFingerprint(key),
+		StartedAt:         time.Now(),
+		EgressClient:      client,
+		RawTransport:      rawTransport,
+		release:           release,
+	}
+}
+
+// Finish releases the attempt's key and proxy leases at most once with the
+// specified runtime health outcome.
+func (a *RawHTTPCredentialAttempt) Finish(status int, outcome CredentialAttemptOutcome) {
+	if a == nil {
+		return
+	}
+	a.releaseOnce.Do(func() {
+		if a.release != nil {
+			a.release(status, outcome)
+		}
+	})
+}
+
+func (a *RawHTTPCredentialAttempt) legacyFinishFunc() func(int, bool, bool) {
+	if a == nil || a.release == nil {
+		return nil
+	}
+	return func(status int, failed, canceled bool) {
+		a.Finish(status, outcomeFromLegacyFlags(failed, canceled))
+	}
+}
 
 type credentialCandidate struct {
 	key, id    string
@@ -31,12 +114,19 @@ func (c *Channel) RoutableCredentialCount() int {
 }
 
 func (c *Channel) credentialCandidates(ctx context.Context) []credentialCandidate {
+	return c.credentialCandidatesWithExcluded(ctx, nil)
+}
+
+func (c *Channel) credentialCandidatesWithExcluded(ctx context.Context, excluded map[string]struct{}) []credentialCandidate {
 	keys := c.cachedEnabledAPIKeys
 	if len(keys) == 0 {
 		keys = c.Credentials.GetRoutableAPIKeys(c.DisabledAPIKeys, channelArchivedAPIKeys(c.Settings))
 	}
 	candidates := make([]credentialCandidate, 0, len(keys))
 	for _, key := range keys {
+		if _, skip := excluded[key]; skip {
+			continue
+		}
 		if contexts.ChannelCredentialExcluded(ctx, c.ID, key) {
 			continue
 		}
@@ -146,15 +236,30 @@ func credentialSmartScore(c credentialCandidate, now time.Time) float64 {
 }
 
 func (c *Channel) selectCredential(ctx context.Context, strategy objects.ChannelKeySelectionStrategy, sticky func([]string) string) string {
-	candidates := c.credentialCandidates(ctx)
-	runtime := c.credentialRuntime
+	attempt := c.reserveCredentialAttempt(ctx, strategy, sticky, nil, true)
+	if attempt == nil {
+		contexts.WithChannelAPIKey(ctx, "")
+		return ""
+	}
+	contexts.WithChannelCredentialEgress(ctx, attempt.Key, attempt.EgressClient, attempt.legacyFinishFunc())
+	return attempt.Key
+}
+
+func (c *Channel) reserveCredentialAttempt(
+	ctx context.Context,
+	strategy objects.ChannelKeySelectionStrategy,
+	sticky func([]string) string,
+	excluded map[string]struct{},
+	allowSoftFallback bool,
+) *RawHTTPCredentialAttempt {
+	candidates := c.credentialCandidatesWithExcluded(ctx, excluded)
+	runtime := c.runtime()
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	now := time.Now()
-	candidates = filterCredentialCandidates(candidates, runtime, c.CredentialOwnerID(), now, true)
+	candidates = filterCredentialCandidates(candidates, runtime, c.CredentialOwnerID(), now, allowSoftFallback)
 	if len(candidates) == 0 {
-		contexts.WithChannelAPIKey(ctx, "")
-		return ""
+		return nil
 	}
 	winner := 0
 	switch strategy {
@@ -232,29 +337,57 @@ func (c *Channel) selectCredential(ctx context.Context, strategy objects.Channel
 	default:
 		winner = weightedCredentialRoundRobin(candidates)
 	}
-	c.reserveCredential(ctx, candidates[winner], now)
-	return candidates[winner].key
+	return c.buildCredentialAttempt(ctx, candidates[winner], now)
+}
+
+// buildCredentialAttempt runs under the credential runtime lock.
+func (c *Channel) buildCredentialAttempt(ctx context.Context, selected credentialCandidate, now time.Time) *RawHTTPCredentialAttempt {
+	runtime := c.runtime()
+	gen, finishAttempt := runtime.startAttempt(ctx, c.CredentialOwnerID(), selected.id, now)
+	var finish func(status int, outcome CredentialAttemptOutcome)
+	if finishAttempt != nil {
+		if c.credentialEgress != nil && selected.proxyID > 0 {
+			if runtime.proxyInFlight == nil {
+				runtime.proxyInFlight = make(map[int]int)
+			}
+			runtime.proxyInFlight[selected.proxyID]++
+			finish = func(status int, outcome CredentialAttemptOutcome) {
+				applied := finishAttempt(status, outcome)
+				runtime.mu.Lock()
+				runtime.proxyInFlight[selected.proxyID]--
+				runtime.mu.Unlock()
+				if applied && outcome == CredentialAttemptFailure && status == 0 {
+					c.credentialEgress.blockProxyTemporarily(selected.proxyID)
+				}
+			}
+		} else {
+			finish = func(status int, outcome CredentialAttemptOutcome) {
+				finishAttempt(status, outcome)
+			}
+		}
+	}
+	var rawTransport *http.Transport
+	if selected.client != nil && selected.client.GetNativeClient() != nil {
+		if tr, ok := selected.client.GetNativeClient().Transport.(*http.Transport); ok {
+			rawTransport = tr
+		}
+	}
+	return &RawHTTPCredentialAttempt{
+		ChannelID:         c.ID,
+		CredentialOwnerID: c.CredentialOwnerID(),
+		Key:               selected.key,
+		KeyID:             selected.id,
+		StartedAt:         now,
+		HasRecoveryGen:    true,
+		RecoveryGen:       gen,
+		EgressClient:      selected.client,
+		RawTransport:      rawTransport,
+		release:           finish,
+	}
 }
 
 // reserveCredential runs under the credential runtime lock.
 func (c *Channel) reserveCredential(ctx context.Context, selected credentialCandidate, now time.Time) {
-	runtime := c.credentialRuntime
-	finish := runtime.start(ctx, c.CredentialOwnerID(), selected.id, now)
-	if finish != nil && c.credentialEgress != nil && selected.proxyID > 0 {
-		if runtime.proxyInFlight == nil {
-			runtime.proxyInFlight = make(map[int]int)
-		}
-		runtime.proxyInFlight[selected.proxyID]++
-		complete := finish
-		finish = func(status int, failed, canceled bool) {
-			complete(status, failed, canceled)
-			runtime.mu.Lock()
-			runtime.proxyInFlight[selected.proxyID]--
-			runtime.mu.Unlock()
-			if failed && !canceled && status == 0 {
-				c.credentialEgress.blockProxyTemporarily(selected.proxyID)
-			}
-		}
-	}
-	contexts.WithChannelCredentialEgress(ctx, selected.key, selected.client, finish)
+	attempt := c.buildCredentialAttempt(ctx, selected, now)
+	contexts.WithChannelCredentialEgress(ctx, attempt.Key, attempt.EgressClient, attempt.legacyFinishFunc())
 }

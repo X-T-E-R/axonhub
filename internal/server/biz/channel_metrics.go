@@ -558,6 +558,27 @@ type PerformanceRecord struct {
 	ResponseStatusCode int
 	CompletionTokens   int64
 
+	// Structured request and error machine fields extracted from bounded non-2xx
+	// upstream error payloads (never free-form prose messages).
+	RequestMethod string
+	RequestPath   string
+	ErrorTag      string
+	ErrorCode     string
+	ErrorType     string
+
+	// KeyTargetOnly restricts failure-policy evaluation to key-targeted profiles
+	// without incrementing channel error counts or evaluating channel profiles.
+	KeyTargetOnly bool
+	// RequireExprMatch restricts key-failure policy evaluation to profiles with an
+	// explicit non-empty Expr condition that evaluates to true.
+	RequireExprMatch bool
+
+	// RecoveryGen snapshots the credential runtime's administrative recovery
+	// generation when the attempt started so pre-recovery failures cannot undo a
+	// subsequent administrative key enablement.
+	HasRecoveryGen bool
+	RecoveryGen    uint64
+
 	// FailurePolicyHandled is set once request-failure policy evaluation has
 	// already run for this failed attempt. The orchestrator may run the routing
 	// mutation synchronously before retry selection; the async metrics consumer

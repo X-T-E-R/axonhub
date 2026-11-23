@@ -18,6 +18,15 @@ type failurePolicyEvent struct {
 	ChannelID            int
 	Key                  string
 	StatusCode           int
+	RequestMethod        string
+	RequestPath          string
+	ErrorTag             string
+	ErrorCode            string
+	ErrorType            string
+	KeyTargetOnly        bool
+	StartedAt            time.Time
+	HasRecoveryGen       bool
+	RecoveryGen          uint64
 	FailureCount         int
 	Success              bool
 	KeyStatus            objects.ChannelKeyStatus
@@ -262,6 +271,15 @@ func failureActionFromLegacyHealthPolicyAction(action objects.ChannelKeyHealthCh
 }
 
 func evaluateFailurePolicyProfiles(profiles []objects.FailurePolicyProfile, event failurePolicyEvent) []failurePolicyMatch {
+	return evaluateFailurePolicyProfilesWithOptions(profiles, event, false, false)
+}
+
+func evaluateFailurePolicyProfilesWithOptions(
+	profiles []objects.FailurePolicyProfile,
+	event failurePolicyEvent,
+	requireExpr bool,
+	ignoreMinFailureCount bool,
+) []failurePolicyMatch {
 	matched := make([]failurePolicyMatch, 0, len(profiles))
 	for _, profile := range profiles {
 		if profile.Enabled != nil && !*profile.Enabled {
@@ -277,7 +295,7 @@ func evaluateFailurePolicyProfiles(profiles []objects.FailurePolicyProfile, even
 		} else if !slices.Contains(profile.Sources, event.Source) {
 			continue
 		}
-		if !failurePolicyProfileMatches(profile, event) {
+		if !failurePolicyProfileMatchesWithOptions(profile, event, requireExpr, ignoreMinFailureCount) {
 			continue
 		}
 
@@ -288,6 +306,15 @@ func evaluateFailurePolicyProfiles(profiles []objects.FailurePolicyProfile, even
 }
 
 func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event failurePolicyEvent) bool {
+	return failurePolicyProfileMatchesWithOptions(profile, event, false, false)
+}
+
+func failurePolicyProfileMatchesWithOptions(
+	profile objects.FailurePolicyProfile,
+	event failurePolicyEvent,
+	requireExpr bool,
+	ignoreMinFailureCount bool,
+) bool {
 	result := ChannelKeyHealthCheckResult{
 		Success:         event.Success,
 		Reason:          event.Reason,
@@ -296,6 +323,11 @@ func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event fai
 		BalanceSnapshot: event.BalanceSnapshot,
 		Available:       event.Available,
 		StatusCode:      event.StatusCode,
+		RequestMethod:   event.RequestMethod,
+		RequestPath:     event.RequestPath,
+		ErrorTag:        event.ErrorTag,
+		ErrorCode:       event.ErrorCode,
+		ErrorType:       event.ErrorType,
 	}
 	trigger := objects.ChannelKeyHealthCheckTriggerScheduled
 	switch event.Source {
@@ -307,7 +339,30 @@ func failurePolicyProfileMatches(profile objects.FailurePolicyProfile, event fai
 		trigger = objects.ChannelKeyHealthCheckTriggerManual
 	}
 
-	return failurePolicyConditionMatches(profile.ConditionCombiner, profile.Conditions, result, event.FailureCount, trigger, event.AllCheckedKeysFailed, event.KeyStatus)
+	conditions := profile.Conditions
+	if ignoreMinFailureCount {
+		conditions.MinFailureCount = nil
+	}
+	if requireExpr {
+		exprText := strings.TrimSpace(conditions.Expr)
+		if exprText == "" {
+			return false
+		}
+		if event.StatusCode == 403 {
+			if event.ErrorTag == "" && event.ErrorCode == "" && event.ErrorType == "" {
+				return false
+			}
+			if !exprReferencesStructuredErrorField(exprText) {
+				return false
+			}
+		}
+		matches, _ := evaluateChannelKeyHealthCheckPolicyExpr(exprText, result, event.FailureCount, trigger, event.AllCheckedKeysFailed)
+		if !matches {
+			return false
+		}
+	}
+
+	return failurePolicyConditionMatches(profile.ConditionCombiner, conditions, result, event.FailureCount, trigger, event.AllCheckedKeysFailed, event.KeyStatus)
 }
 
 func failurePolicyConditionMatches(
@@ -404,16 +459,64 @@ func matchesToFailurePolicyActions(matches []failurePolicyMatch) []objects.Failu
 }
 
 func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event failurePolicyEvent, matchedPolicy string, actions []objects.FailurePolicyAction, persistBackoff bool) (bool, error) {
+	if event.KeyTargetOnly {
+		filtered := make([]objects.FailurePolicyAction, 0, len(actions))
+		for _, action := range actions {
+			if action.Type == objects.FailurePolicyActionDisableChannel {
+				continue
+			}
+			filtered = append(filtered, action)
+		}
+		if len(filtered) == 0 {
+			return false, nil
+		}
+		actions = filtered
+	}
+
+	fenceRequestKey := event.Source == objects.FailurePolicyEventSourceRequestFailure &&
+		event.Target == objects.FailurePolicyTargetKey &&
+		event.Key != ""
+	isStaleRequestKey := func() bool {
+		if !fenceRequestKey {
+			return false
+		}
+		return svc.credentialRuntime.isStaleAfterRecovery(
+			event.ChannelID,
+			objects.ChannelAPIKeyFingerprint(event.Key),
+			event.StartedAt,
+			event.HasRecoveryGen,
+			event.RecoveryGen,
+		)
+	}
+
 	routingChanged := false
 	if event.Source == objects.FailurePolicyEventSourceRequestFailure {
-		if event.Target == objects.FailurePolicyTargetKey {
+		if fenceRequestKey {
+			svc.credentialRecoveryMu.RLock()
+			if isStaleRequestKey() {
+				svc.credentialRecoveryMu.RUnlock()
+				return false, nil
+			}
 			owner, err := svc.currentFailureCredentialOwner(ctx, event.ChannelID, event.Key)
 			if err != nil || owner == nil {
+				svc.credentialRecoveryMu.RUnlock()
 				return false, err
 			}
-		}
-		if err := svc.recordRequestFailurePolicyHistory(ctx, event, matchedPolicy, actions); err != nil {
-			return routingChanged, err
+			err = svc.recordRequestFailurePolicyHistory(ctx, event, matchedPolicy, actions)
+			svc.credentialRecoveryMu.RUnlock()
+			if err != nil {
+				return routingChanged, err
+			}
+		} else {
+			if event.Target == objects.FailurePolicyTargetKey {
+				owner, err := svc.currentFailureCredentialOwner(ctx, event.ChannelID, event.Key)
+				if err != nil || owner == nil {
+					return false, err
+				}
+			}
+			if err := svc.recordRequestFailurePolicyHistory(ctx, event, matchedPolicy, actions); err != nil {
+				return routingChanged, err
+			}
 		}
 	}
 
@@ -442,6 +545,29 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 			routingChanged = true
 		case objects.FailurePolicyActionDisableKey:
 			if event.Key == "" {
+				continue
+			}
+			if fenceRequestKey {
+				svc.credentialRecoveryMu.RLock()
+				if isStaleRequestKey() {
+					svc.credentialRecoveryMu.RUnlock()
+					return routingChanged, nil
+				}
+				owner, err := svc.currentFailureCredentialOwner(ctx, event.ChannelID, event.Key)
+				if err != nil {
+					svc.credentialRecoveryMu.RUnlock()
+					return routingChanged, err
+				}
+				if owner != nil {
+					err = svc.disableOwnedAPIKey(ctx, owner, event.Key, event.StatusCode, reason)
+				}
+				svc.credentialRecoveryMu.RUnlock()
+				if err != nil {
+					return routingChanged, err
+				}
+				if owner != nil {
+					routingChanged = true
+				}
 				continue
 			}
 			owner, err := svc.currentFailureCredentialOwner(ctx, event.ChannelID, event.Key)
@@ -474,6 +600,23 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 			if event.Key == "" {
 				continue
 			}
+			if fenceRequestKey {
+				svc.credentialRecoveryMu.RLock()
+				if isStaleRequestKey() {
+					svc.credentialRecoveryMu.RUnlock()
+					return routingChanged, nil
+				}
+				err := svc.ArchiveChannelAPIKey(ctx, event.ChannelID, event.Key, reason)
+				svc.credentialRecoveryMu.RUnlock()
+				if errors.Is(err, errCannotArchiveLastUsableChannelAPIKey) {
+					continue
+				}
+				if err != nil {
+					return routingChanged, err
+				}
+				routingChanged = true
+				continue
+			}
 			err := svc.ArchiveChannelAPIKey(ctx, event.ChannelID, event.Key, reason)
 			if errors.Is(err, errCannotArchiveLastUsableChannelAPIKey) {
 				continue
@@ -486,11 +629,28 @@ func (svc *ChannelService) applyFailurePolicyActions(ctx context.Context, event 
 			if event.Key == "" {
 				continue
 			}
+			if fenceRequestKey {
+				svc.credentialRecoveryMu.RLock()
+				if isStaleRequestKey() {
+					svc.credentialRecoveryMu.RUnlock()
+					return routingChanged, nil
+				}
+				_, err := svc.DeleteChannelAPIKey(ctx, event.ChannelID, event.Key)
+				svc.credentialRecoveryMu.RUnlock()
+				if err != nil {
+					return routingChanged, err
+				}
+				routingChanged = true
+				continue
+			}
 			if _, err := svc.DeleteChannelAPIKey(ctx, event.ChannelID, event.Key); err != nil {
 				return routingChanged, err
 			}
 			routingChanged = true
 		case objects.FailurePolicyActionDisableChannel:
+			if event.KeyTargetOnly {
+				continue
+			}
 			if event.Source == objects.FailurePolicyEventSourceRequestFailure {
 				svc.markChannelUnavailable(ctx, event.ChannelID, event.StatusCode, event.FailureCount, event.FailureCount)
 			} else if event.AllCheckedKeysFailed {

@@ -1295,6 +1295,12 @@ func (s *SystemService) RetryPolicyOrDefault(ctx context.Context) *RetryPolicy {
 // SetRetryPolicy sets the retry policy configuration.
 func (s *SystemService) SetRetryPolicy(ctx context.Context, policy *RetryPolicy) error {
 	normalizeRetryPolicy(policy)
+	if policy != nil {
+		if current, err := s.RetryPolicy(ctx); err == nil && current != nil {
+			preserveFailurePolicyProfileAllowReplay(policy.FailurePolicy.KeyProfiles, current.FailurePolicy.KeyProfiles)
+			preserveFailurePolicyProfileAllowReplay(policy.FailurePolicy.ChannelProfiles, current.FailurePolicy.ChannelProfiles)
+		}
+	}
 
 	jsonBytes, err := json.Marshal(policy)
 	if err != nil {

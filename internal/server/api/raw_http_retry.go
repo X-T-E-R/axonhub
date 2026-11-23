@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/textproto"
+	"net/url"
 	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/looplj/axonhub/internal/contexts"
@@ -19,8 +22,9 @@ import (
 )
 
 const (
-	rawHTTPRetryBodyLimit = 2 << 20
-	rawHTTPMaxAttempts    = 3
+	rawHTTPRetryBodyLimit    = 2 << 20
+	rawHTTPErrorInspectLimit = 64 << 10
+	rawHTTPMaxAttempts       = 3
 )
 
 // rawHTTPRetryTransport keeps Raw HTTP retries inside ReverseProxy's transport
@@ -32,12 +36,38 @@ type rawHTTPRetryTransport struct {
 	defaultClient  *httpclient.HttpClient
 	authType       string
 	authHeader     string
+	rawPath        string
 	initialKey     string
+	initialAttempt *biz.RawHTTPCredentialAttempt
 	maxAttempts    int
 	disableRetries bool
 
-	mu         sync.Mutex
-	transports []*http.Transport
+	mu                    sync.Mutex
+	transports            []*http.Transport
+	activeAttempt         *biz.RawHTTPCredentialAttempt
+	observedFailureStatus atomic.Int32
+}
+
+func (t *rawHTTPRetryTransport) setActiveAttempt(a *biz.RawHTTPCredentialAttempt) {
+	t.mu.Lock()
+	t.activeAttempt = a
+	t.mu.Unlock()
+}
+
+// FinishActiveAttempt releases the most recently reserved credential attempt if
+// ReverseProxy exited without closing the response body (e.g. rejected upgrade).
+func (t *rawHTTPRetryTransport) FinishActiveAttempt() {
+	t.mu.Lock()
+	active := t.activeAttempt
+	t.activeAttempt = nil
+	t.mu.Unlock()
+	active.Finish(0, biz.CredentialAttemptCanceled)
+}
+
+// ObservedFailureStatus returns the last authoritative upstream failure HTTP
+// status observed on this transport (or 0 if none was observed).
+func (t *rawHTTPRetryTransport) ObservedFailureStatus() int {
+	return int(t.observedFailureStatus.Load())
 }
 
 func (t *rawHTTPRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -59,124 +89,464 @@ func (t *rawHTTPRetryTransport) RoundTrip(req *http.Request) (*http.Response, er
 		maxAttempts = 1
 	}
 
-	key := t.initialKey
-	if selected, ok := contexts.GetChannelAPIKey(ctx); ok && selected != "" {
-		key = selected
-	}
+	rawPath := t.resolveRawPath(req)
+	attemptHandle := t.initialAttemptHandle(ctx)
+	t.setActiveAttempt(attemptHandle)
+	triedKeys := make(map[string]struct{}, maxAttempts)
+
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			t.finishAttempt(ctx, key, 0, true, true, time.Now())
+			attemptHandle.Finish(0, biz.CredentialAttemptCanceled)
 			return nil, err
 		}
+		triedKeys[attemptHandle.Key] = struct{}{}
 
-		attemptReq := req
-		if maxAttempts > 1 {
-			attemptReq = req.Clone(ctx)
-			attemptReq.Header = req.Header.Clone()
-			if req.Body != nil && req.Body != http.NoBody {
-				attemptReq.Body = io.NopCloser(bytes.NewReader(body))
-			}
-			attemptReq.GetBody = nil
-		}
-		setRawHTTPAuth(attemptReq.Header, t.authType, t.authHeader, key)
-
-		transport, closeTransport, err := t.transportForCredential(ctx)
-		if err != nil {
-			t.finishAttempt(ctx, key, 0, true, ctx.Err() != nil, time.Now())
-			return nil, err
-		}
-
-		informational := bufferRawHTTPInformational(attemptReq)
 		attemptStarted := time.Now()
-		resp, roundTripErr := transport.RoundTrip(attemptReq)
-		if attemptReq != req && attemptReq.Body != nil {
-			_ = attemptReq.Body.Close()
-		}
-		if roundTripErr != nil && resp != nil {
-			if resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-			resp = nil
-		}
-
-		canceled := ctx.Err() != nil || errors.Is(roundTripErr, context.Canceled) || errors.Is(roundTripErr, context.DeadlineExceeded)
-		status := 0
-		if resp != nil {
-			status = resp.StatusCode
-		}
-		retryable := !canceled && canReplay && attempt < maxAttempts &&
-			((roundTripErr != nil && resp == nil) || (resp != nil && retryableRawHTTPStatus(resp.StatusCode)))
-
-		if retryable {
-			// Resolve the next credential while the last upstream response is still
-			// open. If selection is exhausted, that response remains available to
-			// ReverseProxy unchanged.
-			t.finishAttempt(ctx, key, status, true, false, attemptStarted)
-			contexts.ExcludeChannelCredential(ctx, t.channel.ID, key)
-			nextKey := t.channels.RawHTTPAPIKey(ctx, t.channel)
-			if nextKey != "" && nextKey != key {
+		resp, informational, closeTransport, roundTripErr := t.executeAttempt(ctx, req, body, maxAttempts > 1, attemptHandle)
+		if roundTripErr != nil && resp == nil {
+			canceled := ctx.Err() != nil || errors.Is(roundTripErr, context.Canceled) || errors.Is(roundTripErr, context.DeadlineExceeded)
+			if !canceled && canReplay && attempt < maxAttempts {
+				// Release the prior attempt's key and proxy lease before reserving
+				// an alternate so shared proxyLimit=1 pools never self-deadlock.
+				attemptHandle.Finish(0, biz.CredentialAttemptFailure)
+				t.applyFailurePolicy(ctx, attemptHandle, http.StatusBadGateway, req.Method, rawPath, biz.StructuredJSONError{}, attemptStarted, false, false)
+				nextAttempt := t.channels.ReserveRawHTTPCredential(ctx, t.channel, triedKeys, false)
+				if nextAttempt != nil {
+					informational.discard()
+					closeTransport()
+					attemptHandle = nextAttempt
+					t.setActiveAttempt(attemptHandle)
+					continue
+				}
 				informational.discard()
-				if resp != nil && resp.Body != nil {
-					_ = resp.Body.Close()
-				}
-				if closeTransport {
-					transport.CloseIdleConnections()
-				}
-				key = nextKey
-				continue
+				return nil, roundTripErr
 			}
-			informational.discard()
-			if resp != nil {
-				return resp, nil
-			}
-			return nil, roundTripErr
-		}
 
-		if roundTripErr != nil {
 			informational.discard()
-			t.finishAttempt(ctx, key, 0, !canceled, canceled, attemptStarted)
+			if canceled {
+				attemptHandle.Finish(0, biz.CredentialAttemptCanceled)
+			} else {
+				attemptHandle.Finish(0, biz.CredentialAttemptFailure)
+				t.applyFailurePolicy(ctx, attemptHandle, http.StatusBadGateway, req.Method, rawPath, biz.StructuredJSONError{}, attemptStarted, false, false)
+			}
 			return nil, roundTripErr
 		}
 		if resp == nil {
 			informational.discard()
-			t.finishAttempt(ctx, key, http.StatusBadGateway, true, false, attemptStarted)
+			attemptHandle.Finish(http.StatusBadGateway, biz.CredentialAttemptFailure)
+			t.applyFailurePolicy(ctx, attemptHandle, http.StatusBadGateway, req.Method, rawPath, biz.StructuredJSONError{}, attemptStarted, false, false)
 			return nil, errors.New("raw HTTP transport returned no response")
 		}
 
-		if resp.StatusCode >= 400 || canceled {
-			informational.discard()
-		} else {
-			informational.commit()
+		// Dedicated 403 branch: classified structured key failure or optional
+		// 1-alternate differential recovery on safe operations. Bounded to at
+		// most one alternate attempt after a 403.
+		if resp.StatusCode == http.StatusForbidden {
+			return t.handleForbiddenResponse(
+				ctx, req, body, rawPath,
+				canReplay && attempt < maxAttempts,
+				attemptHandle, attemptStarted,
+				resp, informational, closeTransport, triedKeys,
+			)
 		}
-		if resp.Body == nil {
-			t.finishAttempt(ctx, key, resp.StatusCode, rawHTTPFailureStatus(resp.StatusCode), canceled, attemptStarted)
-			resp.Body = http.NoBody
-		} else {
-			resp.Body = &rawHTTPAttemptResponseBody{
-				ReadCloser: resp.Body,
-				finish: func(readErr error) {
-					failed := rawHTTPFailureStatus(resp.StatusCode) || (readErr != nil && readErr != io.EOF)
-					finishStatus := resp.StatusCode
-					if failed && !rawHTTPFailureStatus(resp.StatusCode) {
-						finishStatus = http.StatusBadGateway
-					}
-					t.finishAttempt(ctx, key, finishStatus, failed, ctx.Err() != nil, attemptStarted)
-				},
+
+		if retryableRawHTTPStatus(resp.StatusCode) && !t.disableRetries && canReplay && ctx.Err() == nil && attempt < maxAttempts {
+			t.observedFailureStatus.Store(int32(resp.StatusCode))
+			// Release the prior attempt's key and proxy lease before reserving
+			// an alternate strictly (allowSoftFallback=false).
+			attemptHandle.Finish(resp.StatusCode, biz.CredentialAttemptFailure)
+			t.applyFailurePolicy(ctx, attemptHandle, resp.StatusCode, req.Method, rawPath, biz.StructuredJSONError{}, attemptStarted, false, false)
+			nextAttempt := t.channels.ReserveRawHTTPCredential(ctx, t.channel, triedKeys, false)
+			if nextAttempt != nil {
+				informational.discard()
+				if resp.Body != nil {
+					_ = resp.Body.Close()
+				}
+				closeTransport()
+				attemptHandle = nextAttempt
+				t.setActiveAttempt(attemptHandle)
+				continue
 			}
+			// Selection exhausted: preserve the latest upstream response unchanged.
+			informational.discard()
+			return resp, nil
 		}
-		return resp, nil
+
+		return t.finalizeResponse(ctx, req, rawPath, attemptHandle, attemptStarted, resp, informational, false)
 	}
 
 	return nil, errors.New("raw HTTP retry budget exhausted")
 }
 
-func (t *rawHTTPRetryTransport) transportForCredential(ctx context.Context) (*http.Transport, bool, error) {
-	if transport, ok := contexts.GetChannelCredentialRawTransport(ctx); ok {
-		return transport, false, nil
+func (t *rawHTTPRetryTransport) handleForbiddenResponse(
+	ctx context.Context,
+	req *http.Request,
+	body []byte,
+	rawPath string,
+	hasRetryBudget bool,
+	attemptA *biz.RawHTTPCredentialAttempt,
+	startedA time.Time,
+	respA *http.Response,
+	infoA *rawHTTPInformationalBuffer,
+	closeTransportA func(),
+	triedKeys map[string]struct{},
+) (*http.Response, error) {
+	hasPolicy := t.channels.HasRawHTTP403KeyPolicy(ctx, t.channel)
+	opaqueRecovery := t.opaque403RecoveryAllowed(req.Method, rawPath)
+	if !hasPolicy && !opaqueRecovery {
+		// Unconfigured Raw HTTP channel: 1-call pass-through with neutral lease release.
+		return t.finalizeResponse(ctx, req, rawPath, attemptA, startedA, respA, infoA, true)
+	}
+
+	var errFields biz.StructuredJSONError
+	var classification biz.RawHTTPKeyFailureClassification
+
+	peeked, oversized, peekErr, restoredBody := peekRawHTTPErrorBody(respA)
+	respA.Body = restoredBody
+	if peekErr != nil {
+		// Truncated/broken 403 body: never classify as 403 or replay; preserve
+		// error so downstream read reports 502 transport failure on attempt A.
+		return t.finalizeResponse(ctx, req, rawPath, attemptA, startedA, respA, infoA, true)
+	}
+	if hasPolicy && !oversized {
+		errFields = biz.ExtractStructuredJSONError(peeked, respA.Header.Get("Content-Encoding"))
+		if errFields.HasIdentifier() {
+			classification = t.channels.ClassifyRawHTTPKeyFailure(ctx, t.channel, attemptA.Key, req.Method, rawPath, respA.StatusCode, errFields)
+		}
+	}
+
+	if classification.Classified {
+		t.observedFailureStatus.Store(int32(respA.StatusCode))
+		// Classified key-level 403: attribute key-only failure to A even if
+		// replay is disabled, context is canceled, or no alternate is eligible.
+		attemptA.Finish(respA.StatusCode, biz.CredentialAttemptFailure)
+		t.applyFailurePolicy(ctx, attemptA, respA.StatusCode, req.Method, rawPath, errFields, startedA, true, true)
+
+		if t.disableRetries || !hasRetryBudget || ctx.Err() != nil || !classification.AllowReplay {
+			infoA.discard()
+			return respA, nil
+		}
+
+		altAttempt := t.channels.ReserveRawHTTPCredential(ctx, t.channel, triedKeys, false)
+		if altAttempt == nil {
+			infoA.discard()
+			return respA, nil
+		}
+		triedKeys[altAttempt.Key] = struct{}{}
+		t.setActiveAttempt(altAttempt)
+
+		infoA.discard()
+		if respA.Body != nil {
+			_ = respA.Body.Close()
+		}
+		closeTransportA()
+
+		altStarted := time.Now()
+		respB, infoB, _, errB := t.executeAttempt(ctx, req, body, true, altAttempt)
+		if errB != nil || respB == nil {
+			infoB.discard()
+			altCanceled := ctx.Err() != nil || errors.Is(errB, context.Canceled) || errors.Is(errB, context.DeadlineExceeded)
+			if altCanceled {
+				altAttempt.Finish(0, biz.CredentialAttemptCanceled)
+			} else {
+				altAttempt.Finish(0, biz.CredentialAttemptFailure)
+				t.applyFailurePolicy(ctx, altAttempt, http.StatusBadGateway, req.Method, rawPath, biz.StructuredJSONError{}, altStarted, false, false)
+			}
+			if errB != nil {
+				return nil, errB
+			}
+			return nil, errors.New("raw HTTP transport returned no response")
+		}
+		if respB.StatusCode == http.StatusForbidden {
+			return t.finalizeTerminalForbidden(ctx, req, rawPath, hasPolicy, altAttempt, altStarted, respB, infoB)
+		}
+		return t.finalizeResponse(ctx, req, rawPath, altAttempt, altStarted, respB, infoB, false)
+	}
+
+	// Opaque 403 (unmatched by any Expr key failure profile).
+	if !opaqueRecovery || t.disableRetries || !hasRetryBudget || ctx.Err() != nil {
+		return t.finalizeResponse(ctx, req, rawPath, attemptA, startedA, respA, infoA, true)
+	}
+
+	// Release A's key and proxy lease neutrally before reserving strict alternate B.
+	attemptA.Finish(respA.StatusCode, biz.CredentialAttemptNeutral)
+	altAttempt := t.channels.ReserveRawHTTPCredential(ctx, t.channel, triedKeys, false)
+	if altAttempt == nil {
+		return t.finalizeResponse(ctx, req, rawPath, attemptA, startedA, respA, infoA, true)
+	}
+	triedKeys[altAttempt.Key] = struct{}{}
+	t.setActiveAttempt(altAttempt)
+
+	// Discard A's informational buffer BEFORE executing B so B's Got1xxResponse
+	// wraps the original downstream trace callback rather than A's discarded buffer.
+	infoA.discard()
+
+	altStarted := time.Now()
+	respB, infoB, closeTransportB, errB := t.executeAttempt(ctx, req, body, true, altAttempt)
+	if errB == nil && respB != nil && respB.StatusCode >= 200 && respB.StatusCode < 300 {
+		// Alternate B returned 2xx: close A and forward B with zero penalty on A.
+		if respA.Body != nil {
+			_ = respA.Body.Close()
+		}
+		closeTransportA()
+		return t.finalizeResponse(ctx, req, rawPath, altAttempt, altStarted, respB, infoB, false)
+	}
+
+	// B returned any non-2xx (403, 429, 503, 3xx, 304, 101, etc.) or a
+	// transport error: handle B on its own evidence, close B, and return A's
+	// original status, headers, and body unchanged with no 3rd call.
+	infoB.discard()
+	t.settleDiscardedAlternate(ctx, req, rawPath, hasPolicy, altAttempt, altStarted, respB, errB)
+	if respB != nil && respB.Body != nil {
+		_ = respB.Body.Close()
+	}
+	closeTransportB()
+	t.setActiveAttempt(attemptA)
+
+	return t.finalizeResponse(ctx, req, rawPath, attemptA, startedA, respA, infoA, true)
+}
+
+func (t *rawHTTPRetryTransport) finalizeTerminalForbidden(
+	ctx context.Context,
+	req *http.Request,
+	rawPath string,
+	hasPolicy bool,
+	attempt *biz.RawHTTPCredentialAttempt,
+	started time.Time,
+	resp *http.Response,
+	info *rawHTTPInformationalBuffer,
+) (*http.Response, error) {
+	if hasPolicy {
+		peeked, oversized, peekErr, restored := peekRawHTTPErrorBody(resp)
+		resp.Body = restored
+		if peekErr == nil && !oversized {
+			errFields := biz.ExtractStructuredJSONError(peeked, resp.Header.Get("Content-Encoding"))
+			if errFields.HasIdentifier() {
+				classification := t.channels.ClassifyRawHTTPKeyFailure(ctx, t.channel, attempt.Key, req.Method, rawPath, resp.StatusCode, errFields)
+				if classification.Classified {
+					t.observedFailureStatus.Store(int32(resp.StatusCode))
+					info.discard()
+					attempt.Finish(resp.StatusCode, biz.CredentialAttemptFailure)
+					t.applyFailurePolicy(ctx, attempt, resp.StatusCode, req.Method, rawPath, errFields, started, true, true)
+					return resp, nil
+				}
+			}
+		}
+	}
+	return t.finalizeResponse(ctx, req, rawPath, attempt, started, resp, info, true)
+}
+
+func (t *rawHTTPRetryTransport) settleDiscardedAlternate(
+	ctx context.Context,
+	req *http.Request,
+	rawPath string,
+	hasPolicy bool,
+	attempt *biz.RawHTTPCredentialAttempt,
+	started time.Time,
+	resp *http.Response,
+	roundTripErr error,
+) {
+	if roundTripErr != nil || resp == nil {
+		canceled := ctx.Err() != nil || errors.Is(roundTripErr, context.Canceled) || errors.Is(roundTripErr, context.DeadlineExceeded)
+		if canceled {
+			attempt.Finish(0, biz.CredentialAttemptCanceled)
+			return
+		}
+		attempt.Finish(0, biz.CredentialAttemptFailure)
+		t.applyFailurePolicy(ctx, attempt, http.StatusBadGateway, req.Method, rawPath, biz.StructuredJSONError{}, started, false, false)
+		return
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		if hasPolicy {
+			peeked, oversized, peekErr, restored := peekRawHTTPErrorBody(resp)
+			resp.Body = restored
+			if peekErr == nil && !oversized {
+				errFields := biz.ExtractStructuredJSONError(peeked, resp.Header.Get("Content-Encoding"))
+				if errFields.HasIdentifier() {
+					classification := t.channels.ClassifyRawHTTPKeyFailure(ctx, t.channel, attempt.Key, req.Method, rawPath, resp.StatusCode, errFields)
+					if classification.Classified {
+						attempt.Finish(resp.StatusCode, biz.CredentialAttemptFailure)
+						t.applyFailurePolicy(ctx, attempt, resp.StatusCode, req.Method, rawPath, errFields, started, true, true)
+						return
+					}
+				}
+			}
+		}
+		attempt.Finish(resp.StatusCode, biz.CredentialAttemptNeutral)
+		return
+	}
+	if rawHTTPFailureStatus(resp.StatusCode) {
+		attempt.Finish(resp.StatusCode, biz.CredentialAttemptFailure)
+		t.applyFailurePolicy(ctx, attempt, resp.StatusCode, req.Method, rawPath, biz.StructuredJSONError{}, started, false, false)
+		return
+	}
+	attempt.Finish(resp.StatusCode, biz.CredentialAttemptNeutral)
+}
+
+func (t *rawHTTPRetryTransport) finalizeResponse(
+	ctx context.Context,
+	req *http.Request,
+	rawPath string,
+	attemptHandle *biz.RawHTTPCredentialAttempt,
+	attemptStarted time.Time,
+	resp *http.Response,
+	informational *rawHTTPInformationalBuffer,
+	neutralOnComplete bool,
+) (*http.Response, error) {
+	// Raw HTTP strips Upgrade/Connection hop-by-hop headers, so a 101 response
+	// cannot be upgraded by ReverseProxy (which would reject it without closing
+	// a wrapped body). Close and settle the lease inside the transport.
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		informational.discard()
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		attemptHandle.Finish(http.StatusSwitchingProtocols, biz.CredentialAttemptNeutral)
+		return nil, errors.New("raw HTTP upstream returned unsupported 101 switching protocols")
+	}
+
+	if resp.StatusCode >= 400 || ctx.Err() != nil {
+		informational.discard()
+	} else {
+		informational.commit()
+	}
+
+	authoritativeFailure := rawHTTPFailureStatus(resp.StatusCode)
+	if authoritativeFailure {
+		t.observedFailureStatus.Store(int32(resp.StatusCode))
+	}
+	completeOutcome := biz.CredentialAttemptSuccess
+	if neutralOnComplete {
+		completeOutcome = biz.CredentialAttemptNeutral
+	}
+
+	if resp.Body == nil {
+		if authoritativeFailure {
+			attemptHandle.Finish(resp.StatusCode, biz.CredentialAttemptFailure)
+			t.applyFailurePolicy(ctx, attemptHandle, resp.StatusCode, req.Method, rawPath, biz.StructuredJSONError{}, attemptStarted, false, false)
+		} else if ctx.Err() != nil {
+			attemptHandle.Finish(resp.StatusCode, biz.CredentialAttemptCanceled)
+		} else {
+			attemptHandle.Finish(resp.StatusCode, completeOutcome)
+		}
+		resp.Body = http.NoBody
+		return resp, nil
+	}
+
+	resp.Body = &rawHTTPAttemptResponseBody{
+		ReadCloser: resp.Body,
+		finish: func(readErr error) {
+			if authoritativeFailure {
+				// Authoritative upstream failure headers (401/402/429/432/5xx)
+				// were already observed; downstream disconnect during body read
+				// or close must not erase failure attribution.
+				attemptHandle.Finish(resp.StatusCode, biz.CredentialAttemptFailure)
+				t.applyFailurePolicy(ctx, attemptHandle, resp.StatusCode, req.Method, rawPath, biz.StructuredJSONError{}, attemptStarted, false, false)
+				return
+			}
+			if readErr != io.EOF && ctx.Err() != nil {
+				attemptHandle.Finish(resp.StatusCode, biz.CredentialAttemptCanceled)
+				return
+			}
+			if readErr != nil && readErr != io.EOF {
+				attemptHandle.Finish(http.StatusBadGateway, biz.CredentialAttemptFailure)
+				t.applyFailurePolicy(ctx, attemptHandle, http.StatusBadGateway, req.Method, rawPath, biz.StructuredJSONError{}, attemptStarted, false, false)
+				return
+			}
+			attemptHandle.Finish(resp.StatusCode, completeOutcome)
+		},
+	}
+	return resp, nil
+}
+
+func (t *rawHTTPRetryTransport) executeAttempt(
+	ctx context.Context,
+	req *http.Request,
+	body []byte,
+	cloneReq bool,
+	attempt *biz.RawHTTPCredentialAttempt,
+) (*http.Response, *rawHTTPInformationalBuffer, func(), error) {
+	attemptReq := req
+	if cloneReq {
+		attemptReq = req.Clone(ctx)
+		attemptReq.Header = req.Header.Clone()
+		if req.Body != nil && req.Body != http.NoBody {
+			attemptReq.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		attemptReq.GetBody = nil
+	}
+	setRawHTTPAuth(attemptReq.Header, t.authType, t.authHeader, attempt.Key)
+
+	transport, isCloned, err := t.transportForAttempt(attempt)
+	if err != nil {
+		return nil, &rawHTTPInformationalBuffer{}, func() {}, err
+	}
+	closeTransport := func() {
+		if isCloned {
+			transport.CloseIdleConnections()
+		}
+	}
+
+	informational := bufferRawHTTPInformational(attemptReq)
+	resp, roundTripErr := transport.RoundTrip(attemptReq)
+	if attemptReq != req && attemptReq.Body != nil {
+		_ = attemptReq.Body.Close()
+	}
+	if roundTripErr != nil && resp != nil {
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		resp = nil
+	}
+	return resp, informational, closeTransport, roundTripErr
+}
+
+func (t *rawHTTPRetryTransport) initialAttemptHandle(ctx context.Context) *biz.RawHTTPCredentialAttempt {
+	if t.initialAttempt != nil {
+		return t.initialAttempt
+	}
+	ctxKey, client, finish := contexts.TakeChannelCredentialAttempt(ctx)
+	key := t.initialKey
+	if ctxKey != "" {
+		key = ctxKey
+	}
+	return biz.NewLegacyRawHTTPCredentialAttempt(t.channel.ID, t.channel.CredentialOwnerID(), key, client, finish)
+}
+
+func (t *rawHTTPRetryTransport) resolveRawPath(req *http.Request) string {
+	if t.rawPath != "" {
+		return biz.NormalizeRawHTTPPath(t.rawPath)
+	}
+	rel := req.URL.Path
+	if t.channel != nil && t.channel.BaseURL != "" {
+		if base, err := url.Parse(t.channel.BaseURL); err == nil {
+			prefix := strings.TrimRight(base.Path, "/")
+			if prefix != "" && strings.HasPrefix(rel, prefix) {
+				rel = strings.TrimPrefix(rel, prefix)
+			}
+		}
+	}
+	return biz.NormalizeRawHTTPPath(rel)
+}
+
+func (t *rawHTTPRetryTransport) opaque403RecoveryAllowed(method, rawPath string) bool {
+	if t.channel == nil || t.channel.Settings == nil || t.channel.Settings.RawHTTP == nil {
+		return false
+	}
+	cfg := t.channel.Settings.RawHTTP
+	if cfg.Opaque403Recovery == nil || !*cfg.Opaque403Recovery {
+		return false
+	}
+	return biz.IsSafeRawHTTPReplayOperation(method, rawPath, cfg)
+}
+
+func (t *rawHTTPRetryTransport) transportForAttempt(attempt *biz.RawHTTPCredentialAttempt) (*http.Transport, bool, error) {
+	if attempt != nil && attempt.RawTransport != nil {
+		return attempt.RawTransport, false, nil
 	}
 	client := t.defaultClient
-	if egress, ok := contexts.GetChannelCredentialEgress(ctx); ok {
-		client = egress
+	if attempt != nil && attempt.EgressClient != nil {
+		client = attempt.EgressClient
 	}
 	if client == nil || client.GetNativeClient() == nil {
 		return nil, false, errors.New("raw HTTP channel transport unavailable")
@@ -199,6 +569,7 @@ func (t *rawHTTPRetryTransport) transportForCredential(ctx context.Context) (*ht
 }
 
 func (t *rawHTTPRetryTransport) CloseIdleConnections() {
+	t.FinishActiveAttempt()
 	t.mu.Lock()
 	transports := slices.Clone(t.transports)
 	t.transports = nil
@@ -208,25 +579,68 @@ func (t *rawHTTPRetryTransport) CloseIdleConnections() {
 	}
 }
 
-func (t *rawHTTPRetryTransport) finishAttempt(ctx context.Context, key string, status int, failed, canceled bool, started time.Time) {
-	contexts.FinishChannelCredentialAttempt(ctx, status, failed, canceled)
-	if !failed || canceled {
-		return
-	}
+func (t *rawHTTPRetryTransport) applyFailurePolicy(
+	ctx context.Context,
+	attempt *biz.RawHTTPCredentialAttempt,
+	status int,
+	method string,
+	rawPath string,
+	errFields biz.StructuredJSONError,
+	started time.Time,
+	keyTargetOnly bool,
+	requireExprMatch bool,
+) {
 	policyStatus := status
 	if policyStatus == 0 {
 		policyStatus = http.StatusBadGateway
 	}
 	perf := &biz.PerformanceRecord{
-		ChannelID:          t.channel.ID,
-		CredentialOwnerID:  t.channel.CredentialOwnerID(),
-		APIKey:             key,
+		ChannelID:          attempt.ChannelID,
+		CredentialOwnerID:  attempt.CredentialOwnerID,
+		APIKey:             attempt.Key,
 		StartTime:          started,
 		EndTime:            time.Now(),
 		ResponseStatusCode: policyStatus,
 		RequestCompleted:   true,
+		RequestMethod:      strings.ToUpper(strings.TrimSpace(method)),
+		RequestPath:        biz.NormalizeRawHTTPPath(rawPath),
+		ErrorTag:           errFields.Tag,
+		ErrorCode:          errFields.Code,
+		ErrorType:          errFields.Type,
+		KeyTargetOnly:      keyTargetOnly,
+		RequireExprMatch:   requireExprMatch,
+		HasRecoveryGen:     attempt.HasRecoveryGen,
+		RecoveryGen:        attempt.RecoveryGen,
 	}
 	t.channels.ApplyRequestFailurePolicy(ctx, perf)
+}
+
+func peekRawHTTPErrorBody(resp *http.Response) (peeked []byte, oversized bool, readErr error, restored io.ReadCloser) {
+	if resp == nil || resp.Body == nil || resp.Body == http.NoBody {
+		return nil, false, nil, http.NoBody
+	}
+	original := resp.Body
+	if resp.ContentLength > rawHTTPErrorInspectLimit {
+		return nil, true, nil, original
+	}
+
+	buf, err := io.ReadAll(io.LimitReader(original, rawHTTPErrorInspectLimit+1))
+	if err != nil {
+		return buf, false, err, &rawHTTPRestoredBody{
+			Reader: io.MultiReader(bytes.NewReader(buf), rawHTTPBodyError{err: err}),
+			closer: original,
+		}
+	}
+	if len(buf) > rawHTTPErrorInspectLimit {
+		return nil, true, nil, &rawHTTPRestoredBody{
+			Reader: io.MultiReader(bytes.NewReader(buf), original),
+			closer: original,
+		}
+	}
+	// Entire bounded body was read cleanly; close upstream reader now and serve
+	// exact bytes from memory without holding the upstream connection open.
+	_ = original.Close()
+	return buf, false, nil, io.NopCloser(bytes.NewReader(buf))
 }
 
 func setRawHTTPAuth(header http.Header, authType, authHeader, key string) {

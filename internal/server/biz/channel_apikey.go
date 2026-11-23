@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcontext"
 )
+
+const allAPIKeysDisabledErrorPrefix = "All API keys disabled"
 
 var errCannotArchiveLastUsableChannelAPIKey = errors.New("cannot archive the last usable channel api key")
 
@@ -430,129 +433,304 @@ func (svc *ChannelService) disableOwnedAPIKey(ctx context.Context, ch *ent.Chann
 	return nil
 }
 
-// EnableAPIKey 重新启用指定 key（从 disabled_api_keys 中移除）.
+// EnableAPIKey 重新启用指定 key（从 disabled_api_keys 中移除并清理陈旧运行态元数据）.
 func (svc *ChannelService) EnableAPIKey(ctx context.Context, channelID int, key string) error {
-	// 读取 channel
-	ch, err := svc.mutableCredentialChannel(ctx, channelID)
-	if err != nil {
-		return fmt.Errorf("failed to get channel: %w", err)
-	}
-	if resolvedKey, ok := resolveChannelAPIKey(ch.Credentials, key); ok {
-		key = resolvedKey
-	}
-
-	if len(ch.DisabledAPIKeys) == 0 {
-		// 没有禁用的 key，忽略
+	if strings.TrimSpace(key) == "" {
 		return nil
 	}
 
-	// 从 disabled_api_keys 中移除指定 key
-	newDisabledKeys := make([]objects.DisabledAPIKey, 0, len(ch.DisabledAPIKeys))
-	found := false
-
-	for _, dk := range ch.DisabledAPIKeys {
-		if dk.Key == key {
-			found = true
-			continue
-		}
-
-		newDisabledKeys = append(newDisabledKeys, dk)
-	}
-
-	if !found {
-		// key 不在禁用列表中，忽略
-		return nil
-	}
-
-	// 更新 channel
-	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
-		SetDisabledAPIKeys(newDisabledKeys)
-
-	if _, err := update.Save(ctx); err != nil {
-		return fmt.Errorf("failed to enable api key: %w", err)
-	}
-
-	svc.reloadChannelsAfterCommit(ctx)
-
-	return nil
+	return svc.enableAPIKeys(ctx, channelID, []string{key}, false)
 }
 
-// EnableAllAPIKeys 清空 disabled_api_keys.
+// EnableAllAPIKeys 清空 disabled_api_keys 并清理陈旧运行态元数据.
 func (svc *ChannelService) EnableAllAPIKeys(ctx context.Context, channelID int) error {
-	// 读取 channel
-	ch, err := svc.mutableCredentialChannel(ctx, channelID)
-	if err != nil {
-		return fmt.Errorf("failed to get channel: %w", err)
-	}
-
-	if len(ch.DisabledAPIKeys) == 0 {
-		// 没有禁用的 key，忽略
-		return nil
-	}
-
-	// 更新 channel，清空 disabled_api_keys
-	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
-		SetDisabledAPIKeys([]objects.DisabledAPIKey{})
-
-	if _, err := update.Save(ctx); err != nil {
-		return fmt.Errorf("failed to enable all api keys: %w", err)
-	}
-
-	log.Info(ctx, "All API keys enabled",
-		log.Int("channel_id", channelID),
-	)
-
-	svc.reloadChannelsAfterCommit(ctx)
-
-	return nil
+	return svc.enableAPIKeys(ctx, channelID, nil, true)
 }
 
-// EnableSelectedAPIKeys re-enables multiple specific keys from disabled_api_keys.
+// EnableSelectedAPIKeys re-enables multiple specific keys from disabled_api_keys
+// and clears stale operational metadata/backoff for those keys.
 func (svc *ChannelService) EnableSelectedAPIKeys(ctx context.Context, channelID int, keys []string) error {
 	if len(keys) == 0 {
 		return nil
 	}
 
+	return svc.enableAPIKeys(ctx, channelID, keys, false)
+}
+
+func (svc *ChannelService) enableAPIKeys(ctx context.Context, channelID int, keys []string, enableAll bool) error {
 	ch, err := svc.mutableCredentialChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
 
-	if len(ch.DisabledAPIKeys) == 0 {
-		return nil
+	archivedByID := make(map[string]struct{}, len(channelArchivedAPIKeys(ch.Settings)))
+	for _, archived := range channelArchivedAPIKeys(ch.Settings) {
+		if archived.ID != "" {
+			archivedByID[archived.ID] = struct{}{}
+		}
 	}
 
-	keysToEnable := make(map[string]struct{}, len(keys))
-	for _, k := range keys {
-		keysToEnable[k] = struct{}{}
+	targetKeys := make(map[string]struct{})
+	targetIDs := make(map[string]struct{})
+	if enableAll {
+		for _, dk := range ch.DisabledAPIKeys {
+			if dk.Key == "" {
+				continue
+			}
+			id := objects.ChannelAPIKeyFingerprint(dk.Key)
+			targetKeys[dk.Key] = struct{}{}
+			if _, archived := archivedByID[id]; !archived {
+				targetIDs[id] = struct{}{}
+			}
+		}
+		for _, rawKey := range ch.Credentials.GetAllAPIKeys() {
+			if rawKey == "" {
+				continue
+			}
+			id := objects.ChannelAPIKeyFingerprint(rawKey)
+			if _, archived := archivedByID[id]; archived {
+				continue
+			}
+			targetKeys[rawKey] = struct{}{}
+			targetIDs[id] = struct{}{}
+		}
+	} else {
+		for _, k := range keys {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			if resolved, ok := resolveChannelAPIKey(ch.Credentials, k); ok {
+				id := objects.ChannelAPIKeyFingerprint(resolved)
+				targetKeys[resolved] = struct{}{}
+				if _, archived := archivedByID[id]; !archived {
+					targetIDs[id] = struct{}{}
+				}
+				continue
+			}
+			matchedDisabled := false
+			normID := normalizeChannelKeyID(k)
+			for _, dk := range ch.DisabledAPIKeys {
+				if dk.Key == k || objects.ChannelAPIKeyFingerprint(dk.Key) == normID {
+					id := objects.ChannelAPIKeyFingerprint(dk.Key)
+					targetKeys[dk.Key] = struct{}{}
+					if _, archived := archivedByID[id]; !archived {
+						targetIDs[id] = struct{}{}
+					}
+					matchedDisabled = true
+				}
+			}
+			if !matchedDisabled && strings.HasPrefix(k, "key_") {
+				if _, archived := archivedByID[k]; !archived {
+					targetIDs[k] = struct{}{}
+				}
+			}
+		}
+	}
+
+	if len(targetKeys) == 0 && len(targetIDs) == 0 {
+		return nil
 	}
 
 	newDisabledKeys := make([]objects.DisabledAPIKey, 0, len(ch.DisabledAPIKeys))
 	for _, dk := range ch.DisabledAPIKeys {
-		if _, found := keysToEnable[dk.Key]; !found {
-			newDisabledKeys = append(newDisabledKeys, dk)
+		if _, found := targetKeys[dk.Key]; found {
+			continue
+		}
+		if _, found := targetIDs[objects.ChannelAPIKeyFingerprint(dk.Key)]; found {
+			continue
+		}
+		newDisabledKeys = append(newDisabledKeys, dk)
+	}
+	disabledChanged := len(newDisabledKeys) != len(ch.DisabledAPIKeys)
+
+	var nextSettings *objects.ChannelSettings
+	metadataChanged := false
+	if ch.Settings != nil && ch.Settings.KeyHealthCheck != nil && len(ch.Settings.KeyHealthCheck.KeyMetadata) > 0 {
+		candidateSettings := cloneChannelSettings(ch.Settings)
+		for i := range candidateSettings.KeyHealthCheck.KeyMetadata {
+			meta := candidateSettings.KeyHealthCheck.KeyMetadata[i]
+			if _, targeted := targetIDs[meta.ID]; !targeted {
+				continue
+			}
+			if _, archived := archivedByID[meta.ID]; archived {
+				continue
+			}
+			cleared, changed := clearRecoveredKeyMetadata(meta)
+			if changed {
+				candidateSettings.KeyHealthCheck.KeyMetadata[i] = cleared
+				metadataChanged = true
+			}
+		}
+		if metadataChanged {
+			nextSettings = candidateSettings
 		}
 	}
 
-	if len(newDisabledKeys) == len(ch.DisabledAPIKeys) {
+	settingsForRoutable := ch.Settings
+	if metadataChanged {
+		settingsForRoutable = nextSettings
+	}
+	routableAfter := ch.Credentials.GetRoutableAPIKeys(newDisabledKeys, channelArchivedAPIKeys(settingsForRoutable))
+	errorMessageCleared := len(routableAfter) > 0 && ch.ErrorMessage != nil && strings.HasPrefix(*ch.ErrorMessage, allAPIKeysDisabledErrorPrefix)
+
+	dbChanged := disabledChanged || metadataChanged || errorMessageCleared
+	recoveredRawKeys := make([]string, 0, len(targetKeys))
+	for rawKey := range targetKeys {
+		if _, archived := archivedByID[objects.ChannelAPIKeyFingerprint(rawKey)]; archived {
+			continue
+		}
+		recoveredRawKeys = append(recoveredRawKeys, rawKey)
+	}
+	recoveredKeyIDs := make([]string, 0, len(targetIDs))
+	for id := range targetIDs {
+		recoveredKeyIDs = append(recoveredKeyIDs, id)
+	}
+
+	ownerID := ch.ID
+	inTx := ent.TxFromContext(ctx) != nil
+	if !inTx {
+		svc.credentialRecoveryMu.Lock()
+	}
+	if dbChanged {
+		update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch)
+		if disabledChanged {
+			update.SetDisabledAPIKeys(newDisabledKeys)
+		}
+		if metadataChanged {
+			update.SetSettings(nextSettings)
+		}
+		if errorMessageCleared {
+			update.ClearErrorMessage()
+		}
+		if _, err := update.Save(ctx); err != nil {
+			if !inTx {
+				svc.credentialRecoveryMu.Unlock()
+			}
+			if enableAll {
+				return fmt.Errorf("failed to enable all api keys: %w", err)
+			}
+			if len(keys) == 1 {
+				return fmt.Errorf("failed to enable api key: %w", err)
+			}
+			return fmt.Errorf("failed to enable selected api keys: %w", err)
+		}
+		if enableAll {
+			log.Info(ctx, "All API keys enabled", log.Int("channel_id", channelID))
+		} else if len(keys) > 1 {
+			log.Info(ctx, "Selected API keys enabled", log.Int("channel_id", channelID), log.Int("count", len(targetIDs)))
+		}
+	}
+
+	if !inTx {
+		svc.resetRecoveredAPIKeyState(ownerID, recoveredRawKeys, recoveredKeyIDs)
+		svc.credentialRecoveryMu.Unlock()
+		if dbChanged {
+			svc.asyncReloadChannels()
+		}
 		return nil
 	}
 
-	update := channelAPIKeyStateUpdate(svc.entFromContext(ctx), ch).
-		SetDisabledAPIKeys(newDisabledKeys)
-
-	if _, err := update.Save(ctx); err != nil {
-		return fmt.Errorf("failed to enable selected api keys: %w", err)
-	}
-
-	log.Info(ctx, "Selected API keys enabled",
-		log.Int("channel_id", channelID),
-		log.Int("count", len(keys)),
-	)
-
-	svc.reloadChannelsAfterCommit(ctx)
+	tx := ent.TxFromContext(ctx)
+	tx.OnCommit(func(next ent.Committer) ent.Committer {
+		return ent.CommitFunc(func(ctx context.Context, tx *ent.Tx) error {
+			// Hold the recovery lock across SQL commit and recoveryGen publication
+			// so late pre-recovery failures cannot observe the committed enablement
+			// before the recovery generation advances.
+			svc.credentialRecoveryMu.Lock()
+			err := next.Commit(ctx, tx)
+			if err == nil {
+				svc.resetRecoveredAPIKeyState(ownerID, recoveredRawKeys, recoveredKeyIDs)
+			}
+			svc.credentialRecoveryMu.Unlock()
+			if err != nil {
+				return err
+			}
+			if dbChanged {
+				svc.asyncReloadChannels()
+			}
+			return nil
+		})
+	})
 
 	return nil
+}
+
+func (svc *ChannelService) resetRecoveredAPIKeyState(ownerID int, rawKeys []string, keyIDs []string) {
+	if len(rawKeys) > 0 {
+		svc.apiKeyErrorCountsLock.Lock()
+		if keyCounts := svc.apiKeyErrorCounts[ownerID]; keyCounts != nil {
+			for _, rawKey := range rawKeys {
+				delete(keyCounts, rawKey)
+			}
+		}
+		svc.apiKeyErrorCountsLock.Unlock()
+	}
+	if len(keyIDs) > 0 {
+		svc.credentialRuntime.recover(ownerID, keyIDs, time.Now())
+	}
+}
+
+func clearRecoveredKeyMetadata(meta objects.ChannelKeyMetadata) (objects.ChannelKeyMetadata, bool) {
+	changed := false
+	wasDisabledStatus := meta.Status == objects.ChannelKeyStatusDisabled
+	if wasDisabledStatus {
+		meta.Status = objects.ChannelKeyStatusActive
+		changed = true
+	}
+	if meta.NextCheckAt != nil {
+		meta.NextCheckAt = nil
+		changed = true
+	}
+	if meta.BackoffAttempt != 0 {
+		meta.BackoffAttempt = 0
+		changed = true
+	}
+
+	passedProbe := meta.Success != nil && *meta.Success
+	hasStaleFailure := meta.FailureCount > 0 || (meta.Success != nil && !*meta.Success) || keyMetadataActionIsFailure(meta.Action) || (wasDisabledStatus && !passedProbe)
+	if hasStaleFailure {
+		if meta.FailureCount != 0 {
+			meta.FailureCount = 0
+			changed = true
+		}
+		if meta.Success != nil && !*meta.Success {
+			meta.Success = nil
+			changed = true
+		}
+		if meta.Reason != "" {
+			meta.Reason = ""
+			changed = true
+		}
+		if meta.StatusCode != 0 {
+			meta.StatusCode = 0
+			changed = true
+		}
+		if meta.MatchedPolicy != "" {
+			meta.MatchedPolicy = ""
+			changed = true
+		}
+		if meta.Action != "" {
+			meta.Action = ""
+			changed = true
+		}
+	}
+
+	return meta, changed
+}
+
+func keyMetadataActionIsFailure(action string) bool {
+	for part := range strings.SplitSeq(action, ",") {
+		switch strings.TrimSpace(part) {
+		case string(objects.FailurePolicyActionDisableKey),
+			string(objects.FailurePolicyActionBackoffKey),
+			string(objects.FailurePolicyActionDisableChannel),
+			string(objects.ChannelKeyHealthCheckPolicyActionBackoff),
+			string(objects.ChannelKeyHealthCheckFailureActionDisable):
+			return true
+		}
+	}
+	return false
 }
 
 // DeleteDisabledAPIKeysResult is the result of deleting disabled API keys.
@@ -837,6 +1015,11 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 	next.CredentialPolicies = slices.Clone(settings.CredentialPolicies)
 	if settings.RawHTTP != nil {
 		raw := *settings.RawHTTP
+		raw.SafeReplayPaths = slices.Clone(settings.RawHTTP.SafeReplayPaths)
+		if settings.RawHTTP.Opaque403Recovery != nil {
+			v := *settings.RawHTTP.Opaque403Recovery
+			raw.Opaque403Recovery = &v
+		}
 		next.RawHTTP = &raw
 	}
 	if settings.SSEKeepAlive != nil {
@@ -871,11 +1054,27 @@ func cloneChannelSettings(settings *objects.ChannelSettings) *objects.ChannelSet
 		failurePolicy := *settings.FailurePolicy
 		failurePolicy.KeyProfiles = slices.Clone(settings.FailurePolicy.KeyProfiles)
 		for i := range failurePolicy.KeyProfiles {
+			if settings.FailurePolicy.KeyProfiles[i].Enabled != nil {
+				v := *settings.FailurePolicy.KeyProfiles[i].Enabled
+				failurePolicy.KeyProfiles[i].Enabled = &v
+			}
+			if settings.FailurePolicy.KeyProfiles[i].AllowReplay != nil {
+				v := *settings.FailurePolicy.KeyProfiles[i].AllowReplay
+				failurePolicy.KeyProfiles[i].AllowReplay = &v
+			}
 			failurePolicy.KeyProfiles[i].Sources = slices.Clone(settings.FailurePolicy.KeyProfiles[i].Sources)
 			failurePolicy.KeyProfiles[i].Actions = slices.Clone(settings.FailurePolicy.KeyProfiles[i].Actions)
 		}
 		failurePolicy.ChannelProfiles = slices.Clone(settings.FailurePolicy.ChannelProfiles)
 		for i := range failurePolicy.ChannelProfiles {
+			if settings.FailurePolicy.ChannelProfiles[i].Enabled != nil {
+				v := *settings.FailurePolicy.ChannelProfiles[i].Enabled
+				failurePolicy.ChannelProfiles[i].Enabled = &v
+			}
+			if settings.FailurePolicy.ChannelProfiles[i].AllowReplay != nil {
+				v := *settings.FailurePolicy.ChannelProfiles[i].AllowReplay
+				failurePolicy.ChannelProfiles[i].AllowReplay = &v
+			}
 			failurePolicy.ChannelProfiles[i].Sources = slices.Clone(settings.FailurePolicy.ChannelProfiles[i].Sources)
 			failurePolicy.ChannelProfiles[i].Actions = slices.Clone(settings.FailurePolicy.ChannelProfiles[i].Actions)
 		}
@@ -924,9 +1123,20 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	if currentRuntime != nil {
 		if next.RawHTTP == nil {
 			next.RawHTTP = currentRuntime.RawHTTP
+		} else if currentRuntime.RawHTTP != nil {
+			if next.RawHTTP.SafeReplayPaths == nil {
+				next.RawHTTP.SafeReplayPaths = currentRuntime.RawHTTP.SafeReplayPaths
+			}
+			if next.RawHTTP.Opaque403Recovery == nil {
+				next.RawHTTP.Opaque403Recovery = currentRuntime.RawHTTP.Opaque403Recovery
+			}
 		}
 		if next.CredentialPolicies == nil {
 			next.CredentialPolicies = currentRuntime.CredentialPolicies
+		}
+		if next.FailurePolicy != nil && currentRuntime.FailurePolicy != nil {
+			preserveFailurePolicyProfileAllowReplay(next.FailurePolicy.KeyProfiles, currentRuntime.FailurePolicy.KeyProfiles)
+			preserveFailurePolicyProfileAllowReplay(next.FailurePolicy.ChannelProfiles, currentRuntime.FailurePolicy.ChannelProfiles)
 		}
 	}
 	var keyMetadata []objects.ChannelKeyMetadata
@@ -951,6 +1161,41 @@ func mergeChannelSettingsForUpdate(current, input *objects.ChannelSettings) *obj
 	next.KeyHealthCheck.History = history
 
 	return next
+}
+
+func preserveFailurePolicyProfileAllowReplay(next, current []objects.FailurePolicyProfile) {
+	if len(next) == 0 || len(current) == 0 {
+		return
+	}
+	prevByID := make(map[string]objects.FailurePolicyProfile, len(current))
+	for _, profile := range current {
+		if profile.ID != "" && profile.AllowReplay != nil {
+			prevByID[profile.ID] = profile
+		}
+	}
+	if len(prevByID) == 0 {
+		return
+	}
+	for i := range next {
+		if next[i].AllowReplay != nil {
+			continue
+		}
+		prev, ok := prevByID[next[i].ID]
+		if !ok {
+			continue
+		}
+		// Only carry over an omitted AllowReplay grant when the profile's
+		// matching conditions, combiner, and sources are completely unchanged;
+		// editing the target rule revokes implicit carryover.
+		if normalizeFailurePolicyConditionCombiner(next[i].ConditionCombiner) != normalizeFailurePolicyConditionCombiner(prev.ConditionCombiner) {
+			continue
+		}
+		if !slices.Equal(next[i].Sources, prev.Sources) || !reflect.DeepEqual(next[i].Conditions, prev.Conditions) {
+			continue
+		}
+		copied := *prev.AllowReplay
+		next[i].AllowReplay = &copied
+	}
 }
 
 func mergeChannelPoliciesForUpdate(current objects.ChannelPolicies, input *objects.ChannelPolicies) *objects.ChannelPolicies {

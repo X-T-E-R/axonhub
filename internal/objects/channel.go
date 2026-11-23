@@ -131,10 +131,12 @@ type TransformOptions struct {
 // ChannelRawHTTP binds a fixed upstream to a logical resource in the existing
 // project/key model profiles. The opaque payload is never used for routing.
 type ChannelRawHTTP struct {
-	Enabled    bool   `json:"enabled"`
-	Resource   string `json:"resource"`
-	AuthType   string `json:"authType"`
-	AuthHeader string `json:"authHeader,omitempty"`
+	Enabled           bool     `json:"enabled"`
+	Resource          string   `json:"resource"`
+	AuthType          string   `json:"authType"`
+	AuthHeader        string   `json:"authHeader,omitempty"`
+	SafeReplayPaths   []string `json:"safeReplayPaths,omitempty"`
+	Opaque403Recovery *bool    `json:"opaque403Recovery,omitempty"`
 }
 
 type ChannelSettings struct {
@@ -652,6 +654,7 @@ type FailurePolicyProfile struct {
 	ID                string                               `json:"id"`
 	Name              string                               `json:"name"`
 	Enabled           *bool                                `json:"enabled,omitempty"`
+	AllowReplay       *bool                                `json:"allowReplay,omitempty"`
 	Sources           []FailurePolicyEventSource           `json:"sources,omitempty"`
 	ConditionCombiner FailurePolicyConditionCombiner       `json:"conditionCombiner,omitempty"`
 	Conditions        ChannelKeyHealthCheckPolicyCondition `json:"conditions,omitempty"`

@@ -10,13 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/looplj/axonhub/llm/auth"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/net/http/httpguts"
 
 	"github.com/looplj/axonhub/internal/authz"
+	"github.com/looplj/axonhub/internal/contexts"
 	"github.com/looplj/axonhub/internal/ent"
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/xcontext"
 )
 
 func IsRawHTTPChannel(c *ent.Channel) bool {
@@ -56,6 +58,11 @@ func ValidateRawHTTPChannel(baseURL string, models []string, settings *objects.C
 	default:
 		return fmt.Errorf("raw HTTP auth type must be bearer or header")
 	}
+	for _, replayPath := range raw.SafeReplayPaths {
+		if replayPath == "" || strings.TrimSpace(replayPath) != replayPath || !strings.HasPrefix(replayPath, "/") || strings.ContainsAny(replayPath, "?#") || !RawHTTPPathAllowed(replayPath) {
+			return fmt.Errorf("invalid raw HTTP safe replay path %q", replayPath)
+		}
+	}
 	return nil
 }
 
@@ -78,22 +85,39 @@ type rawHTTPKeyProviderConfig struct {
 }
 
 type rawHTTPKeyProvider struct {
-	mu              sync.Mutex
-	keys            []string
-	config          rawHTTPKeyProviderConfig
-	provider        auth.APIKeyProvider
-	updatedAt       time.Time
-	sourceUpdatedAt time.Time
+	mu            sync.Mutex
+	config        rawHTTPKeyProviderConfig
+	traceCache    *lru.Cache[string, string]
+	affinityCache *lru.Cache[string, stickyCacheEntry]
 }
 
-// RawHTTPAPIKey retains the existing providers' counters and affinity caches
-// across requests. A changed routable key set or effective policy replaces only
-// that channel's provider, using the freshly authorized channel snapshot.
-func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) string {
-	value, _ := svc.rawHTTPKeyProviders.LoadOrStore(ch.ID, &rawHTTPKeyProvider{})
-	state := value.(*rawHTTPKeyProvider)
-	state.mu.Lock()
-	defer state.mu.Unlock()
+// ReserveRawHTTPCredential atomically selects and reserves a credential on the
+// freshly authorized channel snapshot using the shared service credentialRuntime.
+// Sticky/affinity caches are preserved across requests without retaining a stale
+// channel snapshot. Pass allowSoftFallback=false when selecting a retry alternate
+// so cooling, quota-exhausted, and excluded keys are strictly ineligible.
+func (svc *ChannelService) ReserveRawHTTPCredential(
+	ctx context.Context,
+	ch *Channel,
+	excluded map[string]struct{},
+	allowSoftFallback bool,
+) *RawHTTPCredentialAttempt {
+	if ch == nil {
+		return nil
+	}
+	if ch.apiKeyOverride != "" {
+		if _, skip := excluded[ch.apiKeyOverride]; skip || contexts.ChannelCredentialExcluded(ctx, ch.ID, ch.apiKeyOverride) {
+			return nil
+		}
+		return &RawHTTPCredentialAttempt{
+			ChannelID:         ch.ID,
+			CredentialOwnerID: ch.CredentialOwnerID(),
+			Key:               ch.apiKeyOverride,
+			KeyID:             objects.ChannelAPIKeyFingerprint(ch.apiKeyOverride),
+			StartedAt:         time.Now(),
+			EgressClient:      ch.HTTPClient,
+		}
+	}
 
 	selection := channelKeySelectionForProvider(ch)
 	config := rawHTTPKeyProviderConfig{
@@ -101,14 +125,111 @@ func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) strin
 		likelyTTLMinutes: selection.LikelyAffinityTTLMinutesOrDefault(),
 		exactTTLMinutes:  selection.ExactAffinityTTLMinutesOrDefault(),
 	}
-	if state.provider == nil || !slices.Equal(state.keys, ch.cachedEnabledAPIKeys) || state.config != config || !state.updatedAt.Equal(ch.UpdatedAt) || !state.sourceUpdatedAt.Equal(ch.credentialSourceUpdatedAt) {
-		state.keys = slices.Clone(ch.cachedEnabledAPIKeys)
-		state.updatedAt = ch.UpdatedAt
-		state.sourceUpdatedAt = ch.credentialSourceUpdatedAt
+
+	value, _ := svc.rawHTTPKeyProviders.LoadOrStore(ch.ID, &rawHTTPKeyProvider{})
+	state := value.(*rawHTTPKeyProvider)
+	state.mu.Lock()
+	if state.config != config || (config.strategy == objects.ChannelKeySelectionStrategyTraceSticky && state.traceCache == nil) || (config.strategy == objects.ChannelKeySelectionStrategyCacheAffinity && state.affinityCache == nil) {
 		state.config = config
-		state.provider = getAPIKeyProvider(ch)
+		if config.strategy == objects.ChannelKeySelectionStrategyTraceSticky {
+			state.traceCache, _ = lru.New[string, string](traceStickyLRUSize)
+			state.affinityCache = nil
+		} else if config.strategy == objects.ChannelKeySelectionStrategyCacheAffinity {
+			state.affinityCache, _ = lru.New[string, stickyCacheEntry](traceStickyLRUSize)
+			state.traceCache = nil
+		} else {
+			state.traceCache = nil
+			state.affinityCache = nil
+		}
 	}
-	return state.provider.Get(ctx)
+	traceCache := state.traceCache
+	affinityCache := state.affinityCache
+	state.mu.Unlock()
+
+	var sticky func([]string) string
+	switch config.strategy {
+	case objects.ChannelKeySelectionStrategyTraceSticky:
+		if trace, ok := contexts.GetTrace(ctx); ok && trace != nil && trace.TraceID != "" && traceCache != nil {
+			sticky = func(keys []string) string {
+				if old, ok := traceCache.Get(trace.TraceID); ok && !slices.Contains(keys, old) {
+					ch.logCredentialAffinityEscape(ctx, old, keys)
+				}
+				return selectStickyKey(traceCache, keys, trace.TraceID)
+			}
+		}
+	case objects.ChannelKeySelectionStrategyCacheAffinity:
+		if id, ok := contexts.GetChannelKeyAffinityID(ctx); ok && id != "" && affinityCache != nil {
+			likelyTTL := time.Duration(config.likelyTTLMinutes) * time.Minute
+			exactTTL := time.Duration(config.exactTTLMinutes) * time.Minute
+			sticky = func(keys []string) string {
+				if old, ok := affinityCache.Get(id); ok && old.ExpiresAt.After(time.Now()) && !slices.Contains(keys, old.Key) {
+					ch.logCredentialAffinityEscape(ctx, old.Key, keys)
+				}
+				ttl := likelyTTL
+				if cacheAffinityTierFromID(id) == "exact" {
+					ttl = exactTTL
+				}
+				return selectTTLStickyKey(affinityCache, keys, id, ttl)
+			}
+		}
+	}
+
+	effectiveExcluded := excluded
+	clonedExcluded := false
+	ensureClonedExcluded := func() {
+		if !clonedExcluded {
+			effectiveExcluded = cloneStringSet(excluded)
+			clonedExcluded = true
+		}
+	}
+	if !allowSoftFallback && svc.db != nil {
+		// Narrow retry selection against the authoritative primary owner row by
+		// intersecting the request's authorized snapshot with currently routable
+		// credentials (excluding disabled, archived, and deleted keys). Fail
+		// closed if current eligibility cannot be established.
+		lookupCtx, cancel := xcontext.DetachWithTimeout(ctx, 2*time.Second)
+		owner, err := observationPrimaryClient(svc.db).Channel.Get(
+			authz.WithSystemBypass(lookupCtx, "raw-http-retry-credential-refresh"),
+			ch.CredentialOwnerID(),
+		)
+		cancel()
+		if err != nil || owner == nil || owner.Status != channel.StatusEnabled {
+			return nil
+		}
+		currentRoutable := owner.Credentials.GetRoutableAPIKeys(owner.DisabledAPIKeys, channelArchivedAPIKeys(owner.Settings))
+		routableSet := make(map[string]struct{}, len(currentRoutable))
+		for _, k := range currentRoutable {
+			routableSet[k] = struct{}{}
+		}
+		for _, key := range ch.cachedEnabledAPIKeys {
+			if _, ok := routableSet[key]; !ok {
+				ensureClonedExcluded()
+				effectiveExcluded[key] = struct{}{}
+			}
+		}
+	}
+
+	return ch.reserveCredentialAttempt(ctx, config.strategy, sticky, effectiveExcluded, allowSoftFallback)
+}
+
+func cloneStringSet(src map[string]struct{}) map[string]struct{} {
+	dst := make(map[string]struct{}, len(src)+1)
+	for k := range src {
+		dst[k] = struct{}{}
+	}
+	return dst
+}
+
+// RawHTTPAPIKey reserves an initial Raw HTTP credential on the current channel
+// snapshot and binds it to the request context for legacy callers.
+func (svc *ChannelService) RawHTTPAPIKey(ctx context.Context, ch *Channel) string {
+	attempt := svc.ReserveRawHTTPCredential(ctx, ch, nil, true)
+	if attempt == nil {
+		contexts.WithChannelAPIKey(ctx, "")
+		return ""
+	}
+	contexts.WithChannelCredentialEgress(ctx, attempt.Key, attempt.EgressClient, attempt.legacyFinishFunc())
+	return attempt.Key
 }
 
 // ResolveRawHTTPChannel reads the current channel row from primary so disabled

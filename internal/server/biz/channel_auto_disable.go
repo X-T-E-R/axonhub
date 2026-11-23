@@ -171,8 +171,14 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 	if perf == nil || policy == nil || perf.ResponseStatusCode == 0 {
 		return false
 	}
+	if perf.KeyTargetOnly && perf.APIKey == "" {
+		return false
+	}
 
-	channelCount := svc.incrementChannelFailureCount(perf.ChannelID, perf.ResponseStatusCode)
+	channelCount := 0
+	if !perf.KeyTargetOnly {
+		channelCount = svc.incrementChannelFailureCount(perf.ChannelID, perf.ResponseStatusCode)
+	}
 	ch, err := svc.entFromContext(ctx).Channel.Get(ctx, perf.ChannelID)
 	if err != nil {
 		log.Warn(ctx, "failed to load channel for failure policy",
@@ -183,8 +189,8 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 		return false
 	}
 
-	effective := resolveEffectiveFailurePolicy(policy, ch.Settings, perf.APIKey == "")
-	if len(effective.KeyProfiles) == 0 && len(effective.ChannelProfiles) == 0 {
+	effective := resolveEffectiveFailurePolicy(policy, ch.Settings, !perf.KeyTargetOnly && perf.APIKey == "")
+	if len(effective.KeyProfiles) == 0 && (perf.KeyTargetOnly || len(effective.ChannelProfiles) == 0) {
 		return false
 	}
 
@@ -195,22 +201,86 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 		if ownerID == 0 {
 			ownerID = credentialOwnerID(ch)
 		}
-		keyCount := svc.incrementAPIKeyFailureCount(ownerID, perf.APIKey, perf.ResponseStatusCode)
-		keyEvent := failurePolicyEvent{
-			Source:       objects.FailurePolicyEventSourceRequestFailure,
-			Target:       objects.FailurePolicyTargetKey,
-			ChannelID:    ownerID,
-			Key:          perf.APIKey,
-			StatusCode:   perf.ResponseStatusCode,
-			FailureCount: keyCount,
-			Reason:       deriveErrorMessage(perf.ResponseStatusCode),
-			CheckedAt:    now,
+		keyProfiles := effective.KeyProfiles
+		if perf.KeyTargetOnly && perf.RequireExprMatch && ownerID != perf.ChannelID {
+			// Route-local classified 403 rules on a dependent channel must not
+			// mutate a shared credential owner unless the owner itself explicitly
+			// authorizes that rule.
+			ownerRow, ownerErr := svc.entFromContext(ctx).Channel.Get(ctx, ownerID)
+			if ownerErr != nil || ownerRow == nil {
+				keyProfiles = nil
+			} else {
+				keyProfiles = resolveEffectiveFailurePolicy(policy, ownerRow.Settings, false).KeyProfiles
+			}
 		}
-		matches := evaluateFailurePolicyProfiles(effective.KeyProfiles, keyEvent)
+		keyID := objects.ChannelAPIKeyFingerprint(perf.APIKey)
+		svc.credentialRecoveryMu.RLock()
+		stale := svc.credentialRuntime.isStaleAfterRecovery(ownerID, keyID, perf.StartTime, perf.HasRecoveryGen, perf.RecoveryGen)
+		keyCount := 0
+		if !stale && len(keyProfiles) > 0 {
+			keyCount = svc.incrementAPIKeyFailureCount(ownerID, perf.APIKey, perf.ResponseStatusCode)
+		}
+		svc.credentialRecoveryMu.RUnlock()
+		if !stale && len(keyProfiles) > 0 {
+			keyEvent := failurePolicyEvent{
+				Source:         objects.FailurePolicyEventSourceRequestFailure,
+				Target:         objects.FailurePolicyTargetKey,
+				ChannelID:      ownerID,
+				Key:            perf.APIKey,
+				StatusCode:     perf.ResponseStatusCode,
+				RequestMethod:  perf.RequestMethod,
+				RequestPath:    perf.RequestPath,
+				ErrorTag:       perf.ErrorTag,
+				ErrorCode:      perf.ErrorCode,
+				ErrorType:      perf.ErrorType,
+				KeyTargetOnly:  perf.KeyTargetOnly,
+				StartedAt:      perf.StartTime,
+				HasRecoveryGen: perf.HasRecoveryGen,
+				RecoveryGen:    perf.RecoveryGen,
+				FailureCount:   keyCount,
+				Reason:         deriveErrorMessage(perf.ResponseStatusCode),
+				CheckedAt:      now,
+			}
+			matches := evaluateFailurePolicyProfilesWithOptions(keyProfiles, keyEvent, perf.RequireExprMatch, false)
+			if len(matches) > 0 {
+				changed, err := svc.applyFailurePolicyActions(ctx, keyEvent, summarizeFailurePolicyMatches(matches), matchesToFailurePolicyActions(matches), true)
+				if err != nil {
+					log.Error(ctx, "failed to apply key failure policy",
+						log.Int("channel_id", perf.ChannelID),
+						log.Int("error_code", perf.ResponseStatusCode),
+						log.Cause(err),
+					)
+				}
+				routingChanged = routingChanged || changed
+				if changed {
+					svc.apiKeyErrorCountsLock.Lock()
+					delete(svc.apiKeyErrorCounts[ownerID], perf.APIKey)
+					svc.apiKeyErrorCountsLock.Unlock()
+				}
+			}
+		}
+	}
+
+	if !perf.KeyTargetOnly {
+		channelEvent := failurePolicyEvent{
+			Source:        objects.FailurePolicyEventSourceRequestFailure,
+			Target:        objects.FailurePolicyTargetChannel,
+			ChannelID:     perf.ChannelID,
+			StatusCode:    perf.ResponseStatusCode,
+			RequestMethod: perf.RequestMethod,
+			RequestPath:   perf.RequestPath,
+			ErrorTag:      perf.ErrorTag,
+			ErrorCode:     perf.ErrorCode,
+			ErrorType:     perf.ErrorType,
+			FailureCount:  channelCount,
+			Reason:        deriveErrorMessage(perf.ResponseStatusCode),
+			CheckedAt:     now,
+		}
+		matches := evaluateFailurePolicyProfiles(effective.ChannelProfiles, channelEvent)
 		if len(matches) > 0 {
-			changed, err := svc.applyFailurePolicyActions(ctx, keyEvent, summarizeFailurePolicyMatches(matches), matchesToFailurePolicyActions(matches), true)
+			changed, err := svc.applyFailurePolicyActions(ctx, channelEvent, summarizeFailurePolicyMatches(matches), matchesToFailurePolicyActions(matches), true)
 			if err != nil {
-				log.Error(ctx, "failed to apply key failure policy",
+				log.Error(ctx, "failed to apply channel failure policy",
 					log.Int("channel_id", perf.ChannelID),
 					log.Int("error_code", perf.ResponseStatusCode),
 					log.Cause(err),
@@ -218,37 +288,10 @@ func (svc *ChannelService) handleRequestFailurePolicy(ctx context.Context, perf 
 			}
 			routingChanged = routingChanged || changed
 			if changed {
-				svc.apiKeyErrorCountsLock.Lock()
-				delete(svc.apiKeyErrorCounts[ownerID], perf.APIKey)
-				svc.apiKeyErrorCountsLock.Unlock()
+				svc.channelErrorCountsLock.Lock()
+				delete(svc.channelErrorCounts, perf.ChannelID)
+				svc.channelErrorCountsLock.Unlock()
 			}
-		}
-	}
-
-	channelEvent := failurePolicyEvent{
-		Source:       objects.FailurePolicyEventSourceRequestFailure,
-		Target:       objects.FailurePolicyTargetChannel,
-		ChannelID:    perf.ChannelID,
-		StatusCode:   perf.ResponseStatusCode,
-		FailureCount: channelCount,
-		Reason:       deriveErrorMessage(perf.ResponseStatusCode),
-		CheckedAt:    now,
-	}
-	matches := evaluateFailurePolicyProfiles(effective.ChannelProfiles, channelEvent)
-	if len(matches) > 0 {
-		changed, err := svc.applyFailurePolicyActions(ctx, channelEvent, summarizeFailurePolicyMatches(matches), matchesToFailurePolicyActions(matches), true)
-		if err != nil {
-			log.Error(ctx, "failed to apply channel failure policy",
-				log.Int("channel_id", perf.ChannelID),
-				log.Int("error_code", perf.ResponseStatusCode),
-				log.Cause(err),
-			)
-		}
-		routingChanged = routingChanged || changed
-		if changed {
-			svc.channelErrorCountsLock.Lock()
-			delete(svc.channelErrorCounts, perf.ChannelID)
-			svc.channelErrorCountsLock.Unlock()
 		}
 	}
 
@@ -280,7 +323,9 @@ func (svc *ChannelService) ApplyRequestFailurePolicy(ctx context.Context, perf *
 		return perf.FailurePolicyRoutingChanged
 	}
 
-	policyCtx := authz.WithSystemBypass(ctx, "channel-request-failure-policy")
+	policyCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	policyCtx = authz.WithSystemBypass(policyCtx, "channel-request-failure-policy")
 	policy := &RetryPolicy{}
 	if svc.SystemService != nil {
 		policy = svc.SystemService.RetryPolicyOrDefault(policyCtx)

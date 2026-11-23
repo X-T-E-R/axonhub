@@ -476,6 +476,10 @@ func cloneFailurePolicyProfile(src objects.FailurePolicyProfile) objects.Failure
 		v := *src.Enabled
 		dst.Enabled = &v
 	}
+	if src.AllowReplay != nil {
+		v := *src.AllowReplay
+		dst.AllowReplay = &v
+	}
 	if src.Sources != nil {
 		dst.Sources = append([]objects.FailurePolicyEventSource(nil), src.Sources...)
 	}
