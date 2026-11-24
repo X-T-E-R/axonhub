@@ -49,7 +49,7 @@ test('channel proxy connection reuse setting is submitted, echoed, and localized
   );
 
   const proxySelections = channelsData.match(/proxy\s*\{[\s\S]*?\}/g) ?? [];
-  assert.equal(proxySelections.length, 5, 'all five channel proxy selections should be covered by this assertion');
+  assert.equal(proxySelections.length, 6, 'all six channel proxy selections should be covered by this assertion');
   for (const selection of proxySelections) {
     assert.match(selection, /disableConnectionReuse/, 'channel proxy queries should echo disableConnectionReuse');
   }

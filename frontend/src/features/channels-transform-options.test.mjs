@@ -26,7 +26,7 @@ test('every channel GraphQL result that echoes transform options selects the ali
   const operations = read('features/channels/data/channels.ts');
   const selections = [...operations.matchAll(/transformOptions\s*\{([^}]+)\}/g)].map((match) => match[1]);
 
-  assert.equal(selections.length, 7);
+  assert.equal(selections.length, 8);
   for (const selection of selections) {
     assert.match(selection, /\bcodexAgentToolAliases\b/);
   }

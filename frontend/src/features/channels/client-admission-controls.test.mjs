@@ -70,7 +70,7 @@ test('an untouched normal channel does not acquire a deny policy', () => {
 
 test('all channel policy query projections read the deny field and locale keys agree', () => {
   const data = readFileSync(new URL('./data/channels.ts', import.meta.url), 'utf8');
-  assert.equal((data.match(/codexOfficialClient\s+denyCodexOfficialClient/g) ?? []).length, 5);
+  assert.equal((data.match(/codexOfficialClient\s+denyCodexOfficialClient/g) ?? []).length, 6);
   for (const locale of ['en', 'zh-CN']) {
     const strings = JSON.parse(readFileSync(new URL(`../../locales/${locale}/channels.json`, import.meta.url), 'utf8'));
     for (const policy of ['codexOfficialClient', 'denyCodexOfficialClient']) {
