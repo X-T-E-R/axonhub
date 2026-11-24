@@ -2133,11 +2133,14 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, initialTab 
   const disableAPIKey = useDisableChannelAPIKey();
   const enableAPIKey = useEnableChannelAPIKey();
 
-  const balanceProbeBaselineRef = useRef<string>(JSON.stringify(valuesFromChannel(currentRow).balanceProbe));
+  const initialValues = valuesFromChannel(currentRow);
+  const balanceProbeBaselineRef = useRef<string>(JSON.stringify(initialValues.balanceProbe));
+  const sessionAffinityBaselineRef = useRef<string>(JSON.stringify(sessionAffinityToInput(initialValues.sessionAffinity)));
+  const idRewriteRulesBaselineRef = useRef<string>(JSON.stringify(idRewriteRulesToInput(initialValues.idRewriteRules)));
 
   const form = useForm<KeysFormValues, unknown, KeysFormValues>({
     resolver: keysFormResolver,
-    defaultValues: valuesFromChannel(currentRow),
+    defaultValues: initialValues,
     mode: 'onChange',
   });
 
@@ -2150,6 +2153,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, initialTab 
 
     const nextDefaults = valuesFromChannel(currentRow);
     balanceProbeBaselineRef.current = JSON.stringify(nextDefaults.balanceProbe);
+    sessionAffinityBaselineRef.current = JSON.stringify(sessionAffinityToInput(nextDefaults.sessionAffinity));
+    idRewriteRulesBaselineRef.current = JSON.stringify(idRewriteRulesToInput(nextDefaults.idRewriteRules));
     form.reset(nextDefaults);
     setActiveTab(initialTab);
     setNewKey('');
@@ -2340,6 +2345,10 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, initialTab 
 
   const saveSettings = async (values: KeysFormValues) => {
     const balanceProbeChanged = JSON.stringify(values.balanceProbe) !== balanceProbeBaselineRef.current;
+    const nextSessionAffinity = sessionAffinityToInput(values.sessionAffinity);
+    const sessionAffinityChanged = JSON.stringify(nextSessionAffinity) !== sessionAffinityBaselineRef.current;
+    const nextIDRewriteRules = idRewriteRulesToInput(values.idRewriteRules);
+    const idRewriteRulesChanged = JSON.stringify(nextIDRewriteRules) !== idRewriteRulesBaselineRef.current;
     const nextSettings = mergeChannelSettingsForUpdate(currentRow.settings, {
       credentialPolicies: null,
       keySelection:
@@ -2350,8 +2359,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, initialTab 
               likelyAffinityTTLMinutes: values.likelyAffinityTTLMinutes,
               exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
             },
-      sessionAffinity: sessionAffinityToInput(values.sessionAffinity),
-      idRewriteRules: idRewriteRulesToInput(values.idRewriteRules),
+      ...(sessionAffinityChanged ? { sessionAffinity: nextSessionAffinity } : {}),
+      ...(idRewriteRulesChanged ? { idRewriteRules: nextIDRewriteRules } : {}),
       ...(balanceProbeChanged
         ? { balanceProbe: balanceProbeFromValues(values, currentRow.settings?.balanceProbe) }
         : {}),
@@ -2378,6 +2387,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, initialTab 
         },
       };
       balanceProbeBaselineRef.current = JSON.stringify(nextResetValues.balanceProbe);
+      sessionAffinityBaselineRef.current = JSON.stringify(sessionAffinityToInput(nextResetValues.sessionAffinity));
+      idRewriteRulesBaselineRef.current = JSON.stringify(idRewriteRulesToInput(nextResetValues.idRewriteRules));
       form.reset(nextResetValues);
       onOpenChange(false);
     } catch (error) {

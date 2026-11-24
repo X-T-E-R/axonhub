@@ -134,11 +134,11 @@ func (c *Channel) credentialCandidatesWithExcluded(ctx context.Context, excluded
 		candidate := credentialCandidate{key: key, id: id, policy: c.Settings.CredentialPolicy(id)}
 		if c.Settings != nil && c.Settings.KeyHealthCheck != nil {
 			if c.Settings.BalanceProbe != nil && c.Settings.BalanceProbe.SharedWallet && c.Settings.KeyHealthCheck.SharedBalanceSnapshot != nil {
-				candidate.snapshot = c.Settings.KeyHealthCheck.SharedBalanceSnapshot
+				candidate.snapshot = NormalizeChannelKeyBalanceSnapshotForRead(c.Channel, c.Settings.KeyHealthCheck.SharedBalanceSnapshot)
 			} else {
 				for _, meta := range c.Settings.KeyHealthCheck.KeyMetadata {
 					if meta.ID == id {
-						candidate.snapshot = meta.BalanceSnapshot
+						candidate.snapshot = NormalizeChannelKeyBalanceSnapshotForRead(c.Channel, meta.BalanceSnapshot)
 						break
 					}
 				}

@@ -110,14 +110,21 @@ test('mergeChannelSettingsForUpdate preserves sessionAffinity, idRewriteRules, a
     },
   };
 
-  // Unrelated edit must preserve sessionAffinity, idRewriteRules, sharedWallet and strip read-only hasProbeAPIKey
+  // Unrelated edit must OMIT untouched sessionAffinity, idRewriteRules, and balanceProbe
+  // so backend UpdateChannel preserves the latest persisted DB values and write-only secrets.
   const unrelated = merge.mergeChannelSettingsForUpdate(existing, { disableRetries: true });
-  assert.deepEqual(unrelated.sessionAffinity, existing.sessionAffinity);
-  assert.deepEqual(unrelated.idRewriteRules, existing.idRewriteRules);
-  assert.equal(unrelated.balanceProbe.sharedWallet, true);
-  assert.equal('hasProbeAPIKey' in unrelated.balanceProbe, false);
-  assert.equal('probeAPIKeyOp' in unrelated.balanceProbe, false);
+  assert.equal('sessionAffinity' in unrelated, false);
+  assert.equal('idRewriteRules' in unrelated, false);
+  assert.equal('balanceProbe' in unrelated, false);
   assert.equal('sharedBalanceSnapshot' in unrelated.keyHealthCheck, false);
+
+  // Explicit preserve patch strips read-only hasProbeAPIKey and omits probeAPIKeyOp
+  const explicitBalancePreserve = merge.mergeChannelSettingsForUpdate(existing, {
+    balanceProbe: existing.balanceProbe,
+  });
+  assert.equal(explicitBalancePreserve.balanceProbe.sharedWallet, true);
+  assert.equal('hasProbeAPIKey' in explicitBalancePreserve.balanceProbe, false);
+  assert.equal('probeAPIKeyOp' in explicitBalancePreserve.balanceProbe, false);
 
   // Explicit clear & set probeAPIKeyOp forward cleanly
   const clearedSecret = merge.mergeChannelSettingsForUpdate(existing, {

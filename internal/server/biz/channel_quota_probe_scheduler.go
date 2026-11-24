@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"sort"
@@ -22,6 +23,7 @@ import (
 	"github.com/looplj/axonhub/internal/ent/channel"
 	"github.com/looplj/axonhub/internal/log"
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/xcontext"
 	"github.com/looplj/axonhub/internal/scopes"
 	"github.com/looplj/axonhub/internal/server/cluster"
 )
@@ -88,6 +90,17 @@ func ChannelUsesPerKeyQuotaAuthority(ch *ent.Channel) bool {
 		return true
 	}
 	return false
+}
+
+// channelOwnedByUnifiedQuotaScheduler reports whether ch's scheduled balance
+// probes are owned by runDueQuotaBalanceProbes (bounded per-tick quota scheduler),
+// so legacy scheduled health-check/monitoring loops skip channel_balance_probe rules
+// and never double-probe the same channel in one tick.
+func channelOwnedByUnifiedQuotaScheduler(ch *ent.Channel) bool {
+	if ch == nil || !ChannelUsesPerKeyQuotaAuthority(ch) {
+		return false
+	}
+	return ch.Settings != nil && ch.Settings.BalanceProbe != nil && ch.Settings.BalanceProbe.Enabled
 }
 
 var errQuotaProbeStaleFence = errors.New("quota probe observation discarded: channel ownership or probe configuration changed")
@@ -400,7 +413,13 @@ func (svc *ChannelService) persistQuotaProbeUpdates(
 	if ch == nil || (sharedUpdate == nil && len(keyUpdates) == 0) {
 		return nil
 	}
-	db := svc.entFromContext(ctx)
+	// Detach from a potentially expiring cron/request context so freshly fetched
+	// HTTP probe observations are still persisted cleanly with a bounded 10s budget,
+	// while still enforcing ownership and probe-config fencing on every CAS retry.
+	persistCtx, cancel := xcontext.DetachWithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	db := svc.entFromContext(persistCtx)
 	current := ch
 
 	for attempt := range quotaProbeCASMaxRetries {
@@ -458,7 +477,7 @@ func (svc *ChannelService) persistQuotaProbeUpdates(
 				trigger = objects.ChannelKeyHealthCheckTriggerManual
 			}
 			// Only valid observations can match an explicit numeric-balance policy rule.
-			appliedResults = svc.applyFailurePolicyToHealthCheckResults(ctx, current, settings, appliedKeys, appliedResults, now, trigger, false)
+			appliedResults = svc.applyFailurePolicyToHealthCheckResults(persistCtx, current, settings, appliedKeys, appliedResults, now, trigger, false)
 			for i, rawKey := range appliedKeys {
 				nextAt := nextQuotaProbeTimeForResult(current, appliedResults[i], existingKeyProbeFailureCount(settings.KeyHealthCheck.KeyMetadata, rawKey), now)
 				settings.KeyHealthCheck.KeyMetadata = upsertChannelKeyBalanceProbeMetadata(settings.KeyHealthCheck.KeyMetadata, rawKey, appliedResults[i], now, nextAt)
@@ -466,11 +485,11 @@ func (svc *ChannelService) persistQuotaProbeUpdates(
 		}
 		mergeChannelKeyOperationalStatus(current, settings.KeyHealthCheck)
 
-		_, err := channelAPIKeyStateUpdate(db, current).SetSettings(settings).Save(ctx)
+		_, err := channelAPIKeyStateUpdate(db, current).SetSettings(settings).Save(persistCtx)
 		if err == nil {
 			if len(appliedKeys) > 0 {
-				if actionErr := svc.applyChannelKeyHealthCheckPolicyActions(ctx, current.ID, appliedKeys, appliedResults, false); actionErr != nil {
-					log.Warn(ctx, "failed to apply explicit balance policy actions", log.Int("channel_id", current.ID), log.Cause(actionErr))
+				if actionErr := svc.applyChannelKeyHealthCheckPolicyActions(persistCtx, current.ID, appliedKeys, appliedResults, false); actionErr != nil {
+					log.Warn(persistCtx, "failed to apply explicit balance policy actions", log.Int("channel_id", current.ID), log.Cause(actionErr))
 				}
 			}
 			svc.asyncReloadChannels()
@@ -480,7 +499,7 @@ func (svc *ChannelService) persistQuotaProbeUpdates(
 			return fmt.Errorf("failed to persist quota probe updates: %w", err)
 		}
 		// CAS conflict: reread latest channel row and retry quota-only merge without reissuing HTTP.
-		latest, getErr := db.Channel.Get(ctx, current.ID)
+		latest, getErr := db.Channel.Get(persistCtx, current.ID)
 		if getErr != nil {
 			if ent.IsNotFound(getErr) {
 				return nil
@@ -766,6 +785,14 @@ func (svc *ChannelService) RefreshChannelQuota(
 			KeyIDs:    keyIDs,
 		}, &payload)
 		if err != nil {
+			var statusErr *cluster.OwnerHTTPStatusError
+			if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+				return &RefreshChannelQuotaPayload{
+					Status:        RefreshChannelQuotaStatusDeferred,
+					Message:       "owner node upgrading",
+					QuotaOverview: svc.ResolveChannelQuotaOverview(ctx, ch, providerQuotaSvc),
+				}, nil
+			}
 			return nil, err
 		}
 		return &payload, nil
@@ -788,7 +815,7 @@ func (svc *ChannelService) RefreshChannelQuota(
 			Message:       msg,
 			UpdatedKeys:   loTernaryInt(status == RefreshChannelQuotaStatusUpdated, 1, 0),
 			RetryAt:       retryAt,
-			QuotaOverview: svc.BuildChannelQuotaOverview(ctx, ch, ownerCh, pqs, now),
+			QuotaOverview: svc.buildChannelQuotaOverviewWithService(ctx, ch, ownerCh, pqs, providerQuotaSvc, now),
 		}, nil
 	}
 

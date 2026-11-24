@@ -346,4 +346,71 @@ func TestManagementInventoryProjection_IncludesSafeBalanceSnapshotAndPolicy(t *t
 	require.Equal(t, "remaining", items[0].BalanceSnapshot.Components[0].Label)
 }
 
+func TestQuotaExposure_LegacyOpenRouterCh45FreeTierReadNormalization(t *testing.T) {
+	checkedAt := time.Date(2026, 10, 15, 8, 30, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	ch := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:      45,
+			Name:    "openrouter-free-pool",
+			Type:    channel.TypeOpenrouter,
+			BaseURL: "https://openrouter.ai/api/v1",
+			Settings: &objects.ChannelSettings{
+				BalanceProbe: &objects.ChannelBalanceProbe{
+					Enabled: false,
+					Preset:  objects.ChannelBalanceProbePresetOpenRouter,
+				},
+			},
+		},
+	}
+	legacySnap := &objects.ChannelKeyBalanceSnapshot{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		CheckedAt:  checkedAt,
+		Available:  boolPtr(false),
+		Limit:      floatPtr(0),
+		Used:       floatPtr(0.42),
+		Remaining:  floatPtr(-0.42),
+		RawSummary: map[string]any{
+			"total_credits": 0.0,
+			"total_usage":   0.42,
+		},
+		PrimaryBalance: &objects.BalanceAmount{
+			Amount:   -0.42,
+			Currency: "USD",
+			Kind:     objects.BalanceAmountKindRemaining,
+			Label:    "remaining credits",
+		},
+		Components: []objects.BalanceAmount{
+			{Amount: 0, Currency: "USD", Kind: objects.BalanceAmountKindTotal, Label: "total credits"},
+			{Amount: 0.42, Currency: "USD", Kind: objects.BalanceAmountKindUsed, Label: "total usage"},
+			{Amount: -0.42, Currency: "USD", Kind: objects.BalanceAmountKindRemaining, Label: "remaining credits"},
+		},
+	}
+
+	entry := buildQuotaExposureChannel(ch, []*biz.ChannelAPIKeyInventoryItem{{
+		ID:              objects.ChannelAPIKeyFingerprint("sk-or-v1-secret"),
+		RawKey:          "sk-or-v1-secret",
+		MaskedKey:       "sk-o****cret",
+		Status:          objects.ChannelKeyStatusActive,
+		Balance:         -0.42,
+		Currency:        "USD",
+		Available:       boolPtr(false),
+		BalanceSnapshot: legacySnap,
+	}}, now)
+
+	require.Len(t, entry.Keys, 1)
+	key := entry.Keys[0]
+	require.True(t, key.FreeTier, "legacy OpenRouter Ch 45 snapshot must normalize to FreeTier=true")
+	require.Equal(t, "active", key.Status, "normalized free-tier key must not show as exhausted")
+	require.NotNil(t, key.Available)
+	require.True(t, *key.Available)
+	require.NotNil(t, key.Remaining)
+	require.InDelta(t, 0.0, *key.Remaining, 1e-9)
+	require.NotNil(t, key.Used)
+	require.InDelta(t, 0.42, *key.Used, 1e-9)
+	require.NotNil(t, key.CheckedAt)
+	require.Equal(t, checkedAt, *key.CheckedAt, "original checkedAt must be preserved")
+}
+
 func intPtr(value int) *int { return &value }

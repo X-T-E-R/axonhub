@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
@@ -219,4 +220,42 @@ func TestCodexQuotaChecker_ResetNow_ReturnsErrorWhenNoAvailableCredit(t *testing
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no available codex reset credit")
 	require.Nil(t, resp)
+}
+
+func TestCodexQuotaChecker_AnchorsResetAfterSecondsToObservedAt(t *testing.T) {
+	observedAt := time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
+	checker := NewCodexQuotaChecker(nil)
+
+	body := []byte(`{
+		"plan_type": "plus",
+		"rate_limit": {
+			"allowed": true,
+			"limit_reached": false,
+			"primary_window": {
+				"used_percent": 45,
+				"reset_after_seconds": 1800,
+				"limit_window_seconds": 18000
+			},
+			"secondary_window": {
+				"used_percent": 20,
+				"reset_after_seconds": 86400,
+				"limit_window_seconds": 604800
+			}
+		}
+	}`)
+
+	quota, err := checker.parseResponseAt(body, observedAt)
+	require.NoError(t, err)
+	require.NotNil(t, quota.NextResetAt)
+	require.Equal(t, observedAt.Add(1800*time.Second), quota.NextResetAt.UTC())
+
+	rl, ok := quota.RawData["rate_limit"].(map[string]any)
+	require.True(t, ok)
+	primary, ok := rl["primary_window"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, observedAt.Add(1800*time.Second).Unix(), primary["reset_at"])
+
+	secondary, ok := rl["secondary_window"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, observedAt.Add(86400*time.Second).Unix(), secondary["reset_at"])
 }

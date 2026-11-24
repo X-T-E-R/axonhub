@@ -23,6 +23,12 @@ func NewClaudeCodeQuotaChecker(httpClient *httpclient.HttpClient) *ClaudeCodeQuo
 	return &ClaudeCodeQuotaChecker{httpClient: httpClient}
 }
 
+// IsInferenceProbe marks ClaudeCodeQuotaChecker as an inference-probe checker
+// because CheckQuota issues POST /v1/messages (max_tokens: 1) to read quota headers.
+func (c *ClaudeCodeQuotaChecker) IsInferenceProbe() bool {
+	return true
+}
+
 func (c *ClaudeCodeQuotaChecker) CheckQuota(ctx context.Context, ch *ent.Channel) (QuotaData, error) {
 	// Verify credentials
 	if ch.Credentials.OAuth == nil && strings.TrimSpace(ch.Credentials.APIKey) == "" {

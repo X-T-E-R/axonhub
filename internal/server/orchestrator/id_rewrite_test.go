@@ -116,55 +116,61 @@ func TestIDRewrite_All7Formats_RFC9562UUIDv8_And_RFC4122UUIDv5(t *testing.T) {
 }
 
 func TestIDRewrite_ContinuationGuardStrictReplay(t *testing.T) {
-	// 1. Same owner -> preserves previous_response_id untouched.
+	// 1. strict_replay + Same owner + outPrev == inPrev -> preserves previous_response_id untouched.
 	bodyWithPrev := []byte(`{"model":"gpt-5","previous_response_id":"resp_123","input":"continue"}`)
 	reqSame := &httpclient.Request{Body: append([]byte(nil), bodyWithPrev...)}
 	err := enforceContinuationGuard(reqSame, &contexts.SessionAffinityRequest{PreviousResponseID: "resp_123", RawBody: bodyWithPrev}, &contexts.SessionAffinityDecision{
 		StateOwnership: contexts.SessionStateOwnershipSame,
-	})
+	}, objects.ChannelContinuationGuardStrictReplay)
 	require.NoError(t, err)
 	require.Equal(t, "resp_123", gjson.GetBytes(reqSame.Body, "previous_response_id").String())
 
-	// 2. Different or Unknown owner WITHOUT full replayable history -> 409 continuation_owner_unavailable!
-	for _, ownership := range []string{contexts.SessionStateOwnershipDifferent, contexts.SessionStateOwnershipUnknown} {
-		reqNoHist := &httpclient.Request{Body: append([]byte(nil), bodyWithPrev...)}
-		err := enforceContinuationGuard(reqNoHist, &contexts.SessionAffinityRequest{PreviousResponseID: "resp_123", RawBody: bodyWithPrev}, &contexts.SessionAffinityDecision{
-			StateOwnership: ownership,
-		})
+	// 2. strict_replay + Same owner BUT static Body Override deleted or mutated previous_response_id -> 409!
+	for _, mutated := range [][]byte{
+		[]byte(`{"model":"gpt-5","input":"continue"}`),
+		[]byte(`{"model":"gpt-5","previous_response_id":"resp_tampered","input":"continue"}`),
+	} {
+		reqMut := &httpclient.Request{Body: append([]byte(nil), mutated...)}
+		err := enforceContinuationGuard(reqMut, &contexts.SessionAffinityRequest{PreviousResponseID: "resp_123", RawBody: bodyWithPrev}, &contexts.SessionAffinityDecision{
+			StateOwnership: contexts.SessionStateOwnershipSame,
+		}, objects.ChannelContinuationGuardStrictReplay)
 		require.Error(t, err)
 		var respErr *httpclient.Error
 		require.ErrorAs(t, err, &respErr)
 		require.Equal(t, http.StatusConflict, respErr.StatusCode)
 		require.Contains(t, string(respErr.Body), "continuation_owner_unavailable")
-		require.Equal(t, "resp_123", gjson.GetBytes(reqNoHist.Body, "previous_response_id").String())
 	}
 
-	// 3. Different owner WITH full replayable conversation history -> safely strips previous_response_id.
-	fullHistBody := []byte(`{"model":"gpt-5","previous_response_id":"resp_123","input":[{"role":"user","content":"turn 1"},{"role":"assistant","content":"answer 1"},{"role":"user","content":"turn 2"}]}`)
-	reqWithHist := &httpclient.Request{Body: append([]byte(nil), fullHistBody...)}
-	err = enforceContinuationGuard(reqWithHist, &contexts.SessionAffinityRequest{PreviousResponseID: "resp_123", RawBody: fullHistBody}, &contexts.SessionAffinityDecision{
+	// 3. strict_replay + Different or Unknown owner -> ALWAYS 409 continuation_owner_unavailable,
+	// even if input happens to look like user -> assistant -> user (cannot distinguish sliding window from full history).
+	fullLookingBody := []byte(`{"model":"gpt-5","previous_response_id":"resp_123","input":[{"role":"user","content":"turn 1"},{"role":"assistant","content":"answer 1"},{"role":"user","content":"turn 2"}]}`)
+	for _, ownership := range []string{contexts.SessionStateOwnershipDifferent, contexts.SessionStateOwnershipUnknown} {
+		for _, body := range [][]byte{bodyWithPrev, fullLookingBody} {
+			reqCross := &httpclient.Request{Body: append([]byte(nil), body...)}
+			err := enforceContinuationGuard(reqCross, &contexts.SessionAffinityRequest{PreviousResponseID: "resp_123", RawBody: body}, &contexts.SessionAffinityDecision{
+				StateOwnership: ownership,
+			}, objects.ChannelContinuationGuardStrictReplay)
+			require.Error(t, err)
+			var respErr *httpclient.Error
+			require.ErrorAs(t, err, &respErr)
+			require.Equal(t, http.StatusConflict, respErr.StatusCode)
+			require.Contains(t, string(respErr.Body), "continuation_owner_unavailable")
+			require.Equal(t, "resp_123", gjson.GetBytes(reqCross.Body, "previous_response_id").String(), "strict_replay must never silently strip previous_response_id")
+		}
+	}
+
+	// 4. continuationGuard == off + Different/Unknown owner -> strips previous_response_id, item_reference, and encrypted_content.
+	offBody := []byte(`{"model":"gpt-5","previous_response_id":"resp_123","input":[{"type":"item_reference","id":"rs_1"},{"role":"user","content":"t1"},{"role":"assistant","content":"a1","encrypted_content":"enc_opaque"},{"type":"item_reference","id":"rs_2"},{"role":"user","content":"t2"}]}`)
+	reqOff := &httpclient.Request{Body: append([]byte(nil), offBody...)}
+	err = enforceContinuationGuard(reqOff, &contexts.SessionAffinityRequest{PreviousResponseID: "resp_123", RawBody: offBody}, &contexts.SessionAffinityDecision{
 		StateOwnership: contexts.SessionStateOwnershipDifferent,
-	})
+	}, objects.ChannelContinuationGuardOff)
 	require.NoError(t, err)
-	require.False(t, gjson.GetBytes(reqWithHist.Body, "previous_response_id").Exists(), "full replayable history allows safe stripping of previous_response_id")
+	require.False(t, gjson.GetBytes(reqOff.Body, "previous_response_id").Exists())
+	require.Equal(t, int64(3), gjson.GetBytes(reqOff.Body, "input.#").Int(), "item_reference entries must be stripped under continuationGuard=off")
+	require.False(t, gjson.GetBytes(reqOff.Body, "input.1.encrypted_content").Exists(), "encrypted_content must be stripped under continuationGuard=off")
 
-	// 4. Partial delta containing account-bound encrypted_content or item_reference MUST be rejected with 409!
-	opaqueBody := []byte(`{"model":"gpt-5","previous_response_id":"resp_123","input":[{"role":"user","content":"t1"},{"role":"assistant","content":"a1","encrypted_content":"enc_opaque"},{"role":"user","content":"t2"}]}`)
-	reqOpaque := &httpclient.Request{Body: append([]byte(nil), opaqueBody...)}
-	err = enforceContinuationGuard(reqOpaque, &contexts.SessionAffinityRequest{PreviousResponseID: "resp_123", RawBody: opaqueBody}, &contexts.SessionAffinityDecision{
-		StateOwnership: contexts.SessionStateOwnershipDifferent,
-	})
-	require.Error(t, err)
-	var opaqueErr *httpclient.Error
-	require.ErrorAs(t, err, &opaqueErr)
-	require.Equal(t, http.StatusConflict, opaqueErr.StatusCode)
-
-	// 5. Stream error events MUST NOT confirm session affinity success!
-	require.True(t, isStreamErrorEvent(&httpclient.StreamEvent{Type: "error", Data: []byte(`{"type":"error","error":{"message":"rate limited"}}`)}))
-	require.True(t, isStreamErrorEvent(&httpclient.StreamEvent{Type: "message", Data: []byte(`{"error":{"type":"overloaded_error"}}`)}))
-	require.False(t, isStreamErrorEvent(&httpclient.StreamEvent{Type: "response.created", Data: []byte(`{"type":"response.created","response":{"id":"resp_ok"}}`)}))
-
-	// 6. X-Goog-Api-Key is protected and rejected by CompileChannelIDRewriteRules.
+	// 5. X-Goog-Api-Key is protected and rejected by CompileChannelIDRewriteRules.
 	_, err = biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
 		Target: "header:X-Goog-Api-Key",
 		Op:     objects.ChannelIDRewriteOpDerive,
@@ -172,6 +178,98 @@ func TestIDRewrite_ContinuationGuardStrictReplay(t *testing.T) {
 		Format: objects.ChannelIDRewriteFormatHex32,
 	}})
 	require.Error(t, err)
+}
+
+func TestIDRewrite_StreamSuccessEventStrictValidation(t *testing.T) {
+	// Non-business / heartbeat / incomplete / error frames MUST return false.
+	negativeCases := []*httpclient.StreamEvent{
+		nil,
+		{Type: "", Data: nil},
+		{Type: "message", Data: []byte("   ")},
+		{Type: "message", Data: []byte("[DONE]")},
+		{Type: "message", Data: []byte(": keepalive")},
+		{Type: "ping", Data: []byte(`{"type":"ping"}`)},
+		{Type: "message", Data: []byte(`{"type":"ping"}`)},
+		{Type: "message", Data: []byte(`{}`)},
+		{Type: "message", Data: []byte(`{"choices":[]}`)},
+		{Type: "message", Data: []byte(`{"candidates":[]}`)},
+		{Type: "message", Data: []byte(`{"type":"message_start"`)}, // truncated JSON
+		{Type: "error", Data: []byte(`{"type":"error","error":{"message":"rate limited"}}`)},
+		{Type: "message", Data: []byte(`{"error":{"type":"overloaded_error"}}`)},
+		{Type: "response.failed", Data: []byte(`{"type":"response.failed","response":{"id":"resp_1"}}`)},
+		{Type: "response.incomplete", Data: []byte(`{"type":"response.incomplete","response":{"id":"resp_1"}}`)},
+	}
+	for i, ev := range negativeCases {
+		require.False(t, isStreamSuccessEvent(ev), "negative case %d must NOT confirm CAS rebind", i)
+	}
+
+	// Explicit positive protocol business events MUST return true.
+	positiveCases := []*httpclient.StreamEvent{
+		{Type: "message_start", Data: []byte(`{"type":"message_start","message":{"id":"msg_1"}}`)},
+		{Type: "content_block_start", Data: []byte(`{"type":"content_block_start","index":0}`)},
+		{Type: "content_block_delta", Data: []byte(`{"type":"content_block_delta","delta":{"text":"hi"}}`)},
+		{Type: "response.created", Data: []byte(`{"type":"response.created","response":{"id":"resp_ok"}}`)},
+		{Type: "response.output_item.added", Data: []byte(`{"type":"response.output_item.added","item":{"id":"item_1"}}`)},
+		{Type: "response.output_text.delta", Data: []byte(`{"type":"response.output_text.delta","delta":"hello"}`)},
+		{Type: "message", Data: []byte(`{"id":"chatcmpl-1","choices":[{"index":0,"delta":{"content":"hi"}}]}`)},
+		{Type: "message", Data: []byte(`{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)},
+	}
+	for i, ev := range positiveCases {
+		require.True(t, isStreamSuccessEvent(ev), "positive case %d MUST confirm CAS rebind", i)
+	}
+}
+
+func TestIDRewrite_MissingSecretDoesNotBlameUpstreamKeyOrFailurePolicy(t *testing.T) {
+	t.Setenv("AXONHUB_ID_REWRITE_SECRET", "")
+	t.Setenv("AXONHUB_ENCRYPTION_KEY", "")
+
+	ch := &biz.Channel{
+		Channel: &ent.Channel{
+			ID:          77,
+			Name:        "kimi-missing-secret",
+			Type:        channel.TypeMoonshotCoding,
+			Credentials: objects.ChannelCredentials{APIKeys: []string{"sk-a", "sk-b"}},
+			Settings: &objects.ChannelSettings{
+				IDRewriteRules: []objects.ChannelIDRewriteRule{{
+					Target: "json:metadata.user_id",
+					Op:     objects.ChannelIDRewriteOpDerive,
+					When:   objects.ChannelIDRewriteWhenAlways,
+					Format: objects.ChannelIDRewriteFormatAnthropicUserID,
+				}},
+			},
+		},
+	}
+
+	outbound := &PersistentOutboundTransformer{
+		state: &PersistenceState{
+			CurrentCandidate: &ChannelModelsCandidate{Channel: ch},
+			Perf:             &biz.PerformanceRecord{ChannelID: ch.ID},
+		},
+	}
+	mw := &sessionAffinityIDRewriteMiddleware{outbound: outbound}
+
+	var finishedCalls int
+	var gotFailed, gotCanceled bool
+	ctx := contexts.WithChannelCredentialEgress(context.Background(), "sk-a", nil, func(_ int, failed, canceled bool) {
+		finishedCalls++
+		gotFailed = failed
+		gotCanceled = canceled
+	})
+	body := []byte(`{"model":"kimi","metadata":{"user_id":"u1"}}`)
+	contexts.WithSessionAffinityRequest(ctx, &contexts.SessionAffinityRequest{RawBody: body})
+
+	_, err := mw.OnOutboundRawRequest(ctx, &httpclient.Request{Body: body})
+	require.ErrorIs(t, err, biz.ErrIDRewriteSecretMissing())
+	require.Equal(t, 1, finishedCalls)
+	require.False(t, gotFailed, "local missing secret must NEVER mark upstream API key as failed")
+	require.True(t, gotCanceled, "local missing secret must release credential attempt as canceled")
+
+	// Also confirm performanceRecording.OnOutboundRawError never marks perf failed or triggers FailurePolicy.
+	perfMw := &performanceRecording{outbound: outbound}
+	perfMw.OnOutboundRawError(ctx, err)
+	require.False(t, outbound.state.FailurePolicyRoutingChanged)
+	require.False(t, outbound.credentialRetryPending)
+	require.Zero(t, outbound.state.Perf.ResponseStatusCode)
 }
 
 func TestProviderQuotaSelector_SkipsPerKeyAuthorityChannels(t *testing.T) {
@@ -229,8 +327,8 @@ func (s *stubQuotaEnforcementSettings) QuotaEnforcementSettingsOrDefault(_ conte
 
 // --- Benchmarks (Reality Budget verification) ---
 
-func makeSizedJSONBody(targetBytes int) []byte {
-	prefix := `{"model":"claude-3-7-sonnet","metadata":{"user_id":"user_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef_account__session_11111111-2222-3333-4444-555555555555"},"messages":[{"role":"user","content":"`
+func makeSizedJSONBodyWithUserID(targetBytes int, userID string) []byte {
+	prefix := `{"model":"claude-3-7-sonnet","metadata":{"user_id":"` + userID + `"},"messages":[{"role":"user","content":"`
 	suffix := `"}]}`
 	padLen := targetBytes - len(prefix) - len(suffix)
 	if padLen < 16 {
@@ -242,6 +340,10 @@ func makeSizedJSONBody(targetBytes int) []byte {
 	buf.Write(bytes.Repeat([]byte("a"), padLen))
 	buf.WriteString(suffix)
 	return buf.Bytes()
+}
+
+func makeSizedJSONBody(targetBytes int) []byte {
+	return makeSizedJSONBodyWithUserID(targetBytes, "user_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef_account__session_11111111-2222-3333-4444-555555555555")
 }
 
 func BenchmarkIDRewrite_NoRules(b *testing.B) {
@@ -283,7 +385,7 @@ func BenchmarkIDRewrite_HeaderOnly(b *testing.B) {
 	}
 }
 
-func BenchmarkIDRewrite_JSONPathMiss(b *testing.B) {
+func BenchmarkIDRewrite_JSONPathMiss_64KiB(b *testing.B) {
 	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
 		Target:    "json:metadata.nonexistent_field",
 		Op:        objects.ChannelIDRewriteOpDerive,
@@ -307,7 +409,7 @@ func BenchmarkIDRewrite_JSONPathMiss(b *testing.B) {
 	}
 }
 
-func BenchmarkIDRewrite_JSONScalar_Under64KiB(b *testing.B) {
+func BenchmarkIDRewrite_JSONScalar_32KiB_InPlace(b *testing.B) {
 	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
 		Target: "json:metadata.user_id",
 		Op:     objects.ChannelIDRewriteOpDerive,
@@ -325,13 +427,64 @@ func BenchmarkIDRewrite_JSONScalar_Under64KiB(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Alternate key every iteration so derived != current and splice ALWAYS executes.
 		req.Body = workBody
 		ApplyCompiledIDRewritePlan(plan, secret, "1", 51, keys[i&1], "a1", false, nil, origBody, req)
 	}
 }
 
-func BenchmarkIDRewrite_JSONScalar_2MiB(b *testing.B) {
+func BenchmarkIDRewrite_JSONScalar_32KiB_SharedReadOnlyIngress(b *testing.B) {
+	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
+		Target: "json:metadata.user_id",
+		Op:     objects.ChannelIDRewriteOpDerive,
+		When:   objects.ChannelIDRewriteWhenAlways,
+		Format: objects.ChannelIDRewriteFormatAnthropicUserID,
+	}})
+	if err != nil {
+		b.Fatal(err)
+	}
+	// Pass-through mode: request.Body aliases immutable ingress origBody.
+	origBody := makeSizedJSONBody(32 * 1024)
+	origSnapshot := append([]byte(nil), origBody...)
+	req := &httpclient.Request{Headers: http.Header{}}
+	secret := []byte("bench-secret")
+	keys := [2]string{"key-A", "key-B"}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req.Body = origBody
+		ApplyCompiledIDRewritePlan(plan, secret, "1", 51, keys[i&1], "a1", false, nil, origBody, req)
+	}
+	b.StopTimer()
+	if !bytes.Equal(origBody, origSnapshot) {
+		b.Fatal("shared read-only ingress body must never be mutated in place")
+	}
+}
+
+func BenchmarkIDRewrite_JSONScalar_32KiB_Growing(b *testing.B) {
+	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
+		Target: "json:metadata.user_id",
+		Op:     objects.ChannelIDRewriteOpDerive,
+		When:   objects.ChannelIDRewriteWhenAlways,
+		Format: objects.ChannelIDRewriteFormatHex64, // 2-byte "u1" -> 64-byte hex64 (growing splice)
+	}})
+	if err != nil {
+		b.Fatal(err)
+	}
+	origBody := makeSizedJSONBodyWithUserID(32*1024, "u1")
+	workBody := make([]byte, len(origBody), len(origBody)+128)
+	copy(workBody, origBody)
+	req := &httpclient.Request{Headers: http.Header{}}
+	secret := []byte("bench-secret")
+	keys := [2]string{"key-A", "key-B"}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req.Body = append(workBody[:0], origBody...)
+		ApplyCompiledIDRewritePlan(plan, secret, "1", 51, keys[i&1], "a1", false, nil, origBody, req)
+	}
+}
+
+func BenchmarkIDRewrite_JSONScalar_2MiB_InPlace(b *testing.B) {
 	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
 		Target: "json:metadata.user_id",
 		Op:     objects.ChannelIDRewriteOpDerive,
@@ -354,12 +507,58 @@ func BenchmarkIDRewrite_JSONScalar_2MiB(b *testing.B) {
 	}
 }
 
-func BenchmarkIDRewrite_JSONScalar_2MiB_LengthChanging(b *testing.B) {
+func BenchmarkIDRewrite_JSONScalar_2MiB_SharedReadOnlyIngress(b *testing.B) {
 	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
 		Target: "json:metadata.user_id",
 		Op:     objects.ChannelIDRewriteOpDerive,
 		When:   objects.ChannelIDRewriteWhenAlways,
-		Format: objects.ChannelIDRewriteFormatHex32, // 32 bytes vs 123-byte original user_id
+		Format: objects.ChannelIDRewriteFormatAnthropicUserID,
+	}})
+	if err != nil {
+		b.Fatal(err)
+	}
+	origBody := makeSizedJSONBody(2 * 1024 * 1024)
+	req := &httpclient.Request{Headers: http.Header{}}
+	secret := []byte("bench-secret")
+	keys := [2]string{"key-A", "key-B"}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req.Body = origBody
+		ApplyCompiledIDRewritePlan(plan, secret, "1", 51, keys[i&1], "a1", false, nil, origBody, req)
+	}
+}
+
+func BenchmarkIDRewrite_JSONScalar_2MiB_Growing(b *testing.B) {
+	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
+		Target: "json:metadata.user_id",
+		Op:     objects.ChannelIDRewriteOpDerive,
+		When:   objects.ChannelIDRewriteWhenAlways,
+		Format: objects.ChannelIDRewriteFormatHex64, // 2-byte "u1" -> 64-byte hex64 (growing splice)
+	}})
+	if err != nil {
+		b.Fatal(err)
+	}
+	origBody := makeSizedJSONBodyWithUserID(2*1024*1024, "u1")
+	workBody := make([]byte, len(origBody), len(origBody)+128)
+	copy(workBody, origBody)
+	req := &httpclient.Request{Headers: http.Header{}}
+	secret := []byte("bench-secret")
+	keys := [2]string{"key-A", "key-B"}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req.Body = append(workBody[:0], origBody...)
+		ApplyCompiledIDRewritePlan(plan, secret, "1", 51, keys[i&1], "a1", false, nil, origBody, req)
+	}
+}
+
+func BenchmarkIDRewrite_JSONScalar_2MiB_Shrinking(b *testing.B) {
+	plan, err := biz.CompileChannelIDRewriteRules([]objects.ChannelIDRewriteRule{{
+		Target: "json:metadata.user_id",
+		Op:     objects.ChannelIDRewriteOpDerive,
+		When:   objects.ChannelIDRewriteWhenAlways,
+		Format: objects.ChannelIDRewriteFormatHex32, // 123-byte original user_id -> 32-byte hex32
 	}})
 	if err != nil {
 		b.Fatal(err)
@@ -372,8 +571,6 @@ func BenchmarkIDRewrite_JSONScalar_2MiB_LengthChanging(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Restore original 123-byte metadata.user_id field header (200 bytes) before each run
-		// so every iteration performs a real length-changing (123 -> 32) rewrite on a 2 MiB body.
 		copy(workBody[:200], origBody[:200])
 		req.Body = workBody
 		ApplyCompiledIDRewritePlan(plan, secret, "1", 51, keys[i&1], "a1", false, nil, origBody, req)

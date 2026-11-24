@@ -212,6 +212,9 @@ func channelKeyHealthCheckDue(ch *ent.Channel, now time.Time) bool {
 	if ch.Credentials.IsOAuth() {
 		return false
 	}
+	if channelOwnedByUnifiedQuotaScheduler(ch) && len(health.Rules) > 0 && !channelHealthRulesHaveNonBalanceProbe(health.Rules) {
+		return false
+	}
 
 	targetKeys := channelKeyHealthCheckTargetKeys(ch)
 	if len(targetKeys) == 0 {
@@ -230,6 +233,18 @@ func channelKeyHealthCheckDue(ch *ent.Channel, now time.Time) bool {
 	}
 
 	return !now.Before(lastCheckedAt.Add(time.Duration(health.IntervalMinutesOrDefault()) * time.Minute))
+}
+
+func channelHealthRulesHaveNonBalanceProbe(rules []objects.ChannelKeyHealthCheckRule) bool {
+	for _, rule := range rules {
+		if rule.Enabled != nil && !*rule.Enabled {
+			continue
+		}
+		if rule.Type != objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe {
+			return true
+		}
+	}
+	return false
 }
 
 func channelKeyHealthCheckDueKeys(ch *ent.Channel, keys []string, now time.Time) int {
@@ -501,6 +516,11 @@ func (svc *ChannelService) checkChannelAPIKeyHealthWithTrigger(ctx context.Conte
 	checked := false
 	for _, rule := range rules {
 		if rule.Enabled != nil && !*rule.Enabled {
+			continue
+		}
+		if trigger == objects.ChannelKeyHealthCheckTriggerScheduled &&
+			rule.Type == objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe &&
+			channelOwnedByUnifiedQuotaScheduler(ch) {
 			continue
 		}
 
@@ -1698,10 +1718,37 @@ func (svc *ChannelService) RunChannelAPIKeyHealthCheck(ctx context.Context, chan
 	chForCheck.Settings = settings
 	mode := channelAPIKeyManualTestModeFromArgs(modes...)
 	_, _, hasBalanceProbe := channelBalanceProbeSpecForChannel(&chForCheck)
+	isBalanceProbeMode := mode == objects.ChannelAPIKeyHealthCheckModeBalanceProbe || (mode == objects.ChannelAPIKeyHealthCheckModeAuto && hasBalanceProbe)
+
+	// Shared-wallet channels run a single coalesced wallet probe and persist via
+	// the unified quota fence so SharedBalanceSnapshot and SharedNextProbeAt stay authoritative.
+	if isBalanceProbeMode && isChannelSharedWallet(&chForCheck) {
+		rawKey := ""
+		if len(targetKeys) > 0 {
+			rawKey = targetKeys[0]
+		}
+		now := time.Now().UTC()
+		fingerprint := probeConfigFingerprint(&chForCheck)
+		subjectKey := fmt.Sprintf("ch:%d:wallet", chForCheck.ID)
+		res, executed, probeErr := svc.runCoalescedQuotaProbe(ctx, &chForCheck, subjectKey, rawKey, objects.ChannelKeyHealthCheckTriggerManual, true)
+		if probeErr != nil {
+			return nil, probeErr
+		}
+		if executed {
+			if err := svc.persistQuotaProbeUpdates(ctx, ch, fingerprint, &res, nil, now); err != nil && !errors.Is(err, errQuotaProbeStaleFence) {
+				return nil, err
+			}
+		}
+		return svc.ChannelAPIKeyInventory(ctx, channelID)
+	}
 
 	results := make([]ChannelKeyHealthCheckResult, len(targetKeys))
 	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(min(channelKeyHealthCheckMaxKeys, len(targetKeys)))
+	maxConcurrency := channelKeyHealthCheckMaxKeys
+	if isBalanceProbeMode {
+		maxConcurrency = maxInFlightQuotaProbesPerOwner
+	}
+	group.SetLimit(min(maxConcurrency, len(targetKeys)))
 
 	for i, key := range targetKeys {
 		index := i

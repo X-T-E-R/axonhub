@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,6 +27,12 @@ import (
 
 // Fixed RFC 9562 namespace UUID for AxonHub deterministic UUIDv5 derivation.
 var axonIDRewriteUUIDv5Namespace = uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+
+var (
+	prevRespIDNeedle       = []byte(`previous_response_id"`)
+	itemRefNeedle          = []byte(`item_reference"`)
+	encryptedContentNeedle = []byte(`encrypted_content"`)
+)
 
 // captureSessionAffinityIngress snapshots the original immutable ingress request
 // headers, body, weak prompt prefix hint, and previous_response_id so retries
@@ -52,7 +59,7 @@ func captureSessionAffinityIngress(inbound *PersistentInboundTransformer) pipeli
 			rawBody = req.RawRequest.Body
 		}
 		prevRespID := ""
-		if len(rawBody) > 0 {
+		if len(rawBody) > 0 && bytes.Contains(rawBody, prevRespIDNeedle) {
 			if res := gjson.GetBytes(rawBody, "previous_response_id"); res.Exists() && res.Type == gjson.String {
 				prevRespID = strings.TrimSpace(res.String())
 			}
@@ -104,10 +111,10 @@ func (m *sessionAffinityIDRewriteMiddleware) OnOutboundRawRequest(ctx context.Co
 	ingressReq, _ := contexts.GetSessionAffinityRequest(ctx)
 	decision, _ := contexts.GetSessionAffinityDecision(ctx)
 
-	// 1. Stateful continuation guard (strict_replay) for previous_response_id.
-	if sa := ch.CompiledSessionAffinity(); sa != nil && sa.Enabled && sa.ContinuationGuard == objects.ChannelContinuationGuardStrictReplay {
-		if err := enforceContinuationGuard(request, ingressReq, decision); err != nil {
-			contexts.FinishChannelCredentialAttempt(ctx, http.StatusConflict, false, true)
+	// 1. Stateful continuation guard (strict_replay / off) for previous_response_id.
+	if sa := ch.CompiledSessionAffinity(); sa != nil && sa.Enabled {
+		if err := enforceContinuationGuard(request, ingressReq, decision, sa.ContinuationGuard); err != nil {
+			contexts.FinishChannelCredentialAttempt(ctx, 0, false, true)
 			return nil, err
 		}
 	}
@@ -131,9 +138,11 @@ func (m *sessionAffinityIDRewriteMiddleware) OnOutboundRawRequest(ctx context.Co
 	secret, err := m.resolveHMACSecret(ctx)
 	if err != nil || len(secret) == 0 {
 		// Fail closed when derive rules are configured without a deployment HMAC secret
-		// rather than silently forwarding un-rewritten identities.
+		// rather than silently forwarding un-rewritten identities. Because this is a
+		// local deployment configuration error (not an upstream credential failure),
+		// release the attempt cleanly without blaming the API key or FailurePolicy.
 		if planHasDeriveRules(plan) {
-			contexts.FinishChannelCredentialAttempt(ctx, http.StatusInternalServerError, true, false)
+			contexts.FinishChannelCredentialAttempt(ctx, 0, false, true)
 			if err == nil {
 				err = biz.ErrIDRewriteSecretMissing()
 			}
@@ -249,11 +258,72 @@ func isStreamSuccessEvent(ev *httpclient.StreamEvent) bool {
 		return false
 	}
 	data := bytes.TrimSpace(ev.Data)
-	// Bare [DONE] alone is not positive evidence of a successful upstream payload.
-	if len(data) == 0 || bytes.Equal(data, []byte("[DONE]")) {
+	// Reject empty frames, bare [DONE], SSE comments/keepalives, and incomplete non-JSON frames.
+	if len(data) < 2 || data[0] != '{' || data[len(data)-1] != '}' || bytes.Equal(data, []byte("[DONE]")) {
 		return false
 	}
-	return !isStreamErrorEvent(ev)
+	if isStreamErrorEvent(ev) {
+		return false
+	}
+
+	evType := strings.ToLower(strings.TrimSpace(ev.Type))
+	if evType == "ping" || evType == "keepalive" {
+		return false
+	}
+
+	if bytes.Contains(data, []byte(`"type"`)) {
+		jsonType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(data, "type").String()))
+		if jsonType != "" {
+			return isPositiveStreamEventType(jsonType)
+		}
+	}
+	if evType != "" && isPositiveStreamEventType(evType) {
+		return true
+	}
+
+	// OpenAI Chat Completions / Legacy Completions chunk with at least one choice.
+	if bytes.Contains(data, []byte(`"choices"`)) && gjson.GetBytes(data, "choices.0").Exists() {
+		return true
+	}
+	// Gemini generateContent stream chunk with at least one candidate.
+	if bytes.Contains(data, []byte(`"candidates"`)) && gjson.GetBytes(data, "candidates.0").Exists() {
+		return true
+	}
+	return false
+}
+
+func isPositiveStreamEventType(t string) bool {
+	switch t {
+	// Anthropic Messages SSE business events (explicitly excludes "ping").
+	case "message_start",
+		"content_block_start",
+		"content_block_delta",
+		"content_block_stop",
+		"message_delta",
+		"message_stop":
+		return true
+	// OpenAI Responses API SSE business events (explicitly excludes failed/incomplete/error).
+	case "response.created",
+		"response.in_progress",
+		"response.completed",
+		"response.output_item.added",
+		"response.output_item.done",
+		"response.content_part.added",
+		"response.content_part.done",
+		"response.output_text.delta",
+		"response.output_text.done",
+		"response.refusal.delta",
+		"response.refusal.done",
+		"response.function_call_arguments.delta",
+		"response.function_call_arguments.done",
+		"response.reasoning_text.delta",
+		"response.reasoning_text.done",
+		"response.reasoning_summary_text.delta",
+		"response.reasoning_summary_text.done":
+		return true
+	default:
+		return false
+	}
 }
 
 func isStreamErrorEvent(ev *httpclient.StreamEvent) bool {
@@ -326,21 +396,34 @@ func extractUpstreamResponseID(body []byte) string {
 	return ""
 }
 
-// enforceContinuationGuard implements Sub2-style strict_replay gating for
+// enforceContinuationGuard implements stateful continuation gating for
 // previous_response_id:
-//   - Same owner: keep previous_response_id untouched.
-//   - Different or Unknown owner: strip previous_response_id ONLY when the final
-//     outbound body is genuinely independently replayable (starts with an initial
-//     user/system/developer turn, has full prior turn context, and carries no
-//     account-bound encrypted state or item_reference); otherwise fail closed with
-//     409 Conflict (continuation_owner_unavailable).
-func enforceContinuationGuard(request *httpclient.Request, ingress *contexts.SessionAffinityRequest, decision *contexts.SessionAffinityDecision) error {
+//   - strict_replay (default):
+//     * Same owner AND final outbound previous_response_id matches ingress cursor
+//       verbatim (not deleted or mutated by a static body override): allow untouched.
+//     * Any other case (different/unknown owner, or cursor altered/removed before
+//       dispatch): fail closed with 409 Conflict (continuation_owner_unavailable)
+//       so the client can retry cleanly with full cursorless history—never silently
+//       strip previous_response_id and pretend a truncated window is complete.
+//   - off:
+//     * Same owner with unchanged cursor: allow untouched.
+//     * Cross-key / unknown owner: strip previous_response_id and server-state
+//       references (item_reference items and encrypted_content fields) so the
+//       request can proceed best-effort on the alternate credential.
+func enforceContinuationGuard(
+	request *httpclient.Request,
+	ingress *contexts.SessionAffinityRequest,
+	decision *contexts.SessionAffinityDecision,
+	guard objects.ChannelContinuationGuard,
+) error {
 	if request == nil || len(request.Body) == 0 {
 		return nil
 	}
 	outPrev := ""
-	if res := gjson.GetBytes(request.Body, "previous_response_id"); res.Exists() && res.Type == gjson.String {
-		outPrev = strings.TrimSpace(res.String())
+	if bytes.Contains(request.Body, prevRespIDNeedle) {
+		if res := gjson.GetBytes(request.Body, "previous_response_id"); res.Exists() && res.Type == gjson.String {
+			outPrev = strings.TrimSpace(res.String())
+		}
 	}
 	inPrev := ""
 	if ingress != nil {
@@ -354,20 +437,21 @@ func enforceContinuationGuard(request *httpclient.Request, ingress *contexts.Ses
 	if decision != nil && decision.StateOwnership != "" {
 		ownership = decision.StateOwnership
 	}
-	if ownership == contexts.SessionStateOwnershipSame && (inPrev == "" || outPrev == "" || outPrev == inPrev) {
+
+	if guard == objects.ChannelContinuationGuardOff {
+		if ownership == contexts.SessionStateOwnershipSame && (inPrev == "" || outPrev == inPrev) {
+			return nil
+		}
+		cleaned, err := stripContinuationStateForCrossKey(request.Body)
+		if err != nil {
+			return err
+		}
+		request.Body = cleaned
 		return nil
 	}
 
-	// Validate the FINAL outbound body (not just ingress) so we never forward
-	// a truncated delta or account-bound encrypted state to a different credential.
-	if hasFullReplayableHistory(request.Body) {
-		if outPrev != "" {
-			updated, err := sjson.DeleteBytes(request.Body, "previous_response_id")
-			if err != nil {
-				return err
-			}
-			request.Body = updated
-		}
+	// strict_replay: require Same owner AND exact preservation of the ingress cursor.
+	if ownership == contexts.SessionStateOwnershipSame && inPrev != "" && outPrev == inPrev {
 		return nil
 	}
 
@@ -375,7 +459,7 @@ func enforceContinuationGuard(request *httpclient.Request, ingress *contexts.Ses
 		"error": map[string]any{
 			"type":    "conflict",
 			"code":    "continuation_owner_unavailable",
-			"message": "The credential that owns previous_response_id is unavailable; resend with full replayable conversation input.",
+			"message": "The credential that owns previous_response_id is unavailable; resend with full replayable conversation input without previous_response_id.",
 		},
 	})
 	return &httpclient.Error{
@@ -384,83 +468,61 @@ func enforceContinuationGuard(request *httpclient.Request, ingress *contexts.Ses
 	}
 }
 
-// hasFullReplayableHistory reports whether the final outbound Responses API body
-// is independently replayable on another credential:
-//   - input is an array of >= 3 items starting with a system/developer/user turn,
-//     containing at least one assistant turn, and ending with a user/tool-output turn;
-//   - every function_call_output matches a prior function_call call_id in input;
-//   - NO item carries account-bound opaque state (type == "item_reference",
-//     non-empty encrypted_content, or server-assigned opaque item IDs).
-func hasFullReplayableHistory(body []byte) bool {
-	if len(body) == 0 {
-		return false
+func isContinuationGuardConflictError(err error) bool {
+	var httpErr *httpclient.Error
+	return errors.As(err, &httpErr) &&
+		httpErr.StatusCode == http.StatusConflict &&
+		bytes.Contains(httpErr.Body, []byte("continuation_owner_unavailable"))
+}
+
+func stripContinuationStateForCrossKey(body []byte) ([]byte, error) {
+	updated := body
+	if bytes.Contains(updated, prevRespIDNeedle) {
+		var err error
+		updated, err = sjson.DeleteBytes(updated, "previous_response_id")
+		if err != nil {
+			return nil, err
+		}
 	}
-	input := gjson.GetBytes(body, "input")
+	if !bytes.Contains(updated, itemRefNeedle) && !bytes.Contains(updated, encryptedContentNeedle) {
+		return updated, nil
+	}
+
+	input := gjson.GetBytes(updated, "input")
 	if !input.Exists() || !input.IsArray() {
-		return false
+		return updated, nil
 	}
-	var (
-		count          int
-		firstRole      string
-		lastRole       string
-		lastType       string
-		hasAssistant   bool
-		hasUser        bool
-		hasOpaqueState bool
-		seenCallIDs    map[string]struct{}
-	)
+
+	var deleteItemIdxs []int
+	var clearEncryptedIdxs []int
+	idx := 0
 	input.ForEach(func(_, item gjson.Result) bool {
-		role := strings.ToLower(strings.TrimSpace(item.Get("role").String()))
-		typ := strings.ToLower(strings.TrimSpace(item.Get("type").String()))
-		itemID := strings.TrimSpace(item.Get("id").String())
-		if typ == "item_reference" ||
-			strings.TrimSpace(item.Get("encrypted_content").String()) != "" ||
-			strings.HasPrefix(itemID, "rs_") ||
-			strings.HasPrefix(itemID, "fc_") ||
-			strings.HasPrefix(itemID, "msg_") {
-			hasOpaqueState = true
-			return false
+		if strings.EqualFold(strings.TrimSpace(item.Get("type").String()), "item_reference") {
+			deleteItemIdxs = append(deleteItemIdxs, idx)
+		} else if item.Get("encrypted_content").Exists() {
+			clearEncryptedIdxs = append(clearEncryptedIdxs, idx)
 		}
-		if typ == "function_call" {
-			if cid := strings.TrimSpace(item.Get("call_id").String()); cid != "" {
-				if seenCallIDs == nil {
-					seenCallIDs = make(map[string]struct{})
-				}
-				seenCallIDs[cid] = struct{}{}
-			}
-			hasAssistant = true
-		} else if typ == "function_call_output" {
-			cid := strings.TrimSpace(item.Get("call_id").String())
-			if cid == "" || seenCallIDs == nil {
-				hasOpaqueState = true
-				return false
-			}
-			if _, ok := seenCallIDs[cid]; !ok {
-				hasOpaqueState = true
-				return false
-			}
-		}
-		if count == 0 {
-			firstRole = role
-		}
-		lastRole = role
-		lastType = typ
-		count++
-		switch role {
-		case "assistant":
-			hasAssistant = true
-		case "user":
-			hasUser = true
-		}
+		idx++
 		return true
 	})
-	if hasOpaqueState || count < 3 || !hasAssistant || !hasUser {
-		return false
+
+	// Clear encrypted_content first while indices are unchanged.
+	for _, i := range clearEncryptedIdxs {
+		var err error
+		updated, err = sjson.DeleteBytes(updated, "input."+strconv.Itoa(i)+".encrypted_content")
+		if err != nil {
+			return nil, err
+		}
 	}
-	if firstRole != "system" && firstRole != "developer" && firstRole != "user" {
-		return false
+	// Delete item_reference entries in descending index order so earlier indices stay valid.
+	for j := len(deleteItemIdxs) - 1; j >= 0; j-- {
+		var err error
+		updated, err = sjson.DeleteBytes(updated, "input."+strconv.Itoa(deleteItemIdxs[j]))
+		if err != nil {
+			return nil, err
+		}
 	}
-	return lastRole == "user" || lastType == "function_call_output"
+	return updated, nil
 }
 
 // ApplyCompiledIDRewritePlan executes precompiled header and JSON identity
@@ -535,7 +597,10 @@ func ApplyCompiledIDRewritePlan(
 		if rule.When == objects.ChannelIDRewriteWhenOnKeySwitch && !switched {
 			continue
 		}
-		res := gjson.GetBytes(body, rule.EscapedPath)
+		var res gjson.Result
+		if len(rule.LeafKeyNeedle) == 0 || bytes.Contains(body, rule.LeafKeyNeedle) {
+			res = gjson.GetBytes(body, rule.EscapedPath)
+		}
 		if !res.Exists() {
 			if rule.Op == objects.ChannelIDRewriteOpDelete || rule.IfMissing != objects.ChannelIDRewriteIfMissingGenerate {
 				continue
@@ -565,7 +630,7 @@ func ApplyCompiledIDRewritePlan(
 		}
 
 		origVal := res.String()
-		if !origSameAsBody {
+		if !origSameAsBody && (len(rule.LeafKeyNeedle) == 0 || bytes.Contains(origBody, rule.LeafKeyNeedle)) {
 			if origRes := gjson.GetBytes(origBody, rule.EscapedPath); origRes.Exists() && origRes.Type == gjson.String {
 				origVal = origRes.String()
 			}

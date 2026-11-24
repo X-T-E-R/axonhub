@@ -1486,6 +1486,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
           disableRetries: genericSettingsForSubmit.disableRetries,
           fullPassThrough: isAxonHubChannelType(valuesForSubmit.type) ? fullPassThrough : false,
           ...(isAxonHubChannelType(valuesForSubmit.type) ? axonHubCaptureSettings : AXONHUB_CAPTURE_PRESETS.inherit),
+          ...(isDuplicate && settingsForSubmit?.balanceProbe ? { balanceProbe: settingsForSubmit.balanceProbe } : {}),
+          ...(isDuplicate && settingsForSubmit?.sessionAffinity ? { sessionAffinity: settingsForSubmit.sessionAffinity } : {}),
+          ...(isDuplicate && settingsForSubmit?.idRewriteRules ? { idRewriteRules: settingsForSubmit.idRewriteRules } : {}),
         });
 
         const createInput = {

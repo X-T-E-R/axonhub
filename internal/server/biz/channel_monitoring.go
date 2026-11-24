@@ -208,6 +208,11 @@ func (svc *ChannelService) runMonitoringRuleForChannel(ctx context.Context, rule
 	}
 	chForCheck.Settings.KeyHealthCheck.HistoryLimit = rule.Schedule.HistoryLimit
 	if rule.ProbeType == MonitoringProbeTypeChannelBalanceProbe {
+		if channelOwnedByUnifiedQuotaScheduler(ch) {
+			// Unified bounded quota scheduler (runDueQuotaBalanceProbes) owns scheduled
+			// balance probing for this channel; skip to prevent double-probing in one tick.
+			return channelKeyHealthCheckChannelResult{}, nil
+		}
 		if _, _, ok := channelBalanceProbeSpecForChannel(&chForCheck); !ok {
 			return svc.recordMonitoringSkippedChannel(ctx, rule, ch, "channel does not have a supported balance probe", now)
 		}

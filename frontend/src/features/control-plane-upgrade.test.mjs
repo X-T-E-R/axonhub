@@ -122,8 +122,13 @@ test('mergeChannelSettingsForUpdate losslessly preserves credentialPolicies, bal
   assert.equal(merged.extraModelPrefix, 'team/');
   assert.equal('keyHealth' in merged, false);
   assert.deepEqual(merged.credentialPolicies, existing.credentialPolicies);
-  assert.deepEqual(merged.balanceProbe, existing.balanceProbe);
+  assert.equal('balanceProbe' in merged, false, 'untouched balanceProbe must be omitted so backend preserves DB state');
   assert.deepEqual(merged.sseKeepAlive, existing.sseKeepAlive);
+
+  const patchedBalanceProbe = merge.mergeChannelSettingsForUpdate(existing, {
+    balanceProbe: existing.balanceProbe,
+  });
+  assert.deepEqual(patchedBalanceProbe.balanceProbe, existing.balanceProbe);
 });
 
 test('channel schemas match frozen GraphQL enums for egress, failover, scheduling, and balance script modes', () => {

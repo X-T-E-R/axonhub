@@ -236,17 +236,28 @@ func (svc *ChannelService) ResolveChannelQuotaOverview(
 		}
 	}
 
-	return svc.BuildChannelQuotaOverview(ctx, ch, owner, pqs, now)
+	return svc.buildChannelQuotaOverviewWithService(ctx, ch, owner, pqs, providerQuotaSvc, now)
 }
 
 // BuildChannelQuotaOverview is the single authoritative Go projection normalizing
 // both per-key/shared-wallet ChannelBalanceProbe snapshots and channel-scoped
 // ProviderQuotaStatus rows into one uniform ChannelQuotaOverview.
 func (svc *ChannelService) BuildChannelQuotaOverview(
+	ctx context.Context,
+	ch *ent.Channel,
+	owner *ent.Channel,
+	pqs *ent.ProviderQuotaStatus,
+	now time.Time,
+) *ChannelQuotaOverview {
+	return svc.buildChannelQuotaOverviewWithService(ctx, ch, owner, pqs, nil, now)
+}
+
+func (svc *ChannelService) buildChannelQuotaOverviewWithService(
 	_ context.Context,
 	ch *ent.Channel,
 	owner *ent.Channel,
 	pqs *ent.ProviderQuotaStatus,
+	providerQuotaSvc *ProviderQuotaService,
 	now time.Time,
 ) *ChannelQuotaOverview {
 	if owner == nil {
@@ -257,13 +268,36 @@ func (svc *ChannelService) BuildChannelQuotaOverview(
 	}
 
 	if !ChannelUsesPerKeyQuotaAuthority(owner) {
-		return buildProviderQuotaOverview(owner, pqs, now)
+		return buildProviderQuotaOverviewWithService(owner, pqs, providerQuotaSvc, now)
 	}
 
 	return buildPerKeyQuotaOverview(owner, now)
 }
 
+func providerQuotaChannelSupportsReadOnlyRefresh(owner *ent.Channel, providerQuotaSvc *ProviderQuotaService) bool {
+	if owner == nil || ChannelUsesPerKeyQuotaAuthority(owner) {
+		return false
+	}
+	if providerQuotaSvc != nil {
+		return providerQuotaSvc.SupportsReadOnlyQuotaRefresh(owner)
+	}
+	pt := providerTypeForChannel(owner)
+	if pt == "" || pt == "claudecode" {
+		return false
+	}
+	return hasCredentialsForProvider(owner)
+}
+
 func buildProviderQuotaOverview(owner *ent.Channel, pqs *ent.ProviderQuotaStatus, now time.Time) *ChannelQuotaOverview {
+	return buildProviderQuotaOverviewWithService(owner, pqs, nil, now)
+}
+
+func buildProviderQuotaOverviewWithService(
+	owner *ent.Channel,
+	pqs *ent.ProviderQuotaStatus,
+	providerQuotaSvc *ProviderQuotaService,
+	now time.Time,
+) *ChannelQuotaOverview {
 	overview := &ChannelQuotaOverview{
 		Counts: ChannelQuotaCounts{
 			Total:  1,
@@ -274,7 +308,7 @@ func buildProviderQuotaOverview(owner *ent.Channel, pqs *ent.ProviderQuotaStatus
 		WalletScope: "provider_account",
 		WalletID:    "provider:ch:" + strconvInt(owner.ID),
 		Source:      "none",
-		CanRefresh:  hasCredentialsForProvider(owner),
+		CanRefresh:  providerQuotaChannelSupportsReadOnlyRefresh(owner, providerQuotaSvc),
 	}
 	if pqs == nil {
 		overview.Counts.Unknown = 1
@@ -303,8 +337,9 @@ func buildProviderQuotaOverview(owner *ent.Channel, pqs *ent.ProviderQuotaStatus
 		}
 	}
 
-	// Extract representative windows from provider_quota_status.quota_data.rows when present.
-	overview.Windows = extractProviderQuotaWindows(pqs.QuotaData, now)
+	// Extract representative windows anchored to the snapshot's observation time
+	// (checkedAt) so relative reset_after_seconds values never drift across reads.
+	overview.Windows = extractProviderQuotaWindowsAt(pqs.QuotaData, checkedAt, now)
 	if len(overview.Windows) > 2 {
 		overview.Windows = selectRepresentativeWindows(overview.Windows, now, 2)
 	}
@@ -332,6 +367,10 @@ func buildProviderQuotaOverview(owner *ent.Channel, pqs *ent.ProviderQuotaStatus
 }
 
 func extractProviderQuotaWindows(data map[string]any, now time.Time) []objects.ChannelQuotaWindow {
+	return extractProviderQuotaWindowsAt(data, now, now)
+}
+
+func extractProviderQuotaWindowsAt(data map[string]any, observedAt, now time.Time) []objects.ChannelQuotaWindow {
 	if len(data) == 0 {
 		return []objects.ChannelQuotaWindow{}
 	}
@@ -340,21 +379,21 @@ func extractProviderQuotaWindows(data map[string]any, now time.Time) []objects.C
 
 	// 1. Row-array format (e.g. kimi_code).
 	if rawRows, ok := data["rows"].([]any); ok && len(rawRows) > 0 {
-		out = append(out, extractProviderQuotaRowSlice(rawRows, now)...)
+		out = append(out, extractProviderQuotaRowSlice(rawRows, observedAt, now)...)
 	}
 
 	// 2. Codex rate_limit.{primary_window, secondary_window}.
 	if rateLimit, ok := data["rate_limit"].(map[string]any); ok && len(rateLimit) > 0 {
-		out = append(out, extractCodexRateLimitWindows(rateLimit, now)...)
+		out = append(out, extractCodexRateLimitWindows(rateLimit, observedAt, now)...)
 	}
 
 	// 3. Named or slice windows (claudecode, opencode_go, cline, nanogpt).
 	if rawWindows, exists := data["windows"]; exists && rawWindows != nil {
 		switch typed := rawWindows.(type) {
 		case []any:
-			out = append(out, extractProviderQuotaRowSlice(typed, now)...)
+			out = append(out, extractProviderQuotaRowSlice(typed, observedAt, now)...)
 		case map[string]any:
-			out = append(out, extractProviderQuotaWindowMap(typed, now)...)
+			out = append(out, extractProviderQuotaWindowMap(typed, observedAt, now)...)
 		}
 	}
 
@@ -364,7 +403,7 @@ func extractProviderQuotaWindows(data map[string]any, now time.Time) []objects.C
 	return out
 }
 
-func extractProviderQuotaRowSlice(rawRows []any, now time.Time) []objects.ChannelQuotaWindow {
+func extractProviderQuotaRowSlice(rawRows []any, observedAt, now time.Time) []objects.ChannelQuotaWindow {
 	out := make([]objects.ChannelQuotaWindow, 0, len(rawRows))
 	for i, item := range rawRows {
 		m, ok := item.(map[string]any)
@@ -372,7 +411,7 @@ func extractProviderQuotaRowSlice(rawRows []any, now time.Time) []objects.Channe
 			continue
 		}
 		label := firstString(stringAt(m, "label"), stringAt(m, "name"), stringAt(m, "key"), "Window")
-		w := buildProviderQuotaWindowFromMap(canonicalQuotaWindowKey(label, i), label, m, now)
+		w := buildProviderQuotaWindowFromMap(canonicalQuotaWindowKey(label, i), label, m, observedAt, now)
 		if w != nil {
 			out = append(out, *w)
 		}
@@ -380,7 +419,7 @@ func extractProviderQuotaRowSlice(rawRows []any, now time.Time) []objects.Channe
 	return out
 }
 
-func extractCodexRateLimitWindows(rateLimit map[string]any, now time.Time) []objects.ChannelQuotaWindow {
+func extractCodexRateLimitWindows(rateLimit map[string]any, observedAt, now time.Time) []objects.ChannelQuotaWindow {
 	var out []objects.ChannelQuotaWindow
 	for _, spec := range []struct {
 		field       string
@@ -395,7 +434,7 @@ func extractCodexRateLimitWindows(rateLimit map[string]any, now time.Time) []obj
 			continue
 		}
 		key, label := codexWindowKeyAndLabel(winMap, spec.fallbackKey, spec.fallbackLbl)
-		w := buildProviderQuotaWindowFromMap(key, label, winMap, now)
+		w := buildProviderQuotaWindowFromMap(key, label, winMap, observedAt, now)
 		if w != nil {
 			out = append(out, *w)
 		}
@@ -424,7 +463,7 @@ func codexWindowKeyAndLabel(win map[string]any, fallbackKey, fallbackLabel strin
 	}
 }
 
-func extractProviderQuotaWindowMap(winMap map[string]any, now time.Time) []objects.ChannelQuotaWindow {
+func extractProviderQuotaWindowMap(winMap map[string]any, observedAt, now time.Time) []objects.ChannelQuotaWindow {
 	// Deterministic preferred ordering covering claudecode, opencode_go, cline, nanogpt.
 	preferredOrder := []struct {
 		rawKey string
@@ -461,7 +500,7 @@ func extractProviderQuotaWindowMap(winMap map[string]any, now time.Time) []objec
 		if !ok || len(m) == 0 {
 			continue
 		}
-		if w := buildProviderQuotaWindowFromMap(spec.key, spec.label, m, now); w != nil {
+		if w := buildProviderQuotaWindowFromMap(spec.key, spec.label, m, observedAt, now); w != nil {
 			out = append(out, *w)
 		}
 	}
@@ -480,7 +519,7 @@ func extractProviderQuotaWindowMap(winMap map[string]any, now time.Time) []objec
 		if !ok || len(m) == 0 {
 			continue
 		}
-		if w := buildProviderQuotaWindowFromMap(canonicalQuotaWindowKey(k, i), k, m, now); w != nil {
+		if w := buildProviderQuotaWindowFromMap(canonicalQuotaWindowKey(k, i), k, m, observedAt, now); w != nil {
 			out = append(out, *w)
 		}
 	}
@@ -488,7 +527,7 @@ func extractProviderQuotaWindowMap(winMap map[string]any, now time.Time) []objec
 	return out
 }
 
-func buildProviderQuotaWindowFromMap(key, label string, m map[string]any, now time.Time) *objects.ChannelQuotaWindow {
+func buildProviderQuotaWindowFromMap(key, label string, m map[string]any, observedAt, now time.Time) *objects.ChannelQuotaWindow {
 	resetAt := parseBalanceProbeTime(firstNonNil(
 		valueAt(m, "resetAt"),
 		valueAt(m, "reset_at"),
@@ -496,9 +535,9 @@ func buildProviderQuotaWindowFromMap(key, label string, m map[string]any, now ti
 		valueAt(m, "next_reset_at"),
 		valueAt(m, "reset"),
 	))
-	if resetAt == nil {
+	if resetAt == nil && !observedAt.IsZero() {
 		if resetAfter, ok := amountFromAny(firstNonNil(valueAt(m, "reset_after_seconds"), valueAt(m, "reset_in_seconds"))); ok && resetAfter > 0 {
-			t := now.Add(time.Duration(resetAfter) * time.Second)
+			t := observedAt.Add(time.Duration(resetAfter) * time.Second)
 			resetAt = &t
 		}
 	}
@@ -719,6 +758,7 @@ func buildPerKeyQuotaOverview(owner *ent.Channel, now time.Time) *ChannelQuotaOv
 		if sharedWallet && sharedSnap != nil {
 			snap = sharedSnap
 		}
+		snap = NormalizeChannelKeyBalanceSnapshotForRead(owner, snap)
 		if snap == nil || !snap.Success {
 			if !isDisabled {
 				overview.Counts.Unknown++
@@ -867,6 +907,145 @@ func buildPerKeyQuotaOverview(owner *ent.Channel, now time.Time) *ChannelQuotaOv
 	}
 
 	return overview
+}
+
+// NormalizeChannelKeyBalanceSnapshotForRead normalizes frozen legacy OpenRouter
+// free-tier snapshots (total_credits == 0, total_usage >= 0, remaining < 0, no freeTier)
+// at read time without mutating stored rows or re-probing disabled channels (e.g. Ch 45).
+// Returns snap unchanged (0 allocations) when no legacy normalization is needed.
+func NormalizeChannelKeyBalanceSnapshotForRead(ch *ent.Channel, snap *objects.ChannelKeyBalanceSnapshot) *objects.ChannelKeyBalanceSnapshot {
+	if snap == nil || !snap.Success {
+		return snap
+	}
+	if snap.FreeTier != nil || (snap.Unlimited != nil && *snap.Unlimited) {
+		return snap
+	}
+	if !isOpenRouterChannelOrSnapshot(ch, snap) {
+		return snap
+	}
+
+	totalCredits, totalOK := legacyOpenRouterTotalCredits(snap)
+	totalUsage, usageOK := legacyOpenRouterTotalUsage(snap)
+	if !totalOK || totalCredits != 0 || !usageOK || totalUsage < 0 {
+		return snap
+	}
+	// Require either a negative remaining value or an unflagged zero-credit OpenRouter snapshot.
+	remVal, remOK := legacyOpenRouterRemaining(snap)
+	if remOK && remVal > 0 {
+		return snap
+	}
+
+	out := cloneChannelKeyBalanceSnapshot(snap)
+	usedClean := max(0.0, totalUsage)
+	zero := 0.0
+	out.FreeTier = lo.ToPtr(true)
+	out.Available = lo.ToPtr(true)
+	out.Limit = &zero
+	out.Used = &usedClean
+	remZero := 0.0
+	out.Remaining = &remZero
+
+	var remComponent *objects.BalanceAmount
+	for i := range out.Components {
+		if out.Components[i].Kind == objects.BalanceAmountKindRemaining {
+			if out.Components[i].Amount < 0 {
+				out.Components[i].Amount = 0
+			}
+			remComponent = &out.Components[i]
+		}
+	}
+	if remComponent == nil {
+		out.Components = append(out.Components, objects.BalanceAmount{
+			Amount:   0,
+			Currency: "USD",
+			Kind:     objects.BalanceAmountKindRemaining,
+			Label:    "remaining credits",
+		})
+		remComponent = &out.Components[len(out.Components)-1]
+	}
+	cp := *remComponent
+	out.PrimaryBalance = &cp
+	return out
+}
+
+func isOpenRouterChannelOrSnapshot(ch *ent.Channel, snap *objects.ChannelKeyBalanceSnapshot) bool {
+	if ch != nil {
+		if ch.Type == channel.TypeOpenrouter {
+			return true
+		}
+		if ch.Settings != nil && ch.Settings.BalanceProbe != nil && ch.Settings.BalanceProbe.Preset == objects.ChannelBalanceProbePresetOpenRouter {
+			return true
+		}
+		if preset, ok := channelBalanceProbePresetForBaseURL(ch); ok && preset == objects.ChannelBalanceProbePresetOpenRouter {
+			return true
+		}
+	}
+	if snap != nil && len(snap.RawSummary) > 0 {
+		_, hasCredits := snap.RawSummary["total_credits"]
+		_, hasUsage := snap.RawSummary["total_usage"]
+		if hasCredits && hasUsage {
+			return true
+		}
+	}
+	return false
+}
+
+func legacyOpenRouterTotalCredits(snap *objects.ChannelKeyBalanceSnapshot) (float64, bool) {
+	if snap == nil {
+		return 0, false
+	}
+	if len(snap.RawSummary) > 0 {
+		if v, ok := amountFromAny(snap.RawSummary["total_credits"]); ok {
+			return v, true
+		}
+	}
+	if snap.Limit != nil && finiteFloatVal(*snap.Limit) {
+		return *snap.Limit, true
+	}
+	for _, c := range snap.Components {
+		if c.Kind == objects.BalanceAmountKindTotal && finiteFloatVal(c.Amount) {
+			return c.Amount, true
+		}
+	}
+	return 0, false
+}
+
+func legacyOpenRouterTotalUsage(snap *objects.ChannelKeyBalanceSnapshot) (float64, bool) {
+	if snap == nil {
+		return 0, false
+	}
+	if len(snap.RawSummary) > 0 {
+		if v, ok := amountFromAny(snap.RawSummary["total_usage"]); ok {
+			return v, true
+		}
+	}
+	if snap.Used != nil && finiteFloatVal(*snap.Used) {
+		return *snap.Used, true
+	}
+	for _, c := range snap.Components {
+		if c.Kind == objects.BalanceAmountKindUsed && finiteFloatVal(c.Amount) {
+			return c.Amount, true
+		}
+	}
+	return 0, false
+}
+
+func legacyOpenRouterRemaining(snap *objects.ChannelKeyBalanceSnapshot) (float64, bool) {
+	if snap == nil {
+		return 0, false
+	}
+	if snap.Remaining != nil && finiteFloatVal(*snap.Remaining) {
+		return *snap.Remaining, true
+	}
+	for _, c := range snap.Components {
+		if c.Kind == objects.BalanceAmountKindRemaining && finiteFloatVal(c.Amount) {
+			return c.Amount, true
+		}
+	}
+	if snap.PrimaryBalance != nil && finiteFloatVal(snap.PrimaryBalance.Amount) {
+		return snap.PrimaryBalance.Amount, true
+	}
+	return 0, false
 }
 
 // QuotaCanonicalWalletID returns the canonical wallet identity for deduplicating

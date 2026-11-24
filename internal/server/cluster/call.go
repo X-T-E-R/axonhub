@@ -19,6 +19,17 @@ func WithCallerAuthorization(ctx context.Context, authorization string) context.
 	return context.WithValue(ctx, callerAuthorizationKey{}, authorization)
 }
 
+// OwnerHTTPStatusError represents a non-200 HTTP response returned by an
+// execution owner node during cross-node management forwarding.
+type OwnerHTTPStatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *OwnerHTTPStatusError) Error() string {
+	return fmt.Sprintf("execution owner returned HTTP %d: %s", e.StatusCode, e.Body)
+}
+
 var ownerClient = &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 // CallOwner forwards only an explicitly authorized management operation. The
@@ -64,7 +75,10 @@ func CallNode(ctx context.Context, c Config, node, path string, input, output an
 		return err
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("execution owner returned HTTP %d: %s", res.StatusCode, raw)
+		return &OwnerHTTPStatusError{
+			StatusCode: res.StatusCode,
+			Body:       string(raw),
+		}
 	}
 	return json.Unmarshal(raw, output)
 }

@@ -29,7 +29,7 @@ func (c *Channel) logCredentialAffinityEscape(ctx context.Context, key string, e
 	default:
 		if c.Settings != nil && c.Settings.KeyHealthCheck != nil {
 			for _, meta := range c.Settings.KeyHealthCheck.KeyMetadata {
-				if meta.ID == id && meta.BalanceSnapshot.ExhaustedAt(now) {
+				if meta.ID == id && NormalizeChannelKeyBalanceSnapshotForRead(c.Channel, meta.BalanceSnapshot).ExhaustedAt(now) {
 					reason = "quota_exhausted"
 					break
 				}

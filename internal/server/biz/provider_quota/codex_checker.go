@@ -222,14 +222,39 @@ func (c *CodexQuotaChecker) CheckQuota(ctx context.Context, ch *ent.Channel) (Qu
 		return QuotaData{}, fmt.Errorf("quota request failed: %w", err)
 	}
 
-	return c.parseResponse(resp.Body)
+	return c.parseResponseAt(resp.Body, time.Now().UTC())
 }
 
 func (c *CodexQuotaChecker) parseResponse(body []byte) (QuotaData, error) {
+	return c.parseResponseAt(body, time.Now().UTC())
+}
+
+func normalizeCodexWindowResetAt(w *CodeUsageWindow, observedAt time.Time) {
+	if w == nil || observedAt.IsZero() {
+		return
+	}
+	if (w.ResetAt == nil || *w.ResetAt <= 0) && w.ResetAfterSeconds != nil && *w.ResetAfterSeconds > 0 {
+		ts := observedAt.Add(time.Duration(*w.ResetAfterSeconds) * time.Second).Unix()
+		w.ResetAt = &ts
+	}
+}
+
+func (c *CodexQuotaChecker) parseResponseAt(body []byte, observedAt time.Time) (QuotaData, error) {
 	var response CodexUsageResponse
 
 	if err := json.Unmarshal(body, &response); err != nil {
 		return QuotaData{}, fmt.Errorf("failed to parse codex usage response: %w", err)
+	}
+
+	// Anchor any relative reset_after_seconds windows to the observation timestamp
+	// so persisted RawData carries a fixed absolute reset_at that does not drift on read.
+	if response.RateLimit != nil {
+		normalizeCodexWindowResetAt(response.RateLimit.PrimaryWindow, observedAt)
+		normalizeCodexWindowResetAt(response.RateLimit.SecondaryWindow, observedAt)
+	}
+	if response.CodeReviewRateLimit != nil {
+		normalizeCodexWindowResetAt(response.CodeReviewRateLimit.PrimaryWindow, observedAt)
+		normalizeCodexWindowResetAt(response.CodeReviewRateLimit.SecondaryWindow, observedAt)
 	}
 
 	// Normalize status
@@ -241,6 +266,10 @@ func (c *CodexQuotaChecker) parseResponse(body []byte) (QuotaData, error) {
 	)
 
 	if response.RateLimit != nil {
+		if response.RateLimit.PrimaryWindow != nil && response.RateLimit.PrimaryWindow.ResetAt != nil && *response.RateLimit.PrimaryWindow.ResetAt > 0 {
+			t := time.Unix(*response.RateLimit.PrimaryWindow.ResetAt, 0).UTC()
+			nextResetAt = &t
+		}
 		if response.RateLimit.LimitReached != nil && *response.RateLimit.LimitReached {
 			normalizedStatus = "exhausted"
 		} else if response.RateLimit.Allowed != nil && !*response.RateLimit.Allowed {
@@ -254,12 +283,6 @@ func (c *CodexQuotaChecker) parseResponse(body []byte) (QuotaData, error) {
 				if *primaryWindowUsedPercent >= 80.0 {
 					normalizedStatus = "warning"
 				}
-			}
-
-			// Extract next reset from primary window
-			if response.RateLimit.PrimaryWindow != nil && response.RateLimit.PrimaryWindow.ResetAt != nil && *response.RateLimit.PrimaryWindow.ResetAt > 0 {
-				t := time.Unix(*response.RateLimit.PrimaryWindow.ResetAt, 0)
-				nextResetAt = &t
 			}
 		}
 	}

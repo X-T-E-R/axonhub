@@ -138,10 +138,16 @@ export function mergeChannelSettingsForUpdate(
     providerQuota: pick('providerQuota', existing?.providerQuota ?? null),
     keySelection: pick('keySelection', existing?.keySelection ?? null),
     keyHealthCheck: stripKeyHealthCheckRuntimeFields(pick('keyHealthCheck', existing?.keyHealthCheck ?? null)),
-    balanceProbe: sanitizeBalanceProbeForUpdate(pick('balanceProbe', existing?.balanceProbe ?? null)),
+    ...(hasOwn('balanceProbe') && patch.balanceProbe !== undefined
+      ? { balanceProbe: sanitizeBalanceProbeForUpdate(patch.balanceProbe) }
+      : {}),
     failurePolicy: pick('failurePolicy', existing?.failurePolicy ?? null),
-    sessionAffinity: pick('sessionAffinity', existing?.sessionAffinity ?? null),
-    idRewriteRules: pick('idRewriteRules', existing?.idRewriteRules ?? null),
+    ...(hasOwn('sessionAffinity') && patch.sessionAffinity !== undefined
+      ? { sessionAffinity: patch.sessionAffinity }
+      : {}),
+    ...(hasOwn('idRewriteRules') && patch.idRewriteRules !== undefined
+      ? { idRewriteRules: patch.idRewriteRules }
+      : {}),
   };
 }
 

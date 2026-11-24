@@ -143,6 +143,15 @@ func (m *performanceRecording) OnDirectPassThroughStream(ctx context.Context, st
 }
 
 func (m *performanceRecording) OnOutboundRawError(ctx context.Context, err error) {
+	// Local gateway configuration errors (e.g. missing AXONHUB_ID_REWRITE_SECRET)
+	// and continuation-owner conflict guards are NOT upstream credential failures.
+	// Release the active credential lease cleanly without blaming the API key or
+	// triggering channel/key FailurePolicy.
+	if errors.Is(err, biz.ErrIDRewriteSecretMissing()) || isContinuationGuardConflictError(err) {
+		contexts.FinishChannelCredentialAttempt(ctx, 0, false, true)
+		return
+	}
+
 	// A transport/decoder failure has no upstream HTTP status. Keep status=0 so
 	// managed egress can apply its network-failure block; performance metrics
 	// still use ExtractErrorCode's 500 fallback below.

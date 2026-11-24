@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/looplj/axonhub/internal/objects"
+	"github.com/looplj/axonhub/internal/pkg/xerrors"
 )
 
 const (
@@ -99,6 +100,29 @@ func (svc *ChannelService) IDRewriteSecret(ctx context.Context) ([]byte, error) 
 		}
 	}
 	return ResolveIDRewriteSecret(ctx, nil)
+}
+
+// validateIDRewriteSecretRequirement rejects saving idRewriteRules with op == "derive"
+// when the deployment lacks an effective AXONHUB_ID_REWRITE_SECRET (or AXONHUB_ENCRYPTION_KEY),
+// preventing configurations that would fail closed on every outbound request.
+func (svc *ChannelService) validateIDRewriteSecretRequirement(ctx context.Context, inputSettings *objects.ChannelSettings) error {
+	if inputSettings == nil || len(inputSettings.IDRewriteRules) == 0 {
+		return nil
+	}
+	for i, rule := range inputSettings.IDRewriteRules {
+		if rule.Op != objects.ChannelIDRewriteOpDerive {
+			continue
+		}
+		secret, err := svc.IDRewriteSecret(ctx)
+		if err != nil || len(secret) == 0 {
+			if err == nil {
+				err = ErrIDRewriteSecretMissing()
+			}
+			return xerrors.ValidationError(fmt.Sprintf("idRewriteRules[%d].op 'derive' requires %s", i, err.Error())).WithCause(err)
+		}
+		return nil
+	}
+	return nil
 }
 
 // EncryptProbeAPIKey encrypts a write-only probe API key using AES-256-GCM bound

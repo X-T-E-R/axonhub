@@ -712,6 +712,9 @@ func (svc *ChannelService) createChannel(ctx context.Context, input ent.CreateCh
 		if err := ValidateChannelKeySettings(settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
 		}
+		if err := svc.validateIDRewriteSecretRequirement(ctx, input.Settings); err != nil {
+			return nil, err
+		}
 		if err := validateChannelKeyHealthCheckURLsForBaseURL(lo.FromPtr(input.BaseURL), settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
 		}
@@ -961,6 +964,9 @@ func (svc *ChannelService) UpdateChannel(ctx context.Context, id int, input *ent
 
 		if err := ValidateChannelKeySettings(settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)
+		}
+		if err := svc.validateIDRewriteSecretRequirement(ctx, input.Settings); err != nil {
+			return nil, err
 		}
 		if err := validateChannelKeyHealthCheckURLsForBaseURL(baseURL, settings); err != nil {
 			return nil, fmt.Errorf("invalid channel key settings: %w", err)

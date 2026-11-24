@@ -15,6 +15,25 @@ type QuotaChecker interface {
 	SupportsChannel(channel *ent.Channel) bool
 }
 
+// InferenceProbeQuotaChecker is implemented by checkers whose CheckQuota sends
+// a real inference request (for example ClaudeCode POST /v1/messages max_tokens:1).
+// Read-only quota refresh entrypoints MUST NOT invoke inference-probe checkers.
+type InferenceProbeQuotaChecker interface {
+	IsInferenceProbe() bool
+}
+
+// IsReadOnlyQuotaChecker reports whether checker retrieves quota via a read-only
+// endpoint without sending a billable/rate-limited inference request.
+func IsReadOnlyQuotaChecker(checker QuotaChecker) bool {
+	if checker == nil {
+		return false
+	}
+	if probe, ok := checker.(InferenceProbeQuotaChecker); ok && probe.IsInferenceProbe() {
+		return false
+	}
+	return true
+}
+
 type QuotaLimitType string
 
 const (

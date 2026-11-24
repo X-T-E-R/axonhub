@@ -114,14 +114,14 @@ func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID
 			Status:    status,
 		}
 		if meta, ok := metadata[id]; ok {
-			mergeInventoryMetadata(item, meta)
+			mergeInventoryMetadata(ch, item, meta)
 		}
 		if isChannelSharedWallet(ch) {
 			item.SharedWallet = true
 			if ch.Settings != nil && ch.Settings.KeyHealthCheck != nil {
 				hc := ch.Settings.KeyHealthCheck
 				if hc.SharedBalanceSnapshot != nil {
-					item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(hc.SharedBalanceSnapshot)
+					item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(NormalizeChannelKeyBalanceSnapshotForRead(ch, hc.SharedBalanceSnapshot))
 					if item.BalanceSnapshot.PrimaryBalance != nil {
 						item.Balance = item.BalanceSnapshot.PrimaryBalance.Amount
 						item.Currency = item.BalanceSnapshot.PrimaryBalance.Currency
@@ -150,7 +150,7 @@ func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID
 			item.Reason = dk.Reason
 		}
 		if archive, ok := archived[id]; ok {
-			mergeInventoryArchive(item, archive)
+			mergeInventoryArchive(ch, item, archive)
 		}
 
 		items = append(items, item)
@@ -170,7 +170,7 @@ func (svc *ChannelService) ChannelAPIKeyInventory(ctx context.Context, channelID
 			MaskedKey: archive.MaskedKey,
 			Status:    objects.ChannelKeyStatusArchived,
 		}
-		mergeInventoryArchive(item, archive)
+		mergeInventoryArchive(ch, item, archive)
 		items = append(items, item)
 	}
 
@@ -859,7 +859,7 @@ func (svc *ChannelService) DeleteDisabledAPIKeys(ctx context.Context, channelID 
 	return result, nil
 }
 
-func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.ChannelKeyMetadata) {
+func mergeInventoryMetadata(ch *ent.Channel, item *ChannelAPIKeyInventoryItem, meta objects.ChannelKeyMetadata) {
 	if meta.MaskedKey != "" {
 		item.MaskedKey = meta.MaskedKey
 	}
@@ -872,13 +872,21 @@ func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.Chann
 	item.Reason = meta.Reason
 	item.Balance = meta.Balance
 	item.Currency = meta.Currency
-	item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(meta.BalanceSnapshot)
+	normalizedSnap := NormalizeChannelKeyBalanceSnapshotForRead(ch, meta.BalanceSnapshot)
+	item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(normalizedSnap)
 	item.LastProbeAt = meta.LastProbeAt
 	item.LastProbeStatus = meta.LastProbeStatus
 	item.LastProbeError = meta.LastProbeError
 	item.NextProbeAt = meta.NextProbeAt
 	item.ProbeFailureCount = meta.ProbeFailureCount
 	item.Available = meta.Available
+	if normalizedSnap != nil && normalizedSnap != meta.BalanceSnapshot {
+		if normalizedSnap.PrimaryBalance != nil {
+			item.Balance = normalizedSnap.PrimaryBalance.Amount
+			item.Currency = normalizedSnap.PrimaryBalance.Currency
+		}
+		item.Available = normalizedSnap.Available
+	}
 	item.StatusCode = meta.StatusCode
 	item.MatchedPolicy = meta.MatchedPolicy
 	item.Action = meta.Action
@@ -887,7 +895,7 @@ func mergeInventoryMetadata(item *ChannelAPIKeyInventoryItem, meta objects.Chann
 	item.History = slices.Clone(meta.History)
 }
 
-func mergeInventoryArchive(item *ChannelAPIKeyInventoryItem, archive objects.ChannelArchivedAPIKey) {
+func mergeInventoryArchive(ch *ent.Channel, item *ChannelAPIKeyInventoryItem, archive objects.ChannelArchivedAPIKey) {
 	if archive.MaskedKey != "" {
 		item.MaskedKey = archive.MaskedKey
 	}
@@ -901,8 +909,16 @@ func mergeInventoryArchive(item *ChannelAPIKeyInventoryItem, archive objects.Cha
 	item.Reason = archive.Reason
 	item.Balance = archive.Balance
 	item.Currency = archive.Currency
-	item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(archive.BalanceSnapshot)
+	normalizedSnap := NormalizeChannelKeyBalanceSnapshotForRead(ch, archive.BalanceSnapshot)
+	item.BalanceSnapshot = cloneChannelKeyBalanceSnapshot(normalizedSnap)
 	item.Available = archive.Available
+	if normalizedSnap != nil && normalizedSnap != archive.BalanceSnapshot {
+		if normalizedSnap.PrimaryBalance != nil {
+			item.Balance = normalizedSnap.PrimaryBalance.Amount
+			item.Currency = normalizedSnap.PrimaryBalance.Currency
+		}
+		item.Available = normalizedSnap.Available
+	}
 }
 
 func resolveChannelAPIKey(credentials objects.ChannelCredentials, keyID string) (string, bool) {

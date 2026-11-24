@@ -508,8 +508,26 @@ func (svc *ProviderQuotaService) GetCachedProviderQuotaStatus(ctx context.Contex
 	return row
 }
 
+// SupportsReadOnlyQuotaRefresh reports whether the channel has a registered
+// read-only (non-inference) provider quota checker and credentials.
+func (svc *ProviderQuotaService) SupportsReadOnlyQuotaRefresh(ch *ent.Channel) bool {
+	if svc == nil || ch == nil || ChannelUsesPerKeyQuotaAuthority(ch) {
+		return false
+	}
+	providerType := svc.getProviderType(ch)
+	if providerType == "" || !hasCredentialsForProvider(ch) {
+		return false
+	}
+	checker, ok := svc.checkers[providerType]
+	if !ok {
+		return false
+	}
+	return provider_quota.IsReadOnlyQuotaChecker(checker)
+}
+
 // RefreshSingleChannel refreshes one channel-scoped provider quota via singleflight.
-// It NEVER redeems Codex reset credits (ResetChannelQuotaNow remains explicit).
+// It NEVER triggers inference-probe checkers (such as ClaudeCode max_tokens:1) and
+// NEVER redeems Codex reset credits (ResetChannelQuotaNow remains explicit).
 func (svc *ProviderQuotaService) RefreshSingleChannel(ctx context.Context, ch *ent.Channel) (RefreshChannelQuotaStatus, string, *ent.ProviderQuotaStatus, *time.Time) {
 	if svc == nil || ch == nil {
 		return RefreshChannelQuotaStatusUnsupported, "provider quota service unavailable", nil, nil
@@ -524,6 +542,9 @@ func (svc *ProviderQuotaService) RefreshSingleChannel(ctx context.Context, ch *e
 	checker, ok := svc.checkers[providerType]
 	if !ok {
 		return RefreshChannelQuotaStatusUnsupported, "no provider quota checker registered", nil, nil
+	}
+	if !provider_quota.IsReadOnlyQuotaChecker(checker) {
+		return RefreshChannelQuotaStatusUnsupported, "provider quota checker requires an inference request and is disabled for quota refresh", svc.GetCachedProviderQuotaStatus(ctx, ch.ID), nil
 	}
 
 	key := fmt.Sprintf("pqs:%d", ch.ID)
@@ -879,6 +900,13 @@ func (svc *ProviderQuotaService) saveQuotaError(
 }
 
 func (svc *ProviderQuotaService) getProviderType(ch *ent.Channel) string {
+	return providerTypeForChannel(ch)
+}
+
+func providerTypeForChannel(ch *ent.Channel) string {
+	if ch == nil {
+		return ""
+	}
 	switch ch.Type { //nolint:exhaustive
 	case channel.TypeClaudecode:
 		return "claudecode"

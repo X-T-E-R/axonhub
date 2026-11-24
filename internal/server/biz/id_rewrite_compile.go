@@ -209,7 +209,9 @@ func CompileChannelIDRewriteRules(rules []objects.ChannelIDRewriteRule) (*Compil
 				leafSeg = path[idx+1:]
 			}
 			if leafSeg != "" {
-				compiled.LeafKeyNeedle = []byte(`"` + leafSeg + `"`)
+				// Omit the leading '"' so JSON syntax quotes do not trip Go's bytes.Index
+				// cutover heuristic; every literal JSON key "<leafSeg>" contains <leafSeg>".
+				compiled.LeafKeyNeedle = []byte(leafSeg + `"`)
 			}
 		default:
 			return nil, fmt.Errorf("idRewriteRules[%d].target must start with 'header:' or 'json:'", i)

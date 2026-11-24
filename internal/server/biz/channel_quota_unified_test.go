@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +27,9 @@ import (
 	"github.com/looplj/axonhub/internal/ent/providerquotastatus"
 	"github.com/looplj/axonhub/internal/objects"
 	"github.com/looplj/axonhub/internal/pkg/xcache"
+	"github.com/looplj/axonhub/internal/pkg/xerrors"
 	"github.com/looplj/axonhub/internal/scopes"
+	"github.com/looplj/axonhub/internal/server/cluster"
 	"github.com/looplj/axonhub/llm/httpclient"
 )
 
@@ -1204,4 +1207,396 @@ func TestUnifiedQuota_ProviderQuotaWindowsNormalization(t *testing.T) {
 	require.Len(t, ov.Windows, 2)
 	require.Equal(t, "5h", ov.Windows[0].Key)
 	require.Equal(t, "7d", ov.Windows[1].Key)
+}
+
+func TestFinalReview_DomainScopedPatchAndDeriveSecretPreValidation(t *testing.T) {
+	t.Setenv("AXONHUB_PROBE_SECRET_KEY", "probe-secret-for-patch-test")
+	t.Setenv("AXONHUB_ID_REWRITE_SECRET", "id-rewrite-secret-for-patch-test")
+	t.Setenv("AXONHUB_ENCRYPTION_KEY", "")
+
+	client, chSvc, _, ctx := newQuotaTestService(t, nil)
+	ctx = authz.WithTestBypass(ent.NewContext(ctx, client))
+
+	// 1. Create channel with balanceProbe + encrypted ProbeAPIKey + sessionAffinity + derive idRewriteRules.
+	created, err := chSvc.CreateChannel(ctx, ent.CreateChannelInput{
+		Type:            channel.TypeOpenai,
+		Name:            "domain-patch-ch",
+		BaseURL:         lo.ToPtr("https://api.exa.ai"),
+		Credentials:     objects.ChannelCredentials{APIKeys: []string{"k1", "k2"}},
+		SupportedModels: []string{"gpt-4o"},
+		DefaultTestModel: "gpt-4o",
+		Settings: &objects.ChannelSettings{
+			BalanceProbe: &objects.ChannelBalanceProbe{
+				Enabled:       true,
+				Preset:        objects.ChannelBalanceProbePresetExa,
+				SharedWallet:  true,
+				ProbeAPIKeyOp: objects.ChannelSecretWriteOpSet,
+				ProbeAPIKey:   "exa-admin-secret-xyz",
+			},
+			SessionAffinity: &objects.ChannelSessionAffinity{
+				Enabled:           true,
+				TTLSeconds:        lo.ToPtr(1800),
+				Anchors:           []string{"header:X-Session-Id"},
+				ContinuationGuard: objects.ChannelContinuationGuardStrictReplay,
+			},
+			IDRewriteRules: []objects.ChannelIDRewriteRule{{
+				Target: "header:X-Client-ID",
+				Op:     objects.ChannelIDRewriteOpDerive,
+				When:   objects.ChannelIDRewriteWhenAlways,
+				Format: objects.ChannelIDRewriteFormatHex32,
+			}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, created.Settings.BalanceProbe.ProbeAPIKeyCiphertext)
+	origCiphertext := created.Settings.BalanceProbe.ProbeAPIKeyCiphertext
+
+	// 2. Unrelated settings update omitting BalanceProbe, SessionAffinity, IDRewriteRules preserves DB values & ciphertext!
+	updated, err := chSvc.UpdateChannel(ctx, created.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			ExtraModelPrefix: "v2",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "v2", updated.Settings.ExtraModelPrefix)
+	require.NotNil(t, updated.Settings.BalanceProbe)
+	require.Equal(t, origCiphertext, updated.Settings.BalanceProbe.ProbeAPIKeyCiphertext, "omitted balanceProbe must keep stored ciphertext")
+	require.NotNil(t, updated.Settings.SessionAffinity)
+	require.True(t, updated.Settings.SessionAffinity.Enabled)
+	require.Len(t, updated.Settings.IDRewriteRules, 1)
+
+	// 3. Explicit empty slice [] clears IDRewriteRules; explicit SessionAffinity{Enabled:false} disables affinity.
+	cleared, err := chSvc.UpdateChannel(ctx, created.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			SessionAffinity: &objects.ChannelSessionAffinity{
+				Enabled:           false,
+				ContinuationGuard: objects.ChannelContinuationGuardStrictReplay,
+			},
+			IDRewriteRules: []objects.ChannelIDRewriteRule{},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, cleared.Settings.SessionAffinity.Enabled)
+	require.Empty(t, cleared.Settings.IDRewriteRules)
+	require.Equal(t, origCiphertext, cleared.Settings.BalanceProbe.ProbeAPIKeyCiphertext, "untouched balanceProbe stays intact")
+
+	// 4. Without AXONHUB_ID_REWRITE_SECRET / AXONHUB_ENCRYPTION_KEY, saving derive rules returns a 400 ValidationError.
+	t.Setenv("AXONHUB_ID_REWRITE_SECRET", "")
+	t.Setenv("AXONHUB_ENCRYPTION_KEY", "")
+	_, err = chSvc.UpdateChannel(ctx, created.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			IDRewriteRules: []objects.ChannelIDRewriteRule{{
+				Target: "json:metadata.user_id",
+				Op:     objects.ChannelIDRewriteOpDerive,
+				When:   objects.ChannelIDRewriteWhenAlways,
+				Format: objects.ChannelIDRewriteFormatAnthropicUserID,
+			}},
+		},
+	})
+	require.Error(t, err)
+	coded, isCoded := xerrors.IsCodedError(err)
+	require.True(t, isCoded, "missing derive secret must return a typed validation error")
+	require.Equal(t, xerrors.ErrCodeValidationFailed, coded.Code)
+	require.Contains(t, err.Error(), "idRewriteRules[0].op")
+
+	// 5. Delete-only rules still succeed without AXONHUB_ID_REWRITE_SECRET.
+	delUpdated, err := chSvc.UpdateChannel(ctx, created.ID, &ent.UpdateChannelInput{
+		Settings: &objects.ChannelSettings{
+			IDRewriteRules: []objects.ChannelIDRewriteRule{{
+				Target: "header:X-Legacy-Trace",
+				Op:     objects.ChannelIDRewriteOpDelete,
+				When:   objects.ChannelIDRewriteWhenAlways,
+			}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, delUpdated.Settings.IDRewriteRules, 1)
+}
+
+func TestFinalReview_ClaudeCodeNoInferenceOnQuotaRefresh_AndRollingUpgrade404Deferred(t *testing.T) {
+	var claudeHTTPHits atomic.Int32
+	rt := channelKeyHealthCheckRoundTripper(func(req *http.Request) (*http.Response, error) {
+		claudeHTTPHits.Add(1)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+		}, nil
+	})
+	client, chSvc, sysSvc, ctx := newQuotaTestService(t, rt)
+	ctx = authz.WithTestBypass(ent.NewContext(ctx, client))
+	pqSvc := NewProviderQuotaService(ProviderQuotaServiceParams{
+		Ent:           client,
+		SystemService: sysSvc,
+		HttpClient:    httpclient.NewHttpClientWithClient(&http.Client{Transport: rt}),
+	})
+
+	ccCh, err := client.Channel.Create().
+		SetType(channel.TypeClaudecode).
+		SetName("claudecode-oauth-test").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://api.anthropic.com").
+		SetCredentials(objects.ChannelCredentials{
+			OAuth: &objects.OAuthCredentials{AccessToken: "cc-access-token"},
+		}).
+		SetSupportedModels([]string{"claude-sonnet-4-5"}).
+		SetDefaultTestModel("claude-sonnet-4-5").
+		Save(ctx)
+	require.NoError(t, err)
+
+	// 1. ClaudeCode overview reports CanRefresh=false because its checker sends POST /v1/messages max_tokens:1.
+	ov := chSvc.ResolveChannelQuotaOverview(ctx, ccCh, pqSvc)
+	require.NotNil(t, ov)
+	require.False(t, ov.CanRefresh, "inference-probe checker (ClaudeCode) MUST have canRefresh=false")
+
+	// 2. RefreshChannelQuota returns unsupported with ZERO outbound HTTP requests.
+	payload, err := chSvc.RefreshChannelQuota(ctx, ccCh.ID, nil, pqSvc)
+	require.NoError(t, err)
+	require.Equal(t, RefreshChannelQuotaStatusUnsupported, payload.Status)
+	require.Zero(t, claudeHTTPHits.Load(), "quota refresh MUST NEVER invoke ClaudeCode POST /v1/messages inference probe")
+	require.NotNil(t, payload.QuotaOverview)
+	require.False(t, payload.QuotaOverview.CanRefresh)
+
+	// 3. Cross-node forwarding hitting HTTP 404 during rolling upgrade gracefully returns deferred ("owner node upgrading").
+	upgradingOwner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer upgradingOwner.Close()
+
+	chSvc.node = cluster.Config{
+		Enabled:     true,
+		NodeID:      "node-a",
+		ControlNode: "node-a",
+		Nodes: map[string]string{
+			"node-a": "http://127.0.0.1:1",
+			"node-b": upgradingOwner.URL,
+		},
+		Channels: map[int]cluster.ChannelBinding{
+			ccCh.ID: {Owner: "node-b", Identity: "cc-oauth-test"},
+		},
+	}
+	fwdCtx := cluster.WithCallerAuthorization(ctx, "Bearer test-admin-jwt")
+	deferredPayload, err := chSvc.RefreshChannelQuota(fwdCtx, ccCh.ID, nil, pqSvc)
+	require.NoError(t, err)
+	require.Equal(t, RefreshChannelQuotaStatusDeferred, deferredPayload.Status)
+	require.Equal(t, "owner node upgrading", deferredPayload.Message)
+}
+
+func TestFinalReview_Ch69UnifiedProbeFenceNoDoubleRun_AndDetachedPersistOnCanceledContext(t *testing.T) {
+	origInterval := quotaProbeOriginInterval
+	quotaProbeOriginInterval = 0
+	t.Cleanup(func() { quotaProbeOriginInterval = origInterval })
+
+	var hitCount atomic.Int32
+	rt := channelKeyHealthCheckRoundTripper(func(req *http.Request) (*http.Response, error) {
+		hitCount.Add(1)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{
+				"key": {"usage": 100, "limit": 1000},
+				"account": {"current_plan": "Researcher", "plan_usage": 100, "plan_limit": 1000}
+			}`)),
+		}, nil
+	})
+	client, chSvc, sysSvc, ctx := newQuotaTestService(t, rt)
+	ctx = authz.WithTestBypass(ent.NewContext(ctx, client))
+
+	keys := make([]string, 10)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("tvly-key-%02d", i)
+	}
+	ch69, err := client.Channel.Create().
+		SetType(channel.TypeOpenai).
+		SetName("tavily-ch69-fence").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://api.tavily.com").
+		SetCredentials(objects.ChannelCredentials{APIKeys: keys}).
+		SetSupportedModels([]string{"tavily-search"}).
+		SetDefaultTestModel("tavily-search").
+		SetSettings(&objects.ChannelSettings{
+			BalanceProbe: &objects.ChannelBalanceProbe{
+				Enabled: true,
+				Preset:  objects.ChannelBalanceProbePresetTavily,
+			},
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				Enabled: true,
+				Rules: []objects.ChannelKeyHealthCheckRule{{
+					ID:   "legacy-balance-rule",
+					Name: "Legacy balance rule",
+					Type: objects.ChannelKeyHealthCheckRuleTypeChannelBalanceProbe,
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	// Also enable a legacy global MonitoringRule targeting Ch 69 with ProbeType=channel_balance_probe.
+	err = sysSvc.SetMonitoringSettings(ctx, MonitoringSettings{
+		Enabled: true,
+		Rules: []MonitoringRule{{
+			ID:        "legacy-ch69-monitoring-balance",
+			Name:      "Legacy Ch 69 monitoring balance",
+			ProbeType: MonitoringProbeTypeChannelBalanceProbe,
+			Targets: MonitoringRuleTargets{
+				ChannelIDs:  []int{ch69.ID},
+				KeyStatuses: []objects.ChannelKeyStatus{objects.ChannelKeyStatusActive},
+			},
+			Schedule: MonitoringRuleSchedule{MaxKeysPerChannel: 10},
+		}},
+	})
+	require.NoError(t, err)
+
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, chSvc.RunDueChannelKeyHealthChecks(ctx, now))
+	require.Equal(t, int32(maxQuotaProbeKeysPerChannelPerTick), hitCount.Load(),
+		"Ch 69 must be probed strictly once by unified bounded scheduler (8 keys max), never double-probed by legacy health check or monitoring rule")
+
+	// Verify persistQuotaProbeUpdates succeeds even when parent cron context is already canceled!
+	reloaded, err := client.Channel.Get(ctx, ch69.ID)
+	require.NoError(t, err)
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	freshSnap := &objects.ChannelKeyBalanceSnapshot{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		CheckedAt:  now.Add(time.Minute),
+		Available:  lo.ToPtr(true),
+		Limit:      lo.ToPtr(1000.0),
+		Used:       lo.ToPtr(250.0),
+		Remaining:  lo.ToPtr(750.0),
+	}
+	err = chSvc.persistQuotaProbeUpdates(canceledCtx, reloaded, probeConfigFingerprint(reloaded), nil, []quotaKeyProbeUpdate{{
+		RawKey: keys[9],
+		KeyID:  objects.ChannelAPIKeyFingerprint(keys[9]),
+		Result: ChannelKeyHealthCheckResult{
+			Success:          true,
+			ObservationValid: true,
+			ProbeStatus:      "ok",
+			Source:           objects.FailurePolicyEventSourceScheduledBalanceProbe,
+			BalanceSnapshot:  freshSnap,
+		},
+	}}, now.Add(time.Minute))
+	require.NoError(t, err, "persistQuotaProbeUpdates must detach from canceled cron ctx and save fresh observation")
+
+	afterPersist, err := client.Channel.Get(ctx, ch69.ID)
+	require.NoError(t, err)
+	metaByID := channelKeyMetadataByID(afterPersist.Settings.KeyHealthCheck.KeyMetadata)
+	k9Meta, ok := metaByID[objects.ChannelAPIKeyFingerprint(keys[9])]
+	require.True(t, ok)
+	require.NotNil(t, k9Meta.BalanceSnapshot)
+	require.InDelta(t, 750.0, lo.FromPtr(k9Meta.BalanceSnapshot.Remaining), 1e-6)
+}
+
+func TestFinalReview_LegacyCh45OpenRouterFreeTierAndCodexResetAnchor(t *testing.T) {
+	client, chSvc, _, ctx := newQuotaTestService(t, nil)
+	ctx = authz.WithTestBypass(ent.NewContext(ctx, client))
+
+	checkedAt := time.Date(2026, 10, 10, 6, 0, 0, 0, time.UTC)
+	key1 := "sk-or-v1-legacy-free-1"
+	key1ID := objects.ChannelAPIKeyFingerprint(key1)
+
+	legacySnap := &objects.ChannelKeyBalanceSnapshot{
+		Success:    true,
+		StatusCode: http.StatusOK,
+		CheckedAt:  checkedAt,
+		Available:  lo.ToPtr(false),
+		Limit:      lo.ToPtr(0.0),
+		Used:       lo.ToPtr(0.35),
+		Remaining:  lo.ToPtr(-0.35),
+		RawSummary: map[string]any{
+			"total_credits": 0.0,
+			"total_usage":   0.35,
+		},
+		PrimaryBalance: &objects.BalanceAmount{
+			Amount:   -0.35,
+			Currency: "USD",
+			Kind:     objects.BalanceAmountKindRemaining,
+			Label:    "remaining credits",
+		},
+		Components: []objects.BalanceAmount{
+			{Amount: 0, Currency: "USD", Kind: objects.BalanceAmountKindTotal, Label: "total credits"},
+			{Amount: 0.35, Currency: "USD", Kind: objects.BalanceAmountKindUsed, Label: "total usage"},
+			{Amount: -0.35, Currency: "USD", Kind: objects.BalanceAmountKindRemaining, Label: "remaining credits"},
+		},
+	}
+
+	ch45, err := client.Channel.Create().
+		SetType(channel.TypeOpenrouter).
+		SetName("openrouter-ch45-frozen").
+		SetStatus(channel.StatusEnabled).
+		SetBaseURL("https://openrouter.ai/api/v1").
+		SetCredentials(objects.ChannelCredentials{APIKeys: []string{key1}}).
+		SetSupportedModels([]string{"openai/gpt-4o-mini"}).
+		SetDefaultTestModel("openai/gpt-4o-mini").
+		SetSettings(&objects.ChannelSettings{
+			BalanceProbe: &objects.ChannelBalanceProbe{
+				Enabled: false,
+				Preset:  objects.ChannelBalanceProbePresetOpenRouter,
+			},
+			KeyHealthCheck: &objects.ChannelKeyHealthCheck{
+				KeyMetadata: []objects.ChannelKeyMetadata{{
+					ID:              key1ID,
+					MaskedKey:       objects.MaskChannelAPIKey(key1),
+					Status:          objects.ChannelKeyStatusActive,
+					Balance:         -0.35,
+					Currency:        "USD",
+					Available:       lo.ToPtr(false),
+					BalanceSnapshot: legacySnap,
+				}},
+			},
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	// 1. GraphQL quotaOverview immediately shows FreeTier with 0 exhausted and original checkedAt.
+	ov := chSvc.ResolveChannelQuotaOverview(ctx, ch45, nil)
+	require.NotNil(t, ov)
+	require.Equal(t, ChannelQuotaStateFreeTier, ov.State)
+	require.True(t, ov.FreeTier)
+	require.Zero(t, ov.Counts.Exhausted)
+	require.NotNil(t, ov.CheckedAt)
+	require.Equal(t, checkedAt, *ov.CheckedAt)
+
+	// 2. channelAPIKeyInventory normalizes BalanceSnapshot, Balance=0, Available=true, Used=0.35, CheckedAt preserved.
+	items, err := chSvc.ChannelAPIKeyInventory(ctx, ch45.ID)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.NotNil(t, items[0].BalanceSnapshot)
+	require.True(t, lo.FromPtr(items[0].BalanceSnapshot.FreeTier))
+	require.InDelta(t, 0.0, lo.FromPtr(items[0].BalanceSnapshot.Remaining), 1e-9)
+	require.InDelta(t, 0.35, lo.FromPtr(items[0].BalanceSnapshot.Used), 1e-9)
+	require.Equal(t, checkedAt, items[0].BalanceSnapshot.CheckedAt)
+	require.Equal(t, 0.0, items[0].Balance)
+	require.True(t, lo.FromPtr(items[0].Available))
+
+	// 3. Routing candidate check does NOT falsely treat frozen Ch 45 free-tier key as exhausted.
+	bizCh := &Channel{Channel: ch45}
+	require.True(t, bizCh.HasEligibleCredential(ctx))
+
+	// 4. Codex reset_after_seconds without reset_at MUST anchor to pqs.UpdatedAt (checkedAt), NOT now!
+	observedAt := time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
+	pqs := &ent.ProviderQuotaStatus{
+		Status:    providerquotastatus.StatusAvailable,
+		UpdatedAt: observedAt,
+		QuotaData: map[string]any{
+			"plan_type": "plus",
+			"rate_limit": map[string]any{
+				"primary_window": map[string]any{
+					"used_percent":         35.0,
+					"reset_after_seconds":  3600.0,
+					"limit_window_seconds": 18000.0,
+				},
+			},
+		},
+	}
+	expectedReset := observedAt.Add(3600 * time.Second)
+	ovRead1 := buildProviderQuotaOverview(&ent.Channel{Type: channel.TypeCodex}, pqs, observedAt.Add(10*time.Minute))
+	ovRead2 := buildProviderQuotaOverview(&ent.Channel{Type: channel.TypeCodex}, pqs, observedAt.Add(25*time.Minute))
+	require.Len(t, ovRead1.Windows, 1)
+	require.Len(t, ovRead2.Windows, 1)
+	require.NotNil(t, ovRead1.Windows[0].ResetAt)
+	require.NotNil(t, ovRead2.Windows[0].ResetAt)
+	require.Equal(t, expectedReset, *ovRead1.Windows[0].ResetAt, "reset_after_seconds must anchor to checkedAt, not read time")
+	require.Equal(t, expectedReset, *ovRead2.Windows[0].ResetAt, "subsequent reads must not drift resetAt forward")
 }

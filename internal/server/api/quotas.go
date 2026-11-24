@@ -468,7 +468,11 @@ func buildQuotaExposureKey(ch *biz.Channel, item *biz.ChannelAPIKeyInventoryItem
 	if item.Policy != nil {
 		policy = item.Policy.WithDefaults()
 	}
-	snapshot := item.BalanceSnapshot
+	var entCh *ent.Channel
+	if ch != nil {
+		entCh = ch.Channel
+	}
+	snapshot := biz.NormalizeChannelKeyBalanceSnapshotForRead(entCh, item.BalanceSnapshot)
 	status := quotaStatus(item, snapshot, now)
 	available := item.Available
 	if snapshot != nil && snapshot.Available != nil {
