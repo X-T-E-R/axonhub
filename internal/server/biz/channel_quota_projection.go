@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -289,6 +290,9 @@ func buildProviderQuotaOverview(owner *ent.Channel, pqs *ent.ProviderQuotaStatus
 		t := *pqs.NextResetAt
 		overview.NextResetAt = &t
 	}
+	if planType := stringAt(pqs.QuotaData, "plan_type"); planType != "" {
+		overview.PlanName = planType
+	}
 	if errMsg, ok := pqs.QuotaData["error"].(string); ok && strings.TrimSpace(errMsg) != "" {
 		nextProbe := pqs.NextCheckAt
 		overview.ProbeDiagnostic = &ChannelQuotaProbeDiagnostic{
@@ -331,41 +335,283 @@ func extractProviderQuotaWindows(data map[string]any, now time.Time) []objects.C
 	if len(data) == 0 {
 		return []objects.ChannelQuotaWindow{}
 	}
-	rawRows, ok := data["rows"].([]any)
-	if !ok || len(rawRows) == 0 {
+
+	var out []objects.ChannelQuotaWindow
+
+	// 1. Row-array format (e.g. kimi_code).
+	if rawRows, ok := data["rows"].([]any); ok && len(rawRows) > 0 {
+		out = append(out, extractProviderQuotaRowSlice(rawRows, now)...)
+	}
+
+	// 2. Codex rate_limit.{primary_window, secondary_window}.
+	if rateLimit, ok := data["rate_limit"].(map[string]any); ok && len(rateLimit) > 0 {
+		out = append(out, extractCodexRateLimitWindows(rateLimit, now)...)
+	}
+
+	// 3. Named or slice windows (claudecode, opencode_go, cline, nanogpt).
+	if rawWindows, exists := data["windows"]; exists && rawWindows != nil {
+		switch typed := rawWindows.(type) {
+		case []any:
+			out = append(out, extractProviderQuotaRowSlice(typed, now)...)
+		case map[string]any:
+			out = append(out, extractProviderQuotaWindowMap(typed, now)...)
+		}
+	}
+
+	if out == nil {
 		return []objects.ChannelQuotaWindow{}
 	}
+	return out
+}
+
+func extractProviderQuotaRowSlice(rawRows []any, now time.Time) []objects.ChannelQuotaWindow {
 	out := make([]objects.ChannelQuotaWindow, 0, len(rawRows))
 	for i, item := range rawRows {
 		m, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		label := firstString(stringAt(m, "label"), stringAt(m, "name"), "Window")
-		used, usedOK := amountFromAny(valueAt(m, "used"))
-		limit, limitOK := amountFromAny(valueAt(m, "limit"))
-		resetAt := parseBalanceProbeTime(firstNonNil(valueAt(m, "resetAt"), valueAt(m, "reset_at")))
-		w := objects.ChannelQuotaWindow{
-			Key:     canonicalQuotaWindowKey(label, i),
-			Label:   label,
-			Unit:    "CREDITS",
-			ResetAt: resetAt,
-		}
-		if usedOK {
-			w.Used = lo.ToPtr(used)
-		}
-		if limitOK && limit > 0 {
-			rem := max(0.0, limit-used)
-			ratio := max(0.0, min(1.0, used/limit))
-			w.Limit = lo.ToPtr(limit)
-			w.Remaining = lo.ToPtr(rem)
-			w.UsageRatio = lo.ToPtr(ratio)
-		}
-		if w.ActiveAt(now) || w.Limit != nil {
-			out = append(out, w)
+		label := firstString(stringAt(m, "label"), stringAt(m, "name"), stringAt(m, "key"), "Window")
+		w := buildProviderQuotaWindowFromMap(canonicalQuotaWindowKey(label, i), label, m, now)
+		if w != nil {
+			out = append(out, *w)
 		}
 	}
 	return out
+}
+
+func extractCodexRateLimitWindows(rateLimit map[string]any, now time.Time) []objects.ChannelQuotaWindow {
+	var out []objects.ChannelQuotaWindow
+	for _, spec := range []struct {
+		field       string
+		fallbackKey string
+		fallbackLbl string
+	}{
+		{field: "primary_window", fallbackKey: "5h", fallbackLbl: "5h"},
+		{field: "secondary_window", fallbackKey: "7d", fallbackLbl: "Weekly"},
+	} {
+		winMap, ok := rateLimit[spec.field].(map[string]any)
+		if !ok || len(winMap) == 0 {
+			continue
+		}
+		key, label := codexWindowKeyAndLabel(winMap, spec.fallbackKey, spec.fallbackLbl)
+		w := buildProviderQuotaWindowFromMap(key, label, winMap, now)
+		if w != nil {
+			out = append(out, *w)
+		}
+	}
+	return out
+}
+
+func codexWindowKeyAndLabel(win map[string]any, fallbackKey, fallbackLabel string) (string, string) {
+	secs, ok := amountFromAny(valueAt(win, "limit_window_seconds"))
+	if !ok || secs <= 0 {
+		return fallbackKey, fallbackLabel
+	}
+	switch {
+	case secs <= 6*3600:
+		hrs := max(1, int(secs/3600+0.5))
+		lbl := strconv.Itoa(hrs) + "h"
+		return lbl, lbl
+	case secs >= 5*86400 && secs <= 9*86400:
+		return "7d", "Weekly"
+	case secs >= 25*86400:
+		return "30d", "Monthly"
+	default:
+		hrs := max(1, int(secs/3600+0.5))
+		lbl := strconv.Itoa(hrs) + "h"
+		return lbl, lbl
+	}
+}
+
+func extractProviderQuotaWindowMap(winMap map[string]any, now time.Time) []objects.ChannelQuotaWindow {
+	// Deterministic preferred ordering covering claudecode, opencode_go, cline, nanogpt.
+	preferredOrder := []struct {
+		rawKey string
+		key    string
+		label  string
+	}{
+		{"5h", "5h", "5h"},
+		{"five_hour", "5h", "5h"},
+		{"rolling", "5h", "5h"},
+		{"last5h", "5h", "5h"},
+		{"24h", "24h", "24h"},
+		{"dailyInputTokens", "24h", "Daily Tokens"},
+		{"dailyImages", "24h-img", "Daily Images"},
+		{"7d", "7d", "Weekly"},
+		{"seven_day", "7d", "Weekly"},
+		{"weekly", "7d", "Weekly"},
+		{"last7d", "7d", "Weekly"},
+		{"weeklyInputTokens", "7d", "Weekly"},
+		{"30d", "30d", "Monthly"},
+		{"monthly", "30d", "Monthly"},
+		{"last30d", "30d", "Monthly"},
+	}
+
+	seen := make(map[string]struct{}, len(winMap))
+	out := make([]objects.ChannelQuotaWindow, 0, len(winMap))
+
+	for _, spec := range preferredOrder {
+		raw, ok := winMap[spec.rawKey]
+		if !ok {
+			continue
+		}
+		seen[spec.rawKey] = struct{}{}
+		m, ok := raw.(map[string]any)
+		if !ok || len(m) == 0 {
+			continue
+		}
+		if w := buildProviderQuotaWindowFromMap(spec.key, spec.label, m, now); w != nil {
+			out = append(out, *w)
+		}
+	}
+
+	// Include any remaining non-overage keys deterministically.
+	var extraKeys []string
+	for k := range winMap {
+		if _, ok := seen[k]; ok || strings.EqualFold(k, "overage") {
+			continue
+		}
+		extraKeys = append(extraKeys, k)
+	}
+	sort.Strings(extraKeys)
+	for i, k := range extraKeys {
+		m, ok := winMap[k].(map[string]any)
+		if !ok || len(m) == 0 {
+			continue
+		}
+		if w := buildProviderQuotaWindowFromMap(canonicalQuotaWindowKey(k, i), k, m, now); w != nil {
+			out = append(out, *w)
+		}
+	}
+
+	return out
+}
+
+func buildProviderQuotaWindowFromMap(key, label string, m map[string]any, now time.Time) *objects.ChannelQuotaWindow {
+	resetAt := parseBalanceProbeTime(firstNonNil(
+		valueAt(m, "resetAt"),
+		valueAt(m, "reset_at"),
+		valueAt(m, "reset_time"),
+		valueAt(m, "next_reset_at"),
+		valueAt(m, "reset"),
+	))
+	if resetAt == nil {
+		if resetAfter, ok := amountFromAny(firstNonNil(valueAt(m, "reset_after_seconds"), valueAt(m, "reset_in_seconds"))); ok && resetAfter > 0 {
+			t := now.Add(time.Duration(resetAfter) * time.Second)
+			resetAt = &t
+		}
+	}
+
+	// 1. Explicit used / limit pair (rows, nanogpt used+remaining).
+	// Note: Cline cost-unit estimates (`used_cost_units` / `limit_cost_units`) are secondary when
+	// official `usage_ratio` / `usage_percent` is present, so only treat explicit `used`/`limit`
+	// as primary credits over a percentage ratio.
+	explicitUsed, explicitUsedOK := amountFromAny(valueAt(m, "used"))
+	explicitLimit, explicitLimitOK := amountFromAny(valueAt(m, "limit"))
+	explicitRem, explicitRemOK := amountFromAny(valueAt(m, "remaining"))
+	if !explicitLimitOK && explicitUsedOK && explicitRemOK && explicitUsed+explicitRem > 0 {
+		explicitLimit = explicitUsed + explicitRem
+		explicitLimitOK = true
+	}
+
+	// 2. Percentage / utilization fields (codex used_percent, opencode_go usage_percent, claudecode utilization, cline usage_ratio, nanogpt percentUsed).
+	var ratioPtr *float64
+	if pct, ok := amountFromAny(firstNonNil(valueAt(m, "used_percent"), valueAt(m, "usage_percent"))); ok {
+		r := max(0.0, pct/100.0)
+		ratioPtr = &r
+	} else if rVal, ok := amountFromAny(firstNonNil(valueAt(m, "usage_ratio"), valueAt(m, "utilization"), valueAt(m, "percentUsed"))); ok {
+		r := rVal
+		if r > 1.0 {
+			r = r / 100.0
+		}
+		r = max(0.0, r)
+		ratioPtr = &r
+	} else if pctRem, ok := amountFromAny(valueAt(m, "percent_remaining")); ok {
+		r := max(0.0, (100.0-pctRem)/100.0)
+		ratioPtr = &r
+	}
+
+	if explicitLimitOK && explicitLimit > 0 {
+		used := explicitUsed
+		if !explicitUsedOK && explicitRemOK {
+			used = max(0.0, explicitLimit-explicitRem)
+		}
+		rem := max(0.0, explicitLimit-used)
+		if explicitRemOK {
+			rem = max(0.0, explicitRem)
+		}
+		ratio := max(0.0, used/explicitLimit)
+		if ratioPtr != nil {
+			ratio = *ratioPtr
+		}
+		w := objects.ChannelQuotaWindow{
+			Key:        key,
+			Label:      label,
+			Used:       lo.ToPtr(used),
+			Limit:      lo.ToPtr(explicitLimit),
+			Remaining:  lo.ToPtr(rem),
+			UsageRatio: lo.ToPtr(ratio),
+			Unit:       "CREDITS",
+			ResetAt:    resetAt,
+		}
+		if w.ActiveAt(now) || w.Limit != nil {
+			return &w
+		}
+		return nil
+	}
+
+	if ratioPtr != nil {
+		// Guard against empty claudecode windows where utilization=0 and status="" and reset=0.
+		if *ratioPtr == 0 && resetAt == nil && strings.TrimSpace(stringAt(m, "status")) == "" {
+			return nil
+		}
+		pctUsed := max(0.0, *ratioPtr*100.0)
+		pctRem := max(0.0, 100.0-pctUsed)
+		w := objects.ChannelQuotaWindow{
+			Key:        key,
+			Label:      label,
+			Used:       lo.ToPtr(pctUsed),
+			Limit:      lo.ToPtr(100.0),
+			Remaining:  lo.ToPtr(pctRem),
+			UsageRatio: lo.ToPtr(*ratioPtr),
+			Unit:       "%",
+			ResetAt:    resetAt,
+		}
+		if w.ActiveAt(now) || w.Limit != nil {
+			return &w
+		}
+		return nil
+	}
+
+	// Fallback to Cline cost-unit estimates only when no official utilization ratio was supplied.
+	costUsed, costUsedOK := amountFromAny(valueAt(m, "used_cost_units"))
+	costLimit, costLimitOK := amountFromAny(valueAt(m, "limit_cost_units"))
+	if costLimitOK && costLimit > 0 {
+		rem := max(0.0, costLimit-costUsed)
+		if costRem, ok := amountFromAny(valueAt(m, "remaining_cost_units")); ok {
+			rem = max(0.0, costRem)
+		}
+		if !costUsedOK {
+			costUsed = max(0.0, costLimit-rem)
+		}
+		ratio := max(0.0, costUsed/costLimit)
+		w := objects.ChannelQuotaWindow{
+			Key:        key,
+			Label:      label,
+			Used:       lo.ToPtr(costUsed),
+			Limit:      lo.ToPtr(costLimit),
+			Remaining:  lo.ToPtr(rem),
+			UsageRatio: lo.ToPtr(ratio),
+			Unit:       "CREDITS",
+			ResetAt:    resetAt,
+		}
+		if w.ActiveAt(now) || w.Limit != nil {
+			return &w
+		}
+	}
+
+	return nil
 }
 
 func buildPerKeyQuotaOverview(owner *ent.Channel, now time.Time) *ChannelQuotaOverview {

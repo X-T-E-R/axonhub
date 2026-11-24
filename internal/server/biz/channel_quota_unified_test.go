@@ -1094,3 +1094,114 @@ func TestUnifiedQuota_ZeroExternalCallsOnRead_AndUnsupportedCache(t *testing.T) 
 	require.Equal(t, RefreshChannelQuotaStatusUnsupported, payload.Status)
 	require.Equal(t, int32(0), hits.Load())
 }
+
+func TestUnifiedQuota_ProviderQuotaWindowsNormalization(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	reset5h := now.Add(3 * time.Hour)
+	reset7d := now.Add(5 * 24 * time.Hour)
+	reset30d := now.Add(20 * 24 * time.Hour)
+
+	// 1. Codex rate_limit.{primary_window, secondary_window}
+	codexData := map[string]any{
+		"plan_type": "plus",
+		"rate_limit": map[string]any{
+			"primary_window": map[string]any{
+				"used_percent":         35.0,
+				"reset_at":             reset5h.Unix(),
+				"limit_window_seconds": 18000,
+			},
+			"secondary_window": map[string]any{
+				"used_percent":         82.0,
+				"reset_at":             reset7d.Unix(),
+				"limit_window_seconds": 604800,
+			},
+		},
+	}
+	codexWins := extractProviderQuotaWindows(codexData, now)
+	require.Len(t, codexWins, 2)
+	require.Equal(t, "5h", codexWins[0].Key)
+	require.InDelta(t, 0.35, lo.FromPtr(codexWins[0].UsageRatio), 0.001)
+	require.Equal(t, "%", codexWins[0].Unit)
+	require.Equal(t, "7d", codexWins[1].Key)
+	require.InDelta(t, 0.82, lo.FromPtr(codexWins[1].UsageRatio), 0.001)
+
+	// 2. Claude Code windows map ("5h", "7d", "overage")
+	claudeData := map[string]any{
+		"windows": map[string]any{
+			"5h":      map[string]any{"status": "allowed", "utilization": 0.42, "reset": reset5h.Unix()},
+			"7d":      map[string]any{"status": "allowed_warning", "utilization": 0.88, "reset": reset7d.Unix()},
+			"overage": map[string]any{"status": "", "utilization": 0.0, "reset": int64(0)},
+		},
+	}
+	claudeWins := extractProviderQuotaWindows(claudeData, now)
+	require.Len(t, claudeWins, 2)
+	require.Equal(t, "5h", claudeWins[0].Key)
+	require.InDelta(t, 0.42, lo.FromPtr(claudeWins[0].UsageRatio), 0.001)
+	require.Equal(t, "7d", claudeWins[1].Key)
+	require.InDelta(t, 0.88, lo.FromPtr(claudeWins[1].UsageRatio), 0.001)
+
+	// 3. OpenCode Go windows map ("rolling", "weekly", "monthly")
+	opencodeData := map[string]any{
+		"plan_type": "go",
+		"windows": map[string]any{
+			"rolling": map[string]any{"usage_percent": 60.0, "reset_time": reset5h.Format(time.RFC3339), "status": "available"},
+			"weekly":  map[string]any{"usage_percent": 90.0, "reset_time": reset7d.Format(time.RFC3339), "status": "warning"},
+			"monthly": map[string]any{"usage_percent": 25.0, "reset_time": reset30d.Format(time.RFC3339), "status": "available"},
+		},
+	}
+	opencodeWins := extractProviderQuotaWindows(opencodeData, now)
+	require.Len(t, opencodeWins, 3)
+	require.Equal(t, "5h", opencodeWins[0].Key)
+	require.Equal(t, "7d", opencodeWins[1].Key)
+	require.Equal(t, "30d", opencodeWins[2].Key)
+
+	// 4. Cline windows map ("last5h", "last7d") — official usage_ratio (90%) MUST take precedence over 50/100 cost_units estimate.
+	clineData := map[string]any{
+		"windows": map[string]any{
+			"last5h": map[string]any{
+				"usage_ratio":      0.9,
+				"usage_percent":    90.0,
+				"used_cost_units":  50.0,
+				"limit_cost_units": 100.0,
+				"next_reset_at":    reset5h.Format(time.RFC3339),
+			},
+			"last7d": map[string]any{"usage_ratio": 0.95, "usage_percent": 95.0, "next_reset_at": reset7d.Format(time.RFC3339)},
+		},
+	}
+	clineWins := extractProviderQuotaWindows(clineData, now)
+	require.Len(t, clineWins, 2)
+	require.Equal(t, "5h", clineWins[0].Key)
+	require.Equal(t, "%", clineWins[0].Unit)
+	require.InDelta(t, 90.0, lo.FromPtr(clineWins[0].Used), 0.001)
+	require.InDelta(t, 0.9, lo.FromPtr(clineWins[0].UsageRatio), 0.001)
+	require.Equal(t, "7d", clineWins[1].Key)
+	require.InDelta(t, 0.95, lo.FromPtr(clineWins[1].UsageRatio), 0.001)
+
+	// 5. NanoGPT windows map ("dailyInputTokens", "weeklyInputTokens") with unix ms resetAt
+	nanoData := map[string]any{
+		"windows": map[string]any{
+			"dailyInputTokens":  map[string]any{"used": 400.0, "remaining": 600.0, "percentUsed": 0.4, "resetAt": reset5h.UnixMilli()},
+			"weeklyInputTokens": map[string]any{"used": 8000.0, "remaining": 2000.0, "percentUsed": 0.8, "resetAt": reset7d.UnixMilli()},
+		},
+	}
+	nanoWins := extractProviderQuotaWindows(nanoData, now)
+	require.Len(t, nanoWins, 2)
+	require.Equal(t, "24h", nanoWins[0].Key)
+	require.InDelta(t, 0.4, lo.FromPtr(nanoWins[0].UsageRatio), 0.001)
+	require.Equal(t, "7d", nanoWins[1].Key)
+	require.InDelta(t, 0.8, lo.FromPtr(nanoWins[1].UsageRatio), 0.001)
+
+	// 6. End-to-end buildProviderQuotaOverview projects Codex plan_type + 2 windows cleanly.
+	pqs := &ent.ProviderQuotaStatus{
+		Status:      providerquotastatus.StatusWarning,
+		QuotaData:   codexData,
+		NextResetAt: &reset5h,
+		UpdatedAt:   now,
+	}
+	ov := buildProviderQuotaOverview(&ent.Channel{Type: channel.TypeCodex}, pqs, now)
+	require.Equal(t, ChannelQuotaStateWarning, ov.State)
+	require.Equal(t, "plus", ov.PlanName)
+	require.Len(t, ov.Windows, 2)
+	require.Equal(t, "5h", ov.Windows[0].Key)
+	require.Equal(t, "7d", ov.Windows[1].Key)
+}

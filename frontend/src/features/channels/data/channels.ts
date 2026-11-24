@@ -35,6 +35,10 @@ import {
   channelAPIKeyInventoryItemSchema,
   ChannelAPIKeyHealthCheckMode,
   ChannelCredentialPolicyInput,
+  ChannelKeyHealthCheckHistoryEntry,
+  channelKeyHealthCheckHistoryEntrySchema,
+  RefreshChannelQuotaPayload,
+  refreshChannelQuotaPayloadSchema,
 } from './schema';
 
 const CHANNEL_CREDENTIAL_POLICY_FIELDS = `
@@ -58,6 +62,58 @@ const CHANNEL_CREDENTIAL_POLICY_FIELDS = `
   egressFailPolicy
 `;
 
+const CHANNEL_QUOTA_WINDOW_FIELDS = `
+  key
+  label
+  used
+  limit
+  remaining
+  usageRatio
+  unit
+  resetAt
+`;
+
+export const CHANNEL_QUOTA_OVERVIEW_FIELDS = `
+  counts {
+    total
+    active
+    freshKnown
+    exhausted
+    unknown
+  }
+  state
+  windows {
+    ${CHANNEL_QUOTA_WINDOW_FIELDS}
+  }
+  walletBalance {
+    amount
+    currency
+    kind
+    label
+    expiresAt
+  }
+  walletLimit
+  walletUsed
+  walletRemaining
+  walletUnit
+  planName
+  unlimited
+  freeTier
+  sharedWallet
+  walletScope
+  walletId
+  nextResetAt
+  checkedAt
+  source
+  canRefresh
+  probeDiagnostic {
+    status
+    error
+    lastProbeAt
+    nextProbeAt
+  }
+`;
+
 const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
   used
   limit
@@ -65,12 +121,18 @@ const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
   usageRatio
   resetAt
   provider
+  source
   checkedAt
   success
   available
   statusCode
   accountStatus
   accountId
+  planName
+  unlimited
+  freeTier
+  walletScope
+  walletId
   primaryBalance {
     amount
     currency
@@ -85,7 +147,48 @@ const CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS = `
     label
     expiresAt
   }
+  windows {
+    ${CHANNEL_QUOTA_WINDOW_FIELDS}
+  }
   rawSummary
+`;
+
+const CHANNEL_QUOTA_BALANCE_SNAPSHOT_SAFE_FIELDS = `
+  used
+  limit
+  remaining
+  usageRatio
+  resetAt
+  provider
+  source
+  checkedAt
+  success
+  available
+  statusCode
+  accountStatus
+  accountId
+  planName
+  unlimited
+  freeTier
+  walletScope
+  walletId
+  primaryBalance {
+    amount
+    currency
+    kind
+    label
+    expiresAt
+  }
+  components {
+    amount
+    currency
+    kind
+    label
+    expiresAt
+  }
+  windows {
+    ${CHANNEL_QUOTA_WINDOW_FIELDS}
+  }
 `;
 
 const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
@@ -153,78 +256,6 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
         }
       }
     }
-    keyMetadata {
-      id
-      maskedKey
-      status
-      lastCheckedAt
-      success
-      failureCount
-      reason
-      balance
-      currency
-      available
-      balanceSnapshot {
-        ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
-      }
-      statusCode
-      matchedPolicy
-      action
-      nextCheckAt
-      backoffAttempt
-      history {
-        id
-        checkedAt
-        success
-        reason
-        balance
-        currency
-        available
-        balanceSnapshot {
-          ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
-        }
-        trigger
-        rule
-        statusCode
-        matchedPolicy
-        action
-        nextCheckAt
-        backoffAttempt
-      }
-    }
-    archivedKeys {
-      id
-      maskedKey
-      archivedAt
-      reason
-      lastCheckedAt
-      failureCount
-      balance
-      currency
-      available
-      balanceSnapshot {
-        ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
-      }
-    }
-    history {
-      id
-      checkedAt
-      success
-      reason
-      balance
-      currency
-      available
-      balanceSnapshot {
-        ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
-      }
-      trigger
-      rule
-      statusCode
-      matchedPolicy
-      action
-      nextCheckAt
-      backoffAttempt
-    }
   }
   balanceProbe {
     script {
@@ -239,6 +270,8 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
     primarySelection
     includeStatuses
     timeoutMs
+    sharedWallet
+    hasProbeAPIKey
     http {
       method
       urlMode
@@ -312,6 +345,20 @@ const CHANNEL_KEY_HEALTH_CHECK_FIELDS = `
       }
     }
   }
+  sessionAffinity {
+    enabled
+    ttlSeconds
+    anchors
+    continuationGuard
+  }
+  idRewriteRules {
+    target
+    op
+    when
+    format
+    prefix
+    ifMissing
+  }
 `;
 
 const CHANNEL_API_KEY_INVENTORY_FIELDS = `
@@ -337,6 +384,12 @@ const CHANNEL_API_KEY_INVENTORY_FIELDS = `
   balanceSnapshot {
     ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
   }
+  lastProbeAt
+  lastProbeStatus
+  lastProbeError
+  nextProbeAt
+  probeFailureCount
+  sharedWallet
   statusCode
   matchedPolicy
   action
@@ -361,6 +414,29 @@ const CHANNEL_API_KEY_INVENTORY_FIELDS = `
     nextCheckAt
     backoffAttempt
   }
+`;
+
+const CHANNEL_QUOTA_KEY_INVENTORY_FIELDS = `
+  id
+  policy {
+    id
+    name
+  }
+  quotaRemainingRatio
+  quotaResetAt
+  maskedKey
+  status
+  lastCheckedAt
+  available
+  balanceSnapshot {
+    ${CHANNEL_QUOTA_BALANCE_SNAPSHOT_SAFE_FIELDS}
+  }
+  lastProbeAt
+  lastProbeStatus
+  lastProbeError
+  nextProbeAt
+  probeFailureCount
+  sharedWallet
 `;
 
 const QUERY_CHANNEL_NAMES_QUERY = `
@@ -996,6 +1072,62 @@ const GET_CHANNEL_API_KEY_INVENTORY_QUERY = `
   }
 `;
 
+const GET_CHANNEL_QUOTA_KEY_INVENTORY_QUERY = `
+  query GetChannelQuotaKeyInventory($channelID: ID!) {
+    channelAPIKeyInventory(channelID: $channelID) {
+      ${CHANNEL_QUOTA_KEY_INVENTORY_FIELDS}
+    }
+  }
+`;
+
+const GET_CHANNEL_HEALTH_HISTORY_QUERY = `
+  query GetChannelHealthHistory($id: ID!) {
+    node(id: $id) {
+      ... on Channel {
+        id
+        settings {
+          keyHealthCheck {
+            history {
+              id
+              checkedAt
+              success
+              reason
+              balance
+              currency
+              available
+              balanceSnapshot {
+                ${CHANNEL_KEY_BALANCE_SNAPSHOT_FIELDS}
+              }
+              trigger
+              rule
+              statusCode
+              matchedPolicy
+              action
+              nextCheckAt
+              backoffAttempt
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const REFRESH_CHANNEL_QUOTA_MUTATION = `
+  mutation RefreshChannelQuota($channelID: ID!, $keyIDs: [String!]) {
+    refreshChannelQuota(channelID: $channelID, keyIDs: $keyIDs) {
+      status
+      message
+      updatedKeys
+      deferredKeys
+      retryAt
+      quotaOverview {
+        ${CHANNEL_QUOTA_OVERVIEW_FIELDS}
+      }
+    }
+  }
+`;
+
 const ADD_CHANNEL_API_KEY_MUTATION = `
   mutation AddChannelAPIKey($channelID: ID!, $key: String!) {
     addChannelAPIKey(channelID: $channelID, key: $key)
@@ -1419,6 +1551,9 @@ const QUERY_CHANNELS_QUERY = `
             capacity
             queueSize
           }
+          quotaOverview {
+            ${CHANNEL_QUOTA_OVERVIEW_FIELDS}
+          }
         }
         cursor
       }
@@ -1429,6 +1564,140 @@ const QUERY_CHANNELS_QUERY = `
         endCursor
       }
       totalCount
+    }
+  }
+`;
+
+const GET_CHANNEL_DETAIL_QUERY = `
+  query GetChannelDetail($id: ID!) {
+    node(id: $id) {
+      ... on Channel {
+        id
+        createdAt
+        updatedAt
+        type
+        baseURL
+        name
+        status
+        policies {
+          stream
+          allowRequestFormats
+          denyRequestFormats
+          codexOfficialClient
+          denyCodexOfficialClient
+        }
+        supportedModels
+        autoSyncSupportedModels
+        autoSyncModelPattern
+        manualModels
+        tags
+        defaultTestModel
+        settings {
+          credentialSourceChannelId
+          rawHTTP { enabled resource authType authHeader }
+          extraModelPrefix
+          modelMappings {
+            from
+            to
+          }
+          autoTrimedModelPrefixes
+          hideOriginalModels
+          hideMappedModels
+          lowercaseModelId
+          bodyOverrideOperations {
+            op
+            path
+            from
+            to
+            value
+            condition
+            match {
+              path
+              eq
+            }
+            index
+            splat
+          }
+          headerOverrideOperations {
+            op
+            path
+            from
+            to
+            value
+            condition
+            match {
+              path
+              eq
+            }
+            index
+            splat
+          }
+          proxy {
+            type
+            url
+            username
+            password
+            disableConnectionReuse
+          }
+          transformOptions {
+            forceArrayInstructions
+            forceArrayInputs
+            replaceDeveloperRoleWithSystem
+            codexAgentToolAliases
+            reasoningEffortMapping { from to }
+          }
+          passThroughUserAgent
+          passThroughBody
+          disableRetries
+          fullPassThrough
+          storeExecutionRequestBody
+          storeExecutionResponseBody
+          storeExecutionStreamChunks
+          rateLimit {
+            rpm
+            tpm
+            maxConcurrent
+            queueSize
+            queueTimeoutMs
+          }
+          retryableStatusCodes
+          retryableErrorPatterns {
+            pattern
+            regex
+          }
+          providerQuota {
+            opencodeGo {
+              workspaceId
+              authCookie
+            }
+          }
+          keySelection {
+            strategy
+            likelyAffinityTTLMinutes
+            exactAffinityTTLMinutes
+          }
+          ${CHANNEL_KEY_HEALTH_CHECK_FIELDS}
+        }
+        orderingWeight
+        errorMessage
+        remark
+        defaultEndpoints {
+          apiFormat
+          path
+          baseURL
+          transport
+        }
+        endpoints {
+          apiFormat
+          path
+          baseURL
+          transport
+        }
+        executionMachine
+        quotaOverview {
+          ${CHANNEL_QUOTA_OVERVIEW_FIELDS}
+        }
+      }
     }
   }
 `;
@@ -1692,9 +1961,12 @@ export function useUpdateChannel() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['quotas-channels'] });
+      queryClient.invalidateQueries({ queryKey: ['quota-badges-overview'] });
       queryClient.invalidateQueries({ queryKey: ['allChannelSummarys'] });
       queryClient.invalidateQueries({ queryKey: ['channel', data.id] });
       queryClient.invalidateQueries({ queryKey: ['channelAPIKeyInventory', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['channelQuotaKeyInventory', data.id] });
       toast.success(t('channels.messages.updateSuccess'));
     },
     onError: (error) => {
@@ -2357,8 +2629,97 @@ export function useChannelAPIKeyInventory(channelId: string, options?: { enabled
 
 function invalidateChannelKeyQueries(queryClient: ReturnType<typeof useQueryClient>, channelID: string) {
   queryClient.invalidateQueries({ queryKey: ['channelAPIKeyInventory', channelID] });
+  queryClient.invalidateQueries({ queryKey: ['channelQuotaKeyInventory', channelID] });
+  queryClient.invalidateQueries({ queryKey: ['channelHealthHistory', channelID] });
   queryClient.invalidateQueries({ queryKey: ['channelDisabledAPIKeys', channelID] });
   queryClient.invalidateQueries({ queryKey: ['channels'] });
+  queryClient.invalidateQueries({ queryKey: ['quotas-channels'] });
+  queryClient.invalidateQueries({ queryKey: ['quota-badges-overview'] });
+}
+
+export function useChannelDetail(channelId: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['channel', channelId],
+    queryFn: async () => {
+      const data = await graphqlRequest<{ node: Channel | null }>(GET_CHANNEL_DETAIL_QUERY, { id: channelId });
+      if (!data.node) {
+        return null;
+      }
+      return channelSchema.parse(data.node);
+    },
+    enabled: !!channelId && options?.enabled !== false,
+  });
+}
+
+export function useChannelHealthHistory(channelId: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['channelHealthHistory', channelId],
+    queryFn: async () => {
+      const data = await graphqlRequest<{
+        node: {
+          id: string;
+          settings?: {
+            keyHealthCheck?: {
+              history?: ChannelKeyHealthCheckHistoryEntry[] | null;
+            } | null;
+          } | null;
+        } | null;
+      }>(GET_CHANNEL_HEALTH_HISTORY_QUERY, { id: channelId });
+      const raw = data.node?.settings?.keyHealthCheck?.history ?? [];
+      return z.array(channelKeyHealthCheckHistoryEntrySchema).parse(raw);
+    },
+    enabled: !!channelId && options?.enabled !== false,
+  });
+}
+
+export function useChannelQuotaKeyInventory(channelId: string, options?: { enabled?: boolean }) {
+  const { handleError } = useErrorHandler();
+  const { t } = useTranslation();
+
+  return useQuery({
+    queryKey: ['channelQuotaKeyInventory', channelId],
+    queryFn: async () => {
+      try {
+        const data = await graphqlRequest<{ channelAPIKeyInventory: ChannelAPIKeyInventoryItem[] }>(
+          GET_CHANNEL_QUOTA_KEY_INVENTORY_QUERY,
+          { channelID: channelId }
+        );
+        return z.array(channelAPIKeyInventoryItemSchema).parse(data.channelAPIKeyInventory);
+      } catch (error) {
+        handleError(error, t('common.errors.internalServerError'));
+        throw error;
+      }
+    },
+    enabled: !!channelId && options?.enabled !== false,
+  });
+}
+
+export function useRefreshChannelQuota() {
+  const queryClient = useQueryClient();
+  const { handleError } = useErrorHandler();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({ channelID, keyIDs }: { channelID: string; keyIDs?: string[] }) => {
+      try {
+        const data = await graphqlRequest<{ refreshChannelQuota: RefreshChannelQuotaPayload }>(REFRESH_CHANNEL_QUOTA_MUTATION, {
+          channelID,
+          keyIDs: keyIDs && keyIDs.length > 0 ? keyIDs : undefined,
+        });
+        return refreshChannelQuotaPayloadSchema.parse(data.refreshChannelQuota);
+      } catch (error) {
+        handleError(error, { context: t('quotas.actions.refresh') });
+        throw error;
+      }
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['channels'] });
+      queryClient.invalidateQueries({ queryKey: ['quotas-channels'] });
+      queryClient.invalidateQueries({ queryKey: ['quota-badges-overview'] });
+      queryClient.invalidateQueries({ queryKey: ['channelQuotaKeyInventory', variables.channelID] });
+      queryClient.invalidateQueries({ queryKey: ['channelAPIKeyInventory', variables.channelID] });
+    },
+  });
 }
 
 export function useDisableChannelAPIKey() {

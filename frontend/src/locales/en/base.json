@@ -4,6 +4,7 @@
   "sidebar.groups.settings": "Settings",
   "sidebar.items.dashboard": "Dashboard",
   "sidebar.items.channels": "Channels",
+  "sidebar.items.quotas": "Quotas",
   "sidebar.items.monitoring": "Monitoring",
   "sidebar.items.infrastructure": "Nodes & Traffic",
   "sidebar.items.models": "Models",

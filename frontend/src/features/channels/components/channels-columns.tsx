@@ -52,6 +52,7 @@ import { Channel } from '../data/schema';
 import { ChannelExecutionMachineCell } from './channel-execution-machine-cell';
 import { ChannelHealthCell } from './channel-health-cell';
 import { ChannelLimiterCell } from './channel-limiter-cell';
+import { ChannelQuotaCell } from './channel-quota-cell';
 import { ChannelsStatusDialog } from './channels-status-dialog';
 
 const WEIGHT_PRECISION = 4;
@@ -857,6 +858,17 @@ export const createColumns = (
       },
       meta: {
         className: 'text-center',
+      },
+      enableSorting: false,
+      enableHiding: true,
+    },
+    {
+      id: 'quota',
+      accessorKey: 'quotaOverview',
+      header: ({ column }) => <DataTableColumnHeader column={column} title={t('channels.columns.quota')} className='justify-center' />,
+      cell: ({ row }: { row: Row<Channel> }) => <ChannelQuotaCell channel={row.original} canWrite={canWrite} />,
+      meta: {
+        className: 'min-w-40 text-center',
       },
       enableSorting: false,
       enableHiding: true,

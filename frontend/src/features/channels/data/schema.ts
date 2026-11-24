@@ -248,12 +248,103 @@ export const channelKeySelectionStrategySchema = z.enum([
 ]);
 export type ChannelKeySelectionStrategy = z.infer<typeof channelKeySelectionStrategySchema>;
 
+const emptyStringToNull = (value: unknown) => (value === '' || value == null ? null : value);
+const zeroOrEmptyToNull = (value: unknown) => (value === 0 || value === '' || value == null ? null : value);
+
 export const channelKeySelectionSchema = z.object({
-  strategy: channelKeySelectionStrategySchema.optional().nullable(),
-  likelyAffinityTTLMinutes: z.number().int().min(1).max(1440).optional().nullable(),
-  exactAffinityTTLMinutes: z.number().int().min(1).max(10080).optional().nullable(),
+  strategy: z.preprocess(emptyStringToNull, channelKeySelectionStrategySchema.optional().nullable()),
+  likelyAffinityTTLMinutes: z.preprocess(zeroOrEmptyToNull, z.number().int().min(1).max(1440).optional().nullable()),
+  exactAffinityTTLMinutes: z.preprocess(zeroOrEmptyToNull, z.number().int().min(1).max(10080).optional().nullable()),
 });
 export type ChannelKeySelection = z.infer<typeof channelKeySelectionSchema>;
+
+export const channelSecretWriteOpSchema = z.enum(['preserve', 'set', 'clear']);
+export type ChannelSecretWriteOp = z.infer<typeof channelSecretWriteOpSchema>;
+
+export const channelContinuationGuardSchema = z.enum(['strict_replay', 'off']);
+export type ChannelContinuationGuard = z.infer<typeof channelContinuationGuardSchema>;
+
+export const channelSessionAffinitySchema = z.object({
+  enabled: z.boolean(),
+  ttlSeconds: z.preprocess(zeroOrEmptyToNull, z.number().int().min(60).max(604800).optional().nullable()),
+  anchors: z.array(z.string()).optional().nullable(),
+  continuationGuard: z.preprocess(emptyStringToNull, channelContinuationGuardSchema.optional().nullable()),
+});
+export type ChannelSessionAffinity = z.infer<typeof channelSessionAffinitySchema>;
+
+export const channelIDRewriteOpSchema = z.enum(['derive', 'delete']);
+export type ChannelIDRewriteOp = z.infer<typeof channelIDRewriteOpSchema>;
+
+export const channelIDRewriteWhenSchema = z.enum(['always', 'on_key_switch']);
+export type ChannelIDRewriteWhen = z.infer<typeof channelIDRewriteWhenSchema>;
+
+export const channelIDRewriteFormatSchema = z.enum([
+  'hex32',
+  'hex64',
+  'prefix_hex8',
+  'prefix_hex16',
+  'uuid_v8',
+  'uuid_v5',
+  'anthropic_user_id',
+]);
+export type ChannelIDRewriteFormat = z.infer<typeof channelIDRewriteFormatSchema>;
+
+export const channelIDRewriteIfMissingSchema = z.enum(['skip', 'generate']);
+export type ChannelIDRewriteIfMissing = z.infer<typeof channelIDRewriteIfMissingSchema>;
+
+export const channelIDRewriteRuleSchema = z.object({
+  target: z.string(),
+  op: channelIDRewriteOpSchema,
+  when: z.preprocess(emptyStringToNull, channelIDRewriteWhenSchema.optional().nullable()),
+  format: z.preprocess(emptyStringToNull, channelIDRewriteFormatSchema.optional().nullable()),
+  prefix: z.string().optional().nullable(),
+  ifMissing: z.preprocess(emptyStringToNull, channelIDRewriteIfMissingSchema.optional().nullable()),
+});
+export type ChannelIDRewriteRule = z.infer<typeof channelIDRewriteRuleSchema>;
+
+export const channelQuotaWindowSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  used: z.number().optional().nullable(),
+  limit: z.number().optional().nullable(),
+  remaining: z.number().optional().nullable(),
+  usageRatio: z.number().optional().nullable(),
+  unit: z.string().optional().nullable(),
+  resetAt: z.string().optional().nullable(),
+});
+export type ChannelQuotaWindow = z.infer<typeof channelQuotaWindowSchema>;
+
+export const channelQuotaStateSchema = z.enum([
+  'available',
+  'warning',
+  'exhausted',
+  'free_tier',
+  'unlimited',
+  'unknown',
+  'error',
+  'unsupported',
+]);
+export type ChannelQuotaState = z.infer<typeof channelQuotaStateSchema>;
+
+export const channelQuotaCountsSchema = z.object({
+  total: z.number().int(),
+  active: z.number().int(),
+  freshKnown: z.number().int(),
+  exhausted: z.number().int(),
+  unknown: z.number().int(),
+});
+export type ChannelQuotaCounts = z.infer<typeof channelQuotaCountsSchema>;
+
+export const channelQuotaProbeDiagnosticSchema = z.object({
+  status: z.string(),
+  error: z.string().optional().nullable(),
+  lastProbeAt: z.string().optional().nullable(),
+  nextProbeAt: z.string().optional().nullable(),
+});
+export type ChannelQuotaProbeDiagnostic = z.infer<typeof channelQuotaProbeDiagnosticSchema>;
+
+export const refreshChannelQuotaStatusSchema = z.enum(['updated', 'deferred', 'unsupported', 'error']);
+export type RefreshChannelQuotaStatus = z.infer<typeof refreshChannelQuotaStatusSchema>;
 
 export const channelKeyStatusSchema = z.enum(['active', 'disabled', 'archived']);
 export type ChannelKeyStatus = z.infer<typeof channelKeyStatusSchema>;
@@ -287,17 +378,57 @@ export const channelKeyBalanceSnapshotSchema = z.object({
   usageRatio: z.number().optional().nullable(),
   resetAt: z.string().optional().nullable(),
   provider: z.string().optional().nullable(),
+  source: z.string().optional().nullable(),
   checkedAt: z.string(),
   success: z.boolean(),
   available: z.boolean().optional().nullable(),
   statusCode: z.preprocess((value) => (value === 0 || value == null ? null : value), z.number().int().nullable()).optional(),
   accountStatus: z.string().optional().nullable(),
   accountId: z.string().optional().nullable(),
+  planName: z.string().optional().nullable(),
+  unlimited: z.boolean().optional().nullable(),
+  freeTier: z.boolean().optional().nullable(),
+  walletScope: z.string().optional().nullable(),
+  walletId: z.string().optional().nullable(),
   primaryBalance: balanceAmountSchema.optional().nullable(),
   components: z.preprocess((value) => value ?? [], z.array(balanceAmountSchema)),
+  windows: z.preprocess((value) => value ?? [], z.array(channelQuotaWindowSchema)).optional(),
   rawSummary: z.record(z.string(), z.unknown()).optional().nullable(),
 });
 export type ChannelKeyBalanceSnapshot = z.infer<typeof channelKeyBalanceSnapshotSchema>;
+
+export const channelQuotaOverviewSchema = z.object({
+  counts: channelQuotaCountsSchema,
+  state: channelQuotaStateSchema,
+  windows: z.preprocess((value) => value ?? [], z.array(channelQuotaWindowSchema)),
+  walletBalance: balanceAmountSchema.optional().nullable(),
+  walletLimit: z.number().optional().nullable(),
+  walletUsed: z.number().optional().nullable(),
+  walletRemaining: z.number().optional().nullable(),
+  walletUnit: z.string().optional().nullable(),
+  planName: z.string().optional().nullable(),
+  unlimited: z.boolean(),
+  freeTier: z.boolean(),
+  sharedWallet: z.boolean(),
+  walletScope: z.string().optional().nullable(),
+  walletId: z.string().optional().nullable(),
+  nextResetAt: z.string().optional().nullable(),
+  checkedAt: z.string().optional().nullable(),
+  source: z.string(),
+  canRefresh: z.boolean(),
+  probeDiagnostic: channelQuotaProbeDiagnosticSchema.optional().nullable(),
+});
+export type ChannelQuotaOverview = z.infer<typeof channelQuotaOverviewSchema>;
+
+export const refreshChannelQuotaPayloadSchema = z.object({
+  status: refreshChannelQuotaStatusSchema,
+  message: z.string().optional().nullable(),
+  updatedKeys: z.number().int(),
+  deferredKeys: z.number().int(),
+  retryAt: z.string().optional().nullable(),
+  quotaOverview: channelQuotaOverviewSchema.optional().nullable(),
+});
+export type RefreshChannelQuotaPayload = z.infer<typeof refreshChannelQuotaPayloadSchema>;
 
 export const channelKeyHealthCheckFailureActionSchema = z.enum(['report_only', 'disable', 'archive', 'delete']);
 export type ChannelKeyHealthCheckFailureAction = z.infer<typeof channelKeyHealthCheckFailureActionSchema>;
@@ -392,7 +523,7 @@ export const channelKeyHealthCheckHTTPRuleSchema = z.object({
   urlMode: z.enum(['provider_base_url', 'absolute_url']).default('provider_base_url'),
   path: z.string().optional().nullable(),
   url: z.string().optional().nullable(),
-  timeoutMs: z.number().int().positive().max(30000).optional().nullable(),
+  timeoutMs: z.preprocess(zeroOrEmptyToNull, z.number().int().positive().max(30000).optional().nullable()),
   headers: z.array(channelKeyHealthCheckHeaderSchema).optional().nullable(),
   keyInjection: channelKeyHealthCheckKeyInjectionSchema.optional().nullable(),
   expectedStatuses: z.array(z.number().int()).optional().nullable(),
@@ -407,7 +538,7 @@ export const channelBalanceProbeScriptModeSchema = z.enum(['none', 'expr', 'comm
 export type ChannelBalanceProbeScriptMode = z.infer<typeof channelBalanceProbeScriptModeSchema>;
 
 export const channelBalanceProbeScriptSchema = z.object({
-  mode: channelBalanceProbeScriptModeSchema.optional().nullable(),
+  mode: z.preprocess(emptyStringToNull, channelBalanceProbeScriptModeSchema.optional().nullable()),
   expression: z.string().optional().nullable(),
   command: z.array(z.string()).optional().nullable(),
 });
@@ -419,9 +550,13 @@ export const channelBalanceProbeSchema = z.object({
   preset: z.string().optional().nullable(),
   experimental: z.boolean().optional().nullable(),
   preferredCurrency: z.string().optional().nullable(),
-  primarySelection: channelBalanceProbePrimarySelectionSchema.optional().nullable(),
+  primarySelection: z.preprocess(emptyStringToNull, channelBalanceProbePrimarySelectionSchema.optional().nullable()),
   includeStatuses: z.array(channelKeyStatusSchema).optional().nullable(),
-  timeoutMs: z.number().int().positive().max(30000).optional().nullable(),
+  timeoutMs: z.preprocess(zeroOrEmptyToNull, z.number().int().positive().max(30000).optional().nullable()),
+  sharedWallet: z.boolean().optional().nullable(),
+  hasProbeAPIKey: z.boolean().optional().nullable(),
+  probeAPIKeyOp: z.preprocess(emptyStringToNull, channelSecretWriteOpSchema.optional().nullable()),
+  probeAPIKey: z.string().optional().nullable(),
   http: channelKeyHealthCheckHTTPRuleSchema.optional().nullable(),
 });
 export type ChannelBalanceProbe = z.infer<typeof channelBalanceProbeSchema>;
@@ -535,6 +670,11 @@ export const channelKeyMetadataSchema = z.object({
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
   balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
+  lastProbeAt: z.string().optional().nullable(),
+  lastProbeStatus: z.string().optional().nullable(),
+  lastProbeError: z.string().optional().nullable(),
+  nextProbeAt: z.string().optional().nullable(),
+  probeFailureCount: z.number().int().nonnegative().optional().nullable(),
   statusCode: healthStatusCodeSchema,
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
@@ -620,6 +760,12 @@ export const channelAPIKeyInventoryItemSchema = z.object({
   currency: z.string().optional().nullable(),
   available: z.boolean().optional().nullable(),
   balanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
+  lastProbeAt: z.string().optional().nullable(),
+  lastProbeStatus: z.string().optional().nullable(),
+  lastProbeError: z.string().optional().nullable(),
+  nextProbeAt: z.string().optional().nullable(),
+  probeFailureCount: z.number().int().nonnegative().optional().nullable(),
+  sharedWallet: z.boolean().optional().default(false),
   statusCode: healthStatusCodeSchema,
   matchedPolicy: z.string().optional().nullable(),
   action: z.string().optional().nullable(),
@@ -641,6 +787,12 @@ export const channelKeyHealthCheckSchema = z.object({
   keyMetadata: legacySafeArraySchema(channelKeyMetadataSchema).optional().nullable(),
   archivedKeys: legacySafeArraySchema(channelArchivedAPIKeySchema).optional().nullable(),
   history: legacySafeArraySchema(channelKeyHealthCheckHistoryEntrySchema).optional().nullable(),
+  sharedBalanceSnapshot: channelKeyBalanceSnapshotSchema.optional().nullable(),
+  sharedProbeAt: z.string().optional().nullable(),
+  sharedProbeStatus: z.string().optional().nullable(),
+  sharedProbeError: z.string().optional().nullable(),
+  sharedNextProbeAt: z.string().optional().nullable(),
+  sharedProbeFailureCount: z.number().int().nonnegative().optional().nullable(),
 });
 export type ChannelKeyHealthCheck = z.infer<typeof channelKeyHealthCheckSchema>;
 
@@ -715,6 +867,8 @@ export const channelSettingsSchema = z.object({
   keyHealthCheck: channelKeyHealthCheckSchema.optional().nullable(),
   balanceProbe: channelBalanceProbeSchema.optional().nullable(),
   failurePolicy: channelFailurePolicySchema.optional().nullable(),
+  sessionAffinity: channelSessionAffinitySchema.optional().nullable(),
+  idRewriteRules: z.array(channelIDRewriteRuleSchema).optional().nullable(),
 });
 
 export type ChannelSettings = z.infer<typeof channelSettingsSchema>;
@@ -787,6 +941,7 @@ export const channelSchema = z.object({
   remark: z.string().optional().nullable(),
   allModelEntries: z.array(channelModelEntrySchema).optional(),
   liveLimiterStats: channelLimiterStatsSchema.optional().nullable(),
+  quotaOverview: channelQuotaOverviewSchema.optional().nullable(),
   executionMachine: z.string().nullable().optional(),
   endpoints: z.array(channelEndpointSchema).optional().default([]).nullable(),
   defaultEndpoints: z.array(channelEndpointSchema).optional().default([]).nullable(),

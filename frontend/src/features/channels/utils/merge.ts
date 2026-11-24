@@ -138,13 +138,21 @@ export function mergeChannelSettingsForUpdate(
     providerQuota: pick('providerQuota', existing?.providerQuota ?? null),
     keySelection: pick('keySelection', existing?.keySelection ?? null),
     keyHealthCheck: stripKeyHealthCheckRuntimeFields(pick('keyHealthCheck', existing?.keyHealthCheck ?? null)),
-    balanceProbe: pick('balanceProbe', existing?.balanceProbe ?? null),
+    balanceProbe: sanitizeBalanceProbeForUpdate(pick('balanceProbe', existing?.balanceProbe ?? null)),
     failurePolicy: pick('failurePolicy', existing?.failurePolicy ?? null),
+    sessionAffinity: pick('sessionAffinity', existing?.sessionAffinity ?? null),
+    idRewriteRules: pick('idRewriteRules', existing?.idRewriteRules ?? null),
   };
 }
 
 type ChannelKeyHealthCheckWithRuntime = NonNullable<ChannelSettings['keyHealthCheck']> & {
   history?: unknown;
+  sharedBalanceSnapshot?: unknown;
+  sharedProbeAt?: unknown;
+  sharedProbeStatus?: unknown;
+  sharedProbeError?: unknown;
+  sharedNextProbeAt?: unknown;
+  sharedProbeFailureCount?: unknown;
 };
 
 /**
@@ -163,10 +171,49 @@ export function stripKeyHealthCheckRuntimeFields(
     keyMetadata: _keyMetadata,
     archivedKeys: _archivedKeys,
     history: _history,
+    sharedBalanceSnapshot: _sharedBalanceSnapshot,
+    sharedProbeAt: _sharedProbeAt,
+    sharedProbeStatus: _sharedProbeStatus,
+    sharedProbeError: _sharedProbeError,
+    sharedNextProbeAt: _sharedNextProbeAt,
+    sharedProbeFailureCount: _sharedProbeFailureCount,
     ...editableHealthCheck
   } = healthCheck as ChannelKeyHealthCheckWithRuntime;
 
   return editableHealthCheck;
+}
+
+/**
+ * Strip read-only balanceProbe fields (such as hasProbeAPIKey) and ensure
+ * generic channel updates never accidentally clear or overwrite the stored
+ * write-only ProbeAPIKey secret.
+ */
+export function sanitizeBalanceProbeForUpdate(
+  probe: ChannelSettings['balanceProbe'] | null | undefined
+): ChannelSettings['balanceProbe'] | null {
+  if (!probe) {
+    return null;
+  }
+
+  const { hasProbeAPIKey: _hasProbeAPIKey, probeAPIKeyOp, probeAPIKey, ...rest } = probe;
+
+  if (probeAPIKeyOp === 'set') {
+    const trimmed = probeAPIKey?.trim() ?? '';
+    return {
+      ...rest,
+      probeAPIKeyOp: 'set',
+      probeAPIKey: trimmed,
+    };
+  }
+
+  if (probeAPIKeyOp === 'clear') {
+    return {
+      ...rest,
+      probeAPIKeyOp: 'clear',
+    };
+  }
+
+  return rest;
 }
 
 /**

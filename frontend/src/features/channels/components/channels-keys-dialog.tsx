@@ -74,12 +74,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChannelSetting } from '@/features/system/data/system';
+import { useSharedMinuteNow } from '@/lib/quota-clock';
 import { extractNumberID } from '@/lib/utils';
+import { QuotaWindowBars } from '@/components/quota-window-bars';
 import {
   useAddChannelAPIKey,
   useAllChannelSummarys,
   useArchiveChannelAPIKey,
   useChannelAPIKeyInventory,
+  useChannelHealthHistory,
   useDeleteChannelAPIKey,
   useDisableChannelAPIKey,
   useEnableChannelAPIKey,
@@ -103,7 +106,6 @@ import { mergeChannelSettingsForUpdate } from '../utils/merge';
 import {
   ChannelCredentialPolicySheet,
   CredentialPolicySummary,
-  CredentialQuotaIndicator,
 } from './channel-credential-policy-sheet';
 import {
   FailurePolicyEditor,
@@ -112,12 +114,26 @@ import {
   failurePolicyValuesFromLegacyHealth,
   failurePolicyValuesFromStored,
 } from './channels-key-failure-policy-panel';
-import { DEFAULT_EXACT_AFFINITY_TTL_MINUTES, DEFAULT_LIKELY_AFFINITY_TTL_MINUTES, KeyRoutingPanel } from './channels-key-routing-panel';
+import {
+  DEFAULT_EXACT_AFFINITY_TTL_MINUTES,
+  DEFAULT_LIKELY_AFFINITY_TTL_MINUTES,
+  KeyRoutingPanel,
+  applyRoutingServerValidationError,
+  idRewriteRuleFormSchema,
+  idRewriteRulesToInput,
+  idRewriteRulesValuesFromStored,
+  sessionAffinityFormSchema,
+  sessionAffinityToInput,
+  sessionAffinityValuesFromStored,
+} from './channels-key-routing-panel';
+
+export type ChannelsKeysDialogTab = 'inventory' | 'keyHistory' | 'failureHistory' | 'routing' | 'balanceProbe' | 'failurePolicy';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentRow: Channel;
+  initialTab?: ChannelsKeysDialogTab;
   onCredentialPolicySaved?: (updated: ChannelAPIKeyInventoryItem) => void;
 }
 
@@ -141,6 +157,12 @@ interface KeyInventoryRow {
   currency?: string | null;
   available?: boolean | null;
   balanceSnapshot?: ChannelKeyBalanceSnapshot | null;
+  lastProbeAt?: string | null;
+  lastProbeStatus?: string | null;
+  lastProbeError?: string | null;
+  nextProbeAt?: string | null;
+  probeFailureCount?: number | null;
+  sharedWallet?: boolean;
   reason?: string | null;
   statusCode?: number | null;
   matchedPolicy?: string | null;
@@ -192,15 +214,26 @@ function parseScriptCommandArgs(raw: string): string[] {
     .filter(Boolean);
 }
 
+function looksLikeMaskedPlaceholder(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  return /^[*\u2022]+$/.test(trimmed) || trimmed.includes('****') || trimmed.includes('••••');
+}
+
 const keysFormSchema = z
   .object({
     strategy: z.union([z.literal('inherit'), channelKeySelectionStrategySchema]),
     likelyAffinityTTLMinutes: z.coerce.number().int().min(1).max(1440),
     exactAffinityTTLMinutes: z.coerce.number().int().min(1).max(10080),
+    sessionAffinity: sessionAffinityFormSchema,
+    idRewriteRules: z.array(idRewriteRuleFormSchema).max(32),
     balanceProbe: z.object({
       enabled: z.boolean(),
       preset: z.string().min(1),
       experimental: z.boolean(),
+      sharedWallet: z.boolean(),
+      probeAPIKeyOp: z.enum(['preserve', 'set', 'clear']),
+      probeAPIKey: z.string().optional(),
       preferredCurrency: z.string().optional(),
       primarySelection: z.enum(['auto_highest', 'preferred_currency']),
       timeoutMs: z.coerce.number().int().min(100).max(30000),
@@ -218,6 +251,22 @@ const keysFormSchema = z
     failurePolicy: failurePolicyFormSchema,
   })
   .superRefine((values, ctx) => {
+    if (values.balanceProbe.probeAPIKeyOp === 'set') {
+      const candidate = values.balanceProbe.probeAPIKey?.trim() ?? '';
+      if (!candidate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Probe API key is required when replacing',
+          path: ['balanceProbe', 'probeAPIKey'],
+        });
+      } else if (looksLikeMaskedPlaceholder(candidate)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Masked placeholder cannot be saved as a probe API key',
+          path: ['balanceProbe', 'probeAPIKey'],
+        });
+      }
+    }
     if (values.balanceProbe.scriptMode === 'expr' && !values.balanceProbe.scriptExpression?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -248,6 +297,11 @@ const BALANCE_PROBE_PRESETS = [
   'tavily_usage',
   'exa_team_credits',
   'firecrawl_credits',
+  'command_code_billing',
+  'step_plan_usage',
+  'newapi_token_usage',
+  'openai_billing_usage',
+  'sub2_usage',
 ] as const;
 const CUSTOM_BALANCE_PROBE_PRESET = 'custom';
 const BALANCE_PROBE_PRESET_OPTIONS = [...BALANCE_PROBE_PRESETS, CUSTOM_BALANCE_PROBE_PRESET] as const;
@@ -340,6 +394,46 @@ const BALANCE_PROBE_PRESET_HTTP_DEFAULTS: Record<
     expectedStatuses: [200],
     keyInjection: { location: 'authorization_bearer' },
   },
+  command_code_billing: {
+    method: 'GET',
+    urlMode: 'absolute_url',
+    path: '/alpha/billing/credits',
+    url: 'https://api.commandcode.ai/alpha/billing/credits',
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  step_plan_usage: {
+    method: 'GET',
+    urlMode: 'absolute_url',
+    path: '/step_plan/v1/usage',
+    url: 'https://api.stepfun.com/step_plan/v1/usage',
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  newapi_token_usage: {
+    method: 'GET',
+    urlMode: 'provider_base_url',
+    path: '/api/usage/token/',
+    url: null,
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  openai_billing_usage: {
+    method: 'GET',
+    urlMode: 'provider_base_url',
+    path: '/v1/dashboard/billing/subscription',
+    url: null,
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
+  sub2_usage: {
+    method: 'GET',
+    urlMode: 'provider_base_url',
+    path: '/v1/usage',
+    url: null,
+    expectedStatuses: [200],
+    keyInjection: { location: 'authorization_bearer' },
+  },
   custom: {
     method: 'GET',
     urlMode: 'provider_base_url',
@@ -364,6 +458,9 @@ const DEFAULT_BALANCE_PROBE: KeysFormValues['balanceProbe'] = {
   enabled: false,
   preset: 'deepseek_balance',
   experimental: false,
+  sharedWallet: false,
+  probeAPIKeyOp: 'preserve',
+  probeAPIKey: '',
   preferredCurrency: '',
   primarySelection: 'auto_highest',
   timeoutMs: 10000,
@@ -557,10 +654,15 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
     strategy: currentRow.settings?.keySelection?.strategy ?? 'inherit',
     likelyAffinityTTLMinutes: currentRow.settings?.keySelection?.likelyAffinityTTLMinutes ?? DEFAULT_LIKELY_AFFINITY_TTL_MINUTES,
     exactAffinityTTLMinutes: currentRow.settings?.keySelection?.exactAffinityTTLMinutes ?? DEFAULT_EXACT_AFFINITY_TTL_MINUTES,
+    sessionAffinity: sessionAffinityValuesFromStored(currentRow.settings?.sessionAffinity),
+    idRewriteRules: idRewriteRulesValuesFromStored(currentRow.settings?.idRewriteRules),
     balanceProbe: {
       enabled: balanceProbe?.enabled ?? defaultBalanceProbe.enabled,
       preset: balanceProbePreset,
       experimental: balanceProbe?.experimental ?? defaultBalanceProbe.experimental,
+      sharedWallet: balanceProbe?.sharedWallet ?? (balanceProbePreset === 'exa_team_credits'),
+      probeAPIKeyOp: 'preserve',
+      probeAPIKey: '',
       preferredCurrency: balanceProbe?.preferredCurrency ?? defaultBalanceProbe.preferredCurrency,
       primarySelection:
         balanceProbe?.primarySelection === 'preferred_currency' ? 'preferred_currency' : defaultBalanceProbe.primarySelection,
@@ -577,6 +679,7 @@ function valuesFromChannel(currentRow: Channel): KeysFormValues {
 }
 
 function balanceProbeFromValues(values: KeysFormValues, existing?: ChannelBalanceProbe | null): ChannelBalanceProbe {
+  const isExaFixedPreset = values.balanceProbe.preset === 'exa_team_credits';
   const keyInjection =
     values.balanceProbe.keyInjectionLocation === 'header'
       ? {
@@ -588,29 +691,31 @@ function balanceProbeFromValues(values: KeysFormValues, existing?: ChannelBalanc
           headerName: null,
         };
   const path = values.balanceProbe.path?.trim() || balanceProbePresetHTTPDefaults(values.balanceProbe.preset).path || '';
-  const http: ChannelKeyHealthCheckHTTPRule | null = values.balanceProbe.sameAsChannelBaseURL
-    ? {
-        method: values.balanceProbe.method,
-        urlMode: 'provider_base_url',
-        path,
-        url: null,
-        timeoutMs: values.balanceProbe.timeoutMs,
-        headers: [],
-        keyInjection,
-        expectedStatuses: parseStatusList(values.balanceProbe.expectedStatuses || '200'),
-        passWhen: null,
-      }
-    : {
-        method: values.balanceProbe.method,
-        urlMode: 'absolute_url',
-        path: null,
-        url: composeAbsoluteProbeURL(values.balanceProbe.baseURL, path),
-        timeoutMs: values.balanceProbe.timeoutMs,
-        headers: [],
-        keyInjection,
-        expectedStatuses: parseStatusList(values.balanceProbe.expectedStatuses || '200'),
-        passWhen: null,
-      };
+  const http: ChannelKeyHealthCheckHTTPRule | null = isExaFixedPreset
+    ? null
+    : values.balanceProbe.sameAsChannelBaseURL
+      ? {
+          method: values.balanceProbe.method,
+          urlMode: 'provider_base_url',
+          path,
+          url: null,
+          timeoutMs: values.balanceProbe.timeoutMs,
+          headers: [],
+          keyInjection,
+          expectedStatuses: parseStatusList(values.balanceProbe.expectedStatuses || '200'),
+          passWhen: null,
+        }
+      : {
+          method: values.balanceProbe.method,
+          urlMode: 'absolute_url',
+          path: null,
+          url: composeAbsoluteProbeURL(values.balanceProbe.baseURL, path),
+          timeoutMs: values.balanceProbe.timeoutMs,
+          headers: [],
+          keyInjection,
+          expectedStatuses: parseStatusList(values.balanceProbe.expectedStatuses || '200'),
+          passWhen: null,
+        };
 
   const script =
     values.balanceProbe.scriptMode === 'expr'
@@ -633,16 +738,26 @@ function balanceProbeFromValues(values: KeysFormValues, existing?: ChannelBalanc
             }
           : null;
 
+  const trimmedProbeKey = values.balanceProbe.probeAPIKey?.trim() ?? '';
+  const probeSecretPatch: Pick<ChannelBalanceProbe, 'probeAPIKeyOp' | 'probeAPIKey'> =
+    values.balanceProbe.probeAPIKeyOp === 'set' && trimmedProbeKey
+      ? { probeAPIKeyOp: 'set', probeAPIKey: trimmedProbeKey }
+      : values.balanceProbe.probeAPIKeyOp === 'clear'
+        ? { probeAPIKeyOp: 'clear' }
+        : {};
+
   return {
     script,
     enabled: values.balanceProbe.enabled,
     preset: values.balanceProbe.preset,
     experimental: values.balanceProbe.experimental,
+    sharedWallet: values.balanceProbe.sharedWallet,
+    ...probeSecretPatch,
     preferredCurrency: values.balanceProbe.preferredCurrency?.trim() || null,
     primarySelection: values.balanceProbe.primarySelection,
     ...(existing?.includeStatuses ? { includeStatuses: existing.includeStatuses } : {}),
     timeoutMs: values.balanceProbe.timeoutMs,
-    http: http.urlMode === 'absolute_url' && !http.url ? (existing?.http ?? null) : http,
+    http: http && http.urlMode === 'absolute_url' && !http.url ? (existing?.http ?? null) : http,
   };
 }
 
@@ -723,6 +838,12 @@ function inventoryFromBackend(items: ChannelAPIKeyInventoryItem[] = []): KeyInve
     currency: item.currency,
     available: item.available,
     balanceSnapshot: item.balanceSnapshot,
+    lastProbeAt: item.lastProbeAt,
+    lastProbeStatus: item.lastProbeStatus,
+    lastProbeError: item.lastProbeError,
+    nextProbeAt: item.nextProbeAt,
+    probeFailureCount: item.probeFailureCount,
+    sharedWallet: item.sharedWallet ?? false,
     reason: item.reason,
     statusCode: item.statusCode,
     matchedPolicy: item.matchedPolicy,
@@ -919,8 +1040,31 @@ function formatRowBalance(
     : formatBalance(row.balance, row.currency, t, language);
 }
 
-function summarizeActiveBalances(rows: KeyInventoryRow[], t: TFunction, language: string): BalanceSummary | null {
-  const balances = rows.map((row) => preferredRowBalance(row)).filter((balance): balance is BalanceCandidate => balance != null);
+function summarizeActiveBalances(
+  rows: KeyInventoryRow[],
+  t: TFunction,
+  language: string,
+  channelSharedWallet = false
+): BalanceSummary | null {
+  const seenWallets = new Set<string>();
+  const balances: BalanceCandidate[] = [];
+
+  for (const row of rows) {
+    const snap = row.balanceSnapshot;
+    if (snap?.unlimited || snap?.freeTier) {
+      continue;
+    }
+    const isShared = channelSharedWallet || row.sharedWallet || snap?.walletScope === 'shared_wallet';
+    const walletKey = isShared ? '__shared_wallet__' : (snap?.walletId || `key:${row.id}`);
+    if (seenWallets.has(walletKey)) {
+      continue;
+    }
+    const candidate = preferredRowBalance(row);
+    if (candidate) {
+      seenWallets.add(walletKey);
+      balances.push(candidate);
+    }
+  }
 
   if (balances.length === 0) {
     return null;
@@ -1064,20 +1208,28 @@ function BalanceProbeEditor({
   form,
   disabled,
   channelBaseURL,
+  hasProbeAPIKey,
 }: {
   form: UseFormReturn<KeysFormValues, unknown, KeysFormValues>;
   disabled: boolean;
   channelBaseURL: string;
+  hasProbeAPIKey: boolean;
 }) {
   const { t } = useTranslation();
+  const [showProbeKey, setShowProbeKey] = useState(false);
   const selectedPreset = form.watch('balanceProbe.preset');
   const selectedScriptMode = form.watch('balanceProbe.scriptMode');
   const selectedPrimarySelection = form.watch('balanceProbe.primarySelection');
   const sameAsChannelBaseURL = form.watch('balanceProbe.sameAsChannelBaseURL');
   const keyInjectionLocation = form.watch('balanceProbe.keyInjectionLocation');
+  const probeAPIKeyOp = form.watch('balanceProbe.probeAPIKeyOp');
+  const isExaFixedPreset = selectedPreset === 'exa_team_credits';
 
   const applyPresetDefaults = (preset: string) => {
     form.setValue('balanceProbe.preset', preset, { shouldDirty: true, shouldValidate: true });
+    if (preset === 'exa_team_credits') {
+      form.setValue('balanceProbe.sharedWallet', true, { shouldDirty: true, shouldValidate: true });
+    }
     if (preset !== CUSTOM_BALANCE_PROBE_PRESET) {
       form.setValue('balanceProbe.scriptMode', 'none', { shouldDirty: true, shouldValidate: true });
     }
@@ -1136,9 +1288,24 @@ function BalanceProbeEditor({
           />
           <FormField
             control={form.control}
-            name='balanceProbe.experimental'
+            name='balanceProbe.sharedWallet'
             render={({ field }) => (
               <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+                <div>
+                  <FormLabel>{t('channels.dialogs.keys.balanceProbe.sharedWallet.label')}</FormLabel>
+                  <FormDescription>{t('channels.dialogs.keys.balanceProbe.sharedWallet.description')}</FormDescription>
+                </div>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} disabled={disabled} data-testid='balance-probe-shared-wallet' />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='balanceProbe.experimental'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3 md:col-span-2'>
                 <div>
                   <FormLabel>{t('channels.dialogs.keys.balanceProbe.experimental.label')}</FormLabel>
                   <FormDescription>{t('channels.dialogs.keys.balanceProbe.experimental.description')}</FormDescription>
@@ -1149,6 +1316,150 @@ function BalanceProbeEditor({
               </FormItem>
             )}
           />
+        </div>
+
+        {/* Write-only Admin / Dedicated Probe API Key */}
+        <div className='space-y-3 rounded-lg border p-4' data-testid='balance-probe-secret-section'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <div className='space-y-0.5'>
+              <div className='flex items-center gap-2'>
+                <span className='text-sm font-medium'>{t('channels.dialogs.keys.balanceProbe.probeAPIKey.label')}</span>
+                <Badge
+                  variant={hasProbeAPIKey && probeAPIKeyOp !== 'clear' ? 'outline' : 'secondary'}
+                  className={
+                    hasProbeAPIKey && probeAPIKeyOp !== 'clear'
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-[11px] text-emerald-700 dark:text-emerald-400'
+                      : 'text-[11px]'
+                  }
+                >
+                  {probeAPIKeyOp === 'clear'
+                    ? t('channels.dialogs.keys.balanceProbe.probeAPIKey.willClear')
+                    : hasProbeAPIKey
+                      ? t('channels.dialogs.keys.balanceProbe.probeAPIKey.configured')
+                      : t('channels.dialogs.keys.balanceProbe.probeAPIKey.notConfigured')}
+                </Badge>
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t('channels.dialogs.keys.balanceProbe.probeAPIKey.description')}
+              </p>
+            </div>
+
+            <div className='flex items-center gap-1.5'>
+              {hasProbeAPIKey ? (
+                <>
+                  {probeAPIKeyOp !== 'set' ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      className='h-7 text-xs'
+                      disabled={disabled}
+                      onClick={() => {
+                        form.setValue('balanceProbe.probeAPIKeyOp', 'set', { shouldDirty: true, shouldValidate: true });
+                        form.setValue('balanceProbe.probeAPIKey', '', { shouldDirty: true, shouldValidate: true });
+                      }}
+                    >
+                      {t('channels.dialogs.keys.balanceProbe.probeAPIKey.replace')}
+                    </Button>
+                  ) : null}
+                  {probeAPIKeyOp !== 'clear' ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='ghost'
+                      className='text-destructive hover:text-destructive h-7 text-xs'
+                      disabled={disabled}
+                      onClick={() => {
+                        form.setValue('balanceProbe.probeAPIKeyOp', 'clear', { shouldDirty: true, shouldValidate: true });
+                        form.setValue('balanceProbe.probeAPIKey', '', { shouldDirty: true, shouldValidate: true });
+                      }}
+                    >
+                      {t('channels.dialogs.keys.balanceProbe.probeAPIKey.clear')}
+                    </Button>
+                  ) : null}
+                  {probeAPIKeyOp !== 'preserve' ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='ghost'
+                      className='h-7 text-xs'
+                      disabled={disabled}
+                      onClick={() => {
+                        form.setValue('balanceProbe.probeAPIKeyOp', 'preserve', { shouldDirty: false, shouldValidate: true });
+                        form.setValue('balanceProbe.probeAPIKey', '', { shouldDirty: false, shouldValidate: true });
+                      }}
+                    >
+                      {t('channels.dialogs.keys.balanceProbe.probeAPIKey.keepExisting')}
+                    </Button>
+                  ) : null}
+                </>
+              ) : probeAPIKeyOp === 'set' ? (
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='ghost'
+                  className='h-7 text-xs'
+                  disabled={disabled}
+                  onClick={() => {
+                    form.setValue('balanceProbe.probeAPIKeyOp', 'preserve', { shouldDirty: false, shouldValidate: true });
+                    form.setValue('balanceProbe.probeAPIKey', '', { shouldDirty: false, shouldValidate: true });
+                  }}
+                >
+                  {t('common.buttons.cancel')}
+                </Button>
+              ) : (
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  className='h-7 text-xs'
+                  disabled={disabled}
+                  onClick={() => {
+                    form.setValue('balanceProbe.probeAPIKeyOp', 'set', { shouldDirty: true, shouldValidate: true });
+                  }}
+                >
+                  {t('channels.dialogs.keys.balanceProbe.probeAPIKey.configure')}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {probeAPIKeyOp === 'set' ? (
+            <FormField
+              control={form.control}
+              name='balanceProbe.probeAPIKey'
+              render={({ field }) => (
+                <FormItem>
+                  <div className='flex items-center gap-2'>
+                    <FormControl>
+                      <Input
+                        type={showProbeKey ? 'text' : 'password'}
+                        autoComplete='new-password'
+                        spellCheck={false}
+                        value={field.value ?? ''}
+                        onChange={field.onChange}
+                        placeholder={t('channels.dialogs.keys.balanceProbe.probeAPIKey.placeholder')}
+                        className='font-mono text-xs'
+                        disabled={disabled}
+                        data-testid='balance-probe-api-key-input'
+                      />
+                    </FormControl>
+                    <Button
+                      type='button'
+                      size='icon'
+                      variant='outline'
+                      className='h-9 w-9 shrink-0'
+                      onClick={() => setShowProbeKey((prev) => !prev)}
+                      aria-label={showProbeKey ? t('channels.dialogs.keys.actions.hideKey') : t('channels.dialogs.keys.actions.revealKey')}
+                    >
+                      {showProbeKey ? <IconEyeOff className='h-4 w-4' /> : <IconEye className='h-4 w-4' />}
+                    </Button>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ) : null}
         </div>
 
         <div className='grid gap-4 md:grid-cols-2'>
@@ -1176,6 +1487,11 @@ function BalanceProbeEditor({
               </FormItem>
             )}
           />
+          {isExaFixedPreset ? (
+            <div className='bg-muted/30 flex items-center rounded-lg border px-3 py-2 text-xs text-muted-foreground'>
+              {t('channels.dialogs.keys.balanceProbe.exaFixedEndpointNotice')}
+            </div>
+          ) : null}
           <FormField
             control={form.control}
             name='balanceProbe.sameAsChannelBaseURL'
@@ -1196,7 +1512,7 @@ function BalanceProbeEditor({
                         form.setValue('balanceProbe.baseURL', channelBaseURL, { shouldDirty: true, shouldValidate: true });
                       }
                     }}
-                    disabled={disabled}
+                    disabled={disabled || isExaFixedPreset}
                   />
                 </FormControl>
               </FormItem>
@@ -1213,7 +1529,7 @@ function BalanceProbeEditor({
                     value={field.value ?? ''}
                     onChange={field.onChange}
                     placeholder='https://api.provider.example'
-                    disabled={disabled || sameAsChannelBaseURL}
+                    disabled={disabled || sameAsChannelBaseURL || isExaFixedPreset}
                   />
                 </FormControl>
                 <FormDescription>{t('channels.dialogs.keys.balanceProbe.baseURL.description')}</FormDescription>
@@ -1227,7 +1543,7 @@ function BalanceProbeEditor({
               <FormItem>
                 <FormLabel>{t('channels.dialogs.keys.balanceProbe.path.label')}</FormLabel>
                 <FormControl>
-                  <Input value={field.value ?? ''} onChange={field.onChange} placeholder='/credits' disabled={disabled} />
+                  <Input value={field.value ?? ''} onChange={field.onChange} placeholder='/credits' disabled={disabled || isExaFixedPreset} />
                 </FormControl>
                 <FormDescription>{t('channels.dialogs.keys.balanceProbe.path.description')}</FormDescription>
               </FormItem>
@@ -1239,7 +1555,7 @@ function BalanceProbeEditor({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t('channels.dialogs.keys.balanceProbe.method.label')}</FormLabel>
-                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                <Select value={field.value} onValueChange={field.onChange} disabled={disabled || isExaFixedPreset}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue />
@@ -1263,7 +1579,7 @@ function BalanceProbeEditor({
               <FormItem>
                 <FormLabel>{t('channels.dialogs.keys.balanceProbe.expectedStatuses.label')}</FormLabel>
                 <FormControl>
-                  <Input value={field.value ?? ''} onChange={field.onChange} placeholder='200' disabled={disabled} />
+                  <Input value={field.value ?? ''} onChange={field.onChange} placeholder='200' disabled={disabled || isExaFixedPreset} />
                 </FormControl>
                 <FormDescription>{t('channels.dialogs.keys.balanceProbe.expectedStatuses.description')}</FormDescription>
               </FormItem>
@@ -1275,7 +1591,7 @@ function BalanceProbeEditor({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t('channels.dialogs.keys.balanceProbe.keyInjection.label')}</FormLabel>
-                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                <Select value={field.value} onValueChange={field.onChange} disabled={disabled || isExaFixedPreset}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue />
@@ -1302,7 +1618,7 @@ function BalanceProbeEditor({
                     value={field.value ?? ''}
                     onChange={field.onChange}
                     placeholder='x-api-key'
-                    disabled={disabled || keyInjectionLocation !== 'header'}
+                    disabled={disabled || isExaFixedPreset || keyInjectionLocation !== 'header'}
                   />
                 </FormControl>
               </FormItem>
@@ -1545,7 +1861,32 @@ function KeyDetailsDialog({
             </div>
             <div className='rounded-lg border p-3'>
               <div className='text-muted-foreground text-xs'>{t('channels.dialogs.keys.details.balance')}</div>
-              <div className='mt-1 text-sm font-medium'>{formatRowBalance(row, t, i18n.language)}</div>
+              <div className='mt-1'>
+                {row.balanceSnapshot ? (
+                  <QuotaWindowBars
+                    windows={row.balanceSnapshot.windows}
+                    walletBalance={row.balanceSnapshot.primaryBalance}
+                    walletUsed={row.balanceSnapshot.used}
+                    walletLimit={row.balanceSnapshot.limit}
+                    walletRemaining={row.balanceSnapshot.remaining}
+                    walletUnit={row.balanceSnapshot.primaryBalance?.currency}
+                    unlimited={row.balanceSnapshot.unlimited}
+                    freeTier={row.balanceSnapshot.freeTier}
+                    sharedWallet={row.sharedWallet}
+                    source={row.balanceSnapshot.source}
+                    planName={row.balanceSnapshot.planName}
+                    showReset
+                  />
+                ) : (
+                  <div className='text-sm font-medium'>{formatRowBalance(row, t, i18n.language)}</div>
+                )}
+              </div>
+              {row.lastProbeStatus && row.lastProbeStatus !== 'ok' && row.lastProbeStatus !== 'unsupported' ? (
+                <div className='mt-1.5 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400'>
+                  <IconAlertTriangle className='h-3.5 w-3.5 shrink-0' />
+                  <span className='break-words'>{row.lastProbeError || row.lastProbeStatus}</span>
+                </div>
+              ) : null}
               {row.balanceSnapshot?.components?.length ? (
                 <div className='text-muted-foreground mt-2 space-y-1 text-xs'>
                   {row.balanceSnapshot.components.map((component, index) => (
@@ -1757,10 +2098,11 @@ function ChannelHistoryDialog({
   );
 }
 
-export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentialPolicySaved }: Props) {
+export function ChannelsKeysDialog({ open, onOpenChange, currentRow, initialTab = 'inventory', onCredentialPolicySaved }: Props) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const resetContext = useRef({ open: false, channelID: currentRow.id });
+  const [activeTab, setActiveTab] = useState<ChannelsKeysDialogTab>(initialTab);
   const [newKey, setNewKey] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -1779,6 +2121,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
   const sourceName = sourceCandidates?.edges.find(({ node }) => extractNumberID(node.id) === String(credentialSourceChannelId))?.node.name;
   const sourceLabel = sourceName ? `#${credentialSourceChannelId} ${sourceName}` : `#${credentialSourceChannelId}`;
   const keyInventory = useChannelAPIKeyInventory(currentRow.id, { enabled: open });
+  const channelHealthHistoryQuery = useChannelHealthHistory(currentRow.id, { enabled: open });
+  const nowMs = useSharedMinuteNow(open);
   const { data: channelSetting } = useChannelSetting();
   const addAPIKey = useAddChannelAPIKey();
   const deleteAPIKey = useDeleteChannelAPIKey();
@@ -1788,6 +2132,8 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
   const runHealthCheck = useRunChannelAPIKeyHealthCheck();
   const disableAPIKey = useDisableChannelAPIKey();
   const enableAPIKey = useEnableChannelAPIKey();
+
+  const balanceProbeBaselineRef = useRef<string>(JSON.stringify(valuesFromChannel(currentRow).balanceProbe));
 
   const form = useForm<KeysFormValues, unknown, KeysFormValues>({
     resolver: keysFormResolver,
@@ -1802,7 +2148,10 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
       return;
     }
 
-    form.reset(valuesFromChannel(currentRow));
+    const nextDefaults = valuesFromChannel(currentRow);
+    balanceProbeBaselineRef.current = JSON.stringify(nextDefaults.balanceProbe);
+    form.reset(nextDefaults);
+    setActiveTab(initialTab);
     setNewKey('');
     setSearchQuery('');
     setSelectedKeys(new Set());
@@ -1820,8 +2169,15 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
   const activeKeys = useMemo(() => inventory.filter((item) => item.status === 'active'), [inventory]);
   const disabledKeys = useMemo(() => inventory.filter((item) => item.status === 'disabled'), [inventory]);
   const archivedKeys = useMemo(() => inventory.filter((item) => item.status === 'archived'), [inventory]);
-  const channelHistory = useMemo(() => currentRow.settings?.keyHealthCheck?.history ?? [], [currentRow.settings?.keyHealthCheck?.history]);
-  const activeBalanceSummary = useMemo(() => summarizeActiveBalances(activeKeys, t, i18n.language), [activeKeys, i18n.language, t]);
+  const channelHistory = useMemo(
+    () => channelHealthHistoryQuery.data ?? currentRow.settings?.keyHealthCheck?.history ?? [],
+    [channelHealthHistoryQuery.data, currentRow.settings?.keyHealthCheck?.history]
+  );
+  const isSharedWallet = Boolean(currentRow.settings?.balanceProbe?.sharedWallet || currentRow.quotaOverview?.sharedWallet);
+  const activeBalanceSummary = useMemo(
+    () => summarizeActiveBalances(activeKeys, t, i18n.language, isSharedWallet),
+    [activeKeys, i18n.language, isSharedWallet, t]
+  );
   const visibleInventory = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase();
     return inventory.filter(
@@ -1983,6 +2339,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
   };
 
   const saveSettings = async (values: KeysFormValues) => {
+    const balanceProbeChanged = JSON.stringify(values.balanceProbe) !== balanceProbeBaselineRef.current;
     const nextSettings = mergeChannelSettingsForUpdate(currentRow.settings, {
       credentialPolicies: null,
       keySelection:
@@ -1993,7 +2350,11 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
               likelyAffinityTTLMinutes: values.likelyAffinityTTLMinutes,
               exactAffinityTTLMinutes: values.exactAffinityTTLMinutes,
             },
-      balanceProbe: balanceProbeFromValues(values, currentRow.settings?.balanceProbe),
+      sessionAffinity: sessionAffinityToInput(values.sessionAffinity),
+      idRewriteRules: idRewriteRulesToInput(values.idRewriteRules),
+      ...(balanceProbeChanged
+        ? { balanceProbe: balanceProbeFromValues(values, currentRow.settings?.balanceProbe) }
+        : {}),
       failurePolicy: failurePolicyFromValues(values),
     });
 
@@ -2008,11 +2369,21 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
   const handleSaveSettings = async (values: KeysFormValues) => {
     try {
       await saveSettings(values);
-      toast.success(t('channels.messages.updateSuccess'));
-      form.reset(values);
+      const nextResetValues = {
+        ...values,
+        balanceProbe: {
+          ...values.balanceProbe,
+          probeAPIKeyOp: 'preserve' as const,
+          probeAPIKey: '',
+        },
+      };
+      balanceProbeBaselineRef.current = JSON.stringify(nextResetValues.balanceProbe);
+      form.reset(nextResetValues);
       onOpenChange(false);
-    } catch {
-      // Error handled by hook.
+    } catch (error) {
+      if (applyRoutingServerValidationError(form, error)) {
+        setActiveTab('routing');
+      }
     }
   };
 
@@ -2198,7 +2569,7 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
           )}
 
           <Form {...form}>
-            <Tabs defaultValue='inventory' className='min-h-0 min-w-0 flex-1 overflow-hidden'>
+            <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as ChannelsKeysDialogTab)} className='min-h-0 min-w-0 flex-1 overflow-hidden'>
               <div className='w-full max-w-full touch-pan-x snap-x overflow-x-auto overflow-y-hidden overscroll-x-contain py-1'>
                 <TabsList className='inline-flex h-10 min-w-max justify-start'>
                   <TabsTrigger className='shrink-0 snap-start' value='inventory'>
@@ -2266,7 +2637,9 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                           <div className='mt-1 font-mono text-xl font-semibold tabular-nums'>{activeBalanceSummary?.display ?? '-'}</div>
                           <div className='text-muted-foreground mt-1 text-xs'>
                             {activeBalanceSummary
-                              ? t('channels.dialogs.keys.summary.activeBalanceKeys', { count: activeBalanceSummary.keyCount })
+                              ? isSharedWallet
+                                ? t('channels.dialogs.keys.summary.activeBalanceShared', { count: activeKeys.length })
+                                : t('channels.dialogs.keys.summary.activeBalanceKeys', { count: activeBalanceSummary.keyCount })
                               : t('channels.dialogs.keys.summary.activeBalanceEmpty')}
                           </div>
                         </div>
@@ -2638,21 +3011,45 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                                           {formatDateTime(item.lastCheckedAt, i18n.language)}
                                         </TableCell>
                                         <TableCell>
-                                          <div className='text-sm'>
-                                            {formatRowBalance(item, t, i18n.language)}
-                                            {(item.balanceSnapshot?.available ?? item.available) != null ? (
-                                              <Badge variant='outline' className='ml-2'>
-                                                {t(
-                                                  `channels.dialogs.keys.availability.${(item.balanceSnapshot?.available ?? item.available) ? 'available' : 'unavailable'}`
-                                                )}
-                                              </Badge>
-                                            ) : null}
-                                          </div>
-                                          <CredentialQuotaIndicator
-                                            quotaRemainingRatio={item.quotaRemainingRatio}
-                                            quotaResetAt={item.quotaResetAt}
-                                            language={i18n.language}
-                                          />
+                                          {item.balanceSnapshot ? (
+                                            <QuotaWindowBars
+                                              windows={item.balanceSnapshot.windows}
+                                              walletBalance={item.balanceSnapshot.primaryBalance}
+                                              walletUsed={item.balanceSnapshot.used}
+                                              walletLimit={item.balanceSnapshot.limit}
+                                              walletRemaining={item.balanceSnapshot.remaining}
+                                              walletUnit={item.balanceSnapshot.primaryBalance?.currency}
+                                              unlimited={item.balanceSnapshot.unlimited}
+                                              freeTier={item.balanceSnapshot.freeTier}
+                                              sharedWallet={item.sharedWallet}
+                                              source={item.balanceSnapshot.source}
+                                              planName={item.balanceSnapshot.planName}
+                                              showReset
+                                              nowMs={nowMs}
+                                            />
+                                          ) : (
+                                            <div className='text-sm'>
+                                              {formatRowBalance(item, t, i18n.language)}
+                                              {item.available != null ? (
+                                                <Badge variant='outline' className='ml-2'>
+                                                  {t(`channels.dialogs.keys.availability.${item.available ? 'available' : 'unavailable'}`)}
+                                                </Badge>
+                                              ) : null}
+                                            </div>
+                                          )}
+                                          {item.lastProbeStatus && item.lastProbeStatus !== 'ok' && item.lastProbeStatus !== 'unsupported' ? (
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <div className='mt-1 inline-flex max-w-44 cursor-default items-center gap-1 text-[11px] text-amber-800 dark:text-amber-300'>
+                                                  <IconAlertTriangle className='h-3 w-3 shrink-0' />
+                                                  <span className='truncate'>{item.lastProbeError || item.lastProbeStatus}</span>
+                                                </div>
+                                              </TooltipTrigger>
+                                              <TooltipContent className='max-w-xs break-words text-xs'>
+                                                {item.lastProbeError || item.lastProbeStatus}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          ) : null}
                                         </TableCell>
                                         <TableCell>
                                           <div className='flex justify-end gap-1'>
@@ -2945,11 +3342,16 @@ export function ChannelsKeysDialog({ open, onOpenChange, currentRow, onCredentia
                 </TabsContent>
 
                 <TabsContent value='routing' className='mt-0 space-y-4'>
-                  <KeyRoutingPanel form={form} globalStrategy={globalRoutingStrategy as ChannelKeySelectionStrategy} />
+                  <KeyRoutingPanel form={form} globalStrategy={globalRoutingStrategy as ChannelKeySelectionStrategy} disabled={isPending} />
                 </TabsContent>
 
                 <TabsContent value='balanceProbe' className='mt-0 space-y-4'>
-                  <BalanceProbeEditor form={form} disabled={isPending} channelBaseURL={currentRow.baseURL ?? ''} />
+                  <BalanceProbeEditor
+                    form={form}
+                    disabled={isPending}
+                    channelBaseURL={currentRow.baseURL ?? ''}
+                    hasProbeAPIKey={Boolean(currentRow.settings?.balanceProbe?.hasProbeAPIKey)}
+                  />
                 </TabsContent>
 
                 <TabsContent value='failurePolicy' className='mt-0 space-y-4'>

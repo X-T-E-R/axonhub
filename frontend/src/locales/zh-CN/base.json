@@ -4,6 +4,7 @@
   "sidebar.groups.settings": "设置",
   "sidebar.items.dashboard": "仪表板",
   "sidebar.items.channels": "渠道",
+  "sidebar.items.quotas": "额度中心",
   "sidebar.items.monitoring": "监控",
   "sidebar.items.infrastructure": "节点与分流",
   "sidebar.items.models": "模型",

@@ -14,6 +14,7 @@ import {
   IconAi,
   IconNote,
   IconChartBar,
+  IconGauge,
   IconServer,
 } from '@tabler/icons-react';
 import { Command } from 'lucide-react';
@@ -83,6 +84,11 @@ export function useSidebarData(): SidebarData {
           title: t('sidebar.items.channels'),
           url: '/channels',
           icon: IconAi,
+        } as NavLink,
+        {
+          title: t('sidebar.items.quotas'),
+          url: '/quotas',
+          icon: IconGauge,
         } as NavLink,
         {
           title: t('sidebar.items.monitoring'),

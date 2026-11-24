@@ -48,6 +48,11 @@ export const routeConfigs: RouteGroup[] = [
         mode: 'hidden',
       },
       {
+        path: '/quotas',
+        requiredScopes: ['read_channels'],
+        mode: 'hidden',
+      },
+      {
         path: '/monitoring',
         requiredScopes: ['read_channels'],
         mode: 'hidden',
